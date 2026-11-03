@@ -68,7 +68,8 @@ import { cachedGemIronSteelPlants } from "./gemIronSteelPlants";
 import { cachedGemChemicals } from "./gemChemicals";
 import { cachedGemSteelRawMaterials, cachedSteelRawMaterialsGeoJSON } from "./gemSteelRawMaterials";
 import { cachedGemLngShipyards } from "./gemLngCarriers";
-import { computeGnssIntegritySignal, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
+import { type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
+import { computeGnssIntegritySignalManaged, setGnssFoldAuditWriter } from "./gnssIntegrityFold";
 import { catalogFetchPlan } from "./catalogMirror";
 import { buildDossier } from "./dossier";
 import {
@@ -4619,13 +4620,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // tail number, or callsign). Same 10-min eager-poller shape as
   // portdwell above — the computation reads archive JSONL, so it must
   // never run synchronously per-request.
+  // Memory fix A2b (2026-11-03): the refresh goes through gnssIntegrityFold.ts's
+  // managed entry — VOLTRADE_GNSS_FOLD=full | shadow (default: both folds run,
+  // the full result is served, any difference is a FOLD-MISMATCH row below) |
+  // incremental (only the open day is re-read each cycle). Same payload in
+  // every mode; gnssFoldStats() carries the comparison tally for /api/health.
+  setGnssFoldAuditWriter((type, message) => {
+    try {
+      db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
+        new Date().toISOString(), type, message.slice(0, 500)
+      );
+    } catch (e: unknown) {
+      console.error("[datacore] gnss fold audit row:", (e as Error)?.message || e);
+    }
+  });
   let gnssSignalCache: { at: number; data: GnssIntegritySignalSummary } | null = null;
   let gnssSignalRunning = false;
   const refreshGnssIntegritySignal = async () => {
     if (gnssSignalRunning) return;
     gnssSignalRunning = true;
     try {
-      gnssSignalCache = { at: Date.now(), data: await computeGnssIntegritySignal(21, undefined, Date.now(), loadGnssIntegrityDailyArchive()) };
+      gnssSignalCache = { at: Date.now(), data: await computeGnssIntegritySignalManaged(21, undefined, Date.now(), loadGnssIntegrityDailyArchive()) };
     } catch (e: unknown) {
       console.error("[datacore] gnss integrity signal refresh:", (e as Error)?.message || e);
     } finally {

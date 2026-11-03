@@ -225,23 +225,15 @@ const LICENSE_NOTE =
   "adsb.lol data alone, per the MONETIZATION TRIPWIRE license condition on this root.";
 
 /**
- * Live computation: reads the aircraft archive over a rolling window
- * (capped at 21 days, mirroring the diag probe's own cap) for the
- * candidate and control regions, evaluates band verdicts, and packages
- * the result with full freshness/provenance/caveat metadata. No per-row
- * PII of any kind is included — only aggregate band x origin counts and
- * the derived statistics.
+ * Package two filled region windows into the public summary — the one
+ * place the payload shape is built, shared by the rolling full computation
+ * below and the incremental fold (gnssIntegrityFold.ts) so the two can be
+ * compared byte-for-byte. No per-row PII of any kind is included — only
+ * aggregate band x origin counts and the derived statistics.
  */
-export async function computeGnssIntegritySignal(
-  maxDays = 21, baseDir?: string, now: number = Date.now(), daily?: GnssDailyLookup,
-): Promise<GnssIntegritySignalSummary> {
-  const days = recentDays(maxDays, WRITER_LIVE_SINCE, now);
-  const [rawCandidate, rawControl] = await Promise.all([
-    readGnssIntegrityWindow(days, CANDIDATE_BBOX, baseDir),
-    readGnssIntegrityWindow(days, CONTROL_BBOX, baseDir),
-  ]);
-  const candidate = fillMissingDaysFromDaily(rawCandidate, daily, "candidate");
-  const control = fillMissingDaysFromDaily(rawControl, daily, "control");
+export function summarizeGnssWindows(
+  candidate: GnssWindowWithProvenance, control: GnssWindowWithProvenance, now: number,
+): GnssIntegritySignalSummary {
   const bands = evaluateBands(candidate.cells as unknown as DiagCell[], control.cells as unknown as DiagCell[]);
   return {
     kind: "signal",
@@ -273,4 +265,29 @@ export async function computeGnssIntegritySignal(
     caveats: CAVEATS,
     license: { source: "adsb.lol (ODbL 1.0) + adsb.fi/airplanes.live (non-commercial fallbacks)", note: LICENSE_NOTE },
   };
+}
+
+/**
+ * Live computation: reads the aircraft archive over a rolling window
+ * (capped at 21 days, mirroring the diag probe's own cap) for the
+ * candidate and control regions, evaluates band verdicts, and packages
+ * the result with full freshness/provenance/caveat metadata. This is the
+ * FULL fold: every day of the window is re-read on every call (the
+ * routes.ts poller now reaches it through gnssIntegrityFold.ts's managed
+ * entry, whose `full` mode is exactly this). `perDayLimit` is the reader's
+ * own default and exists so tests can exercise truncation cheaply.
+ */
+export async function computeGnssIntegritySignal(
+  maxDays = 21, baseDir?: string, now: number = Date.now(), daily?: GnssDailyLookup, perDayLimit = 20_000,
+): Promise<GnssIntegritySignalSummary> {
+  const days = recentDays(maxDays, WRITER_LIVE_SINCE, now);
+  const [rawCandidate, rawControl] = await Promise.all([
+    readGnssIntegrityWindow(days, CANDIDATE_BBOX, baseDir, perDayLimit),
+    readGnssIntegrityWindow(days, CONTROL_BBOX, baseDir, perDayLimit),
+  ]);
+  return summarizeGnssWindows(
+    fillMissingDaysFromDaily(rawCandidate, daily, "candidate"),
+    fillMissingDaysFromDaily(rawControl, daily, "control"),
+    now,
+  );
 }

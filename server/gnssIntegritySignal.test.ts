@@ -15,6 +15,7 @@ import {
   WRITER_LIVE_SINCE, CANDIDATE_BBOX, CONTROL_BBOX,
   type DiagCell,
 } from "./gnssIntegritySignal";
+import { computeGnssIntegritySignalManaged, _resetGnssFoldForTests } from "./gnssIntegrityFold";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "vt-gnss-signal-"));
 
@@ -126,6 +127,10 @@ test("computeGnssIntegritySignal: reads both regions live, reports honest freshn
   assert.ok(summary.caveats.length >= 3, "gate-1-partial / small-sample / not-tradeable caveats are always present");
   assert.equal(summary.region.candidate_bbox[0], CANDIDATE_BBOX.lamin);
   assert.equal(summary.region.control_bbox[0], CONTROL_BBOX.lamin);
+  // 2026-11-03 (memory fix A2b): the incremental fold must reproduce this exact payload.
+  _resetGnssFoldForTests();
+  const incremental = await computeGnssIntegritySignalManaged(21, base, now, undefined, { mode: "incremental" });
+  assert.deepEqual(incremental, summary);
   fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -189,6 +194,12 @@ test("computeGnssIntegritySignal: output with a fold supplied is identical to wi
   const b = await computeGnssIntegritySignal(1, base, now, { "2026-08-11": { candidate: [dcell("cruise", 500, 50)], control: [] } });
   assert.deepEqual(b.bands, a.bands);
   assert.deepEqual(b.freshness, a.freshness);
+  // 2026-11-03 (memory fix A2b): same identity holds for the incremental fold, with and without the daily fold.
+  _resetGnssFoldForTests();
+  const c = await computeGnssIntegritySignalManaged(1, base, now, undefined, { mode: "incremental" });
+  const d = await computeGnssIntegritySignalManaged(1, base, now, { "2026-08-11": { candidate: [dcell("cruise", 500, 50)], control: [] } }, { mode: "incremental" });
+  assert.deepEqual(c, a);
+  assert.deepEqual(d, b);
   fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -205,5 +216,8 @@ test("computeGnssIntegritySignal: a day evicted from local disk is recovered fro
   const cruise = s.bands.find((b) => b.band === "cruise")!;
   assert.equal(cruise.candidate_n, 100);
   assert.equal(cruise.elevated, true);
+  // 2026-11-03 (memory fix A2b): a fold-recovered day reads identically through the incremental path.
+  _resetGnssFoldForTests();
+  assert.deepEqual(await computeGnssIntegritySignalManaged(1, base, now, daily, { mode: "incremental" }), s);
   fs.rmSync(base, { recursive: true, force: true });
 });
