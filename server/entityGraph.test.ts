@@ -4,7 +4,16 @@
 // archive (mirrors the shadowFleet/portDwell baseDir-injectable pattern).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildGraph, neighborhood, resolveEntityId } from "./entityGraph";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import zlib from "node:zlib";
+import {
+  buildGraph, neighborhood, resolveEntityId,
+  buildGraphManaged, distillGemOwnership, loadGemOwnershipDistilledCached, graphPollMode, graphPollStats,
+  setGraphPollAuditWriter, GRAPH_POLL_ENV, _resetGraphPollForTests, _graphPollGemCacheForTests,
+  type EverythingGraph, type GemOwnershipFile,
+} from "./entityGraph";
 import type { Form4Filing } from "./edgarForm4";
 import type { PortVisit } from "./portDwell";
 
@@ -227,4 +236,261 @@ test("owns edges: null gemOwnership (disk read unavailable/skipped) yields zero 
   assert.equal(g.counts.owns, 0);
   assert.equal(g.counts.institution, 0);
   assert.equal(g.edges.some((e) => e.type === "owns"), false);
+});
+
+// ── memory fix A2b (2026-11-03): the distilled GEM slice, its file-identity cache, and the three-mode managed poll ──
+// Property under test: the graph built from the cached distilled slice is
+// byte-identical to the graph built from a raw parse of the same release —
+// node order, edge order, dedupe, institution typing, share/imputed/url
+// passthrough — and shadow mode proves it on every poll.
+
+const NOW_MS = Date.parse("2026-11-03T12:00:00Z");
+const fixtureInputs = {
+  sites, plants, entities, form4Filings: [form4({})], portVisitsByPort: new Map<string, PortVisit[]>([["la_port", [visit({})]]]), nowMs: NOW_MS,
+};
+
+async function captureConsoleError(fn: () => Promise<void>): Promise<string[]> {
+  const orig = console.error;
+  const lines: string[] = [];
+  console.error = (...args: unknown[]) => { lines.push(args.map(String).join(" ")); };
+  try { await fn(); } finally { console.error = orig; }
+  return lines;
+}
+
+function gemTempFile(gem: unknown): { dir: string; fp: string; write: (g: unknown) => void } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-gem-cache-"));
+  const fp = path.join(dir, "ownership.json.gz");
+  const write = (g: unknown) => fs.writeFileSync(fp, zlib.gzipSync(JSON.stringify(g)));
+  write(gem);
+  return { dir, fp, write };
+}
+
+test("distilled GEM build == raw GEM build, byte for byte, with and without a CIK->ticker map", async () => {
+  for (const cikTickerMap of [new Map<string, string>(), new Map([["1432290", "MEGA"], ["1305", "BIGU"]])]) {
+    const raw = await buildGraph({ ...fixtureInputs, gemOwnership: gemFixture, cikTickerMap });
+    const viaDistilled = await buildGraph({ ...fixtureInputs, gemDistilled: distillGemOwnership(gemFixture), cikTickerMap });
+    assert.deepEqual(viaDistilled, raw);
+    assert.equal(JSON.stringify(viaDistilled), JSON.stringify(raw), "identical /api/data/graph payload");
+    assert.equal(raw.counts.owns, 3);
+  }
+});
+
+test("distill keeps the anchoring/dedupe semantics exactly: duplicate entity rows, the 'not found' sentinel, unlisted ids, duplicate and self edges", async () => {
+  const dupEntities = [
+    { "Entity ID": "D1", "Full Name": "Dup Co", "US SEC Central Index Key": "0000000777", "Entity Type": "legal entity", "Headquarters Country": "Norway" },
+    { "Entity ID": "D1", "Full Name": "Dup Co (amended)", "Entity Type": "state body" }, // later duplicate WITHOUT a CIK: type re-set, cik must survive
+    { "Entity ID": "D2", "Full Name": "Sentinel Co", "US SEC Central Index Key": "not found", "Entity Type": "arrangement" },
+    { "Entity ID": "D3", "Full Name": "Owner Co", "US SEC Central Index Key": "0000000888" },
+    { "Entity ID": "D4", "Full Name": "Never Referenced", "Entity Type": "person", "Headquarters Country": "France" },
+  ];
+  const dupEdges = [
+    { "Subject Entity ID": "D1", "Subject Entity Name": "Dup Co", "Interested Party ID": "D3", "Interested Party Name": "Owner Co", "% Share of Ownership": 10 },
+    { "Subject Entity ID": "D1", "Subject Entity Name": "Dup Co", "Interested Party ID": "D3", "Interested Party Name": "Owner Co", "% Share of Ownership": 99 }, // duplicate pair: first wins at build time
+    { "Subject Entity ID": "D2", "Subject Entity Name": "Sentinel Co", "Interested Party ID": "D3", "Interested Party Name": "Owner Co" },
+    { "Subject Entity ID": "D9", "Subject Entity Name": "Unlisted Target", "Interested Party ID": "D3", "Interested Party Name": "Owner Co", "% Share of Ownership": "n/a" as never }, // D9 appears in no entity row
+    { "Subject Entity ID": "D3", "Subject Entity Name": "Owner Co", "Interested Party ID": "D3", "Interested Party Name": "Owner Co" }, // self edge: dropped at build time
+    { "Subject Entity ID": "D4", "Subject Entity Name": "Never Referenced", "Interested Party ID": "D2", "Interested Party Name": "Sentinel Co" }, // neither end has a CIK: not anchored
+  ];
+  const gem: GemOwnershipFile = { provenance: { attribution: "GEM", license: "CC BY 4.0", release: "t", built_at: "2026-01-01T00:00:00Z" }, entities: dupEntities, entity_edges: dupEdges };
+  const d = distillGemOwnership(gem);
+  assert.equal(d.builtDate, "2026-01-01T00:00:00Z");
+  assert.equal(d.cikByEntity.get("D1"), "0000000777", "a later CIK-less duplicate never unsets the CIK");
+  assert.equal(d.typeByEntity.get("D1"), "state body", "last duplicate wins for type (Map.set semantics)");
+  assert.equal(d.hqByEntity.get("D1"), "Norway", "hq set by the first row stays when the later row has none");
+  assert.equal(d.cikByEntity.has("D2"), false, "'not found' is not a CIK");
+  assert.equal(d.rows.length, 5, "every anchored row is kept in order; dedupe and the self-edge drop happen at build time");
+  assert.equal(d.typeByEntity.has("D4"), false, "an entity no anchored row references is pruned");
+  assert.equal(d.hqByEntity.has("D4"), false);
+  assert.equal(d.typeByEntity.has("D9"), false);
+  for (const cikTickerMap of [new Map<string, string>(), new Map([["777", "DUPC"]])]) {
+    const raw = await buildGraph({ ...fixtureInputs, gemOwnership: gem, cikTickerMap });
+    const viaDistilled = await buildGraph({ ...fixtureInputs, gemDistilled: d, cikTickerMap });
+    assert.deepEqual(viaDistilled, raw);
+    const owns = raw.edges.filter((e) => e.type === "owns");
+    assert.equal(owns.length, 3, "D3->D1 (first duplicate), D3->D2, D3->D9; self edge and the unanchored edge dropped");
+    assert.equal(owns[0].attrs.share_pct, 10, "first duplicate pair wins");
+    assert.equal(owns[2].attrs.share_pct, null, "a non-numeric share is null in both builds");
+    const d9 = raw.nodes.find((n) => n.id === "institution:D9")!;
+    assert.equal(d9.attrs.gem_entity_type, "unknown entity");
+    assert.equal(d9.attrs.headquarters_country, null);
+    assert.equal(raw.nodes.some((n) => n.id === "institution:D4"), false);
+  }
+});
+
+test("loadGemOwnershipDistilledCached: one parse per (mtime, size); a touched or rewritten file reloads; corrupt caches null; missing drops the cache", () => {
+  _resetGraphPollForTests();
+  const { dir, fp, write } = gemTempFile(gemFixture);
+  const a = loadGemOwnershipDistilledCached(fp)!;
+  const b = loadGemOwnershipDistilledCached(fp)!;
+  assert.equal(a, b, "same object: no re-parse while mtime+size are unchanged");
+  let s = graphPollStats();
+  assert.equal(s.gem.reloads, 1);
+  assert.equal(s.gem.cached, true);
+  assert.equal(s.gem.anchoredRows, 3);
+  assert.equal(s.gem.cikEntities, 2);
+  assert.equal(s.gem.sizeBytes, fs.statSync(fp).size);
+  assert.equal(s.partialsCached, 1);
+  // same bytes, newer mtime -> reload (a deploy rewriting the file in place is never served stale)
+  const later = new Date(Date.now() + 5_000);
+  fs.utimesSync(fp, later, later);
+  const c = loadGemOwnershipDistilledCached(fp)!;
+  assert.notEqual(c, a);
+  assert.equal(graphPollStats().gem.reloads, 2);
+  // different content -> reload, and the new content is what is served
+  write({ ...gemFixture, entity_edges: gemFixture.entity_edges.slice(0, 1) });
+  assert.equal(loadGemOwnershipDistilledCached(fp)!.rows.length, 1);
+  assert.equal(graphPollStats().gem.reloads, 3);
+  // unreadable file -> null, cached under its stat identity (no re-parse storm), nothing held
+  fs.writeFileSync(fp, "not gzip at all");
+  assert.equal(loadGemOwnershipDistilledCached(fp), null);
+  assert.equal(loadGemOwnershipDistilledCached(fp), null);
+  s = graphPollStats();
+  assert.equal(s.gem.reloads, 4);
+  assert.equal(s.gem.cached, true);
+  assert.equal(s.partialsCached, 0);
+  // missing -> null and the cache is dropped
+  fs.unlinkSync(fp);
+  assert.equal(loadGemOwnershipDistilledCached(fp), null);
+  assert.equal(graphPollStats().gem.cached, false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("buildGraphManaged: full, incremental and shadow all equal buildGraph on a file-backed GEM; shadow records zero mismatches and parses the slice once", async () => {
+  _resetGraphPollForTests();
+  const { dir, fp } = gemTempFile(gemFixture);
+  const inputs = { ...fixtureInputs, gemPath: fp, cikTickerMap: new Map([["1432290", "MEGA"]]) };
+  const ref = await buildGraph({ ...inputs, gemOwnership: gemFixture });
+  assert.equal(ref.counts.owns, 3);
+  assert.deepEqual(await buildGraphManaged(inputs, "full"), ref);
+  assert.equal(graphPollStats().gem.reloads, 0, "full mode never touches the cache");
+  assert.deepEqual(await buildGraphManaged(inputs, "incremental"), ref);
+  let shadowOut: EverythingGraph | null = null;
+  const errors = await captureConsoleError(async () => { shadowOut = await buildGraphManaged(inputs, "shadow"); });
+  assert.deepEqual(shadowOut, ref);
+  assert.equal(errors.filter((l) => l.includes("FOLD-MISMATCH")).length, 0);
+  const s = graphPollStats();
+  assert.equal(s.mode, "shadow");
+  assert.equal(s.polls, 3);
+  assert.equal(s.mismatches, 0);
+  assert.equal(s.lastMismatchAt, null);
+  assert.equal(typeof s.lastFullMs, "number");
+  assert.equal(typeof s.lastIncrementalMs, "number");
+  assert.equal(typeof s.lastSharedInputsMs, "number");
+  assert.equal(s.gem.reloads, 1, "the slice was parsed once across the incremental and shadow polls");
+  assert.equal(s.partialsCached, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("shadow catches a corrupted distilled cache: FOLD-MISMATCH graph logged + audit row, the full build is served, the slice is dropped and reloaded next poll", async () => {
+  _resetGraphPollForTests();
+  const { dir, fp } = gemTempFile(gemFixture);
+  const inputs = { ...fixtureInputs, gemPath: fp, cikTickerMap: new Map<string, string>() };
+  const ref = await buildGraph({ ...inputs, gemOwnership: gemFixture });
+  await buildGraphManaged(inputs, "incremental"); // warm the slice
+  _graphPollGemCacheForTests()!.distilled!.rows[0].share = 99; // corrupt the 12.6% E2->E1 row
+  const auditRows: Array<[string, string]> = [];
+  setGraphPollAuditWriter((type, message) => { auditRows.push([type, message]); });
+  let served: EverythingGraph | null = null;
+  const errors = await captureConsoleError(async () => { served = await buildGraphManaged(inputs, "shadow"); });
+  assert.deepEqual(served, ref, "the FULL build is what gets served in shadow mode");
+  const s = graphPollStats();
+  assert.equal(s.mismatches, 1);
+  assert.equal(typeof s.lastMismatchAt, "string");
+  assert.match(s.lastMismatchDetail!, /^\$\.edges\[\d+\]\.attrs\.share_pct: 12\.6 vs 99$/);
+  assert.equal(errors.filter((l) => l.startsWith("FOLD-MISMATCH graph: $.edges[")).length, 1);
+  assert.deepEqual(auditRows, [["FOLD-MISMATCH", `graph: ${s.lastMismatchDetail}`]]);
+  assert.equal(s.gem.cached, false, "a mismatch drops the cached slice so the next poll re-derives it");
+  assert.deepEqual(await buildGraphManaged(inputs, "shadow"), ref);
+  assert.equal(graphPollStats().mismatches, 1, "a reloaded slice compares clean again");
+  assert.equal(graphPollStats().gem.reloads, 2);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("an audit writer that throws is contained and the mismatch is still counted", async () => {
+  _resetGraphPollForTests();
+  const { dir, fp } = gemTempFile(gemFixture);
+  const inputs = { ...fixtureInputs, gemPath: fp, cikTickerMap: new Map<string, string>() };
+  await buildGraphManaged(inputs, "incremental");
+  _graphPollGemCacheForTests()!.distilled!.rows.pop();
+  setGraphPollAuditWriter(() => { throw new Error("db closed"); });
+  const errors = await captureConsoleError(async () => { await buildGraphManaged(inputs, "shadow"); });
+  assert.equal(graphPollStats().mismatches, 1);
+  assert.ok(errors.some((l) => l.includes("audit writer threw")));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("mode flag: unset or unknown VOLTRADE_GRAPH_POLL is shadow; full/incremental are honoured", () => {
+  const prior = process.env[GRAPH_POLL_ENV];
+  try {
+    delete process.env[GRAPH_POLL_ENV];
+    assert.equal(graphPollMode(), "shadow");
+    process.env[GRAPH_POLL_ENV] = "nonsense";
+    assert.equal(graphPollMode(), "shadow");
+    process.env[GRAPH_POLL_ENV] = "incremental";
+    assert.equal(graphPollMode(), "incremental");
+    process.env[GRAPH_POLL_ENV] = " Full ";
+    assert.equal(graphPollMode(), "full");
+  } finally {
+    if (prior === undefined) delete process.env[GRAPH_POLL_ENV]; else process.env[GRAPH_POLL_ENV] = prior;
+  }
+});
+
+test("missing GEM file: every mode yields the same zero-owns graph and nothing is cached", async () => {
+  _resetGraphPollForTests();
+  const inputs = { ...fixtureInputs, gemPath: path.join(os.tmpdir(), "vt-gem-does-not-exist", "ownership.json.gz"), cikTickerMap: new Map<string, string>() };
+  const ref = await buildGraph({ ...inputs, gemOwnership: null });
+  assert.equal(ref.counts.owns, 0);
+  assert.deepEqual(await buildGraphManaged(inputs, "full"), ref);
+  assert.deepEqual(await buildGraphManaged(inputs, "incremental"), ref);
+  assert.deepEqual(await buildGraphManaged(inputs, "shadow"), ref);
+  const s = graphPollStats();
+  assert.equal(s.mismatches, 0);
+  assert.equal(s.gem.cached, false);
+});
+
+test("heap report: the distilled slice of a synthetic 40k-entity / 40k-edge release is a small fraction of the raw parse (and of the live file when present)", () => {
+  const entitiesBig: GemOwnershipFile["entities"] = [];
+  for (let i = 0; i < 40_000; i++) {
+    entitiesBig.push({
+      "Entity ID": `E${i}`, "Full Name": `Entity number ${i} with a reasonably long legal name LLC`,
+      "Entity Type": i % 7 ? "legal entity" : "state", "Headquarters Country": "United States",
+      ...(i % 100 === 0 ? { "US SEC Central Index Key": String(1_000_000 + i).padStart(10, "0") } : {}),
+      // the live release carries ~11 columns per entity; pad to a comparable row weight
+      ...({ "Name": `Entity ${i}`, "Legal Entity Type": "corporation", "Registration Country": "United States",
+        "Registration Subdivision": "Delaware", "Headquarters Subdivision": "Texas",
+        "Global Legal Entity Identifier Index": `LEI${String(i).padStart(17, "0")}`, "PermID: Refinitiv Permanent Identifier": `${4_000_000_000 + i}` } as object),
+    });
+  }
+  const edgesBig: GemOwnershipFile["entity_edges"] = [];
+  for (let j = 0; j < 40_000; j++) {
+    const ownerIdx = j % 20 === 0 ? (j % 400) * 100 : (j * 7 + 1) % 40_000; // every 20th edge is anchored on a CIK owner (~5%)
+    edgesBig.push({
+      "Subject Entity ID": `E${(j * 3 + 1) % 40_000}`, "Subject Entity Name": `Entity number ${(j * 3 + 1) % 40_000} with a reasonably long legal name LLC`,
+      "Interested Party ID": `E${ownerIdx}`, "Interested Party Name": `Entity number ${ownerIdx} with a reasonably long legal name LLC`,
+      "% Share of Ownership": (j % 97) + 0.5, "Data Source URL": `https://example.test/source/${j}`, "Share Imputed?": j % 2 ? "known value, not imputed" : "imputed",
+    });
+  }
+  const big: GemOwnershipFile = { provenance: { attribution: "synthetic", license: "n/a", release: "synthetic", built_at: "2026-11-03T00:00:00Z" }, entities: entitiesBig, entity_edges: edgesBig };
+  const rawBytes = JSON.stringify(big).length;
+  const h0 = process.memoryUsage().heapUsed;
+  const d = distillGemOwnership(big);
+  const h1 = process.memoryUsage().heapUsed;
+  const serialized = JSON.stringify({ ...d, cikByEntity: Array.from(d.cikByEntity), typeByEntity: Array.from(d.typeByEntity), hqByEntity: Array.from(d.hqByEntity) });
+  assert.ok(d.rows.length >= 2_000 && d.rows.length < 3_000, `anchored rows ${d.rows.length} ~ 5% of the edges`);
+  assert.equal(d.cikByEntity.size, 400);
+  assert.ok(serialized.length < rawBytes * 0.05, `distilled ${serialized.length}B must be under 5% of the raw ${rawBytes}B`);
+  let live = "live file not present";
+  const livePath = path.resolve(process.cwd(), "datacore/gem/ownership.json.gz");
+  if (fs.existsSync(livePath)) {
+    const g0 = process.memoryUsage().heapUsed;
+    const text = zlib.gunzipSync(fs.readFileSync(livePath)).toString("utf8");
+    const raw = JSON.parse(text) as GemOwnershipFile;
+    const g1 = process.memoryUsage().heapUsed;
+    const ld = distillGemOwnership(raw);
+    const liveSerialized = JSON.stringify({ ...ld, cikByEntity: Array.from(ld.cikByEntity), typeByEntity: Array.from(ld.typeByEntity), hqByEntity: Array.from(ld.hqByEntity) });
+    live = `live: inflated=${(text.length / 1e6).toFixed(1)}MB rawParseHeapDelta=${((g1 - g0) / 1e6).toFixed(1)}MB entities=${raw.entities.length} edges=${raw.entity_edges.length} ` +
+      `-> distilled rows=${ld.rows.length} cik=${ld.cikByEntity.size} type=${ld.typeByEntity.size} hq=${ld.hqByEntity.size} serialized=${(liveSerialized.length / 1e3).toFixed(0)}KB`;
+    assert.ok(liveSerialized.length < text.length * 0.02, "the live release distils to under 2% of its inflated size");
+  }
+  console.log(`[graph heap] synthetic raw=${(rawBytes / 1e6).toFixed(1)}MB distilled=${(serialized.length / 1e3).toFixed(0)}KB rows=${d.rows.length} distillHeapDelta=${((h1 - h0) / 1e6).toFixed(1)}MB | ${live}`);
 });

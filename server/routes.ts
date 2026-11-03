@@ -59,7 +59,7 @@ import { complianceAuditTick, setComplianceAuditWriter } from "./providerComplia
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY, trainsBackgroundDue, TRAINS_BG_TICK_MS } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
-import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId } from "./entityGraph";
+import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId, setGraphPollAuditWriter } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
 import { cachedGemCoalMineFeatures } from "./gemCoalMineFeatures";
 import { cachedGemCoalTerminals } from "./gemCoalTerminals";
@@ -4667,6 +4667,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // event-loop/OOM class those two routes were fixed for), and W5's
   // /api/data/dossier below shares this SAME cache rather than triggering
   // its own independent rebuild.
+  // Memory fix A2b (2026-11-03): the poll runs buildGraphManaged —
+  // VOLTRADE_GRAPH_POLL=full | shadow (default: both builds run, the full one
+  // is served, any difference is a FOLD-MISMATCH row below) | incremental
+  // (the 36 MB GEM ownership parse is kept as a distilled slice between
+  // polls instead of being re-read every 15 min). graphPollStats() carries
+  // the comparison tally for /api/health.
+  setGraphPollAuditWriter((type, message) => {
+    try {
+      db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
+        new Date().toISOString(), type, message.slice(0, 500)
+      );
+    } catch (e: unknown) {
+      console.error("[datacore] graph poll audit row:", (e as Error)?.message || e);
+    }
+  });
   bootGraphPoll();
   app.get("/api/data/graph", (req, res) => {
     const graph = cachedGraphSync();
