@@ -1,5 +1,61 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ CI CHECKOUT BUDGET 2026-11-03 — `changes` job cancelled twice at `actions/checkout` (frozen `.github/workflows/ci.yml`); human decision needed, deploy-gating risk
+
+WHAT HAPPENED: PR #1588 (memory A0, the Wave-1 baseline) had both CI runs
+cancelled in the `changes` job's checkout step before any test ran —
+`timeout-minutes: 5` fired while `git fetch` was still running (16:51Z and
+16:58Z, the one permitted re-run included). Same step on the previous 9
+runs (11-02 19:49Z → 11-03 13:05Z): 22–37 s. At 16:11Z (another PR): 106 s.
+So the fetch went 25 s → 106 s → >300 s within the afternoon, on an
+unchanged workflow. GitHub status: Git Operations operational.
+
+WHY IT CAN HAPPEN AT ALL: the `changes` job (the path filter every heavy
+job `needs:`) checks out with `fetch-depth: 0` = the full history of all
+**959 remote branches**, a **1.26 GiB pack**, under a 5-minute cap — ~25 s
+at normal throughput, zero headroom when GitHub is slow. Every other job
+uses the default shallow checkout and is unaffected; only the gate pays
+the full price, and it gates everything including `main` pushes (the
+Railway deploy gate). Where the bytes are (unique blobs across history):
+research/ 6.07 GB (experiments.md and siblings re-stored whole on every
+append — delta-compressed in the pack but still the bulk of object count),
+client/ 1.15 GB (`client/public/tiles/*.pmtiles`: 76.8 MB power_europe,
+58.1 MB places, 50.4 MB power_eu_fr, 42.5 MB power_eu_gb … — binary tiles
+committed to git, every re-bake a new incompressible blob), root 307 MB
+(`gv_best.pt` 21.5 MB model weights etc.), server/ 170 MB, datacore/ 145 MB.
+
+PROPOSAL (frozen path — CLAUDE.md FROZEN PATHS lists `.github/workflows/`;
+filed here per "write the proposal to wishlist.md instead and stop"):
+exact before/after for `.github/workflows/ci.yml`, `changes` job —
+  (A) `timeout-minutes: 5` → `timeout-minutes: 10`. Preserves everything;
+      drops nothing; resolves the zero-headroom budget (10 min covers a
+      4× slowdown of the 1.26 GiB fetch). Cheapest, lowest-risk.
+  (B) `fetch-depth: 0` → `fetch-depth: 1` plus, inside the filter step for
+      pull_request events, `git fetch --no-tags --depth=1 origin "$BASE_REF"`
+      and a deepen loop (`git fetch --deepen=100 origin "$BASE_REF" HEAD`
+      until `git merge-base origin/$BASE_REF HEAD` resolves). Preserves the
+      diff-based filter; drops the full-history fetch (the only reason it
+      is slow); risk: a PR >N commits behind main deepens several times
+      (bounded; fall back to "run everything" if no merge-base after k
+      rounds — exactly what the push path already does when BEFORE is
+      unknown). Recommend (A) now, (B) as the real fix.
+  (C) Not a workflow change: prune the stale `claude/*` branches (the
+      2026-10-27 Phase 4 cleanup already awaiting approval — 959 heads
+      today) — shrinks what `fetch-depth: 0` pulls; and stop committing
+      `client/public/tiles/*.pmtiles` (bake → CDN/R2 per Amendment 6 Law II
+      #8 "runtime never touches an upstream WMTS; all tiles come from our
+      CDN") so the pack stops growing by tens of MB per re-bake. Neither
+      shrinks existing history without a rewrite (not proposed).
+
+WHY IT MATTERS NOW: Wave 1 of the approved 2026-11-03 memory batch is ~10
+PRs behind this gate, and a `main` push whose `changes` job times out
+fails the deploy gate the same way (CLAUDE.md KNOWN STATE: the July deploy
+freeze class). No further re-run from the session (one is the limit); the
+next CI run on #1588 needs a human "Re-run jobs" click, or a real push.
+
+ASK: approve (A) [and (B)] for a one-line/one-block docs+workflow PR by
+the next session, and say whether (C)'s branch prune is approved now.
+
 ## LAZY PRICES GATE 2 NEEDS A POINT-IN-TIME PRICE PANEL INCLUDING DELISTED NAMES — 2026-10-18, human decision on a small spend (est. $20-199 one-off/monthly), build-first analysis attached
 
 Gate-2 harness `sec_filings_gate2.py` (v1.0.1100) is built and pre-registered; every upstream step is free and done. The only missing input is daily open/close for ~every US 10-K filer 2009-2026 INCLUDING names delisted before today, keyed by CIK. Yahoo/Alpaca-style panels of surviving tickers are survivor-biased and would flatter exactly the "least-changed minus most-changed" spread the test measures (changed-language filers skew toward later failures), so they must not be used.
