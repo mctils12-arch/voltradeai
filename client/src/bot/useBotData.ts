@@ -33,6 +33,19 @@ export interface ShadowEntryRow { time: string; sleeve: "stocks" | "options"; ti
 export interface BotAccount {
   equity: number; lastEquity?: number; cash?: number; buyingPower?: number; dailyPnL?: number; dailyPnLPct?: number;
   drawdownPct?: number; equityPeak?: number;
+  /** the Today tile (server/todayTile.ts, B1 2026-11-03); absent on a server that predates it */
+  today?: TodayTile | null;
+}
+/** server/todayTile.ts: equity now vs the prior close (Alpaca equity − last_equity, the
+ *  daily-loss halt's own evaluateDailyPnl) beside SPY's move on the same ET day from the
+ *  benchmark's cached bars; a missing side is null with its reason, never a zero. */
+export interface TodayTile {
+  day: string;
+  equity_now: number | null; equity_prev_close: number | null;
+  pnl_usd: number | null; pnl_pct: number | null; pnl_reason: string | null;
+  spy_pct_today: number | null; spy_asof: string | null; spy_bar_date: string | null; spy_reason: string | null;
+  excess_pct: number | null;
+  asof: string; source: string;
 }
 /** Shape of /api/bot/positions (server/bot.ts maps Alpaca's raw position
  *  into this; pnlPct is already a percent). `levels` is the engine's own

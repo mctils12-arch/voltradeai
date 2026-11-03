@@ -4636,12 +4636,34 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-bot-wbtn:hover { background: var(--elevate-2, rgba(77,159,255,.08)); color: var(--text-primary); }
 .vt-bot-wbtn[aria-pressed="true"] { color: var(--text-primary); }
 .vt-bot-hold-outline { position: absolute; inset: 0; border: 1px solid var(--text-primary); opacity: .5; pointer-events: none; border-radius: 2px; z-index: 20; }
-.vt-bot-kpi { display: grid; grid-template-columns: 1.35fr 1.25fr 1fr 1.45fr 1.05fr 1.1fr; gap: 8px; min-height: 0; }
+/* The strip holds SEVEN tiles since the Today tile (B1, human-approved 2026-11-03): one row of seven at the xl tier (≥1920,
+   the human's monitor). At the l tier (1180–1919) the six tiles already sat at their minimum widths in one 86 px row (the
+   Expectancy tile's pinned captions, the win-rate pair, the Equity sparkline, the Now tile's state word), and a second row
+   starved the panel columns (Issues and Model collapsed at 1440×900 with the kill banner up) — so there the Session tile
+   is not rendered and its line folds into the Now tile (.vt-kpi-now-session; data-fold set by BotPage from the tier), one row of six: Today 0.95 + Now 1.2 take exactly the
+   share Session 1.05 + Now 1.1 had, so the other four tiles keep their widths. Three columns in the tablet stack, two on
+   the phone, the Now tile spanning the last row (its one-line decision wants the width). Grid tiers keep the 86 px tile
+   the Expectancy tile needs (it also carries the zoomed view's natural-height row); the stack keeps its 72 px minimum. */
+.vt-bot-kpi { display: grid; grid-template-columns: 1.35fr 1.25fr 1fr 1.45fr 1fr 1.05fr 1.1fr; gap: 8px; min-height: 0; }
 .vt-bot-kpi .vt-bot-panel { flex-direction: row; align-items: center; gap: 12px; padding: 0 14px; }
+@media (min-width: 1180px) { .vt-bot-kpi .vt-bot-panel { min-height: 86px; } }
+/* data-fold (the l tier, zoneModel.tierFor via BotPage): six tiles, the Session line inside the Now tile */
+.vt-bot-kpi[data-fold="true"] { grid-template-columns: 1.35fr 1.25fr 1fr 1.45fr 0.95fr 1.2fr; }
+.vt-bot-kpi[data-fold="true"] .vt-kpi-today-word { display: none; }
+.vt-kpi-now-session { font-size: 11px; line-height: 1.3; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .vt-bot-hero { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 32px; font-weight: 500; line-height: 1.1; }
 .vt-bot-kpiv { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 500; line-height: 1.15; }
-@media (max-width: 1179px) { .vt-bot-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .vt-bot-hero { font-size: 26px; } }
-@media (max-width: 639px) { .vt-bot-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } .vt-bot-kpi .vt-bot-panel { padding: 10px 12px; } }
+@media (max-width: 1179px) { .vt-bot-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .vt-bot-kpi .vt-bot-panel:last-child { grid-column: 1 / -1; } .vt-bot-hero { font-size: 26px; } }
+@media (max-width: 639px) { .vt-bot-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } .vt-bot-kpi .vt-bot-panel { padding: 10px 12px; } .vt-kpi-today-word { display: none; } }
+/* Today tile (B1, 2026-11-03): eyebrow, the headline difference, then three one-line captions — the change in $ and %, SPY
+   with its own as-of clock, the prior close → now path — each a nowrap span that ellipsizes rather than widening the tile
+   (the word "prior" steps aside where the tile is narrow: the phone's 159 px and the l tier's ~154 px hold 23 mono
+   characters, not 25); five lines fit the 86 px tile with room (eyebrow 13 + headline 22 + 3 × 13 + gaps). */
+.vt-kpi-today { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 1px; }
+.vt-kpi-today .vt-bot-kpiv { line-height: 1.1; }
+.vt-kpi-today-ln { display: flex; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10.5px; line-height: 1.25; min-width: 0; }
+.vt-kpi-today-ln > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.vt-kpi-today-chg { font-size: 11px; }
 /* Expectancy tile ([RULE-REVIEW] 2026-10-29): the broker's number per closed lot as the headline, its n / last close
    beside it, and the bot-log number demoted to two dim lines beneath — a column that fits the strip's existing height
    at every width (86 px desktop row, the vs-SPY tile's 82 px at 768, the win-rate tile's 96 px pair at 390: pinned by
