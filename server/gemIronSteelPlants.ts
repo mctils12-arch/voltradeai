@@ -66,6 +66,7 @@
  */
 import fs from "fs";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export type SteelProductionTechnology = "bf_bof" | "dri" | "eaf" | "if" | "other";
 
@@ -359,19 +360,20 @@ export function groupSteelUnitsByPlant(units: SteelFurnaceUnit[]): Map<string, S
 }
 
 // In-memory cache — same rationale as gemIronOreMines.ts's `cached`:
-// static reference data, parse once per process lifetime.
-let cached: IronSteelPlantsResult | null | undefined;
+// static reference data, parsed on first use and held while in use; released
+// after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3, idleTtl.ts)
+// and re-joined through the same loader on the next call.
+const cached = lazyDataset<IronSteelPlantsResult | null>("gemIronSteelPlants", () => {
+  const unitsHit = loadGemSteelUnits();
+  const unitsByPlantId = unitsHit ? groupSteelUnitsByPlant(unitsHit.units) : undefined;
+  return loadGemIronSteelPlants(undefined, unitsByPlantId);
+});
 
 export function cachedGemIronSteelPlants(): IronSteelPlantsResult | null {
-  if (cached === undefined) {
-    const unitsHit = loadGemSteelUnits();
-    const unitsByPlantId = unitsHit ? groupSteelUnitsByPlant(unitsHit.units) : undefined;
-    cached = loadGemIronSteelPlants(undefined, unitsByPlantId);
-  }
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject a different fp. */
 export function _resetGemIronSteelPlantsCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

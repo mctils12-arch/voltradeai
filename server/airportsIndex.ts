@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import { repoDataPath } from "./repoFiles";
 import { registerHeapGauge } from "./heapDiag";
+import { idleRelease } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export interface Airport {
   id: string;            // OurAirports ident (ICAO-style where assigned)
@@ -28,12 +29,27 @@ let byIdent: Map<string, Airport> | null = null;
 let loadedCount = 0;
 // memory audit 2026-11-03 A0: lazy dataset — loaded=false means it costs nothing yet
 registerHeapGauge("airportsIndex", () => ({ entries: loadedCount, grid_cells: grid?.size ?? 0, loaded: grid !== null }));
+// memory audit 2026-11-03 A3: the loaded grid is ~22 MB (measured) and only
+// needed while trips/window/flight-plan code is asking — released after
+// VOLTRADE_IDLE_TTL_MIN unused (idleTtl.ts); the next lookup reloads through
+// loadAirports() exactly as the first one did (the gauge reads loaded:false
+// in between). Every public entry point records a use.
+const airportsIdle = idleRelease("airportsIndex",
+  () => { grid = null; byIdent = null; loadedCount = 0; },
+  () => grid !== null);
 
 function cellKey(la: number, lo: number): string {
   return `${Math.floor(la / GRID_DEG)}|${Math.floor(lo / GRID_DEG)}`;
 }
 
+/** Records a use, loading on demand (first call, or the first after an idle release). */
+function ensureLoaded(): void {
+  if (!grid) loadAirports();
+  else airportsIdle.touch();
+}
+
 export function loadAirports(jsonPath?: string): number {
+  airportsIdle.touch();
   if (grid) return loadedCount;
   // repoDataPath (R14 class): dev reads the repo tree, Railway reads the
   // dist/ copy the build ships — never a bare cwd join.
@@ -76,7 +92,7 @@ export function nearestAirport(
   la: number, lo: number, maxKm = 6,
   types?: ReadonlyArray<Airport["ty"]>,
 ): AirportMatch | null {
-  if (!grid) loadAirports();
+  ensureLoaded();
   if (!grid || !Number.isFinite(la) || !Number.isFinite(lo)) return null;
   const span = Math.ceil(maxKm / 111 / GRID_DEG) + 1;
   const cla = Math.floor(la / GRID_DEG), clo = Math.floor(lo / GRID_DEG);
@@ -99,7 +115,7 @@ export function nearestAirport(
  *  "KSFO"; FAA LID for small US fields). FLIGHT PROGRAM 2026-09-28: resolves
  *  the departure/arrival aerodromes named in FAA SWIM flight plans. */
 export function airportByIdent(id: string): Airport | null {
-  if (!grid) loadAirports();
+  ensureLoaded();
   if (!byIdent || !id) return null;
   return byIdent.get(id.trim().toUpperCase()) || null;
 }

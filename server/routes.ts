@@ -170,6 +170,7 @@ import { bootBuoysPoll, latestBuoys } from "./ndbcBuoys";
 import { bootMidasPoll, latestMidas } from "./secMidas";
 import { mergeSiteImagery } from "./siteImagery";
 import { registerHeapGauge, trackMap } from "./heapDiag";
+import { idleTtlMap } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 const execAsync = promisify(exec);
 
@@ -918,7 +919,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch {}
   });
   complianceAuditTick();
-  const aircraftCache: Map<string, { at: number; data: any }> = new Map();
+  // memory audit 2026-11-03 A3: entries unused for VOLTRADE_IDLE_TTL_MIN are
+  // dropped (idleTtl.ts); the 20-entry cap eviction below is unchanged.
+  const aircraftCache = idleTtlMap<string, { at: number; data: any }>("routes.aircraftCache");
   trackMap("routes.aircraftCache", aircraftCache, 20); // memory audit 2026-11-03 A0
   const aircraftInflight: Map<string, InflightSlot<any>> = new Map();
   const feedBackoff: Record<string, { failures: number; until: number }> = {};
@@ -1247,7 +1250,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // the aircraft `time`/`since` protocol (the client's sinceRef machinery
   // already speaks it — zero client changes). Was: full 15k-vessel scan +
   // re-serialize per request per tab every poll. Pure logic in liveDelta.ts.
-  const vesselSnapCache: Map<string, { at: number; data: VesselSnapshot }> = new Map();
+  // memory audit 2026-11-03 A3: idle entries dropped (idleTtl.ts); cap eviction unchanged.
+  const vesselSnapCache = idleTtlMap<string, { at: number; data: VesselSnapshot }>("routes.vesselSnapCache");
   trackMap("routes.vesselSnapCache", vesselSnapCache, 20); // memory audit 2026-11-03 A0
   app.get("/api/data/vessels", (req, res) => {
     if (!vesselStreamEnabled()) {
@@ -1459,7 +1463,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // (SCALE S1), caps stated honestly in the response. 30s TTL cache on
   // quantized params (kind included — a vessels request must never serve
   // an aircraft response from cache or vice versa).
-  const windowCache = new Map<string, { at: number; data: any }>();
+  // memory audit 2026-11-03 A3: a zoom-9 window entry measured ~6 MB (56.8k
+  // points), so 32 idle entries could hold ~190 MB overnight — entries unused
+  // for VOLTRADE_IDLE_TTL_MIN are dropped (idleTtl.ts); the 32-entry FIFO
+  // eviction below is unchanged.
+  const windowCache = idleTtlMap<string, { at: number; data: any }>("routes.windowCache");
   trackMap("routes.windowCache", windowCache, 32); // memory audit 2026-11-03 A0
   app.get("/api/data/aircraft/window", async (req, res) => {
     try {

@@ -30,6 +30,7 @@ import type { MethanePlume, GemProvenance } from "./gemMethane";
 import { cachedGemMethane } from "./gemMethane";
 import type { GemAsset, GemAssetsProvenance } from "./gemMethaneAssets";
 import { cachedGemAssets } from "./gemMethaneAssets";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export const MATCH_RADIUS_KM = 2;
 export const AMBIGUOUS_MARGIN_KM = 0.5;
@@ -237,24 +238,15 @@ export interface MethaneProximityResult {
   assetProvenance: GemAssetsProvenance;
 }
 
-let cached: MethaneProximityResult | null | undefined;
-
-/** Combines the cached plume + asset loaders and joins them, cached once
- *  per process (both inputs are static reference data — see gemMethane.ts
- *  and gemMethaneAssets.ts for the re-ingest cadence). Returns null when
- *  the plume file itself is unavailable (matches cachedGemMethane's
- *  degrade-to-null contract); a missing/partial asset registry still
- *  yields plumes, just with fewer matches. */
-export function cachedGemMethaneProximity(): MethaneProximityResult | null {
-  if (cached !== undefined) return cached;
+/** The join itself (the loader behind `cached`): null when the plume file is
+ *  unavailable; a missing/partial asset registry still yields plumes, just
+ *  with fewer matches. */
+function joinCachedPlumesToAssets(): MethaneProximityResult | null {
   const plumeHit = cachedGemMethane();
-  if (!plumeHit) {
-    cached = null;
-    return cached;
-  }
+  if (!plumeHit) return null;
   const assetHit = cachedGemAssets();
   const joined = joinPlumesToAssets(plumeHit.plumes, assetHit.assets);
-  cached = {
+  return {
     plumes: joined,
     matchedCount: joined.filter((p) => p.nearestAsset !== null).length,
     ambiguousCount: joined.filter((p) => p.ambiguousMatch).length,
@@ -262,10 +254,25 @@ export function cachedGemMethaneProximity(): MethaneProximityResult | null {
     plumeProvenance: plumeHit.provenance,
     assetProvenance: assetHit.provenance,
   };
-  return cached;
+}
+
+// Held while in use; released after VOLTRADE_IDLE_TTL_MIN unused (memory
+// audit 2026-11-03 A3, idleTtl.ts) and re-joined on the next call. Its two
+// inputs are only touched by this join, so they idle out on their own once
+// the join is cached — the plume/asset parses are not needed to SERVE it.
+const cached = lazyDataset<MethaneProximityResult | null>("gemMethaneProximity", joinCachedPlumesToAssets);
+
+/** Combines the cached plume + asset loaders and joins them, cached while in
+ *  use (both inputs are static reference data — see gemMethane.ts and
+ *  gemMethaneAssets.ts for the re-ingest cadence). Returns null when the
+ *  plume file itself is unavailable (matches cachedGemMethane's
+ *  degrade-to-null contract); a missing/partial asset registry still yields
+ *  plumes, just with fewer matches. */
+export function cachedGemMethaneProximity(): MethaneProximityResult | null {
+  return cached.get();
 }
 
 /** Test-only: clears the module cache. */
 export function _resetGemMethaneProximityCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

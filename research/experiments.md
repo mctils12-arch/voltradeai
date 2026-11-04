@@ -113089,3 +113089,25 @@ poll (multi-second sync stall + transient) is the next memory/latency item once 
 trusted (append gzip members, or write the index from the DB); (4) wire
 `setDtccIdsAuditSink(audit)` from bot.ts/routes.ts so DTCC-IDS-* lines reach the audit log.
 STARVED: no.
+
+### 2026-11-03 — [REPAIR] memory A3: idle TTL on dashboard/map caches and lazy datasets (T-DATACORE)
+VERSION: v1.0.1258 (shipped 2026-11-04 by the parent session; main was v1.0.1257)
+Territory: T-DATACORE (datacore server modules; routes.ts/globalAircraft.ts touched only at 4 declarations —
+shared-file edits minimal, last commit). Builds on A0 (#heap-diag).
+CHANGE: server/idleTtl.ts (idleTtlMap / lazyDataset / idleRelease, one registry, one unref'd 60 s sweep,
+flag VOLTRADE_IDLE_TTL_MIN unset=12 min ON, 0=off, 10..15 honoured, else clamped+logged). Wired: routes
+aircraftCache/vesselSnapCache/windowCache, globalAircraft bodyCache, aircraftTrips bloomCache, airportsIndex,
+all 11 GEM singletons. Cap-eviction lines and A0 gauge lines byte-identical; trackMap merges stats; new
+aggregate gauge `idleTtl` on /api/health.
+PRIOR: audit item 1d estimated 0.1–0.3 GB held with no time limit. MEASURED (gc'd): GEM 12.6 MB, airports
+22.1 MB, bloom 62.5 MB (arrayBuffers), one zoom-9 window entry 6.0 MB (×32 cap), one world body 1.1 MB
+(×24). Expected sustained saving outside dashboard use 0.13–0.35 GB after 12 idle min. Reload latency = the
+existing cold path (airports 0.5 s, methane proximity 2 s, window 0.25 s, body 0.4 s; bloom = a cold trips
+scan, as after every deploy).
+IDENTITY: cold→warm→forced drop→reload deep-equal/byte-identical tests for windowCache (readWindow fixture),
+bodyCache (real route), bloomCache (fullTrackAsync), airportsIndex, gemChemicals + steelRawMaterialsGeo.
+VERIFY LIVE: /api/health checks.memory.detail.caches.idleTtl.structures[*].drops > 0 ~13 min after the last
+dashboard hit; heapUsed should step down by the sum of released structures.
+ROLLBACK: VOLTRADE_IDLE_TTL_MIN=0 (no code deploy).
+NOTED NOT FIXED: archiveFoldMemory.test.ts flaky 30 MB bound (fails on pre-A3 control too); A0 pins were
+one untracked file short; bodyCache could take a 5–10 s TTL for free; bloom sidecar persistence.

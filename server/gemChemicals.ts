@@ -37,6 +37,7 @@
  */
 import fs from "fs";
 import { repoDataPath } from "./repoFiles";
+import { lazyDataset } from "./idleTtl"; // memory audit 2026-11-03 A3
 
 export type ChemicalFeedstockFamily = "coal" | "natural_gas" | "petroleum" | "ngl" | "low_carbon" | "other";
 
@@ -180,15 +181,16 @@ export function loadGemChemicals(
 }
 
 // In-memory cache — same rationale as gemIronSteelPlants.ts's `cached`:
-// static reference data, parse once per process lifetime.
-let cached: ChemicalPlantsResult | null | undefined;
+// static reference data, parsed on first use and held while in use; released
+// after VOLTRADE_IDLE_TTL_MIN unused (memory audit 2026-11-03 A3, idleTtl.ts)
+// and re-parsed through the same loader on the next call.
+const cached = lazyDataset<ChemicalPlantsResult | null>("gemChemicals", () => loadGemChemicals());
 
 export function cachedGemChemicals(): ChemicalPlantsResult | null {
-  if (cached === undefined) cached = loadGemChemicals();
-  return cached;
+  return cached.get();
 }
 
 /** Test-only: clears the module cache so a test can inject a different fp. */
 export function _resetGemChemicalsCacheForTests(): void {
-  cached = undefined;
+  cached.reset();
 }

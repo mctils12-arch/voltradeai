@@ -41,13 +41,20 @@ export function registerHeapGauge(name: string, fn: GaugeFn): void {
   gauges.set(name, fn);
 }
 
-/** Convenience: a Set's size (+ optional cap). */
-export function trackSet(name: string, set: { readonly size: number }, cap?: number): void {
-  registerHeapGauge(name, () => (cap == null ? { entries: set.size } : { entries: set.size, cap }));
+/** A sized structure; one that knows more about itself (an idleTtl.ts map
+ *  reports ttl_s / last_used_s / drops) merges that into its reading. */
+interface Sized { readonly size: number; stats?: () => GaugeValue }
+
+/** Convenience: a Set's size (+ optional cap, + the structure's own stats). */
+export function trackSet(name: string, set: Sized, cap?: number): void {
+  registerHeapGauge(name, () => {
+    const base: GaugeValue = cap == null ? { entries: set.size } : { entries: set.size, cap };
+    return typeof set.stats === "function" ? { ...set.stats(), ...base } : base;
+  });
 }
 
-/** Convenience: a Map's size (+ optional cap). */
-export function trackMap(name: string, map: { readonly size: number }, cap?: number): void {
+/** Convenience: a Map's size (+ optional cap, + the structure's own stats). */
+export function trackMap(name: string, map: Sized, cap?: number): void {
   trackSet(name, map, cap);
 }
 
