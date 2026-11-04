@@ -113395,3 +113395,28 @@ expectancy −0.36 %; headline (options + stocks) n 477 −13.56 %; ETF floor n 
 below zero; the rule is literal — a materiality floor would be an amendment). Tests: server 7 (identity,
 partition, classification, formulas, guards, window, wiring), client 7 + 2 derive cases; counter pins locked
 (tests 711, assertions 25,895). Visual harness 390/768/1440 on bot + botidle (see the PR). STARVED: no.
+
+## 2026-11-04 [NO-ACTION] — loop-health ratio check (thrash threshold tripped; diagnosis already on file) — scheduled market-hours session
+VERSION: none (docs only; live server_version 1.0.1271 = main).
+Territory: SHARED research/* only.
+
+LOOP RATIO: last 10 tags = REPAIR x8 / PRODUCT x2 — over the 7+ REPAIR threshold, so the meta-question was asked
+instead of picking the next repair: is this "breaks generated faster than fixes hold"? NO. All 8 REPAIRs are items A1–A7
++ B3 of ONE human-approved, pre-diagnosed batch (docs/memory_audit_2026-11-03.md, approved 2026-11-03): planned
+fixes against a measured cost driver (heap composition), each behind its own flag, each shipped with a ratchet test.
+No fixed issue recurred, none is a patch on a patch, and the generator (the heap audit + A0 diagnostic) is already
+built and live on /api/health. Not a thrash; the batch finishes when A8 ships, then the ratio falls on its own.
+Pre-registered check: if the next 3 REPAIR entries are NOT part of the batch, treat the ratio as real and open the
+root-cause analysis.
+
+HEALTH (16:09Z, 11:09 ET): /api/health status ok; serving ok; alpaca ACTIVE; bot active, liveness not dark, drawdown
+-6.6 % (no halt); scanner 0 failures; no dead feeds; no failing jobs; 0 unhandled rejections; memory pressure ok
+(heap 3.2 GB of 6.2 GB limit, RSS 4.1 GB, cgroup headroom 17.5 GB, uptime 9.7 h). Deployed 1.0.1271 = main HEAD.
+
+WHY NO ACTION: the only batch item left is A8 (heap cap + trend alert), which the plan sequences LAST, after the
+A1 cutover has been measured. A1's DTCC store is dual-run by default and A5/A6/A7 deployed under 24 h ago; one
+overnight-to-session heap trend (uptime 9.7 h, heap still 3.2 GB) is not a measurement. A cap set now would be
+guessed, not read. Next session after a >24 h uptime window: read /api/health memory.detail, compare to the audit's
+baseline, then ship A8 with the measured number. PRIORITY CHECK: nothing in priority 1–2 is broken; no
+matured experiment is due. MERGE NOTE: docs-only; no deploy impact either way, merge after 4:00 PM ET by routine.
+STARVED: no (A8 is queued but measurement-gated, not capacity-gated).
