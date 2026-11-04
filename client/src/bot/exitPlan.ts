@@ -76,7 +76,8 @@ function ruleWords(r: OptionExitRule, plan: OptionExitPlan): PlanSegment {
     case "profit_target": return { text: r.price === null ? `target: ${pct(OPTIONS_PROFIT_TARGET_FRAC)} of net credit` : `target: keep ${pct(OPTIONS_PROFIT_TARGET_FRAC)}${at}${hit}`, hit: r.hit };
     case "ic_max_loss": return { text: `stop: ${pct(OPTIONS_IC_MAX_LOSS_EXIT_FRAC)} of max loss` };
     case "loss_limit":
-      if (plan.management === "group") return { text: OPTIONS_CREDIT_STRATEGIES.includes(plan.strategy ?? "") ? `stop: loss of ${OPTIONS_LOSS_LIMIT_MULTIPLIER}× the premium` : `stop: ${MINUS}${pct(OPTIONS_BOUGHT_LOSS_LIMIT_FRAC)} of the debit` };
+      // options_manager measures the group stop against the NET credit / NET debit (2026-11-04)
+      if (plan.management === "group") return { text: OPTIONS_CREDIT_STRATEGIES.includes(plan.strategy ?? "") ? `stop: loss of ${OPTIONS_LOSS_LIMIT_MULTIPLIER}× net credit` : `stop: ${MINUS}${pct(OPTIONS_BOUGHT_LOSS_LIMIT_FRAC)} of net debit` };
       return { text: short ? `stop: ${OPTIONS_LOSS_LIMIT_MULTIPLIER}× credit${at}${hit}` : `stop: ${MINUS}${pct(OPTIONS_BOUGHT_LOSS_LIMIT_FRAC)}${at}${hit}`, hit: r.hit };
     case "gamma": return { text: `gamma >${OPTIONS_GAMMA_THRESHOLD} inside ${OPTIONS_GAMMA_DTE} DTE` };
     case "edge": return { text: "edge gone (VRP turns negative)" };

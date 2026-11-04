@@ -48,11 +48,11 @@ test("line 4, a sold put: keep 50 % of the credit is the target, 2× the credit 
 
 test("line 4, a multi-leg strategy and the hedge: the unit, the group rules without per-leg prices; insurance with no target and no stop", () => {
   assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: -1, entryPrice: 4.1, currentPrice: 3.2, daysToExpiry: 18, strategy: "bull_put_credit_spread", legsInGroup: 2 }))),
-    "all 2 legs as one · force close ≤5 DTE in 13d · target: 50% of net credit · stop: loss of 2× the premium · close all at 21 DTE · due now · edge gone (VRP turns negative) · floor −150% at $10.25");
+    "all 2 legs as one · force close ≤5 DTE in 13d · target: 50% of net credit · stop: loss of 2× net credit · close all at 21 DTE · due now · edge gone (VRP turns negative) · floor −150% at $10.25");
   assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: -1, entryPrice: 1, currentPrice: 1, daysToExpiry: 4, strategy: "qqq_iron_condor", legsInGroup: 4 }))),
-    "all 4 legs as one · force close ≤5 DTE · due now · target: 50% of net credit · stop: 50% of max loss · stop: loss of 2× the premium · close all at 21 DTE · due now · edge gone (VRP turns negative) · floor −150% at $2.50");
+    "all 4 legs as one · force close ≤5 DTE · due now · target: 50% of net credit · stop: 50% of max loss · stop: loss of 2× net credit · close all at 21 DTE · due now · edge gone (VRP turns negative) · floor −150% at $2.50");
   assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 1, entryPrice: 5, currentPrice: 5, daysToExpiry: 40, strategy: "buy_straddle", legsInGroup: 2 }))),
-    "all 2 legs as one · no profit target · force close ≤5 DTE in 35d · stop: −50% of the debit · close all at 21 DTE in 19d · floor −75% at $1.25");
+    "all 2 legs as one · no profit target · force close ≤5 DTE in 35d · stop: −50% of net debit · close all at 21 DTE in 19d · floor −75% at $1.25");
   assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 3, entryPrice: 1.5, currentPrice: 0.9, daysToExpiry: 60, strategy: "convexity_hedge" }))),
     "insurance, not a trade · no target, no stop · rolled under 21 DTE in 39d · floor −75% at $0.38");
 });

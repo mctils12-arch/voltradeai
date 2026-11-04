@@ -291,9 +291,9 @@ export function optionLegLevels(o: OptionLegInput): OptionLegLevels | null {
 // them at the top of options_manager.py.
 export const OPTIONS_DTE_EXIT_THRESHOLD = 21; // DTE_EXIT_THRESHOLD — close (bought) or roll-else-close (sold) at ≤ 21 DTE
 export const OPTIONS_DTE_CRITICAL = 5; // DTE_CRITICAL — force close at ≤ 5 DTE, ignoring the hold gate
-export const OPTIONS_LOSS_LIMIT_MULTIPLIER = 2.0; // LOSS_LIMIT_MULTIPLIER — sold: close when the cost to close reaches 2× the credit
-export const OPTIONS_BOUGHT_LOSS_LIMIT_FRAC = 0.5; // the standalone path's `loss_pct >= 0.50` for a bought option (and the debit-strategy group rule)
-export const OPTIONS_IC_MAX_LOSS_EXIT_FRAC = 0.5; // IC_MAX_LOSS_EXIT_PCT — iron condors close at half their max loss
+export const OPTIONS_LOSS_LIMIT_MULTIPLIER = 2.0; // LOSS_LIMIT_MULTIPLIER — sold: close when the cost to close reaches 2× the credit; a credit strategy group: when its loss reaches 2× its NET credit
+export const OPTIONS_BOUGHT_LOSS_LIMIT_FRAC = 0.5; // the standalone path's `loss_pct >= 0.50` for a bought option (and the debit-strategy group rule, on the NET debit)
+export const OPTIONS_IC_MAX_LOSS_EXIT_FRAC = 0.5; // IC_MAX_LOSS_EXIT_PCT — iron condors close at half their max loss (recorded at entry, else worked from the legs: widest wing × 100 × qty − net credit)
 export const OPTIONS_GAMMA_THRESHOLD = 0.08; // GAMMA_THRESHOLD, judged only at ≤ OPTIONS_GAMMA_DTE
 export const OPTIONS_GAMMA_DTE = 30;
 export const OPTIONS_ASSIGNMENT_DELTA = 0.8; // ASSIGNMENT_DELTA_THRESHOLD — a sold leg at |delta| > 0.80 and ≤ 10 DTE is rolled, else closed

@@ -187,7 +187,10 @@ test("the option-exit mirrors equal the engine's own constants (options_manager.
   assert.equal(pyNum(om, /^MIN_HOLD_MINUTES = (\d+)/m), OPTIONS_MIN_HOLD_MINUTES);
   // the bought option's loss limit is a literal in the standalone path, and the debit group rule the same number
   assert.equal(pyNum(om, /# Bought option: close if lost more than 50% of premium paid[\s\S]*?if loss_pct >= ([\d.]+):/), OPTIONS_BOUGHT_LOSS_LIMIT_FRAC);
-  assert.equal(-pyNum(om, /if combined_pnl_pct <= (-[\d.]+):\s*# Lost 50% of debit/), OPTIONS_BOUGHT_LOSS_LIMIT_FRAC);
+  assert.equal(-pyNum(om, /if pnl_of_debit <= (-[\d.]+):\s*# Lost 50% of debit/), OPTIONS_BOUGHT_LOSS_LIMIT_FRAC);
+  // the group loss limits are measured against the NET premium (2026-11-04): the denominators the mirror's words name
+  assert.ok(/pnl_of_credit = total_unrealized_pnl \/ net_credit\n\s*if pnl_of_credit <= -LOSS_LIMIT_MULTIPLIER:/.test(om), "credit group stop: loss vs the net credit");
+  assert.ok(/pnl_of_debit = total_unrealized_pnl \/ net_debit\n/.test(om), "debit group stop: loss vs the net debit");
   assert.equal(pyNum(om, /abs\(current_gamma\) > GAMMA_THRESHOLD and dte <= (\d+)/), OPTIONS_GAMMA_DTE);
   assert.equal(pyNum(om, /abs\(current_delta\) > ASSIGNMENT_DELTA_THRESHOLD and\s*\n\s*dte <= (\d+)\)/), OPTIONS_ASSIGNMENT_DTE);
   assert.deepEqual(pyStrings(om, /^MULTI_LEG_STRATEGIES = \(([\s\S]*?)\)/m).sort(), [...OPTIONS_MULTI_LEG_STRATEGIES].sort());
