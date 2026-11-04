@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cell, flagged, negativeSleeves, negativeEdgeIssue, expectancyCaption, fmtWindowDay, rowTitle, TABLE_ORDER, TOTAL_GROUPS, COLS, GROUP_LABEL, FLAG_MIN_N } from "./expectancy";
+import { cell, flagged, negativeSleeves, negativeEdgeIssue, expectancyCaption, fmtWindowDay, rowTitle, TABLE_ORDER, TOTAL_GROUPS, COLS, SLEEVE_GROUP_LABEL, FLAG_MIN_N } from "./expectancy";
 import { expectancyBySleeve, type SleeveStats, type SleeveExpectancy } from "../../../shared/expectancy";
 import { MINUS } from "./format";
 
@@ -15,8 +15,8 @@ test("the table is a reconciliation: options, stocks, their total (the headline)
   assert.deepEqual(TABLE_ORDER, ["options", "stocks", "active", "floor", "vrp", "all"]);
   assert.deepEqual([...TOTAL_GROUPS], ["active", "all"]);
   assert.deepEqual(COLS, ["expectancy", "n", "winRate", "avgWin", "avgLoss", "payoff", "breakeven"], "the headline metric first: visible at 390 px without a scroll");
-  assert.equal(GROUP_LABEL.active, "options + stocks");
-  assert.equal(GROUP_LABEL.vrp, "VRP leg");
+  assert.equal(SLEEVE_GROUP_LABEL.active, "options + stocks");
+  assert.equal(SLEEVE_GROUP_LABEL.vrp, "VRP leg");
   assert.match(rowTitle("floor", FLOOR), /rebalancing, not a trade decision · −\$447 realized · last close Nov 2/);
   assert.match(rowTitle("vrp", S()), /SVXY.*\$0 realized · no closed lots$/);
 });

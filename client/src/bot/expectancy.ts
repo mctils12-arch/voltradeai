@@ -9,7 +9,7 @@ import type { SleeveExpectancy, SleeveStats, LotGroup, SleeveId } from "../../..
 import { SLEEVE_IDS } from "../../../shared/expectancy";
 import { fmtPct, fmtCount, fmtMonDay, fmtClockET, fmtAge, fmtMoney } from "./format";
 
-export const GROUP_LABEL: Record<LotGroup, string> = { options: "options", stocks: "stocks", active: "options + stocks", floor: "ETF floor", vrp: "VRP leg", all: "all lots" };
+export const SLEEVE_GROUP_LABEL: Record<LotGroup, string> = { options: "options", stocks: "stocks", active: "options + stocks", floor: "ETF floor", vrp: "VRP leg", all: "all lots" };
 /** the small word after a total's label: which rows it adds up */
 export const GROUP_NOTE: Partial<Record<LotGroup, string>> = { active: "headline", all: "+ floor + VRP" };
 /** the table reads as a reconciliation: the two trading sleeves, their total
@@ -93,8 +93,8 @@ export function negativeEdgeIssue(x: SleeveExpectancy | null | undefined, minN =
   const neg = negativeSleeves(x, minN);
   if (!neg.length) return null;
   return {
-    title: `Negative expectancy · ${neg.map((s) => GROUP_LABEL[s.sleeve]).join(", ")}`,
-    condition: `${neg.map((s) => `${GROUP_LABEL[s.sleeve]} ${fmtPct(s.expectancyPct)} over ${fmtCount(s.n)} lots${s.winRate !== null && s.breakevenWinRate !== null ? ` (win ${s.winRate.toFixed(1)}% vs breakeven ${s.breakevenWinRate.toFixed(1)}%)` : ""}`).join(" · ")} · broker fills, n ≥ ${minN}`,
+    title: `Negative expectancy · ${neg.map((s) => SLEEVE_GROUP_LABEL[s.sleeve]).join(", ")}`,
+    condition: `${neg.map((s) => `${SLEEVE_GROUP_LABEL[s.sleeve]} ${fmtPct(s.expectancyPct)} over ${fmtCount(s.n)} lots${s.winRate !== null && s.breakevenWinRate !== null ? ` (win ${s.winRate.toFixed(1)}% vs breakeven ${s.breakevenWinRate.toFixed(1)}%)` : ""}`).join(" · ")} · broker fills, n ≥ ${minN}`,
     consequence: "every lot the sleeve closes loses on average — it compounds the wrong way while it keeps trading",
     clears: `the sleeve's expectancy per closed lot turns positive over n ≥ ${minN}, or the sleeve stops entering (shadow mode)`,
   };

@@ -15,7 +15,7 @@
 import { Help } from "./help";
 import { St, NotRecorded } from "./panels";
 import type { BrokerEdge } from "./useBotData";
-import { TABLE_ORDER, TOTAL_GROUPS, GROUP_LABEL, GROUP_NOTE, COLS, cell, flagged, rowTitle, expectancyCaption } from "./expectancy";
+import { TABLE_ORDER, TOTAL_GROUPS, SLEEVE_GROUP_LABEL, GROUP_NOTE, COLS, cell, flagged, rowTitle, expectancyCaption } from "./expectancy";
 
 export function ExpectancyBySleeve({ broker, reason }: { broker: BrokerEdge | null | undefined; reason: string | null | undefined }) {
   const head = <div className="vt-bot-eb vt-exp-eb">Expectancy by sleeve<Help k="expectancyBySleeve" /> · % per closed lot · broker</div>;
@@ -51,7 +51,7 @@ export function ExpectancyBySleeve({ broker, reason }: { broker: BrokerEdge | nu
               const flag = !total && flagged(s);
               return (
                 <tr key={g} data-group={g} data-total={total ? "true" : undefined} data-flag={flag ? "neg" : undefined} title={rowTitle(g, s)}>
-                  <td className="s">{GROUP_LABEL[g]}{GROUP_NOTE[g] ? <i>{GROUP_NOTE[g]}</i> : null}</td>
+                  <td className="s">{SLEEVE_GROUP_LABEL[g]}{GROUP_NOTE[g] ? <i>{GROUP_NOTE[g]}</i> : null}</td>
                   {COLS.map((c) => { const k = cell(s, c); return <td key={c} className={k.tone} title={k.title}>{k.text}</td>; })}
                 </tr>
               );
