@@ -241,6 +241,31 @@ export class PartialCache<P extends CachedPartial> {
   private uncacheable = new Map<string, { size: number; mtimeMs: number }>();
   interner = new StringInterner();
   private evictedSinceCompact = 0;
+  /** [REPAIR 2026-11-04] fold cycles currently running on this cache. Live
+   *  2026-11-04 (`FOLD-MISMATCH portdwell: vesselsSeen: 60448 vs 60396`):
+   *  two callers' cycles overlapped, and one cycle's prune() compacted, i.e.
+   *  REPLACED, the string table while the other still held ids minted by the
+   *  old one (a builder that captured it, or a partial fetched before an
+   *  await and then evicted, so never remapped). Those ids then resolved
+   *  against the new table to the wrong MMSI or to undefined (merged
+   *  vessels, or a TypeError inside compact itself). While any cycle is in
+   *  flight the table is therefore never replaced; the last cycle out
+   *  compacts (endCycle). */
+  private inFlight = 0;
+  /** partials compact() had to drop because they referenced an id the table
+   *  does not hold. Stays 0 while cycles use begin/endCycle; anything else
+   *  is a bug, logged loudly. */
+  compactDrops = 0;
+
+  /** A fold cycle starts using this cache's partials and string table. */
+  beginCycle(): void { this.inFlight++; }
+  /** The cycle is done; the last one out runs the compaction that any
+   *  cycle's evictions deferred. */
+  endCycle(): void {
+    if (this.inFlight > 0) this.inFlight--;
+    if (this.inFlight === 0 && this.evictedSinceCompact > 0) this.compact();
+  }
+  get cyclesInFlight(): number { return this.inFlight; }
 
   get(file: WindowFile): P | undefined {
     const e = this.entries.get(file.name);
@@ -268,7 +293,8 @@ export class PartialCache<P extends CachedPartial> {
    *  (fell out of it, or became the cutoff-straddling oldest hour), then the
    *  oldest hours beyond `cap`; uncacheable marks survive while their file
    *  is still listed at all. Compacts the string table if anything was
-   *  evicted. Returns the number of partials evicted. */
+   *  evicted, unless a fold cycle is in flight: then the last cycle's
+   *  endCycle() compacts. Returns the number of partials evicted. */
   prune(cacheableNames: Set<string>, cap: number, listedNames: Set<string> = cacheableNames): number {
     let evicted = 0;
     for (const name of Array.from(this.entries.keys())) {
@@ -282,16 +308,29 @@ export class PartialCache<P extends CachedPartial> {
       for (const e of byAge.slice(0, this.entries.size - cap)) { this.entries.delete(e.file.name); evicted++; }
     }
     this.evictedSinceCompact += evicted;
-    if (this.evictedSinceCompact > 0) this.compact();
+    if (this.evictedSinceCompact > 0 && this.inFlight === 0) this.compact();
     return evicted;
   }
   /** Rebuilds the string table from the surviving partials so ids of
    *  evicted hours' vessels are released. O(ids in cache); runs at most
-   *  once per cycle and only after an eviction. */
+   *  once per cycle and only after an eviction. A partial holding an id the
+   *  table does not know is dropped (re-folded next cycle) rather than
+   *  half-remapped or allowed to throw out of the cycle. */
   compact(): void {
     const next = new StringInterner();
     const old = this.interner;
-    this.entries.forEach((e) => e.partial.remapIds((id) => next.id(old.str(id))));
+    const map = (id: number): number => {
+      const s = old.str(id);
+      if (s === undefined) throw new Error(`id ${id} is not in the string table (size ${old.size})`);
+      return next.id(s);
+    };
+    for (const [name, e] of Array.from(this.entries)) {
+      try { e.partial.remapIds(map); } catch (err) {
+        this.entries.delete(name);
+        this.compactDrops++;
+        console.error(`[fold] compact dropped the partial for ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     this.interner = next;
     this.evictedSinceCompact = 0;
   }
@@ -316,10 +355,12 @@ export class PartialCacheRegistry<P extends CachedPartial> {
     }
     return c;
   }
-  totals(): { partialsCached: number; partialBytesEstimate: number; uncacheableFiles: number } {
-    let partialsCached = 0, partialBytesEstimate = 0, uncacheableFiles = 0;
-    this.caches.forEach((c) => { partialsCached += c.size; partialBytesEstimate += c.bytesEstimate(); uncacheableFiles += c.uncacheableCount; });
-    return { partialsCached, partialBytesEstimate, uncacheableFiles };
+  totals(): { partialsCached: number; partialBytesEstimate: number; uncacheableFiles: number; compactDrops: number } {
+    let partialsCached = 0, partialBytesEstimate = 0, uncacheableFiles = 0, compactDrops = 0;
+    this.caches.forEach((c) => {
+      partialsCached += c.size; partialBytesEstimate += c.bytesEstimate(); uncacheableFiles += c.uncacheableCount; compactDrops += c.compactDrops;
+    });
+    return { partialsCached, partialBytesEstimate, uncacheableFiles, compactDrops };
   }
   clear(): void { this.caches.clear(); }
 }
@@ -411,6 +452,10 @@ export interface FoldStats {
    *  both .jsonl and .jsonl.gz during compression, or a file carrying a
    *  timestamp outside its hour) and the full fold ran instead */
   fallbacks: number;
+  /** partials PartialCache.compact() dropped because they held an id its
+   *  string table did not know (cumulative). Stays 0 unless overlapping
+   *  cycles corrupt the cache again — see PartialCache.inFlight. */
+  compactDrops: number;
   filesStreamedLastRun: number;
   filesCachedLastRun: number;
   lastRunAt: string | null;
@@ -420,7 +465,7 @@ export class FoldStatsTracker {
   private s: FoldStats = {
     mode: DEFAULT_FOLD_MODE, partialsCached: 0, partialBytesEstimate: 0, uncacheableFiles: 0,
     lastFullMs: null, lastIncrementalMs: null, mismatches: 0, lastMismatchAt: null, matches: 0,
-    compareSkipped: 0, fallbacks: 0, filesStreamedLastRun: 0, filesCachedLastRun: 0, lastRunAt: null,
+    compareSkipped: 0, fallbacks: 0, compactDrops: 0, filesStreamedLastRun: 0, filesCachedLastRun: 0, lastRunAt: null,
   };
   snapshot(): FoldStats { return { ...this.s }; }
   /** Mutates the live record — only runIncrementalFold and the module's
@@ -431,7 +476,7 @@ export class FoldStatsTracker {
     this.s = {
       mode: DEFAULT_FOLD_MODE, partialsCached: 0, partialBytesEstimate: 0, uncacheableFiles: 0,
       lastFullMs: null, lastIncrementalMs: null, mismatches: 0, lastMismatchAt: null, matches: 0,
-      compareSkipped: 0, fallbacks: 0, filesStreamedLastRun: 0, filesCachedLastRun: 0, lastRunAt: null,
+      compareSkipped: 0, fallbacks: 0, compactDrops: 0, filesStreamedLastRun: 0, filesCachedLastRun: 0, lastRunAt: null,
     };
   }
 }
@@ -460,7 +505,7 @@ export interface IncrementalFoldSpec<S, P extends CachedPartial, R> {
   nowMs?: number;
   cache: PartialCache<P>;
   stats: FoldStatsTracker;
-  registryTotals: () => { partialsCached: number; partialBytesEstimate: number; uncacheableFiles: number };
+  registryTotals: () => { partialsCached: number; partialBytesEstimate: number; uncacheableFiles: number; compactDrops: number };
   newState(): S;
   push(state: S, mmsi: string, p: VesselPt): void;
   newBuilder(file: WindowFile, interner: StringInterner): PartialBuilder<P>;
@@ -475,8 +520,15 @@ export interface IncrementalFoldSpec<S, P extends CachedPartial, R> {
  *  bytes. Returns the result to SERVE (full in shadow mode, incremental in
  *  incremental mode — or the full fold's when the incremental one had to
  *  be discarded). Full mode never comes here: the module's untouched
- *  original path handles it. */
+ *  original path handles it. Cycles on one cache may overlap (several
+ *  callers share it); begin/endCycle keep its string table fixed until the
+ *  last of them ends. */
 export async function runIncrementalFold<S, P extends CachedPartial, R>(spec: IncrementalFoldSpec<S, P, R>): Promise<R> {
+  spec.cache.beginCycle();
+  try { return await foldCycle(spec); } finally { spec.cache.endCycle(); }
+}
+
+async function foldCycle<S, P extends CachedPartial, R>(spec: IncrementalFoldSpec<S, P, R>): Promise<R> {
   const { cache, stats, mode } = spec;
   const listing = listVesselWindowFiles(spec.windowHours, spec.baseDir, spec.nowMs);
   const passStart = performance.now();

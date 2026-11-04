@@ -213,7 +213,7 @@ test("FoldStatsTracker: snapshot is a copy, bump/update mutate, reset returns to
   t.reset();
   assert.deepEqual(t.snapshot(), s0);
   assert.deepEqual(Object.keys(s0).sort(), [
-    "compareSkipped", "fallbacks", "filesCachedLastRun", "filesStreamedLastRun", "lastFullMs",
+    "compactDrops", "compareSkipped", "fallbacks", "filesCachedLastRun", "filesStreamedLastRun", "lastFullMs",
     "lastIncrementalMs", "lastMismatchAt", "lastRunAt", "matches", "mismatches", "mode",
     "partialBytesEstimate", "partialsCached", "uncacheableFiles",
   ], "the /api/health diagnostic's field set is pinned");
