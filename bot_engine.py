@@ -185,6 +185,23 @@ _MOST_ACTIVES_CACHE_TIME: float = 0.0
 _CREDIT_SPREAD_CACHE: float = 0.0
 _CREDIT_SPREAD_CACHE_TIME: float = 0.0
 
+# SERVE-TIME FEATURE FIX ([REPAIR] 2026-11-03, approved item B3,
+# serve_features.py). The scan's own change distribution — {ticker: today's
+# % change} for every quick-scanned name at or above training's 300k-share
+# floor — published once per scan by _scan_market_inner (publish_scan_changes)
+# and read by deep_score so cross_sec_rank can rank a candidate the way
+# _build_training_data ranks a row (against the day's universe), instead of
+# against the most-actives screener's non-existent `change` field.
+_SCAN_CHANGES: dict = {}
+_SCAN_CHANGES_TIME: float = 0.0
+# The corrected TLT/HYG credit spread (two SINGLE-symbol bar requests, so the
+# per-request `limit` is per symbol — the multi-symbol request above shares
+# its limit across both symbols and came back short). Same 60s TTL reasoning
+# as _CREDIT_SPREAD_CACHE; None is cached too, so a failing endpoint is asked
+# once per cycle, not once per candidate.
+_CREDIT_SPREAD_FIX_CACHE: dict = {"value": None, "time": 0.0}
+_CREDIT_SPREAD_FIX_TTL_S = 60.0
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 POLYGON_KEY = os.environ.get("POLYGON_KEY", "") or os.environ.get("POLYGON_API_KEY", "")  # FIX: accept either name (5 other files use POLYGON_KEY)
@@ -795,6 +812,94 @@ def _ml_result_is_model(ml_result) -> bool:
     if not mt or mt.startswith("fallback"):
         return False
     return True
+
+
+def publish_scan_changes(quick_results, now=None) -> int:
+    """SERVE-TIME FEATURE FIX ([REPAIR] 2026-11-03, B3): remember this scan's
+    change distribution for cross_sec_rank — {TICKER: change_pct} over the
+    quick results at or above serve_features.SCAN_CHANGES_MIN_VOLUME (the
+    liquidity floor a training row must clear). Called once per scan right
+    after the quick pass; never raises (an unusable list publishes nothing,
+    which deep_score reads as "no scan population" -> today's 0.5)."""
+    global _SCAN_CHANGES, _SCAN_CHANGES_TIME
+    out: dict = {}
+    try:
+        from serve_features import SCAN_CHANGES_MIN_VOLUME
+        for q in quick_results or []:
+            if not isinstance(q, dict):
+                continue
+            sym, chg = q.get("ticker"), q.get("change_pct")
+            if not sym or isinstance(chg, bool) or not isinstance(chg, (int, float)) or chg != chg:
+                continue
+            if float(q.get("volume", 0) or 0) < SCAN_CHANGES_MIN_VOLUME:
+                continue
+            out[str(sym).upper()] = float(chg)
+    except Exception as e:
+        import logging as _psc_log
+        _psc_log.getLogger("bot_engine").debug(f"publish_scan_changes skipped: {e}")
+        out = {}
+    _SCAN_CHANGES = out
+    _SCAN_CHANGES_TIME = float(now if now is not None else time.time()) if out else 0.0
+    return len(out)
+
+
+def scan_changes_snapshot(now=None, max_age_s=None):
+    """The current scan's change distribution, or None when there is none or it
+    is older than serve_features.SCAN_CHANGES_MAX_AGE_S (deep_score is also
+    reachable from the look-up path outside a scan)."""
+    if not _SCAN_CHANGES:
+        return None
+    if max_age_s is None:
+        from serve_features import SCAN_CHANGES_MAX_AGE_S as max_age_s
+    if (now if now is not None else time.time()) - _SCAN_CHANGES_TIME > float(max_age_s):
+        return None
+    return _SCAN_CHANGES
+
+
+def _cross_sec_universe() -> set:
+    """Training's cross-sectional universe at serve: the most-actives screener
+    symbols deep_score already caches plus ml_model_v2.TRAINING_CORE_TICKERS."""
+    syms: set = set()
+    for item in (_MOST_ACTIVES_CACHE or []):
+        sym = item.get("symbol") if isinstance(item, dict) else None
+        if sym:
+            syms.add(str(sym).upper())
+    try:
+        from ml_model_v2 import TRAINING_CORE_TICKERS
+        syms.update(TRAINING_CORE_TICKERS)
+    except Exception as e:
+        import logging as _csu_log
+        _csu_log.getLogger("bot_engine").debug(f"TRAINING_CORE_TICKERS unavailable for cross_sec_rank: {e}")
+    return syms
+
+
+def _credit_spread_fixed(now=None):
+    """The TLT-HYG 21-bar return spread the training formula defines
+    (serve_features.credit_spread_21d), fetched as two single-symbol daily-bar
+    requests so each gets its own `limit`. Cached for _CREDIT_SPREAD_FIX_TTL_S
+    (None included). None = unavailable -> the fix keeps the current value."""
+    t = now if now is not None else time.time()
+    if t - _CREDIT_SPREAD_FIX_CACHE["time"] < _CREDIT_SPREAD_FIX_TTL_S:
+        return _CREDIT_SPREAD_FIX_CACHE["value"]
+    value = None
+    try:
+        from serve_features import credit_spread_21d
+        start = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+        closes = {}
+        for sym in ("TLT", "HYG"):
+            alpaca_throttle.acquire()
+            resp = requests.get(
+                f"{ALPACA_DATA_URL}/v2/stocks/{sym}/bars?timeframe=1Day&start={start}&limit=60&feed={bars_feed()}",
+                headers=_alpaca_headers(), timeout=8)
+            closes[sym] = [float(b["c"]) for b in (resp.json().get("bars") or []) if isinstance(b, dict) and "c" in b]
+        value = credit_spread_21d(closes["TLT"], closes["HYG"])
+    except Exception as e:
+        import logging as _csf_log
+        _csf_log.getLogger("bot_engine").debug(f"credit_spread (serve fix) unavailable this cycle: {e}")
+        value = None
+    _CREDIT_SPREAD_FIX_CACHE["value"] = value
+    _CREDIT_SPREAD_FIX_CACHE["time"] = t
+    return value
 
 
 def _shadow_label_for(combined_score, min_score=None):
@@ -1874,7 +1979,66 @@ except Exception as e:
             "market_breadth":       round(_market_breadth, 3),
             "put_call_ratio":       round(_put_call_ratio, 3),
         }
-        ml_result = ml_score(ml_features)
+        # ── SERVE-TIME FEATURE FIX ([REPAIR] 2026-11-03, approved item B3) ──
+        # serve_features.py: seven of these inputs were constant at serve while
+        # training varied them — price_vs_52w_high (no high_52w on the quick
+        # result -> 0), ewma_vol (read "ewma_vol", analyze emits "ewma_rv" ->
+        # the default 2), range_pct (quick_scan hard-codes 0), sector_momentum
+        # (sector ETF move, 0 for every unmapped name; training is stock-minus-
+        # SPY 5-day), cross_sec_rank (the most-actives payload has no `change`
+        # field -> 0.5), trend_strength (|chg|/2 saturates at 5) and
+        # credit_spread (multi-symbol `limit` shared across TLT and HYG -> 0.0).
+        # SHADOW-FIRST behind VOLTRADE_SERVE_FEATURE_FIX: off = today's exact
+        # path (one scoring, no extra fetch, no record field); shadow (default)
+        # = both vectors scored, the CURRENT score served, the corrected score
+        # and the per-feature diff persisted on the shadow record (`serve_fix`);
+        # on = the corrected vector served (the current one still scored and
+        # recorded). Any failure inside the fix path serves exactly what `off`
+        # serves and records the error.
+        _serve_fix = None
+        _sf_mode = "off"
+        try:
+            from serve_features import serve_fix_mode as _sf_mode_fn, fixed_feature_vector as _sf_fixed_fn
+            _sf_mode = _sf_mode_fn()
+        except Exception as _sf_imp_exc:
+            import logging as _sf_log
+            _sf_log.getLogger("bot_engine").debug(f"serve_features unavailable, serving today's vector: {_sf_imp_exc}")
+        if _sf_mode == "off":
+            ml_result = ml_score(ml_features)
+        else:
+            try:
+                _sf_fixed, _sf_diff = _sf_fixed_fn(
+                    ml_features, symbol=ticker, bars=_deep_bars, closes=_deep_closes,
+                    change_pct=quick_result.get("change_pct", 0) or 0, price=_price,
+                    spy_closes=macro.get("spy_closes_60d") if isinstance(macro, dict) else None,
+                    scan_changes=scan_changes_snapshot(), universe_symbols=_cross_sec_universe(),
+                    credit_spread_fixed=_credit_spread_fixed())
+                _sf_cur_res = ml_score(ml_features)
+                _sf_fix_res = ml_score(_sf_fixed) if _sf_diff else _sf_cur_res
+                _sf_cur_d = _sf_cur_res if isinstance(_sf_cur_res, dict) else {}
+                _sf_fix_d = _sf_fix_res if isinstance(_sf_fix_res, dict) else {}
+                _serve_fix = {
+                    "mode": _sf_mode,
+                    "served": "fixed" if _sf_mode == "on" else "current",
+                    "n_changed": len(_sf_diff),
+                    "features_fixed_diff": {k: v["fixed"] for k, v in _sf_diff.items()},
+                    "features_current_diff": {k: v["current"] for k, v in _sf_diff.items()},
+                    "ml_prob_current": _sf_cur_d.get("win_probability"),
+                    "ml_prob_fixed": _sf_fix_d.get("win_probability"),
+                    "ml_score_current": _sf_cur_d.get("ml_score"),
+                    "ml_score_fixed": _sf_fix_d.get("ml_score"),
+                    "model_type_current": _sf_cur_d.get("model_type"),
+                    "model_type_fixed": _sf_fix_d.get("model_type"),
+                }
+                if _sf_mode == "on":
+                    ml_features = _sf_fixed
+                    ml_result = _sf_fix_res
+                else:
+                    ml_result = _sf_cur_res
+            except Exception as _sf_exc:
+                _serve_fix = {"mode": _sf_mode, "served": "current",
+                              "error": f"{type(_sf_exc).__name__}: {_sf_exc}"[:200]}
+                ml_result = ml_score(ml_features)
         if isinstance(ml_result, dict):
             _ml_trace.update({
                 "model_type": ml_result.get("model_type"),
@@ -2054,6 +2218,7 @@ except Exception as e:
             trade_type=trade_type,
             ml={**_ml_trace, "final_score": combined_score} if '_ml_trace' in locals() else None,
             score_breakdown=_score_breakdown,
+            serve_fix=_serve_fix if '_serve_fix' in locals() else None,
             regime_snapshot=_regime_snapshot,
         )
     except Exception:
@@ -3216,6 +3381,9 @@ def _scan_market_inner():
     # Sort by quick score
     quick_results.sort(key=lambda x: x["quick_score"], reverse=True)
     scored = quick_results
+    # SERVE-TIME FEATURE FIX ([REPAIR] 2026-11-03, B3): this scan's change
+    # distribution, for deep_score's cross_sec_rank (see publish_scan_changes).
+    publish_scan_changes(quick_results)
 
     # Checkpoint 0: save quick-scored results so timeout handler has something
     _partial_scan_result = {

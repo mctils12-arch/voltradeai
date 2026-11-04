@@ -23315,3 +23315,15 @@ OPTIONS_DEFINED_RISK_STRATEGIES (one POS-KILL-STRUCTURE-HOLD line per ticker
 per UTC day, no order); single legs and short straddles keep the backstop.
 KNOWN BROKEN #45 is closed on both halves; the rollback triggers stay as
 written above and in experiments.md.
+
+## KNOWN BROKEN #46 (2026-11-03) — serve/train feature definition gaps beyond the B3 constancy fix
+B3 (branch claude/b3-serve-features) repaired the 7 features that were CONSTANT at serve; it did not touch features that move but are defined differently from training. Each is a distribution shift the model is scored on without having trained on it. Ranked by expected effect (per-ticker first):
+1. idiosyncratic_ret: serve = change_pct_today (macro.spy_change_pct is never produced); training = mom_1m - beta_proxy*spy_21d. Fix: compute the training formula from _deep_closes + spy_closes_60d (same pattern as serve_features). Ladder: parity test vs _compute_features, then shadow via `serve_fix`.
+2. vrp / iv_rank_proxy / put_call_proxy: training derives all three from VXX (market-wide); serve uses analyze's per-ticker VRP and a per-stock HV rank. Decide ONE definition (per-ticker is the more informative one — then training must change, a model PR).
+3. iv_rank_stock: serve == iv_rank_proxy (same function); training = VXX rank x volume beta.
+4. market_breadth: serve proxy from spy_vs_ma50; training = real % of universe above its 50d MA per date. The scan already has every name's closes? No — only the snapshot; a daily breadth computation needs bars for the universe (cost) or a cached nightly value.
+5. volume_ratio (today/20d vs 5d), adx (DM ratio vs Wilder), atr_pct (mean TR vs Wilder), rsi_14 (simple vs analyze).
+6. Off-by-one windows: momentum_1m/3m, above_ma10, frac_diff_price, vol_of_vol, spy_vs_ma50/vxx_ratio averaging windows.
+7. The five training-constant features (intel_score, news_sentiment, insider_signal, days_to_earnings, earnings_surprise) are dead weight in FEATURE_COLS; removal is a model change (FEATURE_COLS asserted 34; bundle pins names) — do it with the retrain that follows B3's promotion.
+Also: training blends shadow records (load_shadow_data, 0.3x) whose `features` are the SERVED vectors — after `on`, one retrain cycle mixes corrected and constant rows; the `serve_fix.features_current_diff` on `on`-mode records allows re-deriving either vector if a clean retrain set is wanted.
+Measure: `/api/diag/source_validation` per-feature `distinct_values`/`mode_share` (live) and ml_insight `recent.features[*].kind/constant_bug/fixed_constant` once /api/bot/insight is readable from a session (it is owner-cookie-gated today — a `ml_insight` diag probe would close that gap).
