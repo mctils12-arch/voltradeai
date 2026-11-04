@@ -482,3 +482,274 @@ test("refreshDtccSwaps: a normal completed poll resolves the crash marker so the
   assert.ok(marker.completedAt, "marker resolved after a normal (non-crashing) run, so it never falsely cools down the next boot");
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// ── On-disk ID store modes (memory fix A1, 2026-11-03) ───────────────────
+// VOLTRADE_DTCC_IDS_STORE = memory | dual (default) | sqlite. The dedup
+// DECISION is the only thing computed differently: archived rows, the
+// compact index and the API-facing cache must be identical across modes;
+// dual logs every disagreement as DTCC-IDS-MISMATCH and serves the memory
+// answer; sqlite never builds the Set; memory is always a clean rollback.
+
+import Database from "better-sqlite3";
+import { dtccIdsStats, setDtccIdsAuditSink } from "./dtccSwaps";
+
+type IdsMode = "memory" | "dual" | "sqlite";
+const IDS_ENV = "VOLTRADE_DTCC_IDS_STORE";
+
+async function withMode<T>(mode: IdsMode, fn: () => Promise<T> | T): Promise<T> {
+  const prev = process.env[IDS_ENV];
+  process.env[IDS_ENV] = mode;
+  _resetDtccForTests();
+  try {
+    return await fn();
+  } finally {
+    _resetDtccForTests();
+    if (prev === undefined) delete process.env[IDS_ENV]; else process.env[IDS_ENV] = prev;
+  }
+}
+
+function captureConsole() {
+  const errors: string[] = [];
+  const logs: string[] = [];
+  const origErr = console.error;
+  const origLog = console.log;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ")); };
+  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
+  return { errors, logs, restore: () => { console.error = origErr; console.log = origLog; } };
+}
+
+function seedIndex(baseDir: string, ids: readonly string[]): void {
+  fs.mkdirSync(path.join(baseDir, "dtccswaps"), { recursive: true });
+  fs.writeFileSync(path.join(baseDir, "dtccswaps", "_seen_ids_index.jsonl.gz"),
+    zlib.gzipSync(ids.join("\n") + (ids.length ? "\n" : "")));
+}
+
+function fourRows() {
+  const idx = parseHeader(HEADER_LINE);
+  const n = HEADER_COLS.length;
+  return [
+    parseDtccLine(row("1", "US0378331005", "ISIN", "APPLE INC", "1,000,000"), idx, n)!,
+    parseDtccLine(row("2", "US88160R1014", "ISIN", "TESLA INC", "50,000,000"), idx, n)!,
+    parseDtccLine(row("3", "037833100", "CUSIP", "APPLE INC", ""), idx, n)!,
+    parseDtccLine(row("4", "88160R101", "CUSIP", "TESLA INC", "10,000,000"), idx, n)!,
+  ];
+}
+
+test("ids store modes: memory / dual / sqlite make the IDENTICAL fresh selection from the same seeded index, and leave byte-identical day files and compact indexes", async () => {
+  const outputs: Record<string, { day: Buffer; index: Buffer; r1: { newRows: number; seenTotal: number }; r2: { newRows: number; seenTotal: number } }> = {};
+  for (const mode of ["memory", "dual", "sqlite"] as const) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `dtcc-mode-${mode}-`));
+    seedIndex(dir, ["1", "2"]); // two already-archived ids, two new ones in the rows
+    await withMode(mode, () => {
+      const r1 = archiveNewRows(fourRows(), "2026-11-03", dir);
+      assert.equal(r1.newRows, 2, `${mode}: only ids 3 and 4 are fresh`);
+      assert.equal(r1.seenTotal, 4, `${mode}: total distinct ids`);
+      const r2 = archiveNewRows(fourRows(), "2026-11-03", dir);
+      assert.equal(r2.newRows, 0, `${mode}: a re-served file archives nothing`);
+      assert.equal(r2.seenTotal, 4);
+      const stats = dtccIdsStats();
+      assert.equal(stats.mode, mode);
+      assert.equal(stats.mismatches, 0, `${mode}: no disagreement`);
+      if (mode === "memory") {
+        assert.equal(stats.memoryCount, 4);
+        assert.equal(stats.dbCount, null, "memory mode never opens the db");
+        assert.equal(stats.backfill, null);
+        assert.ok(!fs.existsSync(path.join(dir, "dtccswaps", "_seen_ids.db")), "memory mode leaves no db file behind");
+      } else if (mode === "dual") {
+        assert.equal(stats.memoryCount, 4);
+        assert.equal(stats.dbCount, 4);
+        assert.equal(stats.backfill?.state, "done");
+        assert.equal(stats.lastLookupRows, 4);
+        assert.ok(typeof stats.lastLookupMs === "number" && stats.lastLookupMs >= 0);
+      } else {
+        assert.equal(stats.memoryCount, null, "sqlite mode NEVER builds the Set — the heap win");
+        assert.equal(stats.dbCount, 4);
+        assert.equal(stats.backfill?.dbBefore, 0);
+        assert.equal(stats.backfill?.indexCount, 2, "backfilled the two seeded ids before deciding");
+        assert.equal(stats.journalMode, "wal");
+        assert.equal(stats.dbPath, path.join(dir, "dtccswaps", "_seen_ids.db"));
+      }
+      outputs[mode] = {
+        day: fs.readFileSync(path.join(dir, "dtccswaps", "2026-11-03.jsonl.gz")),
+        index: fs.readFileSync(path.join(dir, "dtccswaps", "_seen_ids_index.jsonl.gz")),
+        r1, r2,
+      };
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  for (const mode of ["dual", "sqlite"] as const) {
+    assert.ok(outputs[mode].day.equals(outputs.memory.day), `${mode}: day file byte-identical to memory mode`);
+    assert.ok(outputs[mode].index.equals(outputs.memory.index), `${mode}: compact index byte-identical to memory mode (still appended, same format)`);
+    assert.deepEqual(outputs[mode].r1, outputs.memory.r1);
+    assert.deepEqual(outputs[mode].r2, outputs.memory.r2);
+  }
+  const dayIds = zlib.gunzipSync(outputs.memory.day).toString("utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l).disseminationId);
+  assert.deepEqual(dayIds, ["3", "4"]);
+  assert.deepEqual(zlib.gunzipSync(outputs.memory.index).toString("utf8").split("\n").filter(Boolean), ["1", "2", "3", "4"]);
+});
+
+test("ids store modes: refreshDtccSwaps produces the identical API-facing cache in all three modes (only `at` differs), and dual/sqlite run the STREAMED backfill before archiving", async () => {
+  const csv = [HEADER_LINE,
+    row("700", "US0378331005", "ISIN", "APPLE INC", "5,000,000"),
+    row("701", "US88160R1014", "ISIN", "TESLA INC", "9,000,000"),
+    row("702", "037833100", "CUSIP", "APPLE INC", ""),
+  ].join("\n") + "\n";
+  const zip = buildZip(csv);
+  const nowMs = Date.parse("2026-11-03T18:00:00Z");
+  const caches: Record<string, unknown> = {};
+  for (const mode of ["memory", "dual", "sqlite"] as const) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `dtcc-mode-refresh-${mode}-`));
+    seedIndex(dir, ["700"]); // one of the three is already archived
+    await withMode(mode, async () => {
+      const cap = captureConsole();
+      try {
+        await refreshDtccSwaps(dateBlockedFetch([], zip), nowMs, dir);
+      } finally { cap.restore(); }
+      const hit = latestDtcc();
+      assert.ok(hit, `${mode}: poll produced a cache`);
+      assert.equal(hit!.newRows, 2, `${mode}: 701 and 702 are new`);
+      assert.equal(hit!.totalArchived, 3);
+      assert.equal(hit!.usRows, 3);
+      const { at: _at, ...rest } = hit!;
+      caches[mode] = rest;
+      const stats = dtccIdsStats();
+      if (mode === "memory") {
+        assert.equal(stats.dbCount, null);
+        assert.ok(!cap.logs.some((l) => l.includes("DTCC-IDS-BACKFILL")), "memory mode: no backfill at all");
+      } else {
+        assert.equal(stats.backfill?.state, "done");
+        assert.equal(stats.backfill?.source, "streamed", `${mode}: the boot path awaited the async backfill before the poll archived`);
+        assert.equal(stats.backfill?.dbBefore, 0);
+        assert.equal(stats.backfill?.indexCount, 1);
+        assert.equal(stats.dbCount, 3);
+        assert.ok(cap.logs.some((l) => /DTCC-IDS-BACKFILL ok: db 0 -> 1, index 1, imported 1/.test(l)), `${mode}: backfill line carries both counts`);
+        assert.equal(stats.mismatches, 0);
+      }
+      if (mode === "sqlite") assert.equal(stats.memoryCount, null, "sqlite: no Set, even through the full refresh path");
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  assert.deepEqual(caches.dual, caches.memory, "dual == memory");
+  assert.deepEqual(caches.sqlite, caches.memory, "sqlite == memory");
+});
+
+test("dual mode: a dedup disagreement is logged as DTCC-IDS-MISMATCH (counts + example ids), counted in dtccIdsStats, delivered to the audit sink, and the MEMORY answer is served", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-dual-mismatch-"));
+  seedIndex(dir, ["1", "2"]);
+  // A db that already holds "3" (which the index/Set do not) — the two
+  // sources now disagree on whether row 3 is fresh.
+  const raw = new Database(path.join(dir, "dtccswaps", "_seen_ids.db"));
+  raw.exec("CREATE TABLE IF NOT EXISTS seen_ids (id TEXT PRIMARY KEY NOT NULL) WITHOUT ROWID");
+  raw.prepare("INSERT INTO seen_ids (id) VALUES (?)").run("1");
+  raw.prepare("INSERT INTO seen_ids (id) VALUES (?)").run("2");
+  raw.prepare("INSERT INTO seen_ids (id) VALUES (?)").run("3");
+  raw.close();
+  const audited: Array<[string, string]> = [];
+  setDtccIdsAuditSink((action, detail) => audited.push([action, detail]));
+  try {
+    await withMode("dual", () => {
+      const cap = captureConsole();
+      let r: { newRows: number; seenTotal: number };
+      try { r = archiveNewRows(fourRows(), "2026-11-03", dir); } finally { cap.restore(); }
+      assert.equal(r.newRows, 2, "MEMORY answer served: rows 3 and 4 archived (the db alone would have archived only 4)");
+      assert.equal(r.seenTotal, 4);
+      const stats = dtccIdsStats();
+      assert.equal(stats.mismatches, 1);
+      assert.equal(stats.lastMismatch?.kind, "decision");
+      assert.match(stats.lastMismatch!.detail, /memory says 2 fresh, db says 1/);
+      assert.match(stats.lastMismatch!.detail, /fresh-only-in-memory 1 \(e\.g\. 3\)/);
+      assert.ok(cap.errors.some((l) => l.includes("DTCC-IDS-MISMATCH: decision:")), "console.error carries the mismatch");
+      assert.equal(stats.backfill?.state, "mismatch", "the boot-time count check also flagged db 3 != index 2");
+      assert.ok(cap.errors.some((l) => /DTCC-IDS-BACKFILL-MISMATCH: db 3 != index 2/.test(l)));
+      assert.deepEqual(audited.map((a) => a[0]), ["DTCC-IDS-MISMATCH"], "the audit sink gets the mismatch (backfill lines are the store's own channel)");
+      // After the poll both sides hold {1,2,3,4}: the count check agrees.
+      assert.equal(stats.dbCount, 4);
+      assert.equal(stats.memoryCount, 4);
+      const dayIds = zlib.gunzipSync(fs.readFileSync(path.join(dir, "dtccswaps", "2026-11-03.jsonl.gz"))).toString("utf8")
+        .split("\n").filter(Boolean).map((l) => JSON.parse(l).disseminationId);
+      assert.deepEqual(dayIds, ["3", "4"], "the archive follows the memory verdict");
+    });
+  } finally {
+    setDtccIdsAuditSink(null);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dual mode: the db drifting from the Set after archiving is caught as a 'count' mismatch on the next poll (and the decision mismatch it implies)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-dual-count-"));
+  await withMode("dual", () => {
+    assert.equal(archiveNewRows(fourRows(), "2026-11-03", dir).newRows, 4);
+    assert.equal(dtccIdsStats().mismatches, 0);
+    // Simulate drift: a row vanishes from the db behind the module's back.
+    const raw = new Database(path.join(dir, "dtccswaps", "_seen_ids.db"));
+    raw.prepare("DELETE FROM seen_ids WHERE id = ?").run("2");
+    raw.close();
+    const cap = captureConsole();
+    let r: { newRows: number; seenTotal: number };
+    try { r = archiveNewRows(fourRows(), "2026-11-03", dir); } finally { cap.restore(); }
+    assert.equal(r.newRows, 0, "memory still says everything is seen — served");
+    const stats = dtccIdsStats();
+    assert.equal(stats.mismatches, 2, "one decision mismatch (db thinks 2 is fresh) + one count mismatch (4 vs 3)");
+    assert.equal(stats.lastMismatch?.kind, "count");
+    assert.match(stats.lastMismatch!.detail, /set 4 vs db 3/);
+    assert.ok(cap.errors.some((l) => l.includes("DTCC-IDS-MISMATCH: decision:")));
+    assert.ok(cap.errors.some((l) => l.includes("DTCC-IDS-MISMATCH: count:")));
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("rollback: sqlite mode archives (index still appended) → memory mode dedups from the index alone, nothing re-archived → back to sqlite backfills the gap and continues", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-rollback-"));
+  const rows = fourRows();
+  await withMode("sqlite", () => {
+    const r = archiveNewRows(rows.slice(0, 3), "2026-11-01", dir);
+    assert.deepEqual(r, { newRows: 3, seenTotal: 3 });
+    assert.equal(dtccIdsStats().memoryCount, null, "sqlite: Set never built");
+    assert.equal(dtccIdsStats().dbCount, 3);
+    assert.deepEqual(zlib.gunzipSync(fs.readFileSync(path.join(dir, "dtccswaps", "_seen_ids_index.jsonl.gz"))).toString("utf8").split("\n").filter(Boolean),
+      ["1", "2", "3"], "the compact index is appended in sqlite mode exactly as before — the rollback path stays intact");
+  });
+  await withMode("memory", () => {
+    const r = archiveNewRows(rows, "2026-11-02", dir);
+    assert.deepEqual(r, { newRows: 1, seenTotal: 4 }, "memory mode (rolled back) sees 1-3 via the index, archives only 4");
+    assert.equal(dtccIdsStats().dbCount, null, "memory mode did not touch the db");
+    assert.equal(dtccIdsStats().memoryCount, 4);
+  });
+  await withMode("sqlite", () => {
+    const idx = parseHeader(HEADER_LINE);
+    const five = [...rows, parseDtccLine(row("5", "US0378331005", "ISIN", "APPLE INC", "2,000,000"), idx, HEADER_COLS.length)!];
+    const cap = captureConsole();
+    let r: { newRows: number; seenTotal: number };
+    try { r = archiveNewRows(five, "2026-11-03", dir); } finally { cap.restore(); }
+    assert.deepEqual(r, { newRows: 1, seenTotal: 5 }, "db was behind the index by the id archived in memory mode; backfilled, then only 5 is new");
+    const stats = dtccIdsStats();
+    assert.equal(stats.backfill?.state, "done");
+    assert.equal(stats.backfill?.dbBefore, 3);
+    assert.equal(stats.backfill?.indexCount, 4);
+    assert.equal(stats.backfill?.imported, 1);
+    assert.equal(stats.backfill?.source, "sync", "a direct archive call before any boot pass takes the synchronous twin");
+    assert.ok(cap.logs.some((l) => /DTCC-IDS-BACKFILL ok: db 3 -> 4, index 4, imported 1/.test(l)));
+    assert.equal(stats.dbCount, 5);
+    assert.equal(stats.memoryCount, null);
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("store failure degrades the call to the memory path LOUDLY (DTCC-IDS-DB-ERROR) instead of stopping the archive — in sqlite mode too", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-store-fail-"));
+  // A directory where the db file should be: SQLite cannot open it.
+  fs.mkdirSync(path.join(dir, "dtccswaps", "_seen_ids.db"), { recursive: true });
+  await withMode("sqlite", () => {
+    const cap = captureConsole();
+    let r: { newRows: number; seenTotal: number };
+    try { r = archiveNewRows(fourRows(), "2026-11-03", dir); } finally { cap.restore(); }
+    assert.deepEqual(r, { newRows: 4, seenTotal: 4 }, "archived via the in-memory Set");
+    const stats = dtccIdsStats();
+    assert.ok(stats.storeError, "the open failure is recorded for the health diagnostic");
+    assert.equal(stats.memoryCount, 4, "the Set was built as the degrade path");
+    assert.equal(stats.dbCount, null);
+    assert.ok(cap.errors.some((l) => l.includes("DTCC-IDS-DB-ERROR: could not open")), "never silent");
+    assert.ok(fs.existsSync(path.join(dir, "dtccswaps", "2026-11-03.jsonl.gz")), "the day file was written regardless");
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -61,6 +61,7 @@ import fs from "fs";
 import path from "path";
 import { archiveBaseDir } from "./datacoreArchive";
 import { guardedRefresh } from "./crashSafeRefresh";
+import { DtccIdsStore, dtccIdsMode, type DtccIdsBackfill, type DtccIdsMode } from "./dtccIdsStore";
 
 const BASE_URL = "https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod";
 
@@ -348,7 +349,9 @@ let seenIds: Set<string> | null = null;
 // dedup a cumulative-from-inception upstream file) — only the CPU/memory
 // burst of rebuilding it at every boot, which the audit named as "the
 // biggest single contributor to the boot burst and the only one that
-// grows day over day."
+// grows day over day." (2026-11-03, memory fix A1: the retained Set is
+// what server/dtccIdsStore.ts moves to disk — see ON-DISK ID STORE below.
+// This index stays the ground truth and is appended in every mode.)
 const SEEN_IDS_INDEX_FILE = "_seen_ids_index.jsonl.gz";
 
 function seenIdsIndexPath(dir: string): string {
@@ -444,7 +447,160 @@ export function loadSeenIds(dir: string): Set<string> {
   return seen;
 }
 
-export function _resetDtccForTests(): void { seenIds = null; cache = null; refreshing = false; }
+// ── ON-DISK ID STORE (memory fix A1, 2026-11-03) ─────────────────────────
+//
+// The compact index above made REBUILDING `seenIds` at boot cheap; the
+// retained Set itself (6,555,571 IDs live on 2026-11-03, an estimated
+// 0.4-0.5 GB of heap, +5-8 MB/day) was the remaining cost. server/
+// dtccIdsStore.ts keeps the same set in `<dir>/_seen_ids.db` (SQLite, WAL).
+// VOLTRADE_DTCC_IDS_STORE selects the mode: `memory` = the pre-A1 path
+// exactly (no DB ever opened); `dual` (DEFAULT) = Set AND DB, every dedup
+// decision computed by both, disagreements logged as DTCC-IDS-MISMATCH, the
+// MEMORY answer served; `sqlite` = DB only, the Set is never built (the
+// heap win — switched to after a mismatch-free dual period). The compact
+// index is appended in EVERY mode and never otherwise touched, so `memory`
+// is always a clean rollback. A store that cannot open/backfill/insert
+// degrades THAT call to the memory path and says so (DTCC-IDS-DB-ERROR):
+// the archive never stops over its dedup store (KEEP THE SYSTEM ALIVE).
+let idsStore: DtccIdsStore | null = null;
+let idsStoreDir: string | null = null;
+let idsStoreError: string | null = null;
+let idsMismatches = 0;
+let idsLastMismatch: { at: number; kind: "decision" | "count"; detail: string } | null = null;
+let idsLastLookupMs: number | null = null;
+let idsLastLookupRows: number | null = null;
+
+export type DtccAuditSink = (action: string, detail: string) => void;
+let idsAuditSink: DtccAuditSink | null = null;
+/** Optional audit-log hook for DTCC-IDS-* lines (e.g. bot.ts's `audit`);
+ *  console logging happens regardless. Nothing wires it by default. */
+export function setDtccIdsAuditSink(sink: DtccAuditSink | null): void { idsAuditSink = sink; }
+
+function idsEmit(action: string, detail: string): void {
+  console.error(`[datacore] dtccswaps ${action}: ${detail}`);
+  if (idsAuditSink) {
+    try { idsAuditSink(action, detail); } catch (e) { console.error("[datacore] dtccswaps audit sink threw:", e); }
+  }
+}
+
+function idsMismatch(kind: "decision" | "count", detail: string): void {
+  idsMismatches++;
+  idsLastMismatch = { at: Date.now(), kind, detail };
+  idsEmit("DTCC-IDS-MISMATCH", `${kind}: ${detail}`);
+}
+
+function closeIdsStore(): void {
+  if (idsStore) {
+    try { idsStore.close(); } catch (e) { console.error("[datacore] dtccswaps ids store close:", e); }
+  }
+  idsStore = null; idsStoreDir = null;
+}
+
+/** Opens (or re-targets, when a test switches archive dirs) the store.
+ *  Returns null — after logging — when the DB cannot be opened. */
+function openIdsStore(dir: string): DtccIdsStore | null {
+  if (idsStore && idsStoreDir === dir && idsStore.isOpen) return idsStore;
+  closeIdsStore();
+  try {
+    idsStore = new DtccIdsStore({ dir, indexPath: seenIdsIndexPath(dir), rebuildIds: () => loadSeenIds(dir) });
+    idsStoreDir = dir;
+    idsStoreError = null;
+  } catch (e) {
+    idsStoreError = e instanceof Error ? e.message : String(e);
+    idsEmit("DTCC-IDS-DB-ERROR", `could not open ${path.join(dir, "_seen_ids.db")}: ${idsStoreError} — this call uses the in-memory Set`);
+  }
+  return idsStore;
+}
+
+/** A store ready for dedup decisions (backfilled), or null to degrade this
+ *  call to the memory path. Synchronous: used by archiveNewRows itself. */
+function readyIdsStoreSync(dir: string): DtccIdsStore | null {
+  const store = openIdsStore(dir);
+  if (!store) return null;
+  if (!store.isReady) store.ensureReadySync();
+  return store.backfill.state === "failed" ? null : store;
+}
+
+/** Boot path (refreshDtccSwaps): the streamed backfill, awaited BEFORE the
+ *  zip stream so the two never overlap in memory. No-op in memory mode. */
+export async function ensureDtccIdsReady(baseDir?: string): Promise<void> {
+  if (dtccIdsMode() === "memory") return;
+  const store = openIdsStore(dtccDir(baseDir));
+  if (store && !store.isReady) await store.ensureReadyAsync();
+}
+
+/** dual mode: the two dedup verdicts for one poll must agree. Logged, counted,
+ *  never silently reconciled — the memory answer is what gets served. */
+function compareIdsDecisions(memFresh: DtccSwapRow[], dbFresh: DtccSwapRow[]): void {
+  const memIds = new Set(memFresh.map((r) => r.disseminationId));
+  const dbIds = new Set(dbFresh.map((r) => r.disseminationId));
+  const onlyMem: string[] = [];
+  const onlyDb: string[] = [];
+  for (const id of memIds) if (!dbIds.has(id)) onlyMem.push(id);
+  for (const id of dbIds) if (!memIds.has(id)) onlyDb.push(id);
+  if (!onlyMem.length && !onlyDb.length) return;
+  idsMismatch("decision",
+    `memory says ${memIds.size} fresh, db says ${dbIds.size}; fresh-only-in-memory ${onlyMem.length}` +
+    ` (e.g. ${onlyMem.slice(0, 3).join(",") || "-"}), fresh-only-in-db ${onlyDb.length}` +
+    ` (e.g. ${onlyDb.slice(0, 3).join(",") || "-"}); serving the memory answer`);
+}
+
+/** Archive-wide distinct-ID count for `totalArchived` when nothing was
+ *  archived this cycle: the Set's size (memory/dual — the served answer) or
+ *  the DB's (sqlite). */
+function seenIdsTotal(dir: string): number {
+  if (dtccIdsMode() === "sqlite") {
+    const store = readyIdsStoreSync(dir);
+    if (store) return store.count();
+  }
+  if (!seenIds) seenIds = loadSeenIds(dir);
+  return seenIds.size;
+}
+
+export interface DtccIdsStats {
+  mode: DtccIdsMode;
+  /** Set size, or null when the Set has not been built (sqlite mode's win). */
+  memoryCount: number | null;
+  /** DB distinct-id count, or null when no DB has been opened (memory mode). */
+  dbCount: number | null;
+  /** dual-mode disagreements (decision or count) since boot. */
+  mismatches: number;
+  lastMismatch: { at: number; kind: "decision" | "count"; detail: string } | null;
+  /** Wall-clock ms of the DB lookup pass in the last archiveNewRows call. */
+  lastLookupMs: number | null;
+  lastLookupRows: number | null;
+  backfill: DtccIdsBackfill | null;
+  dbPath: string | null;
+  dbBytes: number | null;
+  journalMode: string | null;
+  /** Last store open failure (the call degraded to the memory path), if any. */
+  storeError: string | null;
+}
+
+/** For the health diagnostic: how the dedup store is doing right now. */
+export function dtccIdsStats(): DtccIdsStats {
+  const open = idsStore && idsStore.isOpen ? idsStore : null;
+  return {
+    mode: dtccIdsMode(),
+    memoryCount: seenIds ? seenIds.size : null,
+    dbCount: open ? open.count() : null,
+    mismatches: idsMismatches,
+    lastMismatch: idsLastMismatch,
+    lastLookupMs: idsLastLookupMs,
+    lastLookupRows: idsLastLookupRows,
+    backfill: idsStore ? idsStore.backfill : null,
+    dbPath: idsStore ? idsStore.path : null,
+    dbBytes: open ? open.dbBytes() : null,
+    journalMode: idsStore ? idsStore.journalMode : null,
+    storeError: idsStoreError,
+  };
+}
+
+export function _resetDtccForTests(): void {
+  seenIds = null; cache = null; refreshing = false;
+  closeIdsStore();
+  idsStoreError = null; idsMismatches = 0; idsLastMismatch = null; idsLastLookupMs = null; idsLastLookupRows = null;
+}
 
 /** Appends only rows whose Dissemination Identifier has never been archived
  *  before, to <archive>/dtccswaps/<observedDate>.jsonl.gz (one file per
@@ -452,12 +608,41 @@ export function _resetDtccForTests(): void { seenIds = null; cache = null; refre
  *  Returns { newRows, seenTotal }. */
 export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDir?: string): { newRows: number; seenTotal: number } {
   const dir = dtccDir(baseDir);
-  if (!seenIds) { fs.mkdirSync(dir, { recursive: true }); seenIds = loadSeenIds(dir); }
-  const fresh = rows.filter((r) => !seenIds!.has(r.disseminationId));
-  if (!fresh.length) return { newRows: 0, seenTotal: seenIds.size };
-  fresh.forEach((r) => seenIds!.add(r.disseminationId));
+  fs.mkdirSync(dir, { recursive: true });
+  const mode = dtccIdsMode();
+  // dual/sqlite: the store, or null when it could not open/backfill — then
+  // this call runs the memory path (already logged by the store helpers).
+  const store = mode === "memory" ? null : readyIdsStoreSync(dir);
+  const useMemory = mode !== "sqlite" || !store;
+  let memFresh: DtccSwapRow[] | null = null;
+  let dbFresh: DtccSwapRow[] | null = null;
+  if (useMemory) {
+    if (!seenIds) seenIds = loadSeenIds(dir);
+    memFresh = rows.filter((r) => !seenIds!.has(r.disseminationId));
+  }
+  if (store) {
+    const t0 = performance.now();
+    const missing = store.missingFrom(rows.map((r) => r.disseminationId));
+    idsLastLookupMs = performance.now() - t0;
+    idsLastLookupRows = rows.length;
+    dbFresh = rows.filter((r) => missing.has(r.disseminationId));
+  }
+  if (memFresh && dbFresh) compareIdsDecisions(memFresh, dbFresh);
+  // memory/dual serve the Set's verdict; sqlite serves the DB's.
+  const fresh = memFresh ?? dbFresh!;
+  const total = (): number => (useMemory ? seenIds!.size : store!.count());
+  const dualCountCheck = (): void => {
+    // A real COUNT(*) (not the store's running count, which is exact only
+    // for writes made through it): dual mode's job is to check the DB's
+    // actual state. One b-tree walk per poll, at the 6h cadence.
+    if (store && useMemory) {
+      const dbCount = store.recount();
+      if (seenIds!.size !== dbCount) idsMismatch("count", `set ${seenIds!.size} vs db ${dbCount} after this poll`);
+    }
+  };
+  if (!fresh.length) { dualCountCheck(); return { newRows: 0, seenTotal: total() }; }
+  if (seenIds) fresh.forEach((r) => seenIds!.add(r.disseminationId));
   try {
-    fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${observedDate}.jsonl.gz`);
     const existing = fs.existsSync(file) ? zlib.gunzipSync(fs.readFileSync(file)).toString("utf8") : "";
     const payload = existing + fresh.map((r) => JSON.stringify(r)).join("\n") + "\n";
@@ -465,8 +650,20 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
   } catch (e) {
     console.error("[datacore] dtccswaps archive:", e);
   }
-  appendSeenIdsIndex(dir, fresh.map((r) => r.disseminationId));
-  return { newRows: fresh.length, seenTotal: seenIds.size };
+  const freshIds = fresh.map((r) => r.disseminationId);
+  appendSeenIdsIndex(dir, freshIds);
+  if (store) {
+    // AFTER the day file and the index: a crash between them leaves the db
+    // BEHIND the index, which the next boot's backfill heals; the reverse
+    // order could record an id whose row never reached the archive.
+    try {
+      store.insertMany(freshIds);
+    } catch (e) {
+      idsEmit("DTCC-IDS-DB-ERROR", `insert of ${freshIds.length} ids failed: ${e instanceof Error ? e.message : String(e)} — the next boot's backfill re-imports them from the compact index`);
+    }
+  }
+  dualCountCheck();
+  return { newRows: fresh.length, seenTotal: total() };
 }
 
 /** Most recently archived day's rows (plain or gz), walked backward up to
@@ -603,6 +800,9 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
   refreshing = true;
   try {
     const result = await guardedRefresh("dtccswaps", DTCC_CRASH_COOLDOWN_MS, async () => {
+      // Dedup store backfill first (dual/sqlite; no-op once done or in memory
+      // mode) so its streamed import never overlaps the zip stream below.
+      await ensureDtccIdsReady(baseDir);
       const now = new Date(nowMs ?? Date.now());
       let sourceDate = "";
       let foundRows: DtccSwapRow[] = [];
@@ -638,10 +838,9 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
         if (!cache) {
           const backfill = readArchivedDtccRows(baseDir, nowMs);
           if (backfill) {
-            if (!seenIds) seenIds = loadSeenIds(dtccDir(baseDir));
             cache = {
               at: Date.now(), fileDate: backfill.fileDate, sourceDate: "",
-              usRows: backfill.rows.length, newRows: 0, totalArchived: seenIds.size,
+              usRows: backfill.rows.length, newRows: 0, totalArchived: seenIdsTotal(dtccDir(baseDir)),
               topRows: topNotionalRows(backfill.rows),
             };
             console.log(`[datacore] dtccswaps: live walk found nothing — backfilled from archived ${backfill.fileDate} (${backfill.rows.length} rows)`);

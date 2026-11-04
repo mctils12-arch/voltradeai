@@ -113029,3 +113029,63 @@ not oldest-inserted; re-insert never grows; cap 0 unbounded; 3000-ticker
 churn holds 200; stats getter; source pin that no raw insert remains and
 both hit paths touch; the real build_surface hit path refreshes recency).
 Full python suite 3368 passed. STARVED: yes (rest of Wave 1 queued).
+
+## 2026-11-03 (interactive session) [REPAIR] — T-DATACORE server/dtccSwaps.ts: memory fix A1 — the DTCC swaps dedup ID set moves from Node heap to SQLite on the volume (dual-run default behind `VOLTRADE_DTCC_IDS_STORE`)
+VERSION: v1.0.1257 (shipped 2026-11-04 by the parent session; main was v1.0.1256)
+
+TERRITORY: T-DATACORE (server/dtccSwaps.ts, new server/dtccIdsStore.ts + tests) +
+SHARED-minimal (ci/counter_baseline.txt pins as the ratchet printed, package.json bump).
+
+PRIOR (stated before measuring): the retained `seenIds` Set — 6,555,571 dissemination
+ids on 2026-11-03 (`total_archived`), growing ~118k/day — costs 0.4-0.5 GB of heap
+(~70-75 B/id); an on-disk SQLite set at the same cardinality should dedup one day's rows
+in well under a second, back-fill from the compact index in tens of seconds once, and
+cost ~25-40 B/id on the volume. Expected: byte-identical archive output across modes;
+zero dual-mode mismatches if the index and the Set are the same set (they are built from
+the same file).
+
+WHAT SHIPPED (one logical change): `server/dtccIdsStore.ts` (better-sqlite3 handle on
+`<archive>/dtccswaps/_seen_ids.db`, `seen_ids(id TEXT PRIMARY KEY) WITHOUT ROWID`, WAL,
+synchronous=NORMAL, 5k-row INSERT OR IGNORE transactions, 500-id IN-list lookups,
+streamed backfill from the compact index with a both-counts DTCC-IDS-BACKFILL line and
+an ERROR line on any mismatch; absent/corrupt index reuses `loadSeenIds`'s day-file
+self-heal); `archiveNewRows` dispatches on `VOLTRADE_DTCC_IDS_STORE` = memory (pre-A1
+path exactly) | dual (DEFAULT: both verdicts, DTCC-IDS-MISMATCH on disagreement incl. a
+real COUNT(*) check per poll, memory answer served) | sqlite (Set never built);
+`refreshDtccSwaps` awaits the streamed backfill before the zip stream; DB insert ordered
+AFTER the day file and the index append so a crash leaves the DB behind (healed at boot)
+never a row lost; any store failure degrades that call to the memory path with a
+DTCC-IDS-DB-ERROR line; `dtccIdsStats()` exported for the health diagnostic;
+`setDtccIdsAuditSink()` available (unwired). The compact index is appended in every mode
+and never otherwise modified — `memory` is a clean rollback (test-pinned).
+
+MEASURED (1M synthetic ids, quiet container): backfill 1.65 s (count + 1M inserts; a
+first per-line-async-generator version measured 8.3 s and was replaced before shipping);
+steady-state boot count pass 128 ms/1.1M (~0.8 s projected at 6.56M); 118k lookups
+458 ms batched / 392 ms per-row (~3-4 µs each, noise between the two); 118k inserts
+153 ms; 24.7 B/id on disk (~162 MB projected, ~250 MB worst case). Under CPU contention
+all numbers 1.5-3× slower. Heap saving in `sqlite` mode ≈ the whole Set (0.45-0.5 GB) +
+the boot-time 131 MB-string/6.5M-array transient of `loadSeenIds`; in `dual` (this PR) zero
+by design.
+
+TESTS: +13 (dtccIdsStore.test.ts) +6 (dtccSwaps.test.ts, 29 existing pass unchanged under
+the new default): identical fresh selection / seenTotal / byte-identical day file + index
+across all three modes; identical refresh cache across modes with the streamed backfill
+proven to run first; decision and count mismatches logged, counted, audited, memory
+served; rollback sqlite→memory→sqlite; store failure degrades loudly; backfill count
+assertion (ok / db-ahead / duplicate-lines / no-index / corrupt-index); reader semantics
+== split("\n")+filter(Boolean). Counters: tests_run_in_ci/gating 710→712 (one new file;
+the pin was already one behind main), assertions 25863→26081; tsc 6/6.
+
+ROLLBACK TRIGGER: any DTCC-IDS-MISMATCH / DTCC-IDS-BACKFILL-MISMATCH / DTCC-IDS-DB-ERROR
+line, or `total_archived` discontinuity → `VOLTRADE_DTCC_IDS_STORE=memory`.
+
+NEXT (own PRs): (1) after ≥24 h / 4 polls of `dual` with `mismatches === 0`, set
+`VOLTRADE_DTCC_IDS_STORE=sqlite`, watch `memoryCount === null` and heapUsed −0.4-0.5 GB,
+then flip `DTCC_IDS_DEFAULT_MODE`; (2) check live `us_underlier_rows_today` — if it is in
+the millions, make the lookup pass yield between chunks before the flip; (3) the
+pre-existing `appendSeenIdsIndex` read-modify-write-gzip of the whole ~131 MB index per
+poll (multi-second sync stall + transient) is the next memory/latency item once sqlite is
+trusted (append gzip members, or write the index from the DB); (4) wire
+`setDtccIdsAuditSink(audit)` from bot.ts/routes.ts so DTCC-IDS-* lines reach the audit log.
+STARVED: no.

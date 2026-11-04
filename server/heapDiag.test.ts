@@ -75,9 +75,14 @@ test("builtin gauges: dtcc/entityGraph/requestLog register and read without the 
   registerBuiltinHeapGauges();
   const r = readHeapGauges();
   assert.deepEqual(Object.keys(r), ["dtcc.seenIds", "entityGraph.graphCache", "requestLog.ring"]);
-  const dtcc = r["dtcc.seenIds"] as { entries: number; bytes: number };
+  const dtcc = r["dtcc.seenIds"] as { entries: number; bytes: number; mode: string; memoryCount: number | null; dbCount: number | null; mismatches: number };
   assert.equal(dtcc.entries, 0, "no poll has run in this process");
   assert.equal(dtcc.bytes, 0 * DTCC_SEEN_ID_BYTES_EST);
+  // A1: the gauge carries the dedup store's own view (dual-run default)
+  assert.ok(["memory", "dual", "sqlite"].includes(dtcc.mode));
+  assert.equal(dtcc.memoryCount, null, "the Set is not built until a poll runs");
+  assert.equal(dtcc.dbCount, null, "no DB opened in this process");
+  assert.equal(dtcc.mismatches, 0);
   assert.deepEqual(r["entityGraph.graphCache"], { entries: 0 });
   assert.ok((r["requestLog.ring"] as { cap: number }).cap > 0);
   _resetHeapGaugesForTests();
