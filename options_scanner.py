@@ -1182,6 +1182,102 @@ def _setup_vxx_panic_put_sale(vxx_ratio: float, spy_vs_ma50: float) -> Optional[
     }
 
 
+# ── SETUP 3 EARNINGS RULE ([REPAIR] 2026-11-04) ──────────────────────────────
+# _setup_high_iv_premium_sale has always documented "No earnings within 14
+# days", but nothing enforced it: the function sees no calendar (its ML
+# features hard-code days_to_earn=99.0) and scan_options()'s _check_ticker
+# called it with no gate; only Setup 7 (VRP+) read the calendar (> 10 days).
+# Live: the GOOGL Nov-27 iron condor rode through GOOGL's report
+# (research/experiments.md 2026-11-02), and 14 of 19 condor names in the
+# 2026-10-29 -> 11-04 shadow log were within 0-8 days of a report.
+#
+# Horizon: no report within 14 days OR before the planned 21-DTE exit,
+# whichever is later. The condor's expiry is NOT chosen here: the scanner
+# path's select_contract -> _select_condor picks it later (entry floor
+# MULTI_LEG_ENTRY_MIN_DTE = 30, the expiry closest to 30 DTE preferred, chain
+# fetched to 50 days) and options_manager closes the group at
+# DTE_EXIT_THRESHOLD = 21. The preferred expiry's planned hold (30 - 21 = 9
+# days) sits inside 14, so the gate is the documented 14 days
+# (test_condor_earnings_gate.py fails if either constant is retuned past it).
+# KNOWN GAP: with no expiry near 30 DTE in the fetched chain, _select_condor
+# can take one up to 50 DTE (a hold of up to 29 days), so a report 15-29 days
+# out can still land inside that hold.
+#
+# A refused candidate is dropped AFTER Setup 3 computed it (no extra cost) so
+# its counterfactual record carries the real score; a failed calendar lookup
+# FAILS CLOSED (no Setup-3 condor that scan). RULE REVIEW: every refusal earns
+# a prevention-P&L through the shadow log under its own decision label.
+SETUP3_EARNINGS_BLACKOUT_DAYS = 14
+SETUP3_EARNINGS_DECISION = "rejected_setup3_earnings"
+SETUP3_EARNINGS_UNKNOWN_DECISION = "rejected_setup3_earnings_lookup_failed"
+# Each shadow write re-dumps the whole log (~45MB, seconds) inside the scan's
+# 300s daemon budget (KNOWN BROKEN #18): at most this many per scan, once per
+# ticker/decision/UTC day; names past the bound are written on later scans.
+SETUP3_EARNINGS_SHADOW_MAX_PER_SCAN = 3
+_SETUP3_SHADOW_ONCE: Dict[str, Any] = {"day": None, "keys": set()}
+_SETUP3_SHADOW_LOCK = threading.Lock()
+
+
+def _setup3_earnings_refusal(ticker: str, earnings_cal: Dict[str, int],
+                             lookup_ok: bool) -> Optional[Tuple[str, str]]:
+    """(decision, reason) when Setup 3 must refuse `ticker` for earnings, else None.
+
+    A failed lookup (lookup_ok=False: Finnhub error, non-200 reply or a
+    malformed body, see _fetch_earnings_calendar_with_status) FAILS CLOSED —
+    an unknown report date is not "no report"."""
+    if not lookup_ok:
+        return (SETUP3_EARNINGS_UNKNOWN_DECISION,
+                "earnings calendar lookup failed - Setup 3 fails closed (report date unknown)")
+    days = earnings_cal.get(ticker)
+    if days is not None and 0 <= int(days) <= SETUP3_EARNINGS_BLACKOUT_DAYS:
+        return (SETUP3_EARNINGS_DECISION,
+                f"earnings in {int(days)}d, inside Setup 3's {SETUP3_EARNINGS_BLACKOUT_DAYS}-day blackout")
+    return None
+
+
+def _log_setup3_earnings_refusals(refusals: list, vxx_ratio: float, regime: str,
+                                  today: Optional[str] = None) -> int:
+    """Counterfactual shadow records for Setup-3 earnings refusals, written the
+    way the scanner path's regime guards write theirs (bot_engine step 6b):
+    one shadow_portfolio.log_candidate per refused condor, features {} (never
+    in load_shadow_data's ML blend), its own decision label so the rule has
+    its own prevention-P&L bucket. The +5/+10/+20d backfill labels the
+    UNDERLYING's path — a condor's counterfactual is |move| vs its ~5% OTM
+    short strikes, not that directional label. Bounded: once per ticker/
+    decision/UTC day (in-process, like regime_engine.shadow_once_per_day) and
+    at most SETUP3_EARNINGS_SHADOW_MAX_PER_SCAN writes per call. Returns the
+    number written. Never raises."""
+    written = 0
+    try:
+        if not refusals:
+            return 0
+        import shadow_portfolio
+        day = today or time.strftime("%Y-%m-%d", time.gmtime())
+        for ref in sorted(refusals, key=lambda r: (str(r.get("ticker")), str(r.get("decision")))):
+            if written >= SETUP3_EARNINGS_SHADOW_MAX_PER_SCAN:
+                break
+            key = (str(ref.get("ticker")), str(ref.get("decision")))
+            with _SETUP3_SHADOW_LOCK:
+                if _SETUP3_SHADOW_ONCE["day"] != day:
+                    _SETUP3_SHADOW_ONCE["day"], _SETUP3_SHADOW_ONCE["keys"] = day, set()
+                if key in _SETUP3_SHADOW_ONCE["keys"]:
+                    continue
+                _SETUP3_SHADOW_ONCE["keys"].add(key)
+            shadow_portfolio.log_candidate(
+                ticker=key[0], features={}, score=float(ref.get("score") or 0.0),
+                decision=key[1], decision_reason=str(ref.get("reason") or "")[:200],
+                entry_price=float(ref.get("price") or 0.0),
+                vxx_ratio=float(vxx_ratio), regime_label=str(regime),
+                side="sell", action_label=str(ref.get("action_label") or "SELL IRON CONDOR"),
+                trade_type="options",
+            )
+            written += 1
+    except Exception as e:
+        logger.warning(f"Setup 3 earnings counterfactual logging failed after {written} record(s): "
+                       f"{type(e).__name__}: {e}")
+    return written
+
+
 def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> Optional[dict]:
     """
     SETUP 3: HIGH-IV PREMIUM SELLING
@@ -1199,6 +1295,8 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     Best conditions:
       - IV rank > 70 (IV is in the top 30% of its own 52-week history)
       - No earnings within 14 days (IV is high for a regular reason, not just earnings)
+        ENFORCED in scan_options() by _setup3_earnings_refusal
+        (SETUP3_EARNINGS_BLACKOUT_DAYS) — this function sees no calendar.
       - Liquid options (OI > 1000 ATM)
       - NOT in a general panic (we don't want to add risk when everything is falling)
     """
@@ -1299,6 +1397,10 @@ def _setup_high_iv_premium_sale(ticker: str, price: float, vxx_ratio: float) -> 
     # actually led to VXX contraction (premium sellers winning) vs continued IV expansion
     spy_ma = _get_spy_vs_ma50()
     vrp_est = max(-20.0, min(20.0, (vxx_ratio - 1.0) * 50))
+    # days_to_earn stays the 99.0 sentinel on purpose (2026-11-04): the earnings
+    # rule is enforced in scan_options (_setup3_earnings_refusal); a real value
+    # here would move the served feature (synthetic training rows carry
+    # 0.0/2.0) and the 40% ML blend — a model change, not this rule's fix.
     ml_features = _build_setup_features(
         vxx_ratio=vxx_ratio, spy_vs_ma50=spy_ma,
         iv_rank=float(iv_rank), vrp=vrp_est, days_to_earn=99.0)
@@ -1787,7 +1889,15 @@ def scan_options() -> dict:
     # Fix 3 (v1.0.23): 21-day window catches full earnings cycle (was 8).
     # Finnhub returns all majors (JPM, GS, NFLX, etc.) when window is wide enough.
     # Self-updating — no hardcoded dates needed.
-    earnings_cal = _fetch_earnings_calendar(days_ahead=21)
+    # [REPAIR 2026-11-04] The same once-per-scan calendar now also gates Setup 3
+    # (_setup3_earnings_refusal), which needs lookup_ok: the old wrapper call
+    # (_fetch_earnings_calendar) read a failed lookup as {} = "nobody reports",
+    # i.e. fail OPEN. The window is max(21, blackout) so it always reaches the
+    # Setup-3 blackout; at 14 it stays 21, and the dict is the one the wrapper
+    # passed through, so Setup 1 / Setup 7 read exactly what they read before
+    # (a failed lookup still reads as {} to them — Setup 7 is unchanged).
+    earnings_cal, earnings_lookup_ok = _fetch_earnings_calendar_with_status(
+        days_ahead=max(21, SETUP3_EARNINGS_BLACKOUT_DAYS))
     earnings_tickers = [t for t in earnings_cal.keys()
                         if t and "." not in t and len(t) <= 5]
 
@@ -1824,6 +1934,9 @@ def scan_options() -> dict:
     # Any stock with IV rank 92 and earnings in 3 days will be found regardless
     # of whether it was ever on a fixed list.
     candidates = _get_options_candidates()  # [(ticker, price, setup_type), ...]
+    # Setup-3 earnings refusals, appended by the _check_ticker workers (list.append
+    # is atomic under the GIL) and recorded once, serially, after the fan-out.
+    setup3_earnings_refusals: list = []
 
     def _check_ticker(candidate: tuple) -> List[dict]:
         tkr, price, setup_hint = candidate
@@ -1831,10 +1944,23 @@ def scan_options() -> dict:
             return []
         found = []
         # Setup 3: High-IV premium sale
+        r3 = None
         if setup_hint in ("high_iv", "anchor", "any"):
             r3 = _setup_high_iv_premium_sale(tkr, price, vxx_ratio)
             if r3:
-                found.append(r3)
+                # [REPAIR 2026-11-04] the documented earnings rule, enforced
+                # (SETUP3_EARNINGS_BLACKOUT_DAYS): a refused condor is dropped
+                # here and recorded as a counterfactual after the pool.
+                refusal = _setup3_earnings_refusal(tkr, earnings_cal, earnings_lookup_ok)
+                if refusal:
+                    setup3_earnings_refusals.append({
+                        "ticker": tkr, "decision": refusal[0], "reason": refusal[1],
+                        "days_to_earnings": earnings_cal.get(tkr),
+                        "score": r3.get("score", 0.0), "price": r3.get("price", price),
+                        "action_label": r3.get("action_label", ""),
+                    })
+                else:
+                    found.append(r3)
         # Setup 4 (low-IV breakout buy) and Setup 5 (gamma pin) — REMOVED
         # 2026-09-16 (STALENESS AUDIT, review-by 2026-08-26 expired). Both
         # were disabled 2026-07-26 (KNOWN BROKEN #18 root-caused): neither
@@ -1880,7 +2006,12 @@ def scan_options() -> dict:
         # this scan's cumulative get_surface_score() cost trips the budget,
         # skip it for every remaining candidate so scan_options() actually
         # returns instead of the whole RPC timing out with zero output.
-        if setup_hint in ("high_iv", "anchor") and not any(o.get("ticker") == tkr for o in found):
+        # SETUP 3 EARNINGS RULE (2026-11-04): `not r3` keeps Setup 7's run-set
+        # exactly what it was — it never ran on a ticker whose Setup-3 call
+        # produced a candidate, and still does not when that candidate was
+        # refused for earnings: Setup 7 calls the SAME function and would
+        # re-emit the identical condor under its looser 10-day check.
+        if setup_hint in ("high_iv", "anchor") and not r3 and not any(o.get("ticker") == tkr for o in found):
             from vol_surface import surface_score_scan_budget_exceeded, record_surface_score_budget_skip
             if surface_score_scan_budget_exceeded(SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC):
                 record_surface_score_budget_skip()
@@ -1923,6 +2054,21 @@ def scan_options() -> dict:
     with ThreadPoolExecutor(max_workers=4) as pool:  # MEM FIX: was 16 — Railway 512MB OOM
         for results in pool.map(_check_ticker, candidates):
             opportunities.extend(results)
+
+    # ── SETUP 3 EARNINGS RULE (2026-11-04): say why, then the counterfactuals
+    _s3_names = ", ".join(
+        f"{r['ticker']}({r['days_to_earnings']}d)" if r.get("days_to_earnings") is not None else r["ticker"]
+        for r in sorted(setup3_earnings_refusals, key=lambda r: r["ticker"]))
+    if not earnings_lookup_ok:
+        logger.warning(
+            f"Setup 3 FAIL-CLOSED: earnings calendar lookup failed (Finnhub request error, "
+            f"non-200 reply or malformed body) — no Setup-3 iron condor this scan; "
+            f"{len(setup3_earnings_refusals)} candidate(s) refused" + (f": {_s3_names}" if _s3_names else ""))
+    elif setup3_earnings_refusals:
+        logger.info(
+            f"Setup 3 earnings blackout: refused {len(setup3_earnings_refusals)} condor(s) with a report "
+            f"within {SETUP3_EARNINGS_BLACKOUT_DAYS}d: {_s3_names}")
+    _log_setup3_earnings_refusals(setup3_earnings_refusals, vxx_ratio, regime)
 
     # ── Sort by score, deduplicate by ticker+setup ────────────────────────
     seen = set()
