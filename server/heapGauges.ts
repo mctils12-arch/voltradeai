@@ -36,6 +36,7 @@ export function registerBuiltinHeapGauges(): void {
       lastLookupMs: st.lastLookupMs == null ? null : Math.round(st.lastLookupMs * 10) / 10,
       backfill: st.backfill ? st.backfill.state : null,
       dbBytes: st.dbBytes,
+      diskGuard: st.diskGuard.active,
     };
   });
   registerHeapGauge("entityGraph.graphCache", () => {

@@ -113111,3 +113111,34 @@ dashboard hit; heapUsed should step down by the sum of released structures.
 ROLLBACK: VOLTRADE_IDLE_TTL_MIN=0 (no code deploy).
 NOTED NOT FIXED: archiveFoldMemory.test.ts flaky 30 MB bound (fails on pre-A3 control too); A0 pins were
 one untracked file short; bodyCache could take a 5–10 s TTL for free; bloom sidecar persistence.
+
+## 2026-11-04 [REPAIR] A1 volume guard — the DTCC dedup DB yields the archives' 1 GiB headroom (T-DATACORE)
+VERSION: v1.0.1259 (shipped 2026-11-04 by the parent session; main was v1.0.1258)
+
+BREAK (found by this session's own post-deploy check, 04:00Z): A1 (v1.0.1257)
+went live at 03:49Z and its boot backfill did exactly what it should (DB =
+Set = 6,684,184 ids, 0 mismatches, 351 ms lookup pass) — but the 178 MB DB
+lives on the Railway volume, which was already under pressure (offloader:
+"volume under pressure … no day is both past its kind's floor and verified
+in R2"). Free space went ~1,146 MB → 967.9 MB, under globalScopes'
+MIN_FREE_BYTES (1 GiB), below which the global-scope aircraft archiver
+(mil/ladd/pia, ~1,000 aircraft per 120 s cycle) SKIPS writes. Batch rule
+"if anything degrades, roll back that PR's flag first": the flag
+(VOLTRADE_DTCC_IDS_STORE=memory) is a Railway env var the session cannot
+set, and it would not delete the file anyway — so the fix is in code.
+FIX: the DB is derived data, so it never spends the archives' headroom: an
+existing DB is removed (with -wal/-shm) while free < 1 GiB; a new one is
+created only if free − (ids × 28 B) ≥ 1 GiB + 256 MB (hysteresis). Refused →
+the memory path (exactly pre-A1) with one DTCC-IDS-DISK-GUARD line per state
+change; unreadable free space fails open. dtccIdsStats().diskGuard + the
+heap gauge expose it.
+EXPECTED LIVE: on the next boot the guard removes the DB (free back to
+~1,146 MB, above the 1 GiB line → global-scope archiving resumes) and A1
+runs in memory mode until the volume has room: re-creating needs ≥ ~1.45 GB
+free. So A1's heap win (~0.45-0.5 GB) waits on VOLUME CAPACITY (wishlist,
+2026-10-12, still a human decision) — growing the Railway volume costs
+cents/GB-month vs ~$10/GB-month of RAM, and A1 then activates itself with
+no deploy.
+TESTS: server/dtccIdsDiskGuard.test.ts (7). The existing A1 tests pin a
+64 GiB free-space reading so they never depend on the host's disk.
+ROLLBACK: revert this PR (the DB returns to unguarded). STARVED: no.

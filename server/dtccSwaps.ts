@@ -61,7 +61,8 @@ import fs from "fs";
 import path from "path";
 import { archiveBaseDir } from "./datacoreArchive";
 import { guardedRefresh } from "./crashSafeRefresh";
-import { DtccIdsStore, dtccIdsMode, type DtccIdsBackfill, type DtccIdsMode } from "./dtccIdsStore";
+import { DtccIdsStore, dtccIdsMode, DTCC_IDS_DB_FILE, type DtccIdsBackfill, type DtccIdsMode } from "./dtccIdsStore";
+import { MIN_FREE_BYTES as ARCHIVE_GUARD_FREE_BYTES, readFreeBytes } from "./globalScopes";
 
 const BASE_URL = "https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod";
 
@@ -496,9 +497,82 @@ function closeIdsStore(): void {
   idsStore = null; idsStoreDir = null;
 }
 
+// ── VOLUME GUARD (2026-11-04) ─────────────────────────────────────────────
+// The dedup DB sits on the same Railway volume as the archives. On its first
+// live boot (2026-11-04 03:49Z) the 178 MB DB moved the volume's free space
+// from ~1,146 MB to 967.9 MB — under globalScopes' MIN_FREE_BYTES (1 GiB), the
+// line below which the global-scope aircraft archiver SKIPS writes. An archive
+// gap never refills (GOAL priority 1); the DB is DERIVED data, rebuilt from the
+// compact index at any time, so it never gets to spend the archives' headroom:
+//   - an existing DB is removed (with its -wal/-shm) while free < the guard;
+//   - a new DB is created only if free − its estimated size stays ≥ the guard
+//     + DTCC_IDS_DISK_MARGIN_BYTES (hysteresis: no create/remove flapping).
+// Refused → the call runs the memory path (exactly pre-A1) and says so once
+// per state change (DTCC-IDS-DISK-GUARD / -CLEAR). An unreadable free-space
+// reading fails OPEN, the same as volumeAllowsWrite (never silently disable).
+export const DTCC_IDS_DISK_MARGIN_BYTES = 256 * 1024 * 1024;
+/** measured 24.7 B/id on disk (A1) + WAL/page slack */
+export const DTCC_IDS_EST_BYTES_PER_ID = 28;
+/** used only when no count is known yet (no Set built, no poll cached) */
+const DTCC_IDS_EST_FALLBACK_COUNT = 8_000_000;
+let freeBytesReader: (dir: string) => number | null = readFreeBytes;
+let idsDiskGuard: { active: boolean; reason: string | null; freeBytes: number | null; at: number | null } = { active: false, reason: null, freeBytes: null, at: null };
+
+export function _setDtccFreeBytesReaderForTests(fn: ((dir: string) => number | null) | null): void {
+  freeBytesReader = fn ?? readFreeBytes;
+}
+
+function removeIdsDbFiles(dir: string): string[] {
+  const removed: string[] = [];
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const fp = path.join(dir, DTCC_IDS_DB_FILE + suffix);
+    try {
+      fs.unlinkSync(fp);
+      removed.push(path.basename(fp));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.error(`[datacore] dtccswaps could not remove ${fp}:`, e);
+    }
+  }
+  return removed;
+}
+
+/** true = the store may exist/open here; false = memory path (and an existing
+ *  derived DB has been removed to give the archives their headroom back). */
+function idsStoreDiskAllowed(dir: string): boolean {
+  const free = freeBytesReader(dir);
+  let refusal: string | null = null;
+  if (free != null) {
+    const dbPresent = fs.existsSync(path.join(dir, DTCC_IDS_DB_FILE));
+    if (dbPresent) {
+      if (free < ARCHIVE_GUARD_FREE_BYTES) {
+        if (idsStore && idsStoreDir === dir) closeIdsStore();
+        const removed = removeIdsDbFiles(dir);
+        refusal = `volume free ${free} B < archive guard ${ARCHIVE_GUARD_FREE_BYTES} B with the derived dedup DB present; removed ${removed.join(", ") || "nothing"} — memory path`;
+      }
+    } else {
+      const ids = seenIds ? seenIds.size : cache ? cache.totalArchived : DTCC_IDS_EST_FALLBACK_COUNT;
+      const est = ids * DTCC_IDS_EST_BYTES_PER_ID;
+      if (free - est < ARCHIVE_GUARD_FREE_BYTES + DTCC_IDS_DISK_MARGIN_BYTES) {
+        refusal = `creating the dedup DB (~${est} B for ${ids} ids) would leave ${free - est} B free, under the archive guard ${ARCHIVE_GUARD_FREE_BYTES} B + margin ${DTCC_IDS_DISK_MARGIN_BYTES} B — memory path`;
+      }
+    }
+  }
+  if (refusal) {
+    if (!idsDiskGuard.active) idsEmit("DTCC-IDS-DISK-GUARD", refusal);
+    idsDiskGuard = { active: true, reason: refusal, freeBytes: free, at: Date.now() };
+    idsStoreError = refusal;
+    return false;
+  }
+  if (idsDiskGuard.active) idsEmit("DTCC-IDS-DISK-GUARD-CLEAR", `volume free ${free} B — the dedup DB may be used again`);
+  idsDiskGuard = { active: false, reason: null, freeBytes: free, at: Date.now() };
+  return true;
+}
+
 /** Opens (or re-targets, when a test switches archive dirs) the store.
- *  Returns null — after logging — when the DB cannot be opened. */
+ *  Returns null — after logging — when the DB cannot be opened, or when the
+ *  VOLUME GUARD above refuses it (memory path). */
 function openIdsStore(dir: string): DtccIdsStore | null {
+  if (!idsStoreDiskAllowed(dir)) return null;
   if (idsStore && idsStoreDir === dir && idsStore.isOpen) return idsStore;
   closeIdsStore();
   try {
@@ -575,6 +649,8 @@ export interface DtccIdsStats {
   journalMode: string | null;
   /** Last store open failure (the call degraded to the memory path), if any. */
   storeError: string | null;
+  /** VOLUME GUARD: active = the DB is refused/removed for archive headroom. */
+  diskGuard: { active: boolean; reason: string | null; freeBytes: number | null; at: number | null };
 }
 
 /** For the health diagnostic: how the dedup store is doing right now. */
@@ -593,6 +669,7 @@ export function dtccIdsStats(): DtccIdsStats {
     dbBytes: open ? open.dbBytes() : null,
     journalMode: idsStore ? idsStore.journalMode : null,
     storeError: idsStoreError,
+    diskGuard: { ...idsDiskGuard },
   };
 }
 
@@ -600,6 +677,7 @@ export function _resetDtccForTests(): void {
   seenIds = null; cache = null; refreshing = false;
   closeIdsStore();
   idsStoreError = null; idsMismatches = 0; idsLastMismatch = null; idsLastLookupMs = null; idsLastLookupRows = null;
+  idsDiskGuard = { active: false, reason: null, freeBytes: null, at: null };
 }
 
 /** Appends only rows whose Dissemination Identifier has never been archived
