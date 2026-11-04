@@ -32,6 +32,7 @@
  */
 import fs from "fs";
 import zlib from "zlib";
+import { performance } from "perf_hooks";
 import sitesJson from "../datacore/sites/strategic_sites.json";
 import plantsJson from "../datacore/powerplants/us_power_plants.json";
 import entityMapJson from "../datacore/entity_map.json";
@@ -39,6 +40,7 @@ import { readFilingHistory, type Form4Filing } from "./edgarForm4";
 import { foldPortVisitsAsync, portsFromSites, type PortDef, type PortVisit } from "./portDwell";
 import { repoDataPath } from "./repoFiles";
 import { getCikTickerMap } from "./sec8kEarnings";
+import { firstDifference, parseFoldMode, type AuditWriter, type FoldMode } from "./foldShadow";
 
 export type GraphNodeType = "company" | "person" | "facility" | "vessel" | "institution";
 export type GraphEdgeType = "insider_of" | "operates" | "calls_at" | "owns";
@@ -304,6 +306,66 @@ function loadGemOwnership(fp: string = repoDataPath("datacore/gem/ownership.json
   }
 }
 
+/** The slice of a GEM ownership release that the owns-edge builder actually
+ *  reads — the per-entity CIK / type / HQ lookups plus the CIK-anchored edge
+ *  rows, in file order and NOT yet deduplicated (dedupe depends on the
+ *  CIK->ticker map, which is resolved at build time, not here). Live file,
+ *  measured 2026-11-03: 3.8 MB gz / 36.5 MB inflated, 26,250 entities and
+ *  24,351 edges -> 277 CIK entities + 1,403 anchored rows. This slice is
+ *  what the 15-minute poll keeps between polls (loadGemOwnershipDistilledCached
+ *  below, memory fix A2b) instead of gunzipping + parsing the whole release
+ *  every time it rebuilds the graph. */
+export interface GemOwnershipDistilled {
+  builtDate: string;
+  cikByEntity: Map<string, string>;
+  typeByEntity: Map<string, string>;
+  hqByEntity: Map<string, string>;
+  rows: GemAnchoredRow[];
+}
+export interface GemAnchoredRow {
+  subjectId: string; subjectName: string; ownerId: string; ownerName: string;
+  share?: number; imputed?: string; url?: string;
+}
+
+/** First half of the former buildOwnershipEdges, its rules verbatim: the
+ *  entity lookups and the "at least one end has a real CIK" anchoring test
+ *  (rationale in buildOwnershipEdgesFromDistilled). The type/HQ lookups are
+ *  then pruned to the ids an anchored row can reference — the only ids the
+ *  second half ever looks up — which is where the size falls away. */
+export function distillGemOwnership(gem: GemOwnershipFile): GemOwnershipDistilled {
+  // GEM's own release date, not entity_map.json's builtDate (a different
+  // registry with its own vintage) — first_seen/last_seen must reflect
+  // the actual source this edge came from.
+  const builtDate: string = gem.provenance?.built_at ?? "unknown";
+
+  const cikByEntity = new Map<string, string>();
+  const typeByEntity = new Map<string, string>();
+  const hqByEntity = new Map<string, string>();
+  for (const e of gem.entities) {
+    const cik = e["US SEC Central Index Key"];
+    if (cik && cik !== "not found") cikByEntity.set(e["Entity ID"], cik);
+    typeByEntity.set(e["Entity ID"], e["Entity Type"] || "unknown entity");
+    if (e["Headquarters Country"]) hqByEntity.set(e["Entity ID"], e["Headquarters Country"]);
+  }
+
+  const rows: GemAnchoredRow[] = [];
+  const referenced = new Set<string>();
+  for (const row of gem.entity_edges) {
+    const subjectId = row["Subject Entity ID"];
+    const ownerId = row["Interested Party ID"];
+    if (!cikByEntity.has(subjectId) && !cikByEntity.has(ownerId)) continue; // no CIK anchor at all -> honest gap
+    referenced.add(subjectId);
+    referenced.add(ownerId);
+    rows.push({
+      subjectId, subjectName: row["Subject Entity Name"], ownerId, ownerName: row["Interested Party Name"],
+      share: row["% Share of Ownership"], imputed: row["Share Imputed?"], url: row["Data Source URL"],
+    });
+  }
+  for (const id of Array.from(typeByEntity.keys())) if (!referenced.has(id)) typeByEntity.delete(id);
+  for (const id of Array.from(hqByEntity.keys())) if (!referenced.has(id)) hqByEntity.delete(id);
+  return { builtDate, cikByEntity, typeByEntity, hqByEntity, rows };
+}
+
 /** owns edges: (company|institution)(owner) -> (company|institution)(owned),
  *  from GEM's Global Energy Ownership Tracker entity_edges. An edge is kept
  *  whenever AT LEAST ONE end resolves to a real US SEC CIK — that CIK-mapped
@@ -323,28 +385,17 @@ function loadGemOwnership(fp: string = repoDataPath("datacore/gem/ownership.json
  *  node ids reuse the exact same ticker-preferred / `company:cik:<CIK>`
  *  fallback scheme buildInsiderEdges uses (via `getCikTickerMap`), so a
  *  GEM-tracked company lands on the SAME node the EDGAR pipeline already
- *  populates rather than a duplicate. */
-function buildOwnershipEdges(
-  gem: GemOwnershipFile | null, cikTicker: Map<string, string>,
+ *  populates rather than a duplicate. Takes the distilled slice (2026-11-03,
+ *  memory fix A2b) — the anchoring filter already ran in distillGemOwnership;
+ *  node creation order, self-edge drop and first-wins dedupe are unchanged. */
+function buildOwnershipEdgesFromDistilled(
+  gem: GemOwnershipDistilled | null, cikTicker: Map<string, string>,
 ): { edges: GraphEdge[]; companyNodes: Map<string, GraphNode>; institutionNodes: Map<string, GraphNode> } {
   const edges: GraphEdge[] = [];
   const companyNodes = new Map<string, GraphNode>();
   const institutionNodes = new Map<string, GraphNode>();
   if (!gem) return { edges, companyNodes, institutionNodes };
-  // GEM's own release date, not entity_map.json's builtDate (a different
-  // registry with its own vintage) — first_seen/last_seen must reflect
-  // the actual source this edge came from.
-  const builtDate: string = gem.provenance?.built_at ?? "unknown";
-
-  const cikByEntity = new Map<string, string>();
-  const typeByEntity = new Map<string, string>();
-  const hqByEntity = new Map<string, string>();
-  for (const e of gem.entities) {
-    const cik = e["US SEC Central Index Key"];
-    if (cik && cik !== "not found") cikByEntity.set(e["Entity ID"], cik);
-    typeByEntity.set(e["Entity ID"], e["Entity Type"] || "unknown entity");
-    if (e["Headquarters Country"]) hqByEntity.set(e["Entity ID"], e["Headquarters Country"]);
-  }
+  const { builtDate, cikByEntity, typeByEntity, hqByEntity } = gem;
 
   const ensureNode = (entityId: string, name: string): string => {
     const cik = cikByEntity.get(entityId);
@@ -370,23 +421,20 @@ function buildOwnershipEdges(
   };
 
   const seen = new Set<string>();
-  for (const row of gem.entity_edges) {
-    const subjectId = row["Subject Entity ID"];
-    const ownerId = row["Interested Party ID"];
-    if (!cikByEntity.has(subjectId) && !cikByEntity.has(ownerId)) continue; // no CIK anchor at all -> honest gap
-    const fromId = ensureNode(ownerId, row["Interested Party Name"]);
-    const toId = ensureNode(subjectId, row["Subject Entity Name"]);
+  for (const row of gem.rows) {
+    const fromId = ensureNode(row.ownerId, row.ownerName);
+    const toId = ensureNode(row.subjectId, row.subjectName);
     if (fromId === toId) continue;
     const key = `${fromId}|${toId}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const share = row["% Share of Ownership"];
+    const share = row.share;
     edges.push({
       type: "owns", from: fromId, to: toId,
       source: "Global Energy Monitor Global Energy Ownership Tracker (CC BY 4.0)",
-      confidence: row["Share Imputed?"] === "known value, not imputed" ? "high" : "medium",
+      confidence: row.imputed === "known value, not imputed" ? "high" : "medium",
       first_seen: builtDate, last_seen: builtDate,
-      attrs: { share_pct: typeof share === "number" ? share : null, imputed: row["Share Imputed?"] ?? null, source_url: row["Data Source URL"] ?? null },
+      attrs: { share_pct: typeof share === "number" ? share : null, imputed: row.imputed ?? null, source_url: row.url ?? null },
     });
   }
   return { edges, companyNodes, institutionNodes };
@@ -400,36 +448,61 @@ export interface BuildGraphOpts {
   /** GEM ownership file; explicit null/object overrides the disk read
    *  (tests never hit disk or network). Omit to load the real file. */
   gemOwnership?: GemOwnershipFile | null;
+  /** The distilled GEM slice (memory fix A2b, 2026-11-03): an explicit
+   *  null/object wins over both `gemOwnership` and the disk read. Production
+   *  reaches it through loadGemOwnershipDistilledCached in buildGraphManaged;
+   *  tests and the shadow comparison pass it directly. */
+  gemDistilled?: GemOwnershipDistilled | null;
+  /** Path of the GEM ownership .json.gz (test seam; default: the repo file). */
+  gemPath?: string;
   /** CIK -> ticker map; overrides the live SEC company_tickers.json fetch
    *  (tests never hit the network). Omit to use getCikTickerMap(). */
   cikTickerMap?: Map<string, string>;
+}
+
+/** Every non-GEM input, resolved exactly as buildGraph always did — once.
+ *  Split out (2026-11-03, memory fix A2b) so the shadow poll can hand the
+ *  SAME resolved inputs to both of its builds: the two graphs then differ
+ *  only through the GEM path under comparison, and the 168h AIS fold (the
+ *  expensive input) runs once per poll, never twice. */
+export async function resolveGraphInputs(opts: BuildGraphOpts): Promise<{
+  sites: SiteRow[]; plants: PlantRow[]; entities: EntityMapEntry[];
+  form4Filings: Form4Filing[]; portVisitsByPort: Map<string, PortVisit[]>;
+}> {
+  const sites: SiteRow[] = opts.sites ?? ((sitesJson as any).sites || []);
+  const plants: PlantRow[] = opts.plants ?? ((plantsJson as any).plants || []);
+  const entities: EntityMapEntry[] = opts.entities ?? ((entityMapJson as any).entities || []);
+  const form4Filings = opts.form4Filings ?? readFilingHistory(30, opts.baseDir, opts.nowMs);
+  let portVisitsByPort = opts.portVisitsByPort;
+  if (!portVisitsByPort) {
+    const { visitsByPort } = await foldPortVisitsAsync(portsFromSites(sites), opts.portWindowHours ?? 168, opts.baseDir, opts.nowMs);
+    portVisitsByPort = visitsByPort;
+  }
+  return { sites, plants, entities, form4Filings, portVisitsByPort };
 }
 
 /** Builds the full v1 graph. Every IO source is overridable so tests run
  *  against small deterministic fixtures instead of the real archive/repo
  *  files (mirrors the shadowFleet/portDwell baseDir-injectable pattern). */
 export async function buildGraph(opts: BuildGraphOpts = {}): Promise<EverythingGraph> {
-  const sites: SiteRow[] = opts.sites ?? ((sitesJson as any).sites || []);
-  const plants: PlantRow[] = opts.plants ?? ((plantsJson as any).plants || []);
-  const entities: EntityMapEntry[] = opts.entities ?? ((entityMapJson as any).entities || []);
+  const { sites, plants, entities, form4Filings, portVisitsByPort } = await resolveGraphInputs(opts);
   const builtDate: string = (entityMapJson as any).built || "unknown";
-
-  const form4Filings = opts.form4Filings ?? readFilingHistory(30, opts.baseDir, opts.nowMs);
-
   const ports = portsFromSites(sites);
-  let portVisitsByPort = opts.portVisitsByPort;
-  if (!portVisitsByPort) {
-    const { visitsByPort } = await foldPortVisitsAsync(ports, opts.portWindowHours ?? 168, opts.baseDir, opts.nowMs);
-    portVisitsByPort = visitsByPort;
-  }
 
   const facilityNodes = buildFacilityNodes(sites, plants);
   const { edges: operatesEdges, companyNodes: operatesCompanies } = buildOperatesEdges(sites, plants, entities, builtDate);
   const { edges: insiderEdges, personNodes, companyNodes: insiderCompanies } = buildInsiderEdges(form4Filings);
   const { edges: callsAtEdges, vesselNodes } = buildCallsAtEdges(portVisitsByPort, ports);
-  const gemOwnership = opts.gemOwnership !== undefined ? opts.gemOwnership : loadGemOwnership();
-  const cikTickerMap = opts.cikTickerMap ?? (gemOwnership ? await getCikTickerMap() : new Map<string, string>());
-  const { edges: ownsEdges, companyNodes: ownsCompanies, institutionNodes } = buildOwnershipEdges(gemOwnership, cikTickerMap);
+  // GEM source precedence: a pinned distilled slice; else an injected raw
+  // file, distilled here; else the FULL path — gunzip + parse the whole
+  // release on every call, which is what `full` mode keeps and `incremental`
+  // mode replaces with loadGemOwnershipDistilledCached (buildGraphManaged).
+  const gemDistilled: GemOwnershipDistilled | null =
+    opts.gemDistilled !== undefined ? opts.gemDistilled
+      : opts.gemOwnership !== undefined ? (opts.gemOwnership ? distillGemOwnership(opts.gemOwnership) : null)
+        : distillOrNull(loadGemOwnership(opts.gemPath));
+  const cikTickerMap = opts.cikTickerMap ?? (gemDistilled ? await getCikTickerMap() : new Map<string, string>());
+  const { edges: ownsEdges, companyNodes: ownsCompanies, institutionNodes } = buildOwnershipEdgesFromDistilled(gemDistilled, cikTickerMap);
 
   const companyNodes = new Map<string, GraphNode>(operatesCompanies);
   insiderCompanies.forEach((n, id) => { if (!companyNodes.has(id)) companyNodes.set(id, n); });
@@ -532,7 +605,7 @@ export function bootGraphPoll(intervalMs = 15 * 60_000): void {
     if (graphRefreshing) return;
     graphRefreshing = true;
     try {
-      graphCache = { at: Date.now(), graph: await buildGraph() };
+      graphCache = { at: Date.now(), graph: await buildGraphManaged() };
     } catch (e: any) {
       console.error("[datacore] entityGraph refresh:", e?.message || e);
     } finally {
@@ -544,3 +617,193 @@ export function bootGraphPoll(intervalMs = 15 * 60_000): void {
 }
 
 export function _resetGraphCache() { graphCache = null; graphRefreshing = false; }
+
+// ── managed poll: distilled GEM cache + three-mode shadow (memory fix A2b, 2026-11-03) ──
+// WHAT THIS FIXES. Every 15-minute poll gunzipped and JSON.parsed the whole
+// GEM ownership release (3.8 MB gz -> 36.5 MB of text -> a transient parse
+// tree of roughly that size again) to extract 1,403 anchored rows and 277
+// CIK lookups — a periodic heap spike on the same event loop the trading
+// tier runs on, for a git-versioned file that changes only on deploy.
+// The distilled slice (GemOwnershipDistilled) is kept instead, keyed by the
+// file's mtime + size so a rewritten file still reloads; it is small enough
+// (<1 MB for the live release) to hold permanently, which is why there is
+// no idle TTL: the raw 36 MB is never retained in any mode.
+//
+// MODES (env VOLTRADE_GRAPH_POLL, parsed by foldShadow.ts): `full` =
+// buildGraph() as before; `shadow` (DEFAULT) = resolve the shared inputs
+// once (Form 4 history, the 168h AIS port fold), assemble the graph BOTH
+// ways — raw-parse-per-poll vs the cached slice — deep-compare with
+// built_at excluded, log any difference as FOLD-MISMATCH graph (console.error
+// + audit row) and SERVE THE FULL BUILD; `incremental` = the cached slice
+// only. Sharing the resolved inputs is what makes the comparison exact: the
+// AIS fold's output moves as the archive grows, so two independent
+// buildGraph() calls would differ for reasons that are not bugs.
+// Rollback: VOLTRADE_GRAPH_POLL=full. The /api/data/graph payload is
+// byte-identical across modes (one builder, one edge order).
+
+export type GraphPollMode = FoldMode;
+export const GRAPH_POLL_ENV = "VOLTRADE_GRAPH_POLL";
+
+export function graphPollMode(): GraphPollMode {
+  return parseFoldMode(process.env[GRAPH_POLL_ENV]);
+}
+
+const distillOrNull = (gem: GemOwnershipFile | null): GemOwnershipDistilled | null => (gem ? distillGemOwnership(gem) : null);
+
+interface GemDistilledCacheEntry {
+  fp: string;
+  mtimeMs: number;
+  size: number;
+  distilled: GemOwnershipDistilled | null;
+  loadedAt: number;
+  loadMs: number;
+}
+let gemDistilledCache: GemDistilledCacheEntry | null = null;
+
+export interface GraphPollStats {
+  mode: GraphPollMode;
+  /** datasets held between polls: 1 while the distilled GEM slice is resident, else 0 */
+  partialsCached: number;
+  lastFullMs: number | null;
+  lastIncrementalMs: number | null;
+  /** shadow mode: the shared inputs' share of both numbers above (Form 4 read + 168h AIS fold) */
+  lastSharedInputsMs: number | null;
+  mismatches: number;
+  lastMismatchAt: string | null;
+  lastMismatchDetail: string | null;
+  polls: number;
+  lastPollAt: string | null;
+  gem: {
+    cached: boolean; mtimeMs: number | null; sizeBytes: number | null;
+    anchoredRows: number | null; cikEntities: number | null; loadMs: number | null; reloads: number;
+  };
+}
+
+interface PollStatsState {
+  mode: GraphPollMode; lastFullMs: number | null; lastIncrementalMs: number | null; lastSharedInputsMs: number | null;
+  mismatches: number; lastMismatchAt: string | null; lastMismatchDetail: string | null;
+  polls: number; lastPollAt: string | null; gemReloads: number;
+}
+const freshPollStats = (): PollStatsState => ({
+  mode: graphPollMode(), lastFullMs: null, lastIncrementalMs: null, lastSharedInputsMs: null,
+  mismatches: 0, lastMismatchAt: null, lastMismatchDetail: null, polls: 0, lastPollAt: null, gemReloads: 0,
+});
+let pollStats: PollStatsState = freshPollStats();
+let graphAuditWriter: AuditWriter | null = null;
+
+/** Snapshot for the health diagnostic. `mode` is the mode the LAST poll ran
+ *  in (the env's current value before any poll). */
+export function graphPollStats(): GraphPollStats {
+  const c = gemDistilledCache;
+  const { gemReloads, ...rest } = pollStats;
+  return {
+    ...rest,
+    partialsCached: c && c.distilled ? 1 : 0,
+    gem: {
+      cached: c !== null, mtimeMs: c?.mtimeMs ?? null, sizeBytes: c?.size ?? null,
+      anchoredRows: c?.distilled?.rows.length ?? null, cikEntities: c?.distilled?.cikByEntity.size ?? null,
+      loadMs: c ? Math.round(c.loadMs) : null, reloads: gemReloads,
+    },
+  };
+}
+
+/** Wire the persistent audit log (routes.ts passes the same audit_log insert
+ *  the compliance tripwire uses). Null unwires. */
+export function setGraphPollAuditWriter(w: AuditWriter | null): void {
+  graphAuditWriter = w;
+}
+
+/** The distilled GEM slice, parsed once per (path, mtime, size). A changed
+ *  file — rewritten in place or touched — reloads; a missing file returns
+ *  null AND drops the cache (nothing stale is ever served); an unreadable
+ *  file caches null under its stat identity so a corrupt deploy is not
+ *  re-parsed every poll (the raw loader returns null for it too). */
+export function loadGemOwnershipDistilledCached(fp: string = repoDataPath("datacore/gem/ownership.json.gz")): GemOwnershipDistilled | null {
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(fp);
+  } catch {
+    gemDistilledCache = null;
+    return null;
+  }
+  const hit = gemDistilledCache;
+  if (hit && hit.fp === fp && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.distilled;
+  const t0 = performance.now();
+  const distilled = distillOrNull(loadGemOwnership(fp));
+  gemDistilledCache = { fp, mtimeMs: st.mtimeMs, size: st.size, distilled, loadedAt: Date.now(), loadMs: performance.now() - t0 };
+  pollStats.gemReloads++;
+  return distilled;
+}
+
+/** The incremental side's GEM source: a pinned distilled slice stays; an
+ *  injected raw fixture is distilled (fixture-driven tests); otherwise the
+ *  cached slice from disk — the production path. */
+function withDistilledGem(opts: BuildGraphOpts): BuildGraphOpts {
+  if (opts.gemDistilled !== undefined) return opts;
+  if (opts.gemOwnership !== undefined) return { ...opts, gemDistilled: distillOrNull(opts.gemOwnership) };
+  return { ...opts, gemDistilled: loadGemOwnershipDistilledCached(opts.gemPath) };
+}
+
+function recordGraphMismatch(detail: string): void {
+  pollStats.mismatches++;
+  pollStats.lastMismatchAt = new Date().toISOString();
+  pollStats.lastMismatchDetail = detail;
+  // Drop the cached slice so the next poll re-derives it from the file; a
+  // mismatch that persists across reloads is a logic fault, flagged every poll.
+  gemDistilledCache = null;
+  console.error(`FOLD-MISMATCH graph: ${detail}`);
+  if (!graphAuditWriter) return;
+  try {
+    graphAuditWriter("FOLD-MISMATCH", `graph: ${detail}`.slice(0, 500));
+  } catch (e: unknown) {
+    console.error("[entityGraph] audit writer threw:", (e as Error)?.message || e);
+  }
+}
+
+const roundMs = (t0: number) => Math.round((performance.now() - t0) * 10) / 10;
+
+/** The managed build bootGraphPoll runs: same graph as buildGraph, dispatching
+ *  on VOLTRADE_GRAPH_POLL (see the section header). */
+export async function buildGraphManaged(opts: BuildGraphOpts = {}, mode: GraphPollMode = graphPollMode()): Promise<EverythingGraph> {
+  pollStats.mode = mode;
+  pollStats.polls++;
+  pollStats.lastPollAt = new Date().toISOString();
+  const t0 = performance.now();
+  if (mode === "full") {
+    const g = await buildGraph(opts);
+    pollStats.lastFullMs = roundMs(t0);
+    return g;
+  }
+  if (mode === "incremental") {
+    const g = await buildGraph(withDistilledGem(opts));
+    pollStats.lastIncrementalMs = roundMs(t0);
+    return g;
+  }
+  // shadow: one resolution of the shared inputs, two assemblies, exact compare, serve full
+  const nowMs = opts.nowMs ?? Date.now();
+  const shared: BuildGraphOpts = { ...opts, ...(await resolveGraphInputs({ ...opts, nowMs })), nowMs };
+  const sharedMs = roundMs(t0);
+  const t1 = performance.now();
+  const full = await buildGraph(shared);
+  const fullMs = roundMs(t1);
+  const t2 = performance.now();
+  const incremental = await buildGraph(withDistilledGem(shared));
+  const incMs = roundMs(t2);
+  pollStats.lastSharedInputsMs = sharedMs;
+  pollStats.lastFullMs = Math.round((sharedMs + fullMs) * 10) / 10;
+  pollStats.lastIncrementalMs = Math.round((sharedMs + incMs) * 10) / 10;
+  const diff = firstDifference({ ...full, built_at: 0 }, { ...incremental, built_at: 0 });
+  if (diff) recordGraphMismatch(diff);
+  return full;
+}
+
+/** Test seams: fresh stats, no cached slice, no audit writer. */
+export function _resetGraphPollForTests(): void {
+  pollStats = freshPollStats();
+  gemDistilledCache = null;
+  graphAuditWriter = null;
+}
+
+export function _graphPollGemCacheForTests(): GemDistilledCacheEntry | null {
+  return gemDistilledCache;
+}

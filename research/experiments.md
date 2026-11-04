@@ -113186,3 +113186,18 @@ Rollback: VOLTRADE_GNSS_FOLD=full. Switch to incremental once shadow shows misma
 Tests: gnssIntegrityFold.test.ts (15), foldShadow.test.ts (6), identical-output tests in gnssIntegritySignal/
 gnssIntegrityQuery extended. Archive/format untouched. Sustained cost: the partial cache, ~1.4 MB measured,
 <= ~7 MB live bound. STARVED: no.
+
+### 2026-11-03 [REPAIR] T-DATACORE — Entity graph poll: cached distilled GEM ownership slice (memory fix A2b, branch claude/mem-a2-graph-reload)
+VERSION: v1.0.1263 (shipped 2026-11-04 by the parent session; main was v1.0.1262)
+PRIOR: the 15-min graph rebuild's GEM share is a pure reload — a git-versioned 3.8 MB gz file parsed into ~40 MB
+of objects to use 1,403 rows + 277 CIKs — so a distilled slice keyed by file mtime+size should remove that
+transient with byte-identical output and cost < 1 MB resident. Expected: owns edges identical, heap -70 MB/poll.
+RESULT (live file, --expose-gc): raw parse +75 MB held per poll (tree + text), 0.8-1.2 s -> distilled slice
++0.9 MB retained, 1,403 rows / 277 CIK / 1,035 type / 1,019 HQ (~520 KB), warm hit 6.6 us. Output identical on
+fixtures (raw vs distilled, with/without CIK map, duplicate/sentinel/unlisted/self-edge cases).
+New VOLTRADE_GRAPH_POLL = full | shadow (DEFAULT: shared inputs once, both assemblies, deep-compare minus
+built_at, FOLD-MISMATCH graph -> console.error + audit_log, full served, slice dropped) | incremental.
+graphPollStats() for /api/health (lastSharedInputsMs isolates the AIS fold's share). No idle TTL: the raw 36 MB
+is never retained in any mode, the slice is < 1 MB. Rollback: VOLTRADE_GRAPH_POLL=full.
+Tests: entityGraph.test.ts +10, foldShadow.test.ts (6). The AIS port fold inside buildGraph is untouched
+(port-dwell fold branch owns it). STARVED: no.
