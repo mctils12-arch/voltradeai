@@ -113219,3 +113219,49 @@ after ≥ 24 h with its gauge's `mismatches === 0` and no FOLD-MISMATCH rows in
 /api/diag/audit; flips are env changes or a default-flip PR, one fold at a time.
 TESTS: heapDiag.test.ts (4 fold gauges read, mode reported, 0 mismatches fresh;
 audit-hook wiring ratchet). Build + deploy-gate smoke PASS. STARVED: no.
+
+### 2026-11-03 — [REPAIR] A4: shadow-log read cache — parse once per file change, not per candidate (T-BOT)
+VERSION: v1.0.1265 (shipped 2026-11-04 by the parent session; main was v1.0.1264)
+
+Territory: T-BOT (shadow_portfolio.py + its tests). Memory fix A4 of the approved set.
+PRIOR (stated before measuring): the ~45 MB shadow log is json-parsed on every
+_load_shadow_log() call — several per candidate during a scan (log_candidate,
+update_last_decision) across 11 call sites; expected a 30-candidate scan to go
+from ~40 parses to 1, halving per-candidate wall time (the json.dump save half
+stays) and removing the per-candidate allocation churn, with one parsed copy
+resident in the daemon between scans.
+CHANGE: process cache keyed on (path, mtime_ns, size, inode); _save_shadow_log
+installs the written list under the new inode's key inside its lock; copy-on-
+write relabels (no in-module code edits a shared record dict in place;
+backfill_outcomes uses a private parse); per-thread leases as defense in depth
+for external importers; readonly loads for the four pure readers; list keeps
+its cache generation so only a current-generation list can be retained.
+IDLE RELEASE (coordinator follow-up): the parsed list is dropped after
+VOLTRADE_SHADOW_LOG_CACHE_TTL_S seconds without a use (default 120; 0 =
+never) by one daemon Timer re-armed on every use, unobservable (the next
+load re-parses the same file; generation + leases kept so an in-flight
+save still retains), so steady-state RSS between scans returns to the
+pre-A4 level. Flag VOLTRADE_SHADOW_LOG_CACHE=0 restores the old path
+exactly. Diagnostic: shadow_log_cache_stats() incl. ttl_s / releases /
+last_release_at (not yet registered in the daemon / health probe).
+EVIDENCE: test_shadow_log_cache.py (31 tests: strict identity on vs off vs
+file after every step of a scripted scan; byte-identical output file on vs
+off; one parse per scan by an independent counter; freshness under atomic
+replace / in-place rewrite / deletion; mutate-then-raise and failed-save
+invisibility; dropped-generation guard; concurrent writers+readers under the
+writers' own flock; rotation unchanged; flag off; idle release:
+unobservable forced release, release only when idle, TTL 0 never, default
+TTL still one parse per scan). Measured on a synthetic
+20k-record / 53 MB log, 30-candidate scan: parses 41 -> 1 (hits 40, zero invalidations, zero stuck leases); per-cycle wall 11.7 s -> 9.6 s (-18 %, noisy host); one parse = ~1.0 s and a 187 MB allocation peak leaving 134 MB of objects, so 40 fewer parses per scan is ~7.5 GB less allocation churn; RSS high-water unchanged (~208 MB); the parsed copy is resident only while in use — the idle release (VOLTRADE_SHADOW_LOG_CACHE_TTL_S, default 120 s; 0 = never) returns the process to 48 MB 30 s after the last use vs 65 MB for the old path after the same scan, so the 24/7 average RSS falls, not rises. The remaining ~8-10 s per cycle is the save: json.dump's pure-Python encoder is 2.5x slower than dumps+write for byte-identical output (8.3 s vs 3.3 s) - filed as the next [REPAIR], not bundled here.
+FOUND ON THE WAY: the first draft relabeled in place; the full-suite run
+caught a reader's served snapshot changing under a concurrent relabel, root-
+caused with a traced stress harness → copy-on-write. Pre-existing and NOT
+touched: the per-candidate full-file save (json.dump of ~45 MB per candidate
+— the remaining cost; JSONL is the approved alternative), the lost-update race
+between concurrent load→save cycles, the data-file read lock that never
+contends with the lock-file writers.
+ROLLBACK TRIGGER: shadow_log_cache_stats()["reloads"] growing ~1:1 with
+log_candidate calls in a daemon scan (cache never serving), any served/file
+divergence (the stats' `leases` stuck > 0 across scans), or daemon RSS peak
+rising vs the pre-change baseline → set VOLTRADE_SHADOW_LOG_CACHE=0 (no
+deploy) and investigate.
