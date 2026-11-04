@@ -3,6 +3,14 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-04 (scheduled routine, [PRODUCT] slot, Wed ~08:05 ET / 13:05Z, PRE-MARKET) [PIPELINE] — T-DATACORE (research/ filing only) — option (c): P3-FIX-1 spec filed (VS rebuilt from our own mid-quote IV), conditional on the P3 gate-1 final verdict (no code_version change, 1.0.1271)
+HEALTH: not independently probed (no site path from this session); research_state_check: thrash 6/10 REPAIR (below the 7 trigger), STARVED 0, archive freshness all OK, only WARN the overdue CONSTITUTIONAL AUDIT (due 2026-10-20). KNOWN BROKEN: nothing critical; #44/#48 lack explicit close markers (advisory).
+WHY THIS ACTION: the in-flight gate (P3 real-quote day 3) cannot be measured pre-market — Cboe serves the last quote, so a 08:05 ET run is refused/stale; it stays queued for tonight after the close (11-04 entry NEXT unchanged). The highest-value thing that does not need market data: the 11-04 entry named two fix candidates for a KILLED dataset but neither was filed with a ladder path, and an unfiled idea is re-derived next session (CLAUDE.md: insights terminate as a research/ entry).
+FILED: open_questions.md P3-FIX-1 — build-first (step 3, inference from quotes the archive already stores: bid/ask/spot), testable form, PRIOR 40% pass stated before any run, kill criteria (< 0.3 on >= 90 pairs), second-order note (the interesting small-cap names are where mid-IV is least reliable), licensing caveat for redistribution of derived fields, fallback B (forward-archive Cboe chains, Railway reachability unverified). Not a rescue: the killed VS stays killed.
+NEXT: tonight after the close: fetch chain_vs?day=2026-11-04, run p3_realquote_check, `--pool` all three, log FINAL verdict; then (if KILLED) scripts/p3_own_iv.py as its own slice.
+MERGE: docs only; safe any time (pre-market is fine).
+STARVED: no.
+
 ## 2026-11-04 (scheduled routine, EDGE-DOCTRINE axis pick, Tue 21:35 ET / Wed 02:35Z, market closed) [PIPELINE] — T-DATACORE (result file only) — Edge P3 gate-1 real-quote clause, day 2 of 3: pooled Spearman 0.220 => KILLED_AT_GATE_1 (provisional until 11-04 close)
 HEALTH: /api/health 200 ok, liveness not dark, drawdown -5.6%. research_state_check: thrash 2/10, STARVED 0, only WARN the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical.
 AXIS: (a) finish the in-flight pipeline gate rather than start a new root; the pre-registered rerun was due and the timing was right (post-close, Cboe still serving 11-03's last quote).
