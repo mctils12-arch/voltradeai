@@ -113265,3 +113265,28 @@ log_candidate calls in a daemon scan (cache never serving), any served/file
 divergence (the stats' `leases` stuck > 0 across scans), or daemon RSS peak
 rising vs the pre-change baseline → set VOLTRADE_SHADOW_LOG_CACHE=0 (no
 deploy) and investigate.
+
+### 2026-11-03 — [REPAIR] A6 (part 1): Tier-1 position sync + per-candidate analyze calls through the daemon — T-BOT
+VERSION: v1.0.1266 (shipped 2026-11-04 by the parent session; main was v1.0.1265)
+Territory: T-BOT (server/bot.ts, voltrade_daemon.py, analyze.py, server/daemonRouting.ts). Branch claude/mem-a6-daemon-routing.
+PRIOR: Tier 1 spawned `python3 -c "from bot_engine import manage_positions…"` every 45 s (≈80 fresh interpreters/market
+hour, ≈250 MB import baseline each on Railway) although the daemon already runs manage_positions() in-daemon on every
+Tier-2 scan (step7_manage_positions 0.07 s live); each analyze.py research call paid the numpy/pandas/scipy/yfinance stack.
+Expected: no behaviour change (identical JSON through both paths), Tier-1 sync latency ≤ today (daemon RPC ≈ms vs ≈1 s
+import), peak container memory loses the +250 MB Tier-1 spike; daemon peak +≈11 MB resident (analyze+yfinance) + transients.
+CHANGE: server/daemonRouting.ts (flags VOLTRADE_TIER1_VIA_DAEMON / VOLTRADE_RESEARCH_VIA_DAEMON default 1; classifyRpc —
+fallback to the old command ONLY when the daemon never ran the call; never after a timeout/in-method error, to avoid a
+second concurrent manage_positions() on voltrade_stop_state.json); daemon routes manage_positions + analyze_ticker;
+RPCHandler honours the client's timeout_sec (slot released at the client's deadline); analyze.analyze_ticker_rpc shared
+by CLI and route. Budgets unchanged (15 s / 30 s).
+EVIDENCE: live daemon peak 437.7→443.1 MB (uptime 17→25 min) vs 1024 ceiling; local import staging: analyze +1.2 MB,
+yfinance +10 MB on the resident stack. Cross-language parity test (stub bot_engine; one-liner stdout == dispatch
+envelope.result). tsc ratchet 6≤6; counters OK (tests 713, assertions 25983); server suite 2949/2955 (6 contention
+artefacts, re-run green alone); pytest 3372 pass / 1 pre-existing fail (test_insider_cusum_probe, fails on main).
+ROLLBACK TRIGGER: TIER1-SYNC audit lines showing repeated fallbacks, or daemon restarts (uptime resets on
+/api/diag/daemon) clustering after the 00:00–02:00 ET research window → set VOLTRADE_RESEARCH_VIA_DAEMON=0 first,
+VOLTRADE_TIER1_VIA_DAEMON=0 second. JUDGE AT +7d: daemon peak rss_mb trend, TIER1-SYNC count, tier1_reflex heartbeat
+errors ("stop-state sync:").
+ADJACENT (not fixed): overnight research subprocess scans ask 300/180 s but the mutex lane kills at 90 s (full scan ≈177 s
+live) — likely SIGKILLed nightly; analyze.py --mode=scan is a no-op flag; HEAVY_DAEMON_ONLY's manage_positions entry is
+stale. STARVED: no (queue item complete).
