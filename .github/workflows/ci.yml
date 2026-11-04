@@ -40,8 +40,14 @@ jobs:
   changes:
     # Cheap (~15s) path detection that decides which heavy jobs must run.
     # Pure git — no third-party actions.
+    # timeout 5 -> 15 (2026-11-04, human-approved; research/wishlist.md "CI
+    # CHECKOUT BUDGET"): `fetch-depth: 0` pulls every branch (~960 refs,
+    # ~1.26 GiB pack) and GitHub's server-side enumeration alone measured
+    # ~126 s on 2026-11-03; 6 of 7 runs that afternoon were cancelled at this
+    # checkout before any test ran. 15 min is headroom, not the normal cost
+    # (the checkout still takes ~25-40 s on a healthy day).
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       python: ${{ steps.filter.outputs.python }}
       node: ${{ steps.filter.outputs.node }}

@@ -56,6 +56,32 @@ next CI run on #1588 needs a human "Re-run jobs" click, or a real push.
 ASK: approve (A) [and (B)] for a one-line/one-block docs+workflow PR by
 the next session, and say whether (C)'s branch prune is approved now.
 
+
+UPDATE 2026-11-04 (human decision, in-session): BOTH approved — (A) raise the
+`changes` timeout and (C) delete the merged branches.
+- (A) DONE in this PR: `changes` `timeout-minutes: 5 → 15` (the human's
+  explicit approval overrides the FROZEN-PATHS line for this one edit, per
+  HUMAN SOVEREIGNTY), with server/ciCheckoutBudget.test.ts as the ratchet
+  (a full-history checkout job must carry ≥ 15 min; red on the old file).
+- (C) BLOCKED FOR SESSIONS: this session's GitHub access returns HTTP 403 on
+  ANY branch deletion — 843-branch batches AND a single delete of its own
+  merged branch (claude/wishlist-ci-checkout-budget) — so the prune was not
+  routed around (no REST delete). The verified list is
+  `docs/audits/branch_prune_candidates_2026-11-04.tsv`: 843 branches whose PR
+  is MERGED, whose current tip equals that PR's merged head, and whose merge
+  is > 24 h old (zero content loss: main holds the squash and GitHub keeps
+  `refs/pull/<N>/head`). Kept: 8 open-PR, 32 closed-unmerged, 65 no-PR, 10
+  tip-moved-after-merge, 4 merged < 24 h, 3 protected (main,
+  celestial-catalog-data, the session branch). Run from YOUR clone (each
+  delete is leased on the verified tip, so a branch that moved is skipped):
+  `tail -n +2 docs/audits/branch_prune_candidates_2026-11-04.tsv | awk -F'\t' '{print "--force-with-lease=refs/heads/"$1":"$2" :refs/heads/"$1}' | xargs -n 100 git push origin`
+- Evidence since filing: GitHub's server-side enumeration for the all-refs
+  fetch measured 126 s (probe, 2026-11-03 19:20Z); PR #1590's one re-run was
+  cancelled at checkout again (19:23→19:28Z); another session's run at
+  2026-11-04 02:36Z checked out in 28 s (GitHub's side recovers
+  intermittently — the 15-min budget removes the cliff, the prune removes most
+  of the work).
+
 ## LAZY PRICES GATE 2 NEEDS A POINT-IN-TIME PRICE PANEL INCLUDING DELISTED NAMES — 2026-10-18, human decision on a small spend (est. $20-199 one-off/monthly), build-first analysis attached
 
 Gate-2 harness `sec_filings_gate2.py` (v1.0.1100) is built and pre-registered; every upstream step is free and done. The only missing input is daily open/close for ~every US 10-K filer 2009-2026 INCLUDING names delisted before today, keyed by CIK. Yahoo/Alpaca-style panels of surviving tickers are survivor-biased and would flatter exactly the "least-changed minus most-changed" spread the test measures (changed-language filers skew toward later failures), so they must not be used.
