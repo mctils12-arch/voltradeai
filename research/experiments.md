@@ -113577,3 +113577,33 @@ Regression test: test_condor_earnings_gate.py (13 tests). On the old code 11 fai
 Rollback trigger: the `rejected_setup3_earnings` bucket shows a positive prevention-P&L of the wrong sign, i.e. refused condors would have won, over ≥ 30 labeled records. Score these on |move| vs ~5% OTM short strikes, not the directional label.
 
 STARVED: no.
+
+## 2026-11-04 [RESEARCH] — research/options_bleed_2026-11-04.md — the options bleed, decomposed (human: "figure out the option bleed")
+VERSION: v1.0.1281 (shipped 2026-11-04 by the parent session; main was v1.0.1280)
+
+Prior (before the study): most of the options sleeve's −17.1% per closed lot is exit churn and spread, not direction (the 11-02 exit study: lots closed within a day carried most of the loss). Expected: ≥60% of the dollars would be residual friction.
+
+Result:
+- **Friction, not direction.** Black–Scholes split at each lot's own entry IV over 376 closing events (−$12,658): path + theta −$3,264, residual (spread / fills / IV change) −$9,394, i.e. 74% friction. Prior held.
+- **Generators by dollars:**
+  - opening-print closes −$5,083
+  - structures legged out −$4,553 (fixed by #1582/#1583, never live until v1.0.1272)
+  - POS-KILL −25% on options −$2,960 (fixed 10-13)
+  - condors closed minutes after opening −$2,159 (fixed ~10-22)
+  - earnings-held structures −$4,751 (overlapping)
+- **Five bugs still live on 2026-11-04,** fixed the same day as separate PRs:
+  1. single-leg exits outside regular hours
+  2. POS-KILL confirming option breaches off-hours
+  3. the group loss limit on the gross premium
+  4. Setup-3 condors without their documented earnings check
+  5. the CSP earnings gate failing open on Finnhub's truncated page, confirmed live with IREN
+- **No edge underneath.** Replaying the current exit rules on the bot's own 117 CSP entries gives +$0.9 ± 13.9 per contract. Fixing the bleed takes the sleeve to about zero, not past SPY.
+- **Discount.** ~70 cells over 13 dimensions plus 85 underlyings, 4 replay variants and 6 sub-splits. The one regime cell (NEUTRAL CSPs +$24 vs BULL −$8 per contract) stays a hypothesis.
+
+Filed:
+- wishlist: the POS-KILL option order type (frozen path) and the structural chunked earnings calendar (RECURRENCE ESCALATES).
+- open_questions: the 09:45 ET exit window, structure-level + dollar-weighted expectancy, the TIME-EXIT scope on options, gamma units, the CSP regime hypothesis, and the KB #45 status.
+
+Next judge date: 2026-12-04, with the entries-live review. Read the options sleeve's live expectancy on post-fix lots only (opened on v1.0.1272+) against the −17.1% history, using the replay's ~0 as the base rate.
+
+STARVED: no.

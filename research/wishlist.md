@@ -4807,3 +4807,33 @@ WHY (research/bot_logic_research_2026-10-20.md Q5): no order carries an id today
 FREE: no cost; one probe on paper first (what Alpaca returns on a duplicate id — undocumented).
 RISK: an id scheme that collides across retries would reject a legitimate re-entry; the minute-bucket plus intent keeps retries idempotent and re-entries distinct.
 ASK: approve the frozen-path edit (or hand it to a human-reviewed PR). Related, same path: whether gracefulShutdown should cancel only ENTRY orders and leave resting exits on a deploy (17 deploy cancel-alls in market hours on 2026-10-14 are the generator of #46).
+
+## POS-KILL option order type (frozen path) — 2026-11-04, human decision needed
+
+`server/bot.ts` POS-KILL posts `getOrderParams(current, 'stop_loss')` for every position. For an **option** in regular hours that is a MARKET order. The options-bleed diagnosis (research/options_bleed_2026-11-04.md) found option fills at the open at a median 1.41x fair value, and a market order on a wide option spread is the worst case of that. `server/orderParams.ts` already has an `'options_exit'` context: always a limit at the given price, never `extended_hours`.
+
+- **Proposed change (one line):** `getOrderParams(current, isOptionPos ? 'options_exit' : 'stop_loss')` at the POS-KILL call site.
+- **Why the human must decide:** this changes HOW an order is transmitted on a raw order POST path in `server/bot.ts` (FROZEN PATHS).
+- **What it preserves:**
+  - the kill thresholds;
+  - the two-tick confirmation and the off-hours gate (#REPAIR 2026-11-04);
+  - the duplicate guard;
+  - the sweeper registration. An unfilled limit is cancelled after 12 minutes, and the next tick re-decides at the new mark.
+- **What it risks:** a limit at the mark may not fill in a fast market. The backstop thresholds (−150% short, −75% long) are far past normal noise, so that is the cheaper error.
+- **Status:** not filed as code.
+
+## STRUCTURAL: earnings calendar fetched in chunks (KB #45, third fix on the gate) — 2026-11-04
+
+RECURRENCE ESCALATES: the CSP earnings gate has been fixed three times (v1.0.649, v1.0.1085, and #1615 on 2026-11-04). The root cause of the third failure: Finnhub's all-company /calendar/earnings returns one page of at most 1,500 rows, newest first, and silently drops a busy window's NEAREST dates. #1615 makes the T1 put-selling guard detect a cut page and confirm each absent candidate per symbol (fail closed). But every other consumer still reads the cut page as complete:
+- csp_universe Layer 2's 7-day rule (30-day window)
+- scanner Setups 1, 3 and 7 (21-day window)
+- the dossier/forecast earnings fields
+
+**Proposal (no spend, no frozen path):**
+- `_fetch_earnings_calendar_with_status` fetches its window in ≤7-day chunks, then merges and de-duplicates them.
+- A chunk that still hits the 1,500-row cap is split again down to single days.
+- The page is marked complete only when no chunk was full.
+- Cost: about 4–7 Finnhub calls per refresh instead of 1, at the existing 15-minute cache. That is well inside the 60/min free limit.
+- Second source for issuers Finnhub omits entirely: the Nasdaq earnings-date endpoint, as a per-candidate cross-check. It is unofficial, so it is labeled as an estimate.
+- This is a session task (T-BOT), not a human decision. It is filed here because CLAUDE.md requires a structural proposal after two failed fixes on one subsystem. The human may veto.
+- **UPDATE 2026-11-04 21:10Z: DONE.** #1616 (another session, v1.0.1276) completes a cut window's near end by chunked re-fetch for every consumer. The second-source cross-check for issuers Finnhub omits is still open.

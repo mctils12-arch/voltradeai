@@ -23334,3 +23334,42 @@ HYPOTHESIS (prior 60%): keeping issuer/ticker for ALL Form 3/4/5 codes over 2014
 LADDER PATH: gate 1 (this join's coverage + a spot-check of 25 resolved ticker/CIK pairs against the filing's own cover page) -> panel adapter -> gate 2 as pre-registered in sec_filings_gate2.py (unchanged, variants counted on the shared ledger) -> gates 3-5 only after a PASS.
 KILL: coverage < 50% after widening => Lazy Prices is not testable on free data (file build-first analysis in wishlist: name-matching vs paid CIK-ticker history).
 STANDALONE VALUE: a dated CIK<->ticker map incl. delisted names is itself a sellable /api/v1 reference product (nobody gives it away).
+
+## 2026-11-04 — from the options-bleed diagnosis (research/options_bleed_2026-11-04.md)
+
+- **[RULE-REVIEW candidate] Option exits wait until 09:45 ET, except the 5-DTE critical close.**
+  - **Evidence:** 53 lots closed in the first 5 minutes of the session lost −$5,083. Residual −$2,942. On the 29 lots whose underlying moved ≤3%, the median fill was 1.41× fair value. Post-fix rate: −$359 of excess fill cost in 11 sessions.
+  - **Expected value:** +$400–700/month at the historical trade rate.
+  - **Ladder path:** gate 3 (logic) ablation on the replay, then a live counterfactual log of the price at 09:45 versus the open fill.
+  - **Prior:** 65% that waiting costs less than it saves.
+- **[MEASUREMENT, [RULE-REVIEW]] Expectancy per structure and dollar-weighted on the AI Engine panel.**
+  - **Problem:** today a condor counts as 4 lots, and churn lots (C/J/K) are 49% of n but only 18% of the dollars.
+  - **Benchmark:** a per-structure view gives n=279, −20.5%/structure, −12.0% of basis dollar-weighted.
+  - **Rule:** must ship as its own PR, never with a strategy change.
+- **[SCOPE BUG candidate] TIME-EXIT applies the stock stale-position rule to options.**
+  - **What it does:** `syncMonitoredPositions` TIME-EXIT closes positions older than 14 days with P&L in [−5%, +2%], with a MARKET order, and has no option exemption. POS-KILL got its option scope fix on 10-13.
+  - **Why it matters now:** rare while options churned within a day. With the exit fixes, CSPs will be held toward the 50% target or 21 DTE, so day-14 market buy-backs become likely.
+  - **Proposed fix:** exempt options (`isPosKillExemptOption`); options_manager owns option exits.
+- **[UNITS] Gamma-rule threshold.** `options_manager.py:55` labels 0.08 "per-contract" but compares it to the per-share snapshot gamma. The rule fires on about a third of CSP entries at ≤30 DTE, and the replay effect is not significant (+$3.7/contract, SE 2.3). Next step: counterfactual logging first.
+- **[HYPOTHESIS] CSPs earn in NEUTRAL, not in BULL.**
+  - **Evidence:** replay BULL n=86, −$8.2/contract (SE 13.9). NEUTRAL n=28, +$24/contract (SE 39). Same direction as the 10-26 CSP sim (+$113 vs −$57).
+  - **Caveat:** one cell of about 70, so it is discounted.
+  - **Ladder:** gate 2 on the live sleeve once 30+ post-fix CSPs close per regime.
+  - **Prior:** 25%.
+
+## KNOWN BROKEN #45 (CSP earnings gate, the 2026-10-14 entry) — path (c) CONFIRMED and patched for T1, 2026-11-04
+
+Live recurrence: the tier engine sold IREN261211P00018000 at 18:41:56Z, the day before IREN's report (11-05 after the close).
+- **Path (c), truncation, is the cause.** Finnhub's all-company /calendar/earnings answers one page of at most 1,500 rows, newest dates first. A busy window loses its NEAREST dates, and the cut page parses as a successful lookup, so an absent name read as "no earnings".
+- **Fix:** #1615 (v1.0.1275). The window fetch records its coverage and marks a cut page. T1 confirms each absent candidate with a per-symbol lookup and fails closed (`rejected_regime_earnings_unverified`). Diagnostic: /api/diag/timings → t1_earnings_coverage.
+- **Then exposed, now closed by #1616:** csp_universe Layer 2's 7-day rule and scanner Setups 1/3/7 read the same cut calendar until #1616 completed the cut window's near end for every consumer.
+
+**#45 live confirmation (2026-11-04 20:15Z, /api/diag/timings → t1_earnings_coverage, v1.0.1275):** all three windows came back at exactly the 1,500-row cap, cut at the near end:
+
+| window | rows | earliest date returned | window start |
+|---|---|---|---|
+| 21-day | 1,500 | 11-09 | 11-04 |
+| 30-day | 1,500 | 11-10 | 11-04 |
+| 47-day | 1,500 | 11-11 | 11-04 |
+
+Every earnings gate was therefore blind to the next 5–7 days. Already inside #1615's per-symbol path, T1 confirmed 1 candidate and found it reporting inside the window. The structural chunked fetch shipped as #1616 (another session, v1.0.1276, 20:31Z): a cut page's missing near end is re-fetched in 3-day chunks for every consumer. This session's parallel branch claude/earnings-calendar-chunked was dropped (first-merged wins; its only extra was a shared per-day cache). Remaining exposure: issuers Finnhub omits entirely; a second source would close that.
