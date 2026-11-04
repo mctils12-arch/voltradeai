@@ -40,6 +40,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 export interface WatchlistApp {
   ticker: string;
@@ -193,6 +194,7 @@ export async function fetchAppStoreSnapshot(
 // ── Archive ────────────────────────────────────────────────────────────────
 
 const archivedKeys = new Set<string>();
+trackSet("appStoreRankings.archivedKeys", archivedKeys, 50_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function appstoreDir(baseDir?: string): string {

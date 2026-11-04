@@ -28,6 +28,7 @@ import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { applyViewport } from "./viewport";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 /** The key env var accepts BOTH names: the module shipped reading
  *  NASA_FIRMS_MAP_KEY, but the human set the key in Railway as
@@ -159,6 +160,7 @@ export async function fetchFirmsDetections(mapKey: string, fetchImpl: FetchFn = 
 // by our own id, gzipped after 2 days — identical shape to edgarForm4.ts's
 // filings archive (both are discrete dated events, not continuous tracks).
 const archivedIds = new Set<string>();
+trackSet("nasaFirms.archivedIds", archivedIds, 200_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function firesDir(baseDir?: string): string {

@@ -33,6 +33,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackMap, trackSet } from "./heapDiag";
 
 /** Verified against https://celestrak.org/NORAD/elements/ 2026-07-07.
  *  NOTE: the console charter's "active-geosynchronous" is not a CelesTrak
@@ -161,7 +162,9 @@ export async function fetchGroup(group: GpGroup, fetchImpl: FetchFn = fetch as a
 // ── Archive (append-only JSONL day-file per UTC fetch day per group) ────────
 
 const seenByGroup = new Map<string, Set<string>>();
+trackMap("satellites.seenByGroup", seenByGroup); // memory audit 2026-11-03 A0
 const seededGroups = new Set<string>();
+trackSet("satellites.seededGroups", seededGroups); // memory audit 2026-11-03 A0
 
 const gpKey = (r: GpRecord) => `${r.NORAD_CAT_ID}|${r.EPOCH}`;
 
@@ -260,6 +263,7 @@ export interface GroupCache {
 }
 
 const cache = new Map<GpGroup, GroupCache>();
+trackMap("satellites.cache", cache); // memory audit 2026-11-03 A0
 
 export function latestGroup(group: GpGroup): GroupCache | null {
   return cache.get(group) ?? null;

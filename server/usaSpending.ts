@@ -36,6 +36,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 export const CONTRACT_FLOOR_USD = 25_000;
 export const PARENT_LOOKUP_MIN_USD = 1_000_000;
@@ -295,6 +296,7 @@ export function applyParentMatch(
 // ── Archive + persistent UEI cache ──────────────────────────────────────────
 
 const archivedKeys = new Set<string>();
+trackSet("usaSpending.archivedKeys", archivedKeys, 300_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function usaDir(baseDir?: string): string {

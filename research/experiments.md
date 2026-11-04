@@ -112948,3 +112948,46 @@ branches, tip == merged head, merge > 24 h old).
 ROLLBACK: revert this PR (the timeout returns to 5 min; the test goes red
 by design). No runtime code changed, so no package.json bump.
 STARVED: no (Wave 1 of the memory batch ships behind this).
+## 2026-11-03 [PIPELINE] v1.0.1255 — memory fix A0: read-only heap diagnostic on /api/health + the audit checked in (T-DATACORE; human-approved batch 2026-11-03, Wave 1)
+
+CONTEXT: the Railway bill is ~3 GB averaged 24/7 (~$32/mo); the memory
+audit (docs/memory_audit_2026-11-03.md, now in-repo) found Node's heap
+parked at ~1.9-2.1 GB with no probe able to say WHICH structures hold it.
+The approved plan ships fixes A1-A8 each behind its own env flag with
+before/after /api/health numbers in every PR — so the ruler ships first.
+CHANGE (no behavior change anywhere else): server/heapDiag.ts = a gauge
+registry (registerHeapGauge / trackSet / trackMap, each read guarded so a
+throwing gauge is an {error} entry and can never fail the health handler)
++ heapComposition() = V8 per-space statistics (new/old/code/large-object
+space used/size/physical/available MB; getHeapSpaceStatistics triggers no
+GC), the process.memoryUsage split (external, arrayBuffers), malloced /
+peak-malloced, native + DETACHED context counts (the classic leak signal).
+/api/health now carries checks.memory.detail = {enabled, gauge_count,
+composition, caches}. Gauges registered where the audit named the
+structures: dtcc.seenIds (entries = totalArchived, bytes = entries×72 B,
+labelled an estimate; A1's win is measured here), entityGraph.graphCache
+(nodes/edges/age), requestLog.ring, routes.aircraftCache (cap 20),
+routes.vesselSnapCache (20), routes.windowCache (32),
+globalAircraft.bodyCache (24), aircraftTrips.bloomCache (files × 32 KB,
+cap 2000 ≈ 64 MB), airportsIndex (lazy; loaded flag), the five largest
+poller dedup sets (nasaFirms 200k, gdeltEvents/nwsAlerts/fdaEvents 100k,
+edgarForm4 50k), bot.sseClients, bot.longPythonJobsInFlight. Byte figures
+are arithmetic, never a serialization walk — a health read stays O(gauges).
+FLAG: VOLTRADE_HEAP_DIAG=0 collapses the block to {enabled:false}
+(read-only, so ON by default; rollback = set the flag, no code change).
+BASELINE captured live before this shipped (v1.0.1254 container, uptime
+29 min, 16:4xZ): heapUsedMB 1371, heapTotalMB 1626, rssMB 1949,
+externalMB 7, heapLimitMB 6192, cgroupUsageMB 2803 of 22888, pressure ok
+— a young container still climbing toward the audit's ~1.9-2.1 GB floor.
+First post-deploy read of the new block goes in the A1 PR as its "before".
+Tests: server/heapDiag.test.ts (7: flag semantics; every V8 space in MB
+plus leak counters; live gauges sorted, throwing gauge → error entry,
+replace-by-name; 200 gauges read < 20 ms; builtin gauges read with no
+poller running; source ratchet pinning the health wiring + all 13
+registrations; the audit file exists). ci/counter_baseline.txt lowered as
+the ratchet instructs (tests 710→711, assertions 25863→25875).
+NEXT (same wave, in order): A1 DTCC IDs → SQLite (dual-run 24 h), A2
+incremental folds (shadow-compare), A3 idle TTLs, A4 shadow-log single
+read, A5 vol-surface LRU, A6 daemon routing + job serialization, A7 lazy
+image lib/JSON, A8 heap cap + trend alert LAST after A1 is measured.
+STARVED: yes (the rest of Wave 1 is queued behind this baseline).

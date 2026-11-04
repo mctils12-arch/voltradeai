@@ -35,6 +35,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackMap } from "./heapDiag";
 
 export interface EuSeriesDef {
   key: string;                       // our stable series id in the archive
@@ -178,6 +179,7 @@ async function fetchText(url: string, fetchImpl: FetchFn): Promise<string | null
 // transition including reverts appends as a new vintage row) ────────────────
 
 const latestVal = new Map<string, number>();
+trackMap("euMacro.latestVal", latestVal, 100_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 export function _resetEuMacroForTests(): void {

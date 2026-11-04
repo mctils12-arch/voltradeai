@@ -36,6 +36,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 const BASE_URL = "https://marketdata.theocc.com/volume-query";
 
@@ -120,6 +121,7 @@ export async function fetchOccDay(dateYmd: string, fetchImpl: FetchFn = fetch as
 // ── Archive (one gz CSV-equivalent JSONL per REPORT date; day-level dedup) ──
 
 const archivedDays = new Set<string>();
+trackSet("occVolume.archivedDays", archivedDays); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function occDir(baseDir?: string): string {

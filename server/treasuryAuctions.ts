@@ -22,6 +22,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 const TA_WS_URL = "https://www.treasurydirect.gov/TA_WS/securities/auctioned?days=30&format=json";
 
@@ -164,6 +165,7 @@ export async function fetchAuctions(fetchImpl: FetchFn = fetch as any, nowMs?: n
 // ── Archive (dedup cusip|auction_date — results are immutable) ─────────────
 
 const archivedKeys = new Set<string>();
+trackSet("treasuryAuctions.archivedKeys", archivedKeys); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function auctionsDir(baseDir?: string): string {

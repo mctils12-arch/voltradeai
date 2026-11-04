@@ -81,6 +81,7 @@ import { archiveBaseDir } from "./datacoreArchive";
 import { readPartition } from "./finraQuery";
 import { readArchivedDay, readOrfArchivedDay, FLOOR_TOTAL_VOL } from "./finraShortVolume";
 import { readFtdPeriod, type FtdRow } from "./secFtd";
+import { trackSet } from "./heapDiag";
 
 const THRESHOLD_DIR = "finrathreshold";
 const OUT_DIR = "settlementstress";
@@ -279,6 +280,7 @@ export function computeComposite(date: string, baseDir?: string): CompositeRow[]
 // ── Archive (date-level dedup; small file, plain JSONL) ─────────────────────
 
 const archivedDates = new Set<string>();
+trackSet("settlementStress.archivedDates", archivedDates); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function seedSeen(baseDir?: string): void {

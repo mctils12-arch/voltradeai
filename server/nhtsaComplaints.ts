@@ -26,6 +26,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import watchlist from "../datacore/nhtsa_vehicles.json";
+import { trackSet } from "./heapDiag";
 
 const API = "https://api.nhtsa.gov/complaints/complaintsByVehicle";
 /** Politeness spacing between per-vehicle calls (one poll cycle = ~20 calls). */
@@ -118,6 +119,7 @@ export async function fetchVehicleComplaints(v: WatchVehicle, fetchImpl: FetchFn
 // ── Archive (event-identity dedup by ODI number, day-file per fetch date) ───
 
 const seenOdi = new Set<number>();
+trackSet("nhtsaComplaints.seenOdi", seenOdi); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function complaintsDir(baseDir?: string): string {

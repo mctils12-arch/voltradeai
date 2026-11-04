@@ -35,6 +35,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 export function euLoadEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.ENTSOE_API_KEY || env.ENTSOE_TOKEN);
@@ -193,6 +194,7 @@ export async function fetchLoad(fetchImpl: FetchFn = fetch as any,
 // re-publications still dedup.
 
 const seenObs = new Set<string>();
+trackSet("euLoad.seenObs", seenObs); // memory audit 2026-11-03 A0
 let seeded = false;
 
 const obsKey = (o: LoadObs) => `${o.zone}|${o.ts}|${o.res}|${o.mw}`;

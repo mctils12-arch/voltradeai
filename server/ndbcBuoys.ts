@@ -40,6 +40,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackMap } from "./heapDiag";
 
 export const BUOYS_FEED_URL = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
 
@@ -126,6 +127,7 @@ export async function fetchBuoys(fetchImpl: FetchFn = fetch as any, nowMs?: numb
 // ── archive (day-file JSONL, dedup by station+observation time, gzipped
 // after 2 days — identical shape to usgsQuakes.ts) ──────────────────────────
 const archivedTime = new Map<string, number>();
+trackMap("ndbcBuoys.archivedTime", archivedTime); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function buoysDir(baseDir?: string): string {

@@ -47,6 +47,7 @@ import {
 } from "./dataQuality";
 import countyRatesJson from "../datacore/cdc_cancer/county_rates.json";
 import countiesTopoJson from "../datacore/cdc_cancer/counties-10m.topo.json";
+import { registerHeapGauge } from "./heapDiag";
 
 export interface CountyRate {
   fips: string;
@@ -266,6 +267,7 @@ export async function fetchCountyAt(lat: number, lon: number, fetchImpl: FetchFn
 const CACHE_TTL_MS = 30 * 86400_000;
 const CACHE_MAX = 2000;
 const cache = new Map<string, { at: number; result: CountyLookupResult }>();
+registerHeapGauge("cdcCancer.cache", () => ({ entries: cache.size, cap: CACHE_MAX })); // memory audit 2026-11-03 A0 (cap const declared later: read lazily)
 const cacheKey = (lat: number, lon: number) => `${lat.toFixed(3)},${lon.toFixed(3)}`;
 
 export async function countyFipsAt(lat: number, lon: number, fetchImpl?: FetchFn, nowMs?: number): Promise<CountyLookupResult> {

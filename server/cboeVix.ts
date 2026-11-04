@@ -41,6 +41,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 const BASE_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices";
 
@@ -179,6 +180,7 @@ export async function fetchAllTenors(fetchImpl: FetchFn = fetch as any):
 //    day-level dedup scanning the year file keeps re-polls cheap) ──────────
 
 const archivedDates = new Set<string>();
+trackSet("cboeVix.archivedDates", archivedDates); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function vixDir(baseDir?: string): string {

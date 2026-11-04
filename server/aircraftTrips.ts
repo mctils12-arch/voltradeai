@@ -13,6 +13,7 @@ import path from "path";
 import {
   streamJsonlLines, RAW_RETENTION_DAYS,
 } from "./datacoreArchive";
+import { registerHeapGauge } from "./heapDiag";
 
 export const TRIP_GAP_SEC = 45 * 60;
 export const TRIP_GROUND_DWELL_SEC = 15 * 60;
@@ -163,6 +164,8 @@ export function splitTrips(
 const BLOOM_BITS = 1 << 18; // 32 KB per file
 const BLOOM_MAX_FILES = 2000; // ~64 MB hard cap; oldest evicted first
 const bloomCache = new Map<string, Uint8Array>();
+// memory audit 2026-11-03 A0: bytes = files × 32 KB filter (arithmetic, no walk)
+registerHeapGauge("aircraftTrips.bloomCache", () => ({ entries: bloomCache.size, bytes: bloomCache.size * (BLOOM_BITS >> 3), cap: BLOOM_MAX_FILES }));
 
 function bloomHashes(id: string): [number, number, number] {
   let h1 = 0x811c9dc5, h2 = 0x01000193;

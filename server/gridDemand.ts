@@ -36,6 +36,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { validateRecord } from "./dataQuality";
+import { trackSet } from "./heapDiag";
 
 // DATA QUALITY GATE (research/location_context_engine.md): hourly demand /
 // forecast MWh is physically non-negative and far below 5,000,000 MWh/h (US
@@ -132,6 +133,7 @@ export async function fetchDemand(fetchImpl: FetchFn = fetch as any,
 // ── Archive (event-identity dedup respondent|period|type, day-file per UTC day) ──
 
 const seenObs = new Set<string>();
+trackSet("gridDemand.seenObs", seenObs); // memory audit 2026-11-03 A0
 let seeded = false;
 
 // legacy archived lines carry no type field — they are demand rows

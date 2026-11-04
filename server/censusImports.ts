@@ -38,6 +38,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 export function censusEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.CENSUS_API_KEY);
@@ -154,6 +155,7 @@ export async function fetchImports(
 //    appends as a new row with a new rt, vintage-style) ─────────────────────
 
 const archivedKeys = new Set<string>();
+trackSet("censusImports.archivedKeys", archivedKeys); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function importsDir(baseDir?: string): string {

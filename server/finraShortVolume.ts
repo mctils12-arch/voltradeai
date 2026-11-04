@@ -66,6 +66,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 export interface ShortVolRow {
   date: string;        // YYYY-MM-DD trade date
@@ -192,8 +193,10 @@ export async function fetchOrfShortVolDay(
 // ── Archive (date-level dedup; one JSONL day-file per TRADE date) ───────────
 
 const archivedDates = new Set<string>();
+trackSet("finraShortVolume.archivedDates", archivedDates); // memory audit 2026-11-03 A0
 let seeded = false;
 const orfArchivedDates = new Set<string>();
+trackSet("finraShortVolume.orfArchivedDates", orfArchivedDates); // memory audit 2026-11-03 A0
 let orfSeeded = false;
 
 function svDir(baseDir?: string): string {
@@ -442,6 +445,7 @@ export function latestShortVol() {
 // the market-wide trend.
 
 const summaryHistorySeen = new Set<string>();
+trackSet("finraShortVolume.summaryHistorySeen", summaryHistorySeen); // memory audit 2026-11-03 A0
 let summaryHistorySeeded = false;
 
 function summaryHistoryPath(baseDir?: string): string {

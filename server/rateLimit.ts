@@ -22,6 +22,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { hashIp } from "./requestLog";
+import { registerHeapGauge } from "./heapDiag";
 
 // ── Route classes & generous global limits ─────────────────────────────────
 // Window is 60s. Limits are per (ipHash, class). Rationale for generosity:
@@ -84,6 +85,7 @@ function sweep(store: WindowStore, now: number, windowMs: number) {
 }
 
 const globalStore: WindowStore = new Map();
+registerHeapGauge("rateLimit.globalStore", () => ({ entries: globalStore.size, cap: GLOBAL_STORE_CAP })); // memory audit 2026-11-03 A0 (cap const declared later: read lazily)
 let lastSweep = 0;
 // Hard cap (parent-review fix 2026-07-18): under the pre-existing
 // `trust proxy: true` (Bug 36), req.ip is client-influenced via

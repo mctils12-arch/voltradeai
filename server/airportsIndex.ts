@@ -9,6 +9,7 @@
 import fs from "fs";
 import path from "path";
 import { repoDataPath } from "./repoFiles";
+import { registerHeapGauge } from "./heapDiag";
 
 export interface Airport {
   id: string;            // OurAirports ident (ICAO-style where assigned)
@@ -25,6 +26,8 @@ const GRID_DEG = 0.5;
 let grid: Map<string, Airport[]> | null = null;
 let byIdent: Map<string, Airport> | null = null;
 let loadedCount = 0;
+// memory audit 2026-11-03 A0: lazy dataset — loaded=false means it costs nothing yet
+registerHeapGauge("airportsIndex", () => ({ entries: loadedCount, grid_cells: grid?.size ?? 0, loaded: grid !== null }));
 
 function cellKey(la: number, lo: number): string {
   return `${Math.floor(la / GRID_DEG)}|${Math.floor(lo / GRID_DEG)}`;

@@ -38,6 +38,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackMap, trackSet } from "./heapDiag";
 
 export const QUAKES_FEED_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson";
 
@@ -114,6 +115,7 @@ export async function fetchQuakes(fetchImpl: FetchFn = fetch as any, nowMs?: num
 // ── archive (day-file JSONL, dedup by USGS's own id, gzipped after 2 days —
 // identical shape to nasaFirms.ts/edgarForm4.ts) ────────────────────────────
 const archivedIds = new Set<string>();
+trackSet("usgsQuakes.archivedIds", archivedIds, 100_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function quakesDir(baseDir?: string): string {
@@ -147,6 +149,7 @@ function seedSeen(dir: string, nowMs: number): void {
  *  pure id-dedup would freeze every event at its first-seen (often
  *  "automatic", unreviewed) values forever. */
 const archivedUpdated = new Map<string, number>();
+trackMap("usgsQuakes.archivedUpdated", archivedUpdated); // memory audit 2026-11-03 A0
 
 export function archiveQuakes(events: QuakeEvent[], baseDir?: string, nowMs?: number): number {
   const dir = quakesDir(baseDir);

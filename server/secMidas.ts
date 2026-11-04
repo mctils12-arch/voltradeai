@@ -73,6 +73,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir, streamJsonlLines } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 const SEC_UA = { "User-Agent": "voltradeai-datacore/1.0 (research@voltradeai.com)" };
 
@@ -262,6 +263,7 @@ export async function fetchMidasPeriod(
 // ── Archive (period-level dedup; one gz file per quarter) ──────────────────
 
 const archivedQuarters = new Set<string>();
+trackSet("secMidas.archivedQuarters", archivedQuarters); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function midasDir(baseDir?: string): string {

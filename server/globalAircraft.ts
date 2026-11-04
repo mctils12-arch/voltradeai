@@ -44,7 +44,7 @@ import { volumeAllowsWrite, readFreeBytes } from "./globalScopes";
 import { createGapFiller, gapFiller, gapFillEnabled } from "./coverageGapFill";
 import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
 import { createFastLane, ICAO_HEX_LC_RE } from "./aircraftFastLane";
-import { GlobalSnapshot, ROW_FIELDS, encodeRow, type BBox, type SnapRow } from "./globalSnapshot";
+import { GlobalSnapshot, ROW_FIELDS, SNAPSHOT_CAP, encodeRow, type BBox, type SnapRow } from "./globalSnapshot";
 import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
@@ -52,6 +52,7 @@ import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
 import { setPlanLiveLookup } from "./flightPlans";
 import { IntentStore } from "./aircraftIntent";
 import { foldIntentDays, intentDailyInventory } from "./aircraftIntentDaily";
+import { registerHeapGauge, trackMap } from "./heapDiag";
 
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
@@ -122,6 +123,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     ?? ((datacoreSites as { sites?: SitePoint[] }).sites || []).map((s) => ({ lat: s.lat, lon: s.lon }));
   const archiveOn = String(env.GLOBAL_SWEEP_ARCHIVE ?? "1").trim() !== "0";
   const snapshot = new GlobalSnapshot();
+  registerHeapGauge("globalAircraft.snapshot", () => ({ entries: snapshot.size, cap: SNAPSHOT_CAP })); // memory audit 2026-11-03 A0
   // AIRCRAFT INTENT A (2026-10-14): mode bits / selected altitude / derived
   // state per aircraft, fed by the same bus — no extra provider calls
   const intent = new IntentStore();
@@ -207,6 +209,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   unrefTimer(evictTimer);
 
   const bodyCache = new Map<string, { at: number; body: string }>();
+  trackMap("globalAircraft.bodyCache", bodyCache, 24); // memory audit 2026-11-03 A0
 
   app.get("/api/data/aircraft/global", (req, res) => {
     complianceAuditTick();

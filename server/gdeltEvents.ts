@@ -30,6 +30,7 @@ import { unzipSync } from "fflate";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
 import strategicSites from "../datacore/sites/strategic_sites.json";
+import { trackSet } from "./heapDiag";
 
 export const GDELT_BBOX_DEG = 0.5;
 /** CAMEO EventRootCodes kept (plus any EventCode starting "143"). */
@@ -134,6 +135,7 @@ export async function fetchGdeltEvents(
 // ── Archive (dedup by GlobalEventID) ────────────────────────────────────────
 
 const archivedIds = new Set<string>();
+trackSet("gdeltEvents.archivedIds", archivedIds, 100_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function gdeltDir(baseDir?: string): string {

@@ -268,8 +268,10 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 const archivedAccessions = new Set<string>();
+trackSet("edgarForm4.archivedAccessions", archivedAccessions, 50_000); // memory audit 2026-11-03 A0
 
 function filingsDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "filings");

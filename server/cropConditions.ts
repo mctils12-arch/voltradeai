@@ -31,6 +31,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 export function cropConditionsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.NASS_API_KEY);
@@ -128,6 +129,7 @@ export async function fetchConditions(fetchImpl: FetchFn = fetch as any,
 // ── Archive (event-identity dedup commodity|week|item, day-file per fetch) ──
 
 const seenObs = new Set<string>();
+trackSet("cropConditions.seenObs", seenObs); // memory audit 2026-11-03 A0
 let seeded = false;
 
 const obsKey = (o: ConditionObs) => `${o.commodity}|${o.week_ending}|${o.item}`;

@@ -82,6 +82,8 @@ import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartb
 import { squeezeReport } from "./squeezeGex";
 import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
+import { heapDiagnostic, trackSet } from "./heapDiag"; // memory audit 2026-11-03 A0
+import { registerBuiltinHeapGauges } from "./heapGauges";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
@@ -367,6 +369,7 @@ setInterval(() => {
 // mutex-lane subprocess; the retrain's fast_mode is sized for that headroom
 // (ml_model_v2._fetch_training_bars).
 const longPythonJobsInFlight = new Set<string>();
+trackSet("bot.longPythonJobsInFlight", longPythonJobsInFlight); // memory audit 2026-11-03 A0
 
 async function runLongPythonJob(
   key: string, cmd: string, timeoutMs: number,
@@ -779,6 +782,8 @@ const state = {
 
 // ─── SSE Clients ────────────────────────────────────────────────────────────
 const sseClients: Set<any> = new Set();
+trackSet("bot.sseClients", sseClients); // memory audit 2026-11-03 A0
+registerBuiltinHeapGauges(); // dtcc.seenIds / entityGraph.graphCache / requestLog.ring (heapGauges.ts)
 
 function broadcastSSE(data: any) {
   for (const client of sseClients) {
@@ -1998,6 +2003,10 @@ print(json.dumps(data))
       cgroupHeadroomMB: ceiling.cgroupHeadroomMB,
       cgroupSource: ceiling.cgroupSource,
       pressure: memoryPressure(heapUsedMB, ceiling),
+      // memory audit 2026-11-03 (A0): heap composition by V8 space + every
+      // registered cache/dedup-set gauge (docs/memory_audit_2026-11-03.md).
+      // Read-only; VOLTRADE_HEAP_DIAG=0 collapses it to {enabled:false}.
+      detail: heapDiagnostic(),
     };
 
     // MAP V2 ROADMAP R6(c) PIPELINE-HEALTH dashboard time-series (2026-07-31):

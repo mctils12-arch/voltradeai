@@ -26,6 +26,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 export interface FdaEvent {
   t: "approval" | "adcom";
@@ -168,6 +169,7 @@ export async function fetchFdaEvents(
 // ── Archive ────────────────────────────────────────────────────────────────
 
 const archivedKeys = new Set<string>();
+trackSet("fdaEvents.archivedKeys", archivedKeys, 100_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function fdaDir(baseDir?: string): string {

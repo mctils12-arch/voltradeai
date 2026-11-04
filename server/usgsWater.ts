@@ -23,6 +23,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 /** Live-verified 2026-07-05 (each returned a CURRENT reading; the dead
  *  Metropolis gauge 03611500 — 2010-stale — was caught and excluded). */
@@ -106,6 +107,7 @@ export async function fetchGauges(
 // ── Archive (dedup by site|param|d|v|q — revisions append) ─────────────────
 
 const archivedKeys = new Set<string>();
+trackSet("usgsWater.archivedKeys", archivedKeys, 100_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function usgsDir(baseDir?: string): string {

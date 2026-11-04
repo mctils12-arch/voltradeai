@@ -51,6 +51,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import strategicSites from "../datacore/sites/strategic_sites.json";
+import { trackMap, trackSet } from "./heapDiag";
 
 // ── key gate ─────────────────────────────────────────────────────────────────
 export function airQualityKey(env: NodeJS.ProcessEnv = process.env): string {
@@ -207,6 +208,7 @@ export function scrubKey(s: string, key: string): string {
 
 // ── archive (append-only JSONL day-file per UTC day; dedup siteId|dateTime) ───
 const seenAq = new Set<string>();
+trackSet("airQuality.seenAq", seenAq); // memory audit 2026-11-03 A0
 let seeded = false;
 const aqKey = (r: AqReading) => `${r.siteId}|${r.dateTime}`;
 
@@ -307,6 +309,7 @@ export interface AqCache {
 }
 
 const latestBySite = new Map<string, AqReading>();
+trackMap("airQuality.latestBySite", latestBySite); // memory audit 2026-11-03 A0
 const lastIssues: Record<string, string> = {};
 let cycleIndex = 0;
 let cache: AqCache | null = null;

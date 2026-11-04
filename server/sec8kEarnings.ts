@@ -42,6 +42,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 // ── Minimal dependency-free Atom-feed tag extraction (mirrors edgarForm4.ts's
 // approach: SEC's feed schema is flat and predictable, a full XML parser is
@@ -303,6 +304,7 @@ export async function fetchLatestEarnings8Ks(
 // identical shape to edgarForm4.ts's filings archive. ───────────────────────
 
 const archivedAccessions = new Set<string>();
+trackSet("sec8kEarnings.archivedAccessions", archivedAccessions, 50_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function earnings8kDir(baseDir?: string): string {

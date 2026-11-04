@@ -44,6 +44,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { ZONES } from "./euLoad";
+import { trackSet } from "./heapDiag";
 
 export function euGenerationMixEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.ENTSOE_API_KEY || env.ENTSOE_TOKEN);
@@ -199,6 +200,7 @@ export async function fetchGenMix(fetchImpl: FetchFn = fetch as any,
 // ── Archive (dedup zone|psr|ts|res|VALUE — vintage capture; day-file per UTC day) ──
 
 const seenObs = new Set<string>();
+trackSet("euGenerationMix.seenObs", seenObs); // memory audit 2026-11-03 A0
 let seeded = false;
 
 const obsKey = (o: GenMixObs) => `${o.zone}|${o.psr}|${o.ts}|${o.res}|${o.mw}`;

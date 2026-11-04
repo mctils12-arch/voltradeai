@@ -84,6 +84,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 export interface WatchlistOrg {
   ticker: string;
@@ -263,6 +264,7 @@ export async function fetchGithubActivity(
 // ── archive ──────────────────────────────────────────────────────────────────
 
 const archivedKeys = new Set<string>();
+trackSet("githubOrgActivity.archivedKeys", archivedKeys); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function githubActivityDir(baseDir?: string): string {

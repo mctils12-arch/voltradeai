@@ -32,6 +32,7 @@ import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { parseFilingFeed } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
+import { trackSet } from "./heapDiag";
 
 export const FOCUSED_MAX_HOLDINGS = 250;
 
@@ -228,6 +229,7 @@ export async function fetchLatest13FFilings(
 // accession, old days gzipped — identical lifecycle to <archive>/filings/) ──
 
 const archivedAccessions = new Set<string>();
+trackSet("edgar13f.archivedAccessions", archivedAccessions, 50_000); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function filings13fDir(baseDir?: string): string {

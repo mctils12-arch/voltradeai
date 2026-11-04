@@ -29,6 +29,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { trackSet } from "./heapDiag";
 
 export interface FaaEvent {
   type: "ground_stop" | "ground_delay" | "delay" | "closure";
@@ -130,6 +131,7 @@ export async function fetchFaaStatus(fetchImpl: FetchFn = fetch as any, nowMs?: 
 // ── Archive (event-identity dedup; a persisting program archives once) ──────
 
 const archivedKeys = new Set<string>();
+trackSet("faaStatus.archivedKeys", archivedKeys); // memory audit 2026-11-03 A0
 let seeded = false;
 
 function faaDir(baseDir?: string): string {
