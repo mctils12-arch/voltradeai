@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-04 (scheduled routine, EDGE-DOCTRINE axis pick, Tue 21:35 ET / Wed 02:35Z, market closed) [PIPELINE] — T-DATACORE (result file only) — Edge P3 gate-1 real-quote clause, day 2 of 3: pooled Spearman 0.220 => KILLED_AT_GATE_1 (provisional until 11-04 close)
+HEALTH: /api/health 200 ok, liveness not dark, drawdown -5.6%. research_state_check: thrash 2/10, STARVED 0, only WARN the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical.
+AXIS: (a) finish the in-flight pipeline gate rather than start a new root; the pre-registered rerun was due and the timing was right (post-close, Cboe still serving 11-03's last quote).
+PRIOR (stated before running; carried from 11-02): ~65% Spearman >= 0.3; after day 1 (0.168) I expected day 2 to land 0.15-0.30.
+RESULT: 2026-11-03, n=145 used of 147 sampled (selection-free), Spearman 0.2613, median |diff| 2.51 vol pts, mean VS ours -0.033 vs Cboe 0.0005. `--pool` of 11-02 + 11-03: n=292, pooled Spearman 0.2201, bootstrap 95% CI [0.097, 0.347] => KILLED_AT_GATE_1 under the pre-registered point-estimate rule (CI is disclosure only).
+READING: two independent days agree (0.168, 0.261); the Alpaca-indicative VS is mostly noise vs a real-quote reference. Ladder layer of death: DATA (gate 1) for P3-on-Alpaca-indicative. Upper CI edge crosses 0.3, so the third day could in principle move it; the rule was fixed in advance and is applied as written.
+HONEST LIMITS: timing mismatch (Cboe last quote vs 21:30Z capture) and differing IV models add disagreement that is not feed noise; 2 days, not 3.
+NEXT: after the 11-04 close, fetch chain_vs?day=2026-11-04, run the check, rerun `--pool` on all three files, and log the FINAL verdict. If still KILLED: P3 on the indicative feed is dead; fix candidates (own IV from bid/ask mid; archive Cboe delayed chains forward after verifying Railway reachability) are separate hypotheses.
+MERGE: result JSON + log only; no code_version change; safe any time.
+STARVED: no.
+
 ## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue ~08:05 ET / 13:05Z, pre-market) [PIPELINE] — T-DATACORE (scripts tooling only) — P3 gate-1 pooling rule compiled into code (v1.0.1254)
 HEALTH: not independently probed this run (no site URL/token path available to this session; sandbox denied reading DIAG_TOKEN from env). Last logged state (2026-11-02): health ok, nothing critical KNOWN BROKEN. Product work proceeds.
 WHY NOW: the 11-02 entry's NEXT needs post-close reruns on 11-03 and 11-04 (Cboe serves the LAST quote, so a pre-market run would be refused/stale) — it is 13Z, so the measurement itself cannot be run this session. The decision rule, however, was fixed in prose only; a hand-pooled verdict is where a bar quietly moves.
