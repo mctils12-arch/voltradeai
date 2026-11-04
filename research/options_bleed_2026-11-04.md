@@ -132,6 +132,7 @@ One PR each, merged after the close so they are live before the 11-05 open:
 3. **The group loss limit is measured against the net credit (debit)**, as its comment says, and the IC max-loss exit derives max loss from the legs when state lacks it.
 4. **Setup-3 condors enforce their documented earnings rule.**
 5. **The CSP earnings guard fails closed**, with per-candidate confirmation when the window calendar is missing or truncated.
+   - **Live confirmation (20:15Z):** all three calendar windows (21, 30 and 47 days) returned exactly 1,500 rows, starting 11-09 to 11-11 instead of 11-04. Every earnings gate was blind to the next 5–7 days. The structural fix, fetching the calendar in date chunks, follows as its own PR.
 
 ## Not done here (filed)
 
