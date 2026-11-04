@@ -491,7 +491,7 @@ test("refreshDtccSwaps: a normal completed poll resolves the crash marker so the
 // answer; sqlite never builds the Set; memory is always a clean rollback.
 
 import Database from "better-sqlite3";
-import { dtccIdsStats, setDtccIdsAuditSink } from "./dtccSwaps";
+import { dtccIdsStats, setDtccIdsAuditSink, _setDtccFreeBytesReaderForTests } from "./dtccSwaps";
 
 type IdsMode = "memory" | "dual" | "sqlite";
 const IDS_ENV = "VOLTRADE_DTCC_IDS_STORE";
@@ -500,9 +500,13 @@ async function withMode<T>(mode: IdsMode, fn: () => Promise<T> | T): Promise<T> 
   const prev = process.env[IDS_ENV];
   process.env[IDS_ENV] = mode;
   _resetDtccForTests();
+  // the VOLUME GUARD (2026-11-04) reads real free space; these tests are about
+  // the dedup modes, so pin a roomy volume — dtccIdsDiskGuard.test.ts covers the guard
+  _setDtccFreeBytesReaderForTests(() => 64 * 2 ** 30);
   try {
     return await fn();
   } finally {
+    _setDtccFreeBytesReaderForTests(null);
     _resetDtccForTests();
     if (prev === undefined) delete process.env[IDS_ENV]; else process.env[IDS_ENV] = prev;
   }
