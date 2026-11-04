@@ -454,7 +454,18 @@ BASE_CONFIG = {
     # (entry_shadow.flag_raw; Node mirror server/entryShadow.ts).
     # Prior behaviour: every entry live (no key). Expected effect: no new
     # stock/ETF/option positions; buying power stays in cash + floor.
-    "SHADOW_ENTRY_SLEEVES": "stocks,options",
+    # 2026-11-04 HUMAN DIRECTIVE (paper account; verbatim in research/
+    # experiments.md this date): the human did not want trading stopped:
+    # trade the sleeves live, see what works best, the goal is to beat SPY.
+    # Entries are LIVE again for both sleeves. Prior value "stocks,options"
+    # (2026-10-28 -> 2026-11-04). Expected effect: stock/ETF entries and
+    # options opens order again (the pre-2026-10-28 behaviour, now with the
+    # 2026-11-02 multi-leg close-as-a-unit and POS-KILL structure-hold fixes
+    # live for the first time); in NEUTRAL the floor (SPY_FLOOR_NEUTRAL 0.90
+    # + DEFENSIVE_FLOOR_NEUTRAL 0.08) still leaves little room under the 95%
+    # exposure cap for new stock entries (unchanged here). Rollback without
+    # a deploy: env VOLTRADE_SHADOW_ENTRIES=stocks,options (or =options).
+    "SHADOW_ENTRY_SLEEVES": "off",
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

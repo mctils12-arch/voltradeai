@@ -4,7 +4,9 @@ options sleeve and stock entries to shadow mode. Keep the floor basket and all
 exits live." — entry_shadow.py + server/entryShadow.ts.
 
 Pinned here:
-  1. flag: BASE_CONFIG["SHADOW_ENTRY_SLEEVES"] = "stocks,options"; the env
+  1. flag: BASE_CONFIG["SHADOW_ENTRY_SLEEVES"] = "off" since the 2026-11-04
+     human directive (entries live again; "stocks,options" 2026-10-28 ->
+     2026-11-04); the env
      var VOLTRADE_SHADOW_ENTRIES wins whenever it is PRESENT ("off"/"0"/""/
      "none" = nothing shadowed); the Node mirror's default and decision
      constants equal the Python ones.
@@ -73,13 +75,22 @@ class _TempShadowLog(unittest.TestCase):
 
 # ── 1. flag ──────────────────────────────────────────────────────────────────
 class TestFlag(unittest.TestCase):
-    def test_base_config_default_shadows_stocks_and_options(self):
-        self.assertEqual(BASE_CONFIG["SHADOW_ENTRY_SLEEVES"], "stocks,options")
-        self.assertEqual(entry_shadow.shadowed_sleeves({}), {"stocks", "options"})
-        self.assertTrue(entry_shadow.is_shadowed("stocks", {}))
-        self.assertTrue(entry_shadow.is_shadowed("options", {}))
+    def test_base_config_default_is_live_since_the_2026_11_04_directive(self):
+        # 2026-11-04 human directive (paper account): entries live again.
+        # The 2026-10-28 -> 2026-11-04 default was "stocks,options".
+        self.assertEqual(BASE_CONFIG["SHADOW_ENTRY_SLEEVES"], "off")
+        self.assertEqual(entry_shadow.shadowed_sleeves({}), set())
+        self.assertFalse(entry_shadow.is_shadowed("stocks", {}))
+        self.assertFalse(entry_shadow.is_shadowed("options", {}))
         self.assertEqual(entry_shadow.status({}),
-                         {"stocks": True, "options": True, "source": "config", "value": "stocks,options"})
+                         {"stocks": False, "options": False, "source": "config", "value": "off"})
+
+    def test_the_rollback_value_still_shadows_both_sleeves(self):
+        # The env rollback the config comment names must keep working.
+        env = {"VOLTRADE_SHADOW_ENTRIES": "stocks,options"}
+        self.assertEqual(entry_shadow.shadowed_sleeves(env), {"stocks", "options"})
+        self.assertEqual(entry_shadow.status(env),
+                         {"stocks": True, "options": True, "source": "env", "value": "stocks,options"})
 
     def test_present_env_wins_including_off_values(self):
         for v in OFF_VALUES:

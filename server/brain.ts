@@ -47,7 +47,7 @@ export const PRIMARY_BUCKET_OUTCOME = "xa";
 
 /** BASE_CONFIG values the status rules read — a MIRROR used only when the Python call failed (test_brain_evidence.py pins it). */
 export const BRAIN_CONFIG_MIRROR: Readonly<Record<string, unknown>> = Object.freeze({
-  SHADOW_ENTRY_SLEEVES: "stocks,options",
+  SHADOW_ENTRY_SLEEVES: "off",
   REGIME_ENGINE_ENABLED: true,
   REGIME_SELECTION_DEFAULT: "all",
   REGIME_OPTIONS_DEFAULT: "all",
