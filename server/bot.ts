@@ -56,6 +56,7 @@ import { evaluateEnrichment } from "./shadowFleetGate1";
 import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
 import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, type DailyClose, type Benchmark } from "./spyBenchmark";
+import { todayTile, type TodayTile } from "./todayTile";
 import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
@@ -1625,6 +1626,11 @@ export function registerBotRoutes(app: Express) {
         status: acct.status,
         tradingBlocked: acct.trading_blocked,
         mode: "paper",
+        // the Bot page's TODAY tile (B1, human-approved 2026-11-03; server/
+        // todayTile.ts): this read against the prior close, in $ and %, beside
+        // SPY's move on the same ET day and the difference — todayFor() lives
+        // beside the SPY cache it reads
+        today: todayFor(acct),
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -2395,6 +2401,27 @@ print(json.dumps({
       spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
     }
     return spyBenchCache;
+  }
+  // The TODAY tile's body (B1, 2026-11-03; server/todayTile.ts) for the
+  // account route: the account read it already made, the SPY bars already
+  // cached here. The cache is READ, never awaited — the 10 s account poll
+  // must not wait on an Alpaca bars fetch — so a cold or expired cache answers
+  // SPY null with its reason and is warmed for the next poll; spyBenchBars
+  // keeps its own SPY_BENCH_CACHE_MS cadence, so this adds no fetch the
+  // benchmark route would not make. One warm-up in flight at a time.
+  let spyWarming = false;
+  function todayFor(acct: { equity: unknown; last_equity: unknown }): TodayTile {
+    const nowMs = Date.now();
+    const body = todayTile({ equity: acct.equity, lastEquity: acct.last_equity, spyBars: spyBenchCache?.bars ?? null, spyFetchedAt: spyBenchCache?.at ?? null, nowMs });
+    if (!spyWarming && (!spyBenchCache || nowMs - spyBenchCache.at > SPY_BENCH_CACHE_MS)) {
+      // the benchmark's own range when the curve exists; ten days otherwise (a fresh install still gets its SPY side)
+      const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : new Date(nowMs - 10 * 86_400_000).toISOString().slice(0, 10);
+      spyWarming = true;
+      void spyBenchBars(oldest)
+        .catch((warmErr) => console.warn("[today] SPY bars warm-up:", warmErr instanceof Error ? warmErr.message : warmErr))
+        .finally(() => { spyWarming = false; });
+    }
+    return body;
   }
   // One body for the owner route AND the "benchmark" diag probe (2026-10-20),
   // so what a session reads can never drift from what the page shows.

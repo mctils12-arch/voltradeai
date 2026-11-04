@@ -18,6 +18,7 @@ import { num } from "./useBotData";
 import { optionExitPlan, optionManagement } from "../../../shared/positionLevels";
 import { optionWhatLine, optionExitSegments, stockExitSegments, type PlanSegment } from "./exitPlan";
 import { ShadowChip } from "./shadow";
+import { todayView } from "./today";
 import { gateRows, factorBars, verdictWord, chainLine, lookupErrors, ledgerLine, type LookupResult, type LedgerReport } from "./lookup";
 import type { PanelId } from "./zoneModel";
 
@@ -83,8 +84,8 @@ export function Panel({ chrome, title, help, status, meta, ageMs, children, scro
 }
 
 // ── KPI strip ───────────────────────────────────────────────────────────────
-export type KpiKey = "expectancy" | "winRate" | "vsSpy" | "equity";
-export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold, flash, events, onScoreboard, onShadow }: {
+export type KpiKey = "expectancy" | "winRate" | "vsSpy" | "equity" | "today";
+export function KpiStrip({ perf, account, status, market, calendar, bench, now, state, hold, onHold, flash, events, onScoreboard, onShadow, foldSession }: {
   perf: Performance | undefined; account: BotAccount | undefined; status: BotStatus | undefined; market: MarketStatus | undefined; calendar: Calendar | undefined; bench: Benchmark | undefined;
   now: number; state: DerivedState; hold: boolean; onHold: () => void;
   /** values that changed since the last tick (live.ts flashes) and the latest decisions (newest first) */
@@ -93,6 +94,9 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
   onScoreboard?: () => void;
   /** entry shadow mode on (shadow.tsx): the Now tile's eyebrow chip opens the would-be entries */
   onShadow?: () => void;
+  /** the l tier (1180–1919, zoneModel.tierFor): the Session tile is not rendered and its line sits in the Now tile — seven
+   *  tiles do not fit that tier's one 86 px row, and a second row starved the panel columns (2026-11-03, the Today tile) */
+  foldSession?: boolean;
 }) {
   const latest = events?.[0];
   // THE RULER ([RULE-REVIEW] 2026-10-29, server/edgeLedger.ts): the headline is the BROKER's expectancy per closed lot
@@ -126,6 +130,9 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
   const hi = vals.length ? Math.max(...vals) : 1;
   const pts = vals.map((v, k) => `${(k / Math.max(1, vals.length - 1)) * 110},${34 - ((v - lo) / Math.max(1e-9, hi - lo)) * 30}`).join(" ");
   const ky = killLine !== null && vals.length ? 34 - ((killLine - lo) / Math.max(1e-9, hi - lo)) * 30 : null;
+  // TODAY (B1, human-approved 2026-11-03): the server's tile (server/todayTile.ts) into its lines (today.ts); `loaded`
+  // tells "account not loaded" from a server that predates the field
+  const tv = todayView(account?.today, now, account !== undefined);
   const open = market?.isOpen ?? null;
   const nextMs = market ? Date.parse(open ? market.nextClose : market.nextOpen) : NaN;
   const todayKey = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -143,7 +150,7 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
   })();
   const stateCls = state.state === "incident" ? "vt-bot-r" : state.state === "scanning" ? "vt-bot-b" : state.state === "candidate" || state.state === "placed" || state.state === "exit" ? "vt-bot-t1" : "vt-bot-t2";
   return (
-    <div className="vt-bot-kpi vt-bot-area-kpi">
+    <div className="vt-bot-kpi vt-bot-area-kpi" data-fold={foldSession ? "true" : undefined}>
       <div className="vt-bot-panel">
         <div className="vt-kpi-edge">
           <div className="vt-bot-eb">Expectancy<span className="vt-kpi-desk"> / closed lot</span> <span style={{ whiteSpace: "nowrap" }}>· broker<Help k="expectancy" /></span></div>
@@ -215,15 +222,30 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
           </svg>
         ) : <span className="vt-bot-t3" style={{ fontSize: 11 }}><NotRecorded what="no curve" /></span>}
       </div>
-      <div className="vt-bot-panel">
-        <div style={{ minWidth: 0 }}>
-          <div className="vt-bot-eb">Session<Help k="session" /></div>
-          <div className="vt-bot-m vt-bot-t1" style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.2 }}>
-            {open === null ? "—" : open ? `RTH · closes in ${fmtCountdown(nextMs - now)}` : `closed · opens in ${fmtCountdown(nextMs - now)}`}
-          </div>
-          <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>{fmtClockET(now)} ET{early ? ` · early close ${early.close}` : ""}</div>
+      {/* TODAY (B1, human-approved 2026-11-03; server/todayTile.ts, today.ts): equity now against the prior close in $ and %,
+          SPY's move on the same ET day with its own as-of clock, and the headline difference in points — every line from the
+          server's fields, a missing side with its reason; the hover carries the whole provenance sentence */}
+      <div className="vt-bot-panel" data-kpi="today">
+        <div className="vt-kpi-today" title={tv.title}>
+          <div className="vt-bot-eb" style={{ whiteSpace: "nowrap" }}>Today · vs SPY<Help k="today" /></div>
+          <div className={`vt-bot-kpiv ${tv.headlineCls}`} data-flash={flashAttr(flash?.today, now)}>{tv.headline}</div>
+          <div className={`vt-kpi-today-ln vt-kpi-today-chg ${tv.changeCls}`}><span>{tv.change}</span></div>
+          <div className="vt-kpi-today-ln vt-bot-t3"><span><span className={tv.spyCls}>{tv.spy}</span> · <span className={tv.spyStale ? "vt-bot-o" : undefined}>{tv.spyNote}</span></span></div>
+          <div className="vt-kpi-today-ln vt-bot-t3"><span><span className="vt-kpi-today-word">prior </span>{tv.pathValue}</span></div>
         </div>
       </div>
+      {/* at the l tier (foldSession) this tile is not rendered: its line sits in the Now tile (vt-kpi-now-session) */}
+      {foldSession ? null : (
+        <div className="vt-bot-panel vt-kpi-session">
+          <div style={{ minWidth: 0 }}>
+            <div className="vt-bot-eb">Session<Help k="session" /></div>
+            <div className="vt-bot-m vt-bot-t1" style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.2 }}>
+              {open === null ? "—" : open ? `RTH · closes in ${fmtCountdown(nextMs - now)}` : `closed · opens in ${fmtCountdown(nextMs - now)}`}
+            </div>
+            <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>{fmtClockET(now)} ET{early ? ` · early close ${early.close}` : ""}</div>
+          </div>
+        </div>
+      )}
       <div className="vt-bot-panel">
         <div style={{ minWidth: 0, flex: "1 1 auto" }}>
           <div className="vt-bot-eb" style={{ whiteSpace: "nowrap" }}>Now<Help k="now" /><ShadowChip status={status} onOpen={onShadow} label="short" /></div>
@@ -232,6 +254,8 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
             {hold ? <span className="vt-bot-st vt-bot-t1"><span className="vt-bot-dot" />layout held · bot live</span> : null}
             <span className="vt-bot-row" style={{ marginLeft: "auto", gap: 2, flex: "0 0 auto" }}><Help k="hold" /><button type="button" className="vt-bot-wbtn" aria-pressed={hold} onClick={onHold}>hold</button></span>
           </div>
+          {/* the Session tile's line, only where that tile is not rendered (the l tier); no clock there — the Session tile keeps it */}
+          {foldSession ? <div className="vt-kpi-now-session vt-bot-m vt-bot-t3">{open === null ? "session —" : `${open ? "RTH · closes in" : "closed · opens in"} ${fmtCountdown(nextMs - now)}${early ? " · early" : ""}`}<Help k="session" /></div> : null}
           {latest ? (
             // the newest decision the audit log carries (live.ts): a fresh one slides in and stays marked for FRESH_MS;
             // it sits under the state row (the hold control shares that row) so it gets the tile's whole width

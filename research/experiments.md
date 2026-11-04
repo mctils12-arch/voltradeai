@@ -113348,3 +113348,29 @@ ROLLBACK: VOLTRADE_SERVE_FEATURE_FIX=off (pre-fix path). PROMOTION: Part D — s
 TESTS: test_serve_features.py (24), test_serve_feature_fix_deep_score.py (20), test_ml_insight.py (+9). Full pytest green; silent-except ratchet exact; counter ratchet re-pinned (tests_run_in_ci/tests_gating_merge/assertions improved; note the pre-existing +1 file / +12 assertions drift already on origin/main before this branch).
 ADJACENT (filed, not fixed): idiosyncratic_ret == change_pct_today (spy_change_pct never emitted); vrp/iv_rank_proxy/put_call_proxy market-wide in training vs per-ticker at serve; iv_rank_stock == iv_rank_proxy at serve; market_breadth proxy; volume_ratio/adx/atr_pct/rsi definition gaps; off-by-one windows on momentum_1m/3m, above_ma10, frac_diff, vol_of_vol, MA50/VXX30.
 STARVED: no.
+
+### 2026-11-03 — [PRODUCT] Bot page: the "Today" tile (B1, human-approved) — territory T-CLIENT (+ one server field)
+VERSION: v1.0.1270 (shipped 2026-11-04 by the parent session; main was v1.0.1269)
+
+Change: /api/bot/account now carries `today` (server/todayTile.ts): equity now vs the prior close in $ and %
+by the daily-loss halt's own evaluateDailyPnl (drawdownGuard.ts — the Node twin of compute_daily_pnl_pct,
+test_daily_pnl_pct.py), SPY's move on the same ET day from the benchmark's cached bars (benchmarkVsSpy(...).spyLast,
+taken only when the last bar IS today's date), and the difference in points; a missing side is null with its reason.
+The Bot page's KPI strip gains a seventh tile "Today · vs SPY" (headline = account − SPY in pp; "+$312 · +0.31%";
+"SPY +0.25% · 14:02 ET" with SPY's own fetch clock; "prior $99,860 → $100,172"; the whole provenance on hover and
+a glossary "?"). Layout: one row of seven at ≥1920; at 1180–1919 the Session tile folds into the Now tile so the strip stays
+one 86 px row of six (the six tiles were already at
+their minimum widths in one 86 px row at 1440 — baseline screenshot + the pinned captions; a second strip row was
+measured and rejected: it starved the panel columns at 1440×900), three columns on the tablet, two on the phone;
+the Now tile spans what the last row leaves. Harness: the bot page also renders at 1920, the strip pins are
+re-pinned for seven tiles, a TODAY check verifies the printed arithmetic adds up and the idle page shows the
+designed null state, a SESSION FOLD check pins where the session line lives per width. Version: see the VERSION line.
+
+Hypothesis / expected: no trading effect (display only). Prior: the tile's numbers match the Alpaca account's
+own day P&L and the scoreboard's SPY row for the same day (same sources); if they ever diverge, the ladder says
+the fault is in the date rule (ET day vs the bar's date), not in the arithmetic.
+Tests: server/todayTile.test.ts (7), client/src/bot/today.test.ts (7); suites green; tsc + counter ratchets OK
+(assertions / test-file pins raised to the measured values).
+Follow-ups filed above as adjacent bugs: the dead `vp.width` harness guard, the idle fixture's stale dailyPnL,
+the legacy dailyPnLPct without the validated guard, `today` on the account diag probe.
+Starvation: not STARVED (B1 complete); the parent's queue decides.

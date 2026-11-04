@@ -58,6 +58,16 @@ const COCKPIT_PAGES = new Map([
 // Pages under test: name -> app hash route
 // Pages under test: map pages get the full map/perf/self-see battery;
 // non-map pages get layout + interaction checks only.
+/** server/todayTile.ts's body from an equity, its prior close and SPY's move (null + a reason when SPY is missing) */
+function todayFixture(equityNow, prevClose, spyPct, now, ago, spyReason) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const day = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const pct = r2(((equityNow - prevClose) / prevClose) * 100);
+  return { day, equity_now: equityNow, equity_prev_close: prevClose, pnl_usd: r2(equityNow - prevClose), pnl_pct: pct, pnl_reason: null,
+    spy_pct_today: spyPct, spy_asof: spyPct === null ? null : ago(4), spy_bar_date: spyPct === null ? null : day, spy_reason: spyReason,
+    excess_pct: spyPct === null ? null : r2(pct - spyPct), asof: new Date(now).toISOString(),
+    source: "Alpaca paper account: equity now vs last_equity (the prior session's 16:00 ET close) · SPY: today's daily bar vs the prior close, dividend-adjusted (Alpaca bars, feed iex)" };
+}
 function botFixtures({ latched }) {
   const now = Date.now();
   const ago = (min) => new Date(now - min * 60_000).toISOString();
@@ -186,7 +196,11 @@ function botFixtures({ latched }) {
         { time: ago(21), sleeve: "stocks", ticker: "NVDA", side: "buy", notional: 4210.5, source: "executeTrades.etf", instrument: "NVDL" },
         { time: ago(40), sleeve: "stocks", ticker: "KWEB", side: "buy", notional: 2980, source: "executeMorningQueue", instrument: null },
       ] } },
-    "/api/bot/account": { equity: latched ? 100172.07 : 99655.03, lastEquity: 100423.31, cash: 17601.75, buyingPower: 175355.48, dailyPnL: latched ? -251.24 : -155.28, dailyPnLPct: latched ? -0.25 : -0.16, equityPeak: 110727.04, drawdownPct: latched ? -9.53 : -10.0 },
+    // TODAY tile (B1, 2026-11-03; server/todayTile.ts shape): the fixture's own equity against its prior close — latched
+    // −$251 · −0.25 % against SPY +0.25 % (the benchmark fixture's spyLast) = −0.50 pp; idle −$768 · −0.77 % with no SPY
+    // series yet, the designed null state (the live fixture server moves equity_now with equity from the third poll on)
+    "/api/bot/account": { equity: latched ? 100172.07 : 99655.03, lastEquity: 100423.31, cash: 17601.75, buyingPower: 175355.48, dailyPnL: latched ? -251.24 : -155.28, dailyPnLPct: latched ? -0.25 : -0.16, equityPeak: 110727.04, drawdownPct: latched ? -9.53 : -10.0,
+      today: todayFixture(latched ? 100172.07 : 99655.03, 100423.31, latched ? 0.25 : null, now, ago, latched ? null : "no SPY bars fetched yet") },
     "/api/bot/positions": positions,
     "/api/bot/bars": { bars, ticker: "QQQ", timeframe: "1Hour" },
     "/api/bot/audit": audit,
@@ -655,7 +669,8 @@ const PAGES = {
   // the decision chain pass 390/768/1440. Numbers are the 2026-10-15
   // production readings; audit times are relative to the run so the day
   // timeline draws them.
-  bot: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: true }) },
+  // also at 1920 since the Today tile (2026-11-03): the one width where the KPI strip is a single row of seven
+  bot: { route: "/app#/bot", map: false, widths: WIDE, fixtures: botFixtures({ latched: true }) },
   botidle: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: false }) },
   // POP-OUT PANE (slice D, 2026-10-21): one panel popped out into its own
   // browser window — the same app at /app#/bot/pane/<id>, rendered alone
@@ -2646,7 +2661,10 @@ function startServer() {
           res.writeHead(200, { "content-type": "application/json" });
           const base = PAGE_FIXTURES[u];
           if (u === "/api/bot/audit") return res.end(JSON.stringify([{ time: new Date(Date.now() - 2000).toISOString(), type: "MORNING-TRADE", message: `KWEB: bought 120 @ 31.42 (score 75) — live fixture ${n}` }, ...base]));
-          return res.end(JSON.stringify({ ...base, equity: Number(base.equity) + 12.5 * (n - 2) }));
+          const eq = Number(base.equity) + 12.5 * (n - 2);
+          const t = base.today;
+          const today = t ? todayFixture(eq, t.equity_prev_close, t.spy_pct_today, Date.now(), (min) => new Date(Date.now() - min * 60_000).toISOString(), t.spy_reason) : undefined;
+          return res.end(JSON.stringify({ ...base, equity: eq, ...(today ? { today } : {}) }));
         }
       }
       if (u.startsWith("/api/data/wxtile/")) {
@@ -3423,11 +3441,15 @@ async function main() {
           // the pre-change readings (2026-10-29 baseline): the idle page's first row at 768 sits on the 72 px tile minimum;
           // its 390 pair row read 319 before and 310 after — the win-rate tile's "—" (no broker ledger yet) takes one line
           // where "27.8% / 36.2%" wrapped to two; nothing grew
-          const KPI_STRIP_PX = name === "bot" ? { 390: 319, 768: 166, 1440: 86 } : { 390: 310, 768: 156, 1440: 86 };
+          // RE-PINNED 2026-11-03 for the TODAY tile (B1): seven tiles — 1440 stays the l tier's one 86 px row (six tiles:
+          // the Session tile folds into the Now tile there), 1920 is the xl tier's 88 px row of seven, 768 three rows
+          // (the Now tile spans the third), 390 four rows (Now spans the fourth). The stack readings are the post-change
+          // measurements.
+          const KPI_STRIP_PX = name === "bot" ? { 390: 427, 768: 254, 1440: 86, 1920: 88 } : { 390: 419, 768: 244, 1440: 86 };
           const kpi = await page.evaluate(() => {
             const strip = document.querySelector(".vt-bot-kpi");
             if (!strip) return null;
-            const tiles = [...strip.querySelectorAll(":scope > .vt-bot-panel")].map((t) => ({ h: Math.round(t.getBoundingClientRect().height), over: Math.max(0, t.scrollHeight - t.clientHeight) }));
+            const tiles = [...strip.querySelectorAll(":scope > .vt-bot-panel")].map((t) => ({ w: Math.round(t.getBoundingClientRect().width), h: Math.round(t.getBoundingClientRect().height), over: Math.max(0, t.scrollHeight - t.clientHeight) }));
             const first = strip.querySelector(":scope > .vt-bot-panel");
             const second = strip.querySelectorAll(":scope > .vt-bot-panel")[1];
             const lines = first ? [...first.querySelectorAll(".vt-kpi-edge-cap > span, .vt-kpi-edge-log > span")].map((s) => ({ text: s.textContent || "", cut: s.scrollWidth - s.clientWidth > 1 })) : [];
@@ -3436,7 +3458,7 @@ async function main() {
           });
           if (!kpi) fail("kpi: no strip rendered");
           else {
-            console.log(`  kpi strip ${vp.w}px: ${kpi.h}px (tiles ${kpi.tiles.map((t) => t.h).join("/")}; eyebrow ${kpi.eyebrowLines} line(s))`);
+            console.log(`  kpi strip ${vp.w}px: ${kpi.h}px (tiles w×h ${kpi.tiles.map((t) => `${t.w}×${t.h}`).join(" ")}; eyebrow ${kpi.eyebrowLines} line(s))`);
             const want = KPI_STRIP_PX[vp.w];
             if (want && Math.abs(kpi.h - want) > 1) fail(`kpi: the strip is ${kpi.h}px tall at ${vp.w} (pinned ${want}px — the Expectancy tile may not grow the strip)`);
             // the two tiles this change touches may not clip their own content (the vs-SPY tile's 768 overflow predates it)
@@ -3458,6 +3480,78 @@ async function main() {
               if (/[−+]\d+\.\d{2}%/.test(kpi.first.replace(/bot log −1\.20%[\s\S]*$/, ""))) fail(`kpi: broker null still shows a percent headline — "${kpi.first.slice(0, 120)}"`);
               if (!/broker ledger warming up/.test(kpi.second)) fail(`kpi: the win-rate tile shows a number without the broker ledger — "${kpi.second.slice(0, 120)}"`);
             }
+          }
+        }
+        // ── TODAY TILE (B1, human-approved 2026-11-03; server/todayTile.ts,
+        // client/src/bot/today.ts): equity now against the prior close in $ and
+        // %, SPY's move on the same ET day with its own as-of clock, and the
+        // difference in points as the headline — every line from the server's
+        // fields. The three printed numbers must ADD UP (the fixture server
+        // moves equity from the third poll on and its hit counter spans the
+        // widths, so the change's sign and size are not fixed: the check reads
+        // the numbers it finds and verifies the arithmetic, never one frozen value);
+        // the prior close → now path must agree with the change; the hover
+        // carries the provenance. Idle page: no SPY series yet, so the headline
+        // is a dash and the SPY line carries the reason — never a zero, never
+        // NaN. The tile may not clip or cut its own content at any width.
+        {
+          const td = await page.evaluate(() => {
+            const t = document.querySelector('.vt-bot-kpi .vt-bot-panel[data-kpi="today"]');
+            if (!t) return null;
+            const text = (t.textContent || "").replace(/\s+/g, " ").trim();
+            const lines = [...t.querySelectorAll(".vt-kpi-today-ln > span")].map((s) => ({ text: s.textContent || "", cut: s.scrollWidth - s.clientWidth > 1 }));
+            const r = t.getBoundingClientRect();
+            return { text, lines, over: Math.max(0, t.scrollHeight - t.clientHeight), w: Math.round(r.width), h: Math.round(r.height), help: !!t.querySelector('button.vt-help[data-help="today"]'), title: t.querySelector(".vt-kpi-today")?.getAttribute("title") || "", headline: t.querySelector(".vt-bot-kpiv")?.textContent || "" };
+          });
+          if (!td) fail("today: no tile in the KPI strip");
+          else {
+            console.log(`  today tile ${vp.w}px: ${td.w}×${td.h} — "${td.text}"`);
+            if (/NaN|undefined|null/.test(td.text)) fail(`today: a bare NaN / undefined / null in "${td.text}"`);
+            if (td.over > 1) fail(`today: the tile clips ${td.over}px of its own content`);
+            for (const l of td.lines) if (l.cut) fail(`today: a line is cut short — "${l.text}"`);
+            if (td.lines.length !== 3) fail(`today: ${td.lines.length} caption lines (expected the change, SPY, and prior → now)`);
+            if (!td.help) fail("today: no help glyph");
+            if (!/last_equity/.test(td.title) || !/dividend-adjusted/.test(td.title)) fail(`today: the hover carries no provenance — "${td.title.slice(0, 120)}"`);
+            const num = (s) => Number(s.replace(/−/g, "-").replace(/[$,%]/g, ""));
+            const chg = /([−+]?\$[\d,]+) · ([−+]?\d+\.\d\d%)/.exec(td.text);
+            const path = /prior (\$[\d,]+) → (\$[\d,]+)/.exec(td.text);
+            if (!chg) fail(`today: no "$ · %" change line — "${td.text}"`);
+            if (!path) fail(`today: no "prior $ → $" line — "${td.text}"`);
+            if (chg && path && Math.abs(num(path[2]) - num(path[1]) - num(chg[1])) > 1) fail(`today: prior → now (${path[1]} → ${path[2]}) does not agree with the change ${chg[1]}`);
+            if (chg && path && Math.abs(num(chg[1]) / num(path[1]) * 100 - num(chg[2])) > 0.011) fail(`today: ${chg[1]} on ${path[1]} is not ${chg[2]}`);
+            if (name === "bot") {
+              const spy = /SPY (\+0\.25%) · (\d\d:\d\d) ET/.exec(td.text);
+              if (!spy) fail(`today: SPY's move (fixture +0.25 %) and its own as-of clock are missing — "${td.text}"`);
+              const pp = /^([−+]\d+\.\d\d) pp$/.exec(td.headline);
+              if (!pp) fail(`today: the headline "${td.headline}" is not a signed difference in pp`);
+              if (chg && spy && pp && Math.abs(num(chg[2]) - 0.25 - num(pp[1])) > 0.011) fail(`today: ${chg[2]} − SPY +0.25% is not the headline ${td.headline}`);
+            } else {
+              if (td.headline !== "—") fail(`today: the idle page (no SPY series) shows "${td.headline}" as the headline, not a dash`);
+              if (!/SPY — · no bars yet/.test(td.text)) fail(`today: the idle page shows no reason for the missing SPY side — "${td.text}"`);
+              if (!/no SPY bars fetched yet/.test(td.title)) fail(`today: the hover does not carry the server's full reason — "${td.title.slice(0, 160)}"`);
+              if (!chg) fail("today: the account side must still read on the idle page");
+            }
+          }
+        }
+        // ── SESSION FOLD (2026-11-03, with the Today tile): at the l tier (1180–1919)
+        // the Session tile is not rendered and its line lives in the Now tile — the
+        // strip stays one 86 px row of six; everywhere else the Session tile
+        // shows and the Now tile carries no session line. Self-see: the session
+        // is reachable at every width, in exactly one place.
+        {
+          const sf = await page.evaluate(() => {
+            const tile = document.querySelector(".vt-bot-kpi .vt-kpi-session");
+            const line = document.querySelector(".vt-bot-kpi .vt-kpi-now-session");
+            const vis = (el) => !!el && el.getBoundingClientRect().height > 0;
+            return { tile: vis(tile), line: vis(line), lineText: line ? (line.textContent || "").trim() : "", lineCut: line ? line.scrollWidth - line.clientWidth > 1 : false, tiles: document.querySelectorAll(".vt-bot-kpi > .vt-bot-panel").length };
+          });
+          const folded = vp.w >= 1180 && vp.w < 1920;
+          if (sf.tiles !== (folded ? 6 : 7)) fail(`session fold: ${sf.tiles} tiles in the strip (expected ${folded ? "six — the Session tile is not rendered at the l tier" : "seven"})`);
+          if (sf.tile === folded) fail(`session fold: the Session tile is ${sf.tile ? "visible" : "hidden"} at ${vp.w}`);
+          if (sf.line !== folded) fail(`session fold: the Now tile's session line is ${sf.line ? "visible" : "hidden"} at ${vp.w}`);
+          if (folded) {
+            if (!/^(RTH · closes in|closed · opens in) \d/.test(sf.lineText)) fail(`session fold: the folded line reads "${sf.lineText}"`);
+            if (sf.lineCut) fail(`session fold: the folded line is cut short — "${sf.lineText}"`);
           }
         }
         // CHART (2026-10-21, our own canvas engine): the chart panel holds a
@@ -3816,12 +3910,12 @@ async function main() {
             const chip = page.locator('.vt-bot-kpi .vt-shadow-chip[data-shadow-chip="short"]').first();
             if (!(await chip.count())) fail("shadow: no 'entries: shadow' chip in the Now tile");
             else {
-              // the Now eyebrow keeps the height of a chip-less KPI eyebrow (Session's)
-              const eb = await page.evaluate(() => { const c = document.querySelector('.vt-bot-kpi .vt-shadow-chip[data-shadow-chip="short"]'); const e = c?.closest(".vt-bot-eb"); const ref = [...document.querySelectorAll(".vt-bot-kpi .vt-bot-eb")].find((x) => /^Session/i.test((x.textContent || "").trim())); const r = c?.getBoundingClientRect(); const er = e?.getBoundingClientRect(); return r && er && ref ? { inside: r.left >= 0 && r.right <= innerWidth + 0.5, ebH: er.height, refH: ref.getBoundingClientRect().height, title: c.getAttribute("title") || "" } : null; });
+              // the Now eyebrow keeps the height of a chip-less KPI eyebrow (Equity's — the Session tile is hidden at the l tier since the Today tile, 2026-11-03)
+              const eb = await page.evaluate(() => { const c = document.querySelector('.vt-bot-kpi .vt-shadow-chip[data-shadow-chip="short"]'); const e = c?.closest(".vt-bot-eb"); const ref = [...document.querySelectorAll(".vt-bot-kpi .vt-bot-eb")].find((x) => /^Equity/i.test((x.textContent || "").trim())); const r = c?.getBoundingClientRect(); const er = e?.getBoundingClientRect(); return r && er && ref ? { inside: r.left >= 0 && r.right <= innerWidth + 0.5, ebH: er.height, refH: ref.getBoundingClientRect().height, title: c.getAttribute("title") || "" } : null; });
               if (!eb) fail("shadow: the chip is not inside the Now eyebrow");
               else {
                 if (!eb.inside) fail("shadow: the Now chip leaves the viewport");
-                if (eb.ebH > eb.refH + 0.5) fail(`shadow: the chip grew the Now eyebrow to ${eb.ebH.toFixed(1)}px (Session's is ${eb.refH.toFixed(1)}px)`);
+                if (eb.ebH > eb.refH + 0.5) fail(`shadow: the chip grew the Now eyebrow to ${eb.ebH.toFixed(1)}px (Equity's is ${eb.refH.toFixed(1)}px)`);
                 if (!/logged, not traded/.test(eb.title)) fail("shadow: the chip's title does not say 'logged, not traded'");
               }
               const tpl = await page.evaluate(() => !!document.querySelector(".vt-bot-stack"));

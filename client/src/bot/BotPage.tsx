@@ -157,7 +157,7 @@ export default function BotPage() {
   }, [events, now]);
   // values that changed since the previous tick flash with their direction
   // the Edge tiles show the BROKER's expectancy and win rate per closed lot ([RULE-REVIEW] 2026-10-29, panels.tsx KpiStrip)
-  const kpiVals = { expectancy: num(perf?.broker?.active?.expectancyPct), winRate: num(perf?.broker?.active?.winRate), vsSpy: num(d.benchmark.data?.since?.gapPp), equity: num(account?.equity) };
+  const kpiVals = { expectancy: num(perf?.broker?.active?.expectancyPct), winRate: num(perf?.broker?.active?.winRate), vsSpy: num(d.benchmark.data?.since?.gapPp), equity: num(account?.equity), today: num(account?.today?.excess_pct) };
   const prevKpi = useRef<typeof kpiVals | null>(null);
   const kpiFlash = useRef<Partial<Record<keyof typeof kpiVals, Flash>>>({});
   kpiFlash.current = flashes(prevKpi.current, kpiVals, kpiFlash.current, now);
@@ -366,7 +366,7 @@ export default function BotPage() {
 
   const layoutKey = `${tier}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
   useFlip(layoutKey, slots);
-  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls ? undefined : () => onZoom("score")} onShadow={() => onZoom("orders")} />;
+  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls ? undefined : () => onZoom("score")} onShadow={() => onZoom("orders")} foldSession={tier === "l"} />;
 
   // a panel popped out into its own browser window (popout.ts): this window
   // IS the panel — no grid, and the KPI strip only when the strip itself was popped
@@ -382,7 +382,8 @@ export default function BotPage() {
       {popNote ? <div className="vt-bot-popnote" role="status"><span>{popNote}</span><button type="button" className="vt-bot-wbtn" onClick={() => setPopNote(null)}>dismiss</button></div> : null}
       {status?.killSwitch ? <KillBanner days={killSince ? Math.floor((now - killSince) / 86_400_000) : null} onResume={() => void act("resume")} busy={busy} err={actErr} /> : null}
       {flags.zoomed ? (
-        <div className="vt-bot-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: `${tier === "s" ? "auto" : "76px"} minmax(0, 1fr)`, gridTemplateAreas: '"kpi" "centre"' }} data-scrolls={tpl.scrolls ? "true" : undefined}>
+        // the strip at its natural height (its tiles carry the 86 px minimum from the l tier up): since the Today tile it is three rows of tiles on the tablet, which a fixed 76 px track clipped
+        <div className="vt-bot-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateAreas: '"kpi" "centre"' }} data-scrolls={tpl.scrolls ? "true" : undefined}>
           {kpi}
           <div className="vt-bot-col vt-bot-area-centre">
             <div className="vt-bot-row" style={{ padding: "0 2px" }}><button type="button" className="vt-bot-wbtn" onClick={() => onZoom(flags.zoomed!)}>{ICONS.dock} back to the page</button><span className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11 }}>Esc</span></div>
