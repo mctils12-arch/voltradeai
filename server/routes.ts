@@ -58,6 +58,7 @@ import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapsh
 import { complianceAuditTick, setComplianceAuditWriter } from "./providerCompliance";
 import { mapDigitraffic, mapEntur, ENTUR_VEHICLES_QUERY, trainsBackgroundDue, TRAINS_BG_TICK_MS } from "./trainsFeed";
 import { computeShadowStatsAsync } from "./shadowFleet";
+import { setFoldMismatchHook } from "./vesselArchiveFold";
 import { computePortDwellAsync, portsFromSites } from "./portDwell";
 import { cachedGraphSync, bootGraphPoll, neighborhood, resolveEntityId, setGraphPollAuditWriter } from "./entityGraph";
 import { cachedGemMethaneProximity, MATCH_RADIUS_KM } from "./gemMethaneProximity";
@@ -4625,6 +4626,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // the full result is served, any difference is a FOLD-MISMATCH row below) |
   // incremental (only the open day is re-read each cycle). Same payload in
   // every mode; gnssFoldStats() carries the comparison tally for /api/health.
+  // A2 observability (2026-11-04): the shadow-fleet and port-dwell folds share
+  // vesselArchiveFold's orchestrator, whose FOLD-MISMATCH lines went only to
+  // console.error (Railway logs no session can read). Same audit_log row the
+  // GNSS and graph folds write, so the 24 h zero-mismatch check before any
+  // switch to `incremental` is readable from /api/diag/audit.
+  setFoldMismatchHook((stream, diff) => {
+    try {
+      db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
+        new Date().toISOString(), "FOLD-MISMATCH", `${stream}: ${diff.join("; ")}`.slice(0, 500)
+      );
+    } catch (e: unknown) {
+      console.error("[datacore] fold mismatch audit row:", (e as Error)?.message || e);
+    }
+  });
   setGnssFoldAuditWriter((type, message) => {
     try {
       db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(

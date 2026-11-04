@@ -7,8 +7,11 @@
  */
 import { registerHeapGauge } from "./heapDiag";
 import { latestDtcc, dtccIdsStats } from "./dtccSwaps";
-import { cachedGraphSync } from "./entityGraph";
+import { cachedGraphSync, graphPollStats } from "./entityGraph";
 import { analyticsSnapshot } from "./requestLog";
+import { shadowFleetFoldStats } from "./shadowFleet";
+import { portDwellFoldStats } from "./portDwell";
+import { gnssFoldStats } from "./gnssIntegrityFold";
 
 /** Rough per-ID retained cost of a 10-20 char string in a Set (header +
  *  one-byte chars + hash-table slot). Audit anchor: 6.56M IDs ≈ 0.4-0.5 GB. */
@@ -47,5 +50,26 @@ export function registerBuiltinHeapGauges(): void {
   registerHeapGauge("requestLog.ring", () => {
     const a = analyticsSnapshot();
     return { entries: a.ringSize, cap: a.ringCap };
+  });
+  // A2 (2026-11-04): the old-vs-new fold comparisons. Each fold ships in
+  // `shadow` mode (both folds run, the FULL result is served); the switch to
+  // `incremental` is allowed only after 24 h of mismatches === 0, and this is
+  // where that is read (FOLD-MISMATCH rows also land in the audit log).
+  // entries = cached partials; the counters are copied as the module reports them.
+  registerHeapGauge("fold.shadowfleet", () => {
+    const f = shadowFleetFoldStats();
+    return { entries: f.partialsCached, bytes: f.partialBytesEstimate, mode: f.mode, mismatches: f.mismatches, matches: f.matches, compareSkipped: f.compareSkipped, fallbacks: f.fallbacks, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastRunAt: f.lastRunAt };
+  });
+  registerHeapGauge("fold.portdwell", () => {
+    const f = portDwellFoldStats();
+    return { entries: f.partialsCached, bytes: f.partialBytesEstimate, mode: f.mode, mismatches: f.mismatches, matches: f.matches, compareSkipped: f.compareSkipped, fallbacks: f.fallbacks, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastRunAt: f.lastRunAt };
+  });
+  registerHeapGauge("fold.gnss", () => {
+    const f = gnssFoldStats();
+    return { entries: f.partialsCached, mode: f.mode, mismatches: f.mismatches, cycles: f.cycles, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastCycleAt: f.lastCycleAt, lastCyclePeakRows: f.lastCyclePeakRows };
+  });
+  registerHeapGauge("fold.graph", () => {
+    const f = graphPollStats();
+    return { entries: f.partialsCached, mode: f.mode, mismatches: f.mismatches, polls: f.polls, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastPollAt: f.lastPollAt };
   });
 }
