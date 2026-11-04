@@ -74,7 +74,14 @@ test("builtin gauges: dtcc/entityGraph/requestLog register and read without the 
   _resetHeapGaugesForTests();
   registerBuiltinHeapGauges();
   const r = readHeapGauges();
-  assert.deepEqual(Object.keys(r), ["dtcc.seenIds", "entityGraph.graphCache", "requestLog.ring"]);
+  assert.deepEqual(Object.keys(r), ["dtcc.seenIds", "entityGraph.graphCache", "fold.gnss", "fold.graph", "fold.portdwell", "fold.shadowfleet", "requestLog.ring"]);
+  // A2 (2026-11-04): every fold comparison is readable before any switch to `incremental`
+  for (const k of ["fold.gnss", "fold.graph", "fold.portdwell", "fold.shadowfleet"]) {
+    const g = r[k] as Record<string, unknown>;
+    assert.ok(!("error" in g), `${k} reads without throwing`);
+    assert.equal(g.mismatches, 0, `${k}: no comparison has run in this process`);
+    assert.ok(["full", "shadow", "incremental"].includes(String(g.mode)), `${k}: mode reported`);
+  }
   const dtcc = r["dtcc.seenIds"] as { entries: number; bytes: number; mode: string; memoryCount: number | null; dbCount: number | null; mismatches: number };
   assert.equal(dtcc.entries, 0, "no poll has run in this process");
   assert.equal(dtcc.bytes, 0 * DTCC_SEEN_ID_BYTES_EST);
@@ -163,4 +170,15 @@ test("trackMap/trackSet: a structure exposing stats() has them merged into its r
   assert.deepEqual(r["t.rich"], { entries: 2, cap: 24, ttl_s: 720, last_used_s: 5, drops: 3 }, "stats merged; entries from size, not from stats()");
   assert.deepEqual(r["t.richset"], { entries: 2, ttl_s: 720, last_used_s: 5, drops: 3 });
   _resetHeapGaugesForTests();
+});
+
+test("A2 observability: routes.ts sends the vessel folds' FOLD-MISMATCH lines to the audit log (gnss + graph wire their own)", () => {
+  const routes = fs.readFileSync(path.join(HERE, "routes.ts"), "utf8");
+  const i = routes.indexOf("setFoldMismatchHook((stream, diff) => {");
+  assert.ok(i > 0, "routes.ts wires vesselArchiveFold's mismatch hook");
+  const body = routes.slice(i, i + 600);
+  assert.match(body, /INSERT INTO audit_log/);
+  assert.match(body, /"FOLD-MISMATCH"/);
+  assert.match(routes, /setGnssFoldAuditWriter\(/, "gnss fold still wired");
+  assert.match(routes, /setGraphPollAuditWriter\(/, "graph poll still wired");
 });
