@@ -72,3 +72,42 @@ test("day review counts today's rows in ET", () => {
   assert.equal(d.freshChecks, 1);
   assert.equal(d.killAt, "2026-10-15T13:30:12Z");
 });
+
+// ── B2 ([PRODUCT] 2026-11-03): expectancy by sleeve → the TOP issue ─────────
+const ST = (n: number, expectancyPct: number | null, winRate: number | null = null, breakevenWinRate: number | null = null) => ({ n, wins: 0, losses: n, winRate, avgWinPct: null, avgLossPct: null, payoffRatio: null, breakevenWinRate, expectancyPct, realizedUsd: 0, lastCloseAt: null, unpriced: 0 });
+const EDGE = { options: ST(376, -17.1, 18.88, 47.3), stocks: ST(29, -5), floor: ST(1464, 0.01), vrp: ST(0, null), active: ST(405, -16.2), all: ST(1869, -3.4), unclassified: 0 };
+
+test("issues (B2): a sleeve below zero over n ≥ 30 is the TOP issue — ahead of the kill latch — naming its numbers and opening the Book; n < 30 and a positive sleeve are not named", () => {
+  const audit = [
+    R("2026-10-15T16:14:37Z", "KILL-AUTO-RESUME-EVAL", "EVALUATED UNRECONCILED (0/3): drawdown -9.65% not above -8.00%"),
+    R("2026-10-15T13:30:12Z", "DRAWDOWN-KILL", "MAX DRAWDOWN KILL SWITCH: Equity $99008 is -10.6% below peak $110727"),
+  ];
+  const iss = deriveIssues({ ...base, audit, killSwitch: true, sleeveEdge: EDGE });
+  assert.equal(iss[0].id, "edge");
+  assert.equal(iss[0].level, "L3");
+  assert.equal(iss[0].title, "Negative expectancy · options");
+  assert.match(iss[0].condition, /^options −17\.10% over 376 lots \(win 18\.9% vs breakeven 47\.3%\) · broker fills, n ≥ 30$/);
+  assert.ok(!/stocks/.test(iss[0].condition), "stocks at n 29 is below the sample floor");
+  assert.ok(!/floor/.test(iss[0].condition), "a positive sleeve is not an issue");
+  assert.deepEqual(iss[0].action, { label: "open book", kind: "focus", target: "book" });
+  assert.equal(iss[0].since, null);
+  assert.equal(iss[1].id, "kill", "the latch is next, still found by id");
+  // two failing sleeves → one issue naming both, in the table's order
+  const two = deriveIssues({ ...base, sleeveEdge: { ...EDGE, stocks: ST(101, -0.36, 31.68, 34.12) } });
+  assert.equal(two[0].title, "Negative expectancy · options, stocks");
+  assert.match(two[0].condition, /options −17\.10% over 376 lots .* · stocks −0\.36% over 101 lots/);
+});
+
+test("issues (B2): no flag below n 30, at or above zero, when the totals alone are negative, or without the ledger — the existing issues are unchanged", () => {
+  const none = (edge: typeof EDGE | null | undefined) => deriveIssues({ ...base, sleeveEdge: edge }).filter((x) => x.id === "edge");
+  assert.deepEqual(none({ ...EDGE, options: ST(29, -17.1) }), []);
+  assert.deepEqual(none({ ...EDGE, options: ST(376, 0) }), []);
+  assert.deepEqual(none({ ...EDGE, options: ST(376, 0.5) }), []);
+  assert.deepEqual(none({ ...EDGE, options: ST(376, null) }), []);
+  assert.deepEqual(none({ ...EDGE, options: ST(376, 2), active: ST(400, -9), all: ST(1900, -3) }), [], "a total is not a sleeve");
+  assert.deepEqual(none(null), []);
+  assert.deepEqual(none(undefined), []);
+  // with the ledger quiet the page's issue list is exactly what it was before B2
+  assert.deepEqual(deriveIssues({ ...base, constantFeatures: 0, totalTrades: 40, sleeveEdge: { ...EDGE, options: ST(376, 1) } }), []);
+  assert.deepEqual(deriveIssues({ ...base, sleeveEdge: null }).map((x) => x.id), deriveIssues(base).map((x) => x.id));
+});

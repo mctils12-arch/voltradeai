@@ -15,6 +15,7 @@ import { deriveStages, deriveIssues, deriveDayReview, rowsToday, type DeriveInpu
 import { Director } from "./director";
 import { tierFor, gridStyle, TEMPLATES, EMPTY_FLAGS, toggleIn, isPinned, initialFloatRect, clampRect, snapEdges, type LayoutFlags, type PanelId, type Rect, type Tier } from "./zoneModel";
 import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, IncidentBody, DayReviewBody, ModelBody, ChartBody, BookBody, OrdersBody, TimelineBody, WatchBody, LookupBox, ICONS, type Chrome, type ActionKind } from "./panels";
+import { ExpectancyBySleeve } from "./expectancyTable";
 import { watchModel } from "./watch";
 import { Help } from "./help";
 import { paneIdFromHash, paneUrl, paneName, paneFeatures, parsePaneMsg, windowId, PANE_CHANNEL } from "./popout";
@@ -132,6 +133,8 @@ export default function BotPage() {
     modelAgeHours: modelAge, fallbackAtHours: fallbackAt, constantFeatures: insight?.recent?.constant_features ? insight.recent.constant_features.length : null, featureCount: num(insight?.recent?.feature_count),
     openOrders: d.orders.data ? d.orders.data.length : null, totalTrades: num(perf?.totalTrades), slotsAvailable: num((lastScan as { slots_available?: unknown } | undefined)?.slots_available),
     modelTypes: insight?.recent?.model_types ?? null,
+    // B2 (2026-11-03): the broker's per-sleeve expectancy — a sleeve below zero over n ≥ 30 is the TOP issue
+    sleeveEdge: perf?.broker?.bySleeve ?? null,
   }), [audit, effNow, status, market, account, modelAge, fallbackAt, insight, d.orders.data, perf, lastScan]);
   const stages = useMemo(() => deriveStages(dIn), [dIn]);
   const issues = useMemo(() => deriveIssues(dIn), [dIn]);
@@ -302,7 +305,10 @@ export default function BotPage() {
     watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} />,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
     chart: <ChartBody positions={d.positions.data} candidates={watch.candidates} focus={focusSym} onFocus={focus} paused={flags.held.includes("chart")} />,
-    book: <BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} />,
+    // B2 (2026-11-03, client/src/bot/expectancyTable.tsx): the Expectancy tile's number split by sleeve follows the
+    // tape and the P&L-by-sleeve block — its own block from the broker half of /api/bot/performance, so it renders
+    // whether or not the sleeves query has answered
+    book: <><BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} /><ExpectancyBySleeve broker={perf?.broker ?? null} reason={perf?.brokerReason ?? null} /></>,
     // entry shadow mode (shadow.tsx): the full block where Orders has room (zoomed, a window, its own
     // window) or folded in the phone/tablet stack; in the desktop grid only the header chip, so the
     // one-line Orders slot never grows and squeezes the chart

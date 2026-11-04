@@ -211,11 +211,23 @@ function botFixtures({ latched }) {
       lastClosedAt: "2026-10-14T19:59:02.123456", excluded: { orphanExits: 351, openEntries: 20 }, basis: "trigger price, not fill",
       broker: latched ? (() => {
         const row = (n, wins, avgWinPct, avgLossPct, expectancyPct, expectancyUsd, realizedUsd, profitFactor, lastCloseAt, unpriced) => ({ n, wins, losses: n - wins, winRate: Math.round((wins / n) * 10000) / 100, avgWinPct, avgLossPct, expectancyPct, expectancyUsd, realizedUsd, profitFactor, firstCloseAt: "2026-05-07T14:31:04.000Z", lastCloseAt, unpriced });
+        const active = row(1902, 760, 24.1, -21.2, -3.1, -6.76, -12863, 0.62, ago(31), 71);
+        const options = row(1724, 690, 25.4, -22.6, -3.4, -7.17, -12364, 0.6, ago(31), 0);
+        const stocks = row(178, 70, 6.2, -5.9, -1.1, -2.8, -499, 0.81, "2026-10-14T19:59:02.000Z", 71);
+        const floor = row(96, 61, 3.1, -2.4, 1.1, 16.19, 1554, 2.1, ago(190), 0);
+        // B2 (2026-11-03, shared/expectancy.ts shape): the SAME rows with payoff and breakeven derived from them, so the
+        // table's "options + stocks" total IS the tile's headline by construction; the VRP leg has closed no lot (live:
+        // SVXY 0 lots since May 7); all = active + floor. The unpriced 71 are the stocks sleeve's.
+        const r2 = (v) => Math.round(v * 100) / 100;
+        const sl = (r) => ({ n: r.n, wins: r.wins, losses: r.losses, winRate: r.winRate, avgWinPct: r.avgWinPct, avgLossPct: r.avgLossPct,
+          payoffRatio: r.avgWinPct !== null && r.avgLossPct ? r2(r.avgWinPct / Math.abs(r.avgLossPct)) : null,
+          breakevenWinRate: r.avgWinPct !== null && r.avgLossPct !== null ? r2((Math.abs(r.avgLossPct) / (r.avgWinPct + Math.abs(r.avgLossPct))) * 100) : null,
+          expectancyPct: r.expectancyPct, realizedUsd: r.realizedUsd, lastCloseAt: r.lastCloseAt, unpriced: r.unpriced });
+        const vrp = { n: 0, wins: 0, losses: 0, winRate: null, avgWinPct: null, avgLossPct: null, payoffRatio: null, breakevenWinRate: null, expectancyPct: null, realizedUsd: 0, lastCloseAt: null, unpriced: 0 };
+        const all = sl(row(1998, 821, 22.54, -20.64, -2.9, -5.66, -11309, 0.66, ago(31), 71));
         return { windowStart: "2026-05-07T00:00:00.000Z",
-          active: row(1902, 760, 24.1, -21.2, -3.1, -6.76, -12863, 0.62, ago(31), 71),
-          options: row(1724, 690, 25.4, -22.6, -3.4, -7.17, -12364, 0.6, ago(31), 0),
-          stocks: row(178, 70, 6.2, -5.9, -1.1, -2.8, -499, 0.81, "2026-10-14T19:59:02.000Z", 71),
-          floor: row(96, 61, 3.1, -2.4, 1.1, 16.19, 1554, 2.1, ago(190), 0),
+          active, options, stocks, floor,
+          bySleeve: { options: sl(options), floor: sl(floor), stocks: sl(stocks), vrp, active: sl(active), all, unclassified: 0 },
           asOf: ago(4), source: "alpaca fills via sleeve ledger", cached_s: 240, stale: false, lastError: null };
       })() : null,
       brokerReason: latched ? null : "sleeve ledger not loaded yet; the next poll fills it" },
@@ -3553,6 +3565,89 @@ async function main() {
             if (!/^(RTH · closes in|closed · opens in) \d/.test(sf.lineText)) fail(`session fold: the folded line reads "${sf.lineText}"`);
             if (sf.lineCut) fail(`session fold: the folded line is cut short — "${sf.lineText}"`);
           }
+        }
+        // ── EXPECTANCY BY SLEEVE (B2, [PRODUCT] 2026-11-03, client/src/bot/expectancyTable.tsx): the Book carries the
+        // Expectancy tile's number split by sleeve — six rows (options, stocks, their total = the headline, ETF
+        // floor, VRP leg, all lots) × seven columns from the broker block's bySleeve. The total row's expectancy IS
+        // the tile's headline; no cell is ever cut (the wrapper scrolls sideways when the panel is narrower than
+        // the table and the page never overflows); a sleeve below zero over n ≥ 30 wears the red dot and is the
+        // FIRST issue on the page with its numbers; the broker-null page shows the designed warming state and
+        // flags nothing it cannot measure.
+        {
+          const ex = await page.evaluate(() => {
+            const root = document.querySelector('section.vt-bot-panel[data-panel="book"] .vt-exp');
+            if (!root) return null;
+            const wrap = root.querySelector(".vt-exp-wrap");
+            const table = root.querySelector(".vt-exp-t");
+            const rows = [...root.querySelectorAll("tbody tr")].map((tr) => ({
+              g: tr.getAttribute("data-group"), total: tr.getAttribute("data-total") === "true", flag: tr.getAttribute("data-flag"),
+              cells: [...tr.querySelectorAll("td")].map((td) => (td.textContent || "").trim()),
+              cut: [...tr.querySelectorAll("td")].some((td) => td.scrollWidth - td.clientWidth > 1),
+              h: Math.round(tr.getBoundingClientRect().height),
+            }));
+            const head = [...root.querySelectorAll("thead th")].map((th) => (th.textContent || "").trim().replace(/\?$/, "").trim());
+            const rr = root.getBoundingClientRect();
+            const expCell = root.querySelector("tbody tr td:nth-child(2)");
+            const issues = [...document.querySelectorAll('section.vt-bot-panel[data-panel="issues"] .vt-bot-issue')].map((it) => it.textContent || "");
+            return { state: root.getAttribute("data-state"), text: root.textContent || "", head, rows, wrapW: wrap ? wrap.clientWidth : 0, tableW: table ? table.scrollWidth : 0,
+              scrolls: wrap ? wrap.scrollWidth > wrap.clientWidth + 1 : false, overflowX: wrap ? getComputedStyle(wrap).overflowX : "", inside: rr.left >= -0.5 && rr.right <= innerWidth + 0.5,
+              expRight: expCell ? expCell.getBoundingClientRect().right : null, wrapRight: wrap ? wrap.getBoundingClientRect().right : 0,
+              src: root.querySelector(".vt-exp-src")?.textContent || "", issues };
+          });
+          // a progress line as the KPI block prints its strip height: the verdicts print at the very end, so a run the
+          // sandbox's memory cgroup kills later still leaves this block's result per width in the log
+          const exFailsBefore = checks.failures.length;
+          if (!ex) fail("expectancy: no by-sleeve block in the Book panel");
+          else {
+            if (!/^Expectancy by sleeve/.test(ex.text.replace(/\?/g, ""))) fail(`expectancy: the block's eyebrow reads "${ex.text.slice(0, 60)}"`);
+            if (!ex.inside) fail("expectancy: the block leaves the viewport sideways");
+            if (name === "bot") {
+              if (ex.state !== "ready") fail(`expectancy: state "${ex.state}" with the broker block present`);
+              if (ex.head.join("|") !== "sleeve|expectancy|n|win|avg win|avg loss|payoff|breakeven") fail(`expectancy: header reads ${JSON.stringify(ex.head)}`);
+              if (ex.rows.map((r) => r.g).join("|") !== "options|stocks|active|floor|vrp|all") fail(`expectancy: rows are ${ex.rows.map((r) => r.g).join("|")}`);
+              const by = Object.fromEntries(ex.rows.map((r) => [r.g, r]));
+              // the total row IS the tile's headline (fixture −3.1 %, n 1,902), and says so; expectancy is the first
+              // column so the phone shows it without a scroll
+              if (by.active && !(by.active.cells[1] === "−3.10%" && by.active.cells[2] === "1,902" && /headline/.test(by.active.cells[0]))) fail(`expectancy: the options + stocks row is not the tile's headline — ${JSON.stringify(by.active?.cells)}`);
+              // every column from the fixture's own numbers: expectancy, n, win rate against breakeven, payoff, breakeven
+              if (by.options && by.options.cells.join("|") !== "options|−3.40%|1,724|40.0%|+25.40%|−22.60%|1.12|47.1%") fail(`expectancy: options row reads ${JSON.stringify(by.options.cells)}`);
+              if (by.floor && by.floor.cells.join("|") !== "ETF floor|+1.10%|96|63.5%|+3.10%|−2.40%|1.29|43.6%") fail(`expectancy: floor row reads ${JSON.stringify(by.floor.cells)}`);
+              // a sleeve with no closed lot prints dashes (with the reason on hover), never NaN or Infinity
+              if (by.vrp && by.vrp.cells.join("|") !== "VRP leg|—|0|—|—|—|—|—") fail(`expectancy: VRP row reads ${JSON.stringify(by.vrp.cells)}`);
+              // on the phone the expectancy column is inside the wrapper's first view, never only behind the scroll
+              if (vp.touch && ex.expRight !== null && ex.expRight > ex.wrapRight + 0.5) fail(`expectancy: the expectancy column (right edge ${Math.round(ex.expRight)}px) sits behind the sideways scroll on the phone (wrapper right ${Math.round(ex.wrapRight)}px)`);
+              if (/NaN|Infinity/.test(ex.text)) fail("expectancy: a NaN or Infinity reached the page");
+              // the flag: options (−3.4 % over 1,724) and stocks (−1.1 % over 178) wear it, the floor (+1.1 %) and the totals never
+              if (!(by.options?.flag === "neg" && by.stocks?.flag === "neg" && !by.floor?.flag && !by.vrp?.flag && !by.active?.flag && !by.all?.flag)) fail(`expectancy: flags are ${JSON.stringify(ex.rows.map((r) => [r.g, r.flag]))}`);
+              // no cell cut, and when the table is wider than the panel the wrapper scrolls instead of the page
+              for (const r of ex.rows) if (r.cut) fail(`expectancy: a cell of the ${r.g} row is cut short`);
+              if (ex.tableW > ex.wrapW + 1 && !(ex.scrolls && ex.overflowX === "auto")) fail(`expectancy: the table (${ex.tableW}px) outgrows its wrapper (${ex.wrapW}px) without scrolling`);
+              // the phone tier (DESIGN.md's ≤ 639 px breakpoint, where the CSS enlarges the rows); the tablet keeps the 22 px density of the Book's tape
+              if (vp.w <= 639) for (const r of ex.rows) if (r.h < 26) fail(`expectancy: a ${r.h}px row on the phone (rows read at ≥ 26 px)`);
+              // provenance and freshness under the table: window, last close, lots, cache time, source
+              if (!/since May 7 · last close [A-Z][a-z]{2} \d{1,2} · 1,998 lots · 71 unpriced excluded · as of \d{2}:\d{2}:\d{2} ET · alpaca fills via sleeve ledger/.test(ex.src)) fail(`expectancy: the caption reads "${ex.src}"`);
+              // the TOP issue: first in the Issues panel, ahead of the latched kill switch, naming both sleeves with their numbers
+              if (!ex.issues.length) fail("expectancy: no issues rendered on the latched page");
+              else {
+                if (!/^Negative expectancy · options, stocks/.test(ex.issues[0])) fail(`expectancy: the first issue is "${ex.issues[0].slice(0, 80)}"`);
+                if (!/options −3\.40% over 1,724 lots \(win 40\.0% vs breakeven 47\.1%\) · stocks −1\.10% over 178 lots/.test(ex.issues[0])) fail(`expectancy: the issue's numbers are not the table's — "${ex.issues[0].slice(0, 240)}"`);
+                if (!/open book/.test(ex.issues[0])) fail("expectancy: the issue offers no way to the Book");
+                if (!ex.issues.some((t) => /^Kill switch latched/.test(t))) fail("expectancy: the kill latch issue is gone");
+              }
+            } else {
+              // botidle: the broker block is null — the designed warming state, and no sleeve flagged on data that is not there
+              if (ex.state !== "warming") fail(`expectancy: state "${ex.state}" without the broker block`);
+              if (!/warming up|not loaded yet/.test(ex.text)) fail(`expectancy: no warming-up words without the broker block — "${ex.text.slice(0, 120)}"`);
+              if (ex.rows.length) fail("expectancy: rows rendered without the broker block");
+              if (ex.issues.some((t) => /Negative expectancy/.test(t))) fail("expectancy: the broker-null page flags a sleeve it cannot measure");
+            }
+            // the block sits below the fold of the Book (the tape and the P&L block come first): its own
+            // screenshot per width, scrolled into view, so the review sees it (DESIGN.md self-see rule)
+            const exEl = page.locator('section.vt-bot-panel[data-panel="book"] .vt-exp');
+            if (await exEl.count()) { await exEl.scrollIntoViewIfNeeded(); await page.waitForTimeout(100); await exEl.screenshot({ path: path.join(OUT, `${name}-expectancy-${vp.w}.png`), animations: "disabled" }); }
+          }
+          const exFails = checks.failures.slice(exFailsBefore);
+          console.log(`  expectancy ${vp.w}px: state ${ex?.state ?? "none"} · ${ex?.rows.length ?? 0} rows · table ${ex?.tableW ?? 0}px in ${ex?.wrapW ?? 0}px${ex?.scrolls ? " (scrolls)" : ""} · ${exFails.length ? `${exFails.length} failure(s): ${exFails.join(" | ")}` : "ok"}`);
         }
         // CHART (2026-10-21, our own canvas engine): the chart panel holds a
         // canvas with real size that has actually painted — the regression

@@ -3,6 +3,8 @@
 import { sortedNewestFirst, type AuditRow } from "./pageState";
 import type { PanelId } from "./zoneModel";
 import { fmtAge, fmtPct, fmtOcc, MINUS } from "./format";
+import { negativeEdgeIssue } from "./expectancy";
+import type { SleeveExpectancy } from "../../../shared/expectancy";
 
 export type Level = "ok" | "warn" | "bad" | "unk";
 export type Box = "ok" | "late" | "miss" | "dead";
@@ -19,6 +21,9 @@ export interface DeriveInput {
   constantFeatures: number | null; featureCount: number | null;
   openOrders: number | null; totalTrades: number | null;
   slotsAvailable: number | null; modelTypes: Record<string, number> | null;
+  /** B2 (2026-11-03): the broker's expectancy per closed lot split by sleeve (perf.broker.bySleeve);
+   *  null / absent while the sleeve ledger is cold or the server predates the split — then no sleeve can flag */
+  sleeveEdge?: SleeveExpectancy | null;
 }
 
 const t = (r: AuditRow) => Date.parse(r.time);
@@ -102,6 +107,12 @@ export function deriveIssues(i: DeriveInput): Issue[] {
   const now = i.nowMs;
   const out: Issue[] = [];
   const first = (p: (r: AuditRow) => boolean) => rows.find(p) || null;
+
+  // ── B2 ([PRODUCT] 2026-11-03, human-approved): a sleeve losing per closed lot over a real sample (below zero,
+  // n ≥ 30, broker fills) is the page's TOP issue — pushed before every other L3 so the stable sort keeps it first.
+  // The kill latch keeps its own banner and the incident panel finds it by id. Rule and words: expectancy.ts.
+  const edge = negativeEdgeIssue(i.sleeveEdge);
+  if (edge) out.push({ id: "edge", level: "L3", ...edge, action: { label: "open book", kind: "focus", target: "book" }, since: null });
 
   if (i.killSwitch) {
     const k = first((r) => r.type === "DRAWDOWN-KILL");

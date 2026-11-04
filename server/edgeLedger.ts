@@ -24,6 +24,7 @@
 // counted in `unpriced` (quantity) and excluded — never guessed.
 import type { RealizedEvent, Sleeve } from "./sleeveLedger";
 import { sleeveOf } from "./sleeveLedger";
+import { expectancyBySleeve, VRP_LEG_TICKERS, type SleeveExpectancy } from "../shared/expectancy";
 
 export type EdgeGroup = "active" | Sleeve;
 export const EDGE_GROUPS: readonly EdgeGroup[] = ["active", "options", "stocks", "floor"];
@@ -59,6 +60,12 @@ export interface EdgeLedger {
   options: EdgeRow;
   stocks: EdgeRow;
   floor: EdgeRow;
+  /** B2 ([PRODUCT] 2026-11-03, shared/expectancy.ts): the same lots split
+   *  four ways — options, ETF floor (minus the VRP leg), stocks, VRP leg
+   *  (SVXY) — each with payoff and breakeven win rate, plus `active`
+   *  (options + stocks, pinned equal to the row above) and `all`. Additive:
+   *  every row above is computed exactly as before. */
+  bySleeve: SleeveExpectancy;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -100,7 +107,7 @@ function edgeRow(lots: readonly RealizedEvent[], unpricedQty: number): EdgeRow {
  *  sleeves. `windowStartMs` (optional) counts only lots closed from there on,
  *  the same window /api/bot/sleeves counts; `unpriced` is not windowed (those
  *  closes are the history's first lots, as sleeveLedger reports them). */
-export function edgeLedger(events: readonly RealizedEvent[], unpriced: ReadonlyMap<string, number>, floorTickers: ReadonlySet<string>, windowStartMs?: number): EdgeLedger {
+export function edgeLedger(events: readonly RealizedEvent[], unpriced: ReadonlyMap<string, number>, floorTickers: ReadonlySet<string>, windowStartMs?: number, vrpTickers: ReadonlySet<string> = VRP_LEG_TICKERS): EdgeLedger {
   const inWindow = windowStartMs === undefined ? events : events.filter((e) => e.t >= windowStartMs);
   const lots = new Map<Sleeve, RealizedEvent[]>([["options", []], ["floor", []], ["stocks", []]]);
   for (const e of inWindow) lots.get(sleeveOf(e.symbol, floorTickers))!.push(e);
@@ -112,6 +119,8 @@ export function edgeLedger(events: readonly RealizedEvent[], unpriced: ReadonlyM
     options: edgeRow(lots.get("options")!, unp.get("options")!),
     stocks: edgeRow(lots.get("stocks")!, unp.get("stocks")!),
     floor: edgeRow(lots.get("floor")!, unp.get("floor")!),
+    // the same events, window and unpriced map — one more view of them, never a second walk
+    bySleeve: expectancyBySleeve(events, floorTickers, vrpTickers, windowStartMs, unpriced),
   };
 }
 

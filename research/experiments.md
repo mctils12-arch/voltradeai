@@ -113374,3 +113374,24 @@ Tests: server/todayTile.test.ts (7), client/src/bot/today.test.ts (7); suites gr
 Follow-ups filed above as adjacent bugs: the dead `vp.width` harness guard, the idle fixture's stale dailyPnL,
 the legacy dailyPnLPct without the validated guard, `today` on the account diag probe.
 Starvation: not STARVED (B1 complete); the parent's queue decides.
+
+## 2026-11-03 [PRODUCT] — T-CLIENT — B2: Expectancy / closed lot split by sleeve on the AI Engine page
+VERSION: v1.0.1271 (shipped 2026-11-04 by the parent session; main was v1.0.1270)
+
+Human-approved item B2. WHAT: `shared/expectancy.ts` (pure: options / ETF floor / stocks / VRP leg + the two
+totals, each with n, win rate, avg win, avg loss, payoff = avg win ÷ |avg loss|, breakeven = |avg loss| ÷ (avg
+win + |avg loss|), expectancy), folded into `/api/bot/performance.broker.bySleeve` by `server/edgeLedger.ts`
+from the one sleeve cache (additive field; no new endpoint). Bot page: a mono table under the Book's P&L block
+(`client/src/bot/expectancyTable.tsx`), the human's tooltip verbatim ("average % return per fully closed
+position, from Alpaca paper fills."), provenance/freshness caption (window, last close, lots, cache time,
+source, stale/failed notes); a sleeve below zero over n ≥ 30 is the page's FIRST issue (L3, "open book").
+Classification = the sleeve ledger's rule with SVXY (bot_engine LEG3_VRP_TICKER) carved out of the passive set.
+MEASUREMENT INTEGRITY: the headline is unchanged (same code path); `bySleeve.active` is pinned equal to it field
+by field, floor + vrp = the ledger's floor, Σ n and the n-weighted mean reproduce `all`; verified EXACT on the
+live 2,105-lot walk. LIVE 2026-11-03 (since May 7): options n 376 WR 18.9 % avg +31.73 / −28.47 payoff 1.11
+breakeven 47.3 % expectancy −17.10 %; stocks n 101 WR 31.7 % +9.74 / −5.05 payoff 1.93 breakeven 34.1 %
+expectancy −0.36 %; headline (options + stocks) n 477 −13.56 %; ETF floor n 1,464 WR 49.4 % ±0.6 % expectancy
+−0.01 %; VRP leg 0 lots; all 1,941 lots −3.34 %. The flag trips on options, stocks AND the floor (−0.01 % is
+below zero; the rule is literal — a materiality floor would be an amendment). Tests: server 7 (identity,
+partition, classification, formulas, guards, window, wiring), client 7 + 2 derive cases; counter pins locked
+(tests 711, assertions 25,895). Visual harness 390/768/1440 on bot + botidle (see the PR). STARVED: no.
