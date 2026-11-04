@@ -113453,3 +113453,18 @@ Backtest: not run. This reverts a 6-session-old human-directed entry switch to t
 Tests: test_entry_shadow.py pins the new default "off" and that the env rollback still shadows both sleeves; server/entryShadow.test.ts the same; server/brain.test.ts keeps every assertion of the old all-shadowed scenario under an explicit config and adds a test for the live default; the flagRaw pin moves to "off". Touched-area suites: Python 89/89, Node/client 48/48.
 
 STARVED: no (options-bleed diagnosis running; the fold-cache race fix is queued).
+
+## 2026-11-04 [REPAIR] — T-DATACORE (server/vesselArchiveFold.ts, server/heapGauges.ts) — A2 folds: overlapping cycles never replace the partial cache's string table mid-pass (live FOLD-MISMATCH portdwell)
+VERSION: v1.0.1274 (shipped 2026-11-04 by the parent session; main was v1.0.1273)
+
+What broke: live from 2026-11-04 14:33Z (v1.0.1271, VOLTRADE_PORTDWELL_FOLD=shadow) the shadow compare logged `FOLD-MISMATCH portdwell: vesselsSeen: 60448 vs 60396` four times in 20 minutes (full fold vs incremental fold over the same bytes; 51 matches before that). Served data was never wrong: shadow mode serves the full fold. But the incremental port-dwell fold failed its exact-match gate, and shadow-fleet carried the same latent race.
+
+Root cause: foldPortVisitsAsync's callers (the 10-min /data refresh and the entity graph's calls_at builder, both 168h; the Tier-3 weekly capture and the portdwell_window probe at other windows/ends) share ONE PartialCache, and their cycles overlap at every await. One cycle's prune() compacted, i.e. REPLACED, the cache's string table while another cycle still held ids minted by the old table: a builder that captured it, or a partial fetched before an await and then evicted (evicted partials are never remapped). Those ids then resolved against the new table to the wrong MMSI or to undefined, merging vessels in the incremental result. An unknown id also made compact() throw half-way, leaving later cached partials in a mixed id space.
+
+Fix: runIncrementalFold brackets every cycle with PartialCache.beginCycle/endCycle. prune() still evicts, but compacts only when no cycle is in flight; the last cycle out compacts. compact() drops a partial holding an unknown id (it is re-folded next cycle) instead of half-remapping it or throwing, logs it, and counts it in a new cumulative `compactDrops` on the fold stats and the fold.shadowfleet / fold.portdwell health gauges. Outside any cycle prune() compacts at once, as before. String-table growth while cycles overlap is bounded by the distinct MMSIs seen.
+
+Regression test (would have caught it): server/foldCacheConcurrency.test.ts (5 tests). On the old code, overlapping port-dwell cycles mismatch 9-10 times and shadow-fleet 2-4 times (3/3 runs), and the cache-exactness test throws the live-shaped TypeError (3/3). On the fix, all 5 pass (3/3). Existing fold/port-dwell/shadow-fleet/graph/GNSS/heapDiag suites 113/113; tsc 6 <= 6.
+
+Live verification: after deploy, fold.portdwell.mismatches and fold.shadowfleet.mismatches stay flat and compactDrops stays 0 on /api/health. Port-dwell then needs a fresh 24h of zero mismatches before it may switch to incremental (the A2 rule).
+
+STARVED: no.
