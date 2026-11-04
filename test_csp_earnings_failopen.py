@@ -110,7 +110,16 @@ class FakeFinnhub:
 
     @property
     def window_calls(self):
-        return [c for c in self.calls if "symbol" not in c]
+        """The primary all-company window requests (full [today, today+WINDOW]
+        range). Chunk completion requests (narrower ranges) are counted by
+        chunk_calls, so 'one window request' stays an exact assertion."""
+        return [c for c in self.calls if "symbol" not in c
+                and (c.get("from"), c.get("to")) == (_d(0), _d(WINDOW))]
+
+    @property
+    def chunk_calls(self):
+        return [c for c in self.calls if "symbol" not in c
+                and (c.get("from"), c.get("to")) != (_d(0), _d(WINDOW))]
 
 
 def state(**over):
