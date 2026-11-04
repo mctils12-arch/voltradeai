@@ -3,7 +3,7 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
-## 2026-11-04 (scheduled routine, [PRODUCT] slot, Wed 13:10 ET / 18:10Z, MID-MARKET) [PIPELINE] — T-DATACORE (new module + test only) — Lazy Prices gate-2 JOIN: point-in-time CIK -> ticker map from Form 4 filings, coverage measured (v1.0.1272)
+## 2026-11-04 (scheduled routine, [PRODUCT] slot, Wed 13:10 ET / 18:10Z, MID-MARKET) [PIPELINE] — T-DATACORE (new module + test only) — Lazy Prices gate-2 JOIN: point-in-time CIK -> ticker map from Form 4 filings, coverage measured (v1.0.1273)
 HEALTH: /api/health 200 ok, liveness not dark, drawdown -6.0%, heartbeats ok (9 ok / 0 late / 0 errored). research_state_check: thrash 5/10 (< 7), STARVED 0, only WARN the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical. Product work proceeds.
 CHOICE: the P3 final verdict needs the 11-04 post-close capture (not yet existing at 13:10 ET), P2's first run is Sun 11-08, so the next unblocked ladder step is Lazy Prices gate 2 (open_questions 2026-10-31). Surveying it found a blocker nobody had filed: the harness keys prices by CIK, the 2016+ panel is keyed by ticker/asset id, EDGAR has no point-in-time ticker map (company_tickers.json is current filers only = survivor-biased join). Running gate 2 without solving the join would silently drop or mis-assign exactly the delisted names the panel exists for.
 PRIOR (before measuring): ~50% that a Form-4-derived map resolves >= 50% of a quarter's 10-K filers using only 4 quarters of officer/director P/S rows; ~15% >= 80%.
@@ -113432,3 +113432,24 @@ guessed, not read. Next session after a >24 h uptime window: read /api/health me
 baseline, then ship A8 with the measured number. PRIORITY CHECK: nothing in priority 1–2 is broken; no
 matured experiment is due. MERGE NOTE: docs-only; no deploy impact either way, merge after 4:00 PM ET by routine.
 STARVED: no (A8 is queued but measurement-gated, not capacity-gated).
+
+## 2026-11-04 [RULE-REVIEW] — T-BOT (system_config.py SHADOW_ENTRY_SLEEVES; mirrors server/entryShadow.ts, server/brain.ts) — ENTRIES LIVE AGAIN: stock and options entries order again (human directive)
+VERSION: v1.0.1272 (shipped 2026-11-04 by the parent session; main was v1.0.1271)
+
+Human directive (2026-11-04, verbatim): "figure out the option bleed and i didnt want you to stop trading thing like the floor it a paper account and see what work the best you know the goal is th beat the sp"
+
+Change: SHADOW_ENTRY_SLEEVES "stocks,options" -> "off". The prior value was set 2026-10-28 (v1.0.1210, recorded as a human directive) and was in force 6 sessions. Mirrors updated: server/entryShadow.ts ENTRY_SHADOW_DEFAULTS, server/brain.ts BRAIN_CONFIG_MIRROR. The mechanism is untouched: VOLTRADE_SHADOW_ENTRIES still wins whenever present, so the rollback needs no deploy (set it to "stocks,options", or "options" to re-shadow only the options sleeve).
+
+Downstream chain:
+1. Options opens resume (tier SELL_CSP/BUY_PUT, scanner setups, evaluate_and_execute CSPs/covered calls/spreads, convexity QQQ puts, roll re-opens) -> option buying power is used again -> the options sleeve produces live results again, now with #1582 (a multi-leg strategy is closed as a unit) and #1583 (POS-KILL never kills one leg of a defined-risk structure) live on fresh entries for the first time.
+2. Stock/ETF entries resume -> but in NEUTRAL the floor targets SPY_FLOOR_NEUTRAL 0.90 + DEFENSIVE_FLOOR_NEUTRAL 0.08 = 98% of equity, above the tier engine's 95% invested cap (TIER-KILL "Portfolio invested 96.7% >= 95%" at 14:46:59Z today) -> most stock entries stay blocked while NEUTRAL lasts; BULL (0.70 + 0.08) leaves about 17% of room, CAUTION (0.35 + 0.15) about 45%. This crowd-out is pre-existing and NOT changed here; it is a separate rule question that needs its own evidence.
+
+Prior (stated before any live result): options expectancy per closed lot over the first 30 lots opened on this version lands between -10% and +5% (60% confidence), better than the historical -17.1% because the 11-02 fixes target the same-day churn that carried most of the loss (research/options_exit_study_2026-11-02.md: lots closed within a day lost -$9.8k); stock entries stay rare (< 5 a week) while NEUTRAL persists, because of the floor crowd-out.
+
+Review date: 2026-12-04 (+20 trading days). The human decides keep / re-shadow per sleeve from live expectancy by sleeve (AI Engine page) and the account vs SPY over the same window. Rollback trigger (any one): options expectancy below -15% per closed lot after >= 30 closed lots opened on this version; the drawdown ladder halts (kill switches unchanged); the options-bleed diagnosis (in progress this session) finds a defect that makes new opens lose by construction.
+
+Backtest: not run. This reverts a 6-session-old human-directed entry switch to the pre-2026-10-28 behaviour the live record already covers, and the honest test of the 11-02 fixes is live fills (REASONING STANDARD 9). Logged as an exploratory experiment with the review date above (PROMOTION RULES 3).
+
+Tests: test_entry_shadow.py pins the new default "off" and that the env rollback still shadows both sleeves; server/entryShadow.test.ts the same; server/brain.test.ts keeps every assertion of the old all-shadowed scenario under an explicit config and adds a test for the live default; the flagRaw pin moves to "off". Touched-area suites: Python 89/89, Node/client 48/48.
+
+STARVED: no (options-bleed diagnosis running; the fold-cache race fix is queued).

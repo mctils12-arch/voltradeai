@@ -58,7 +58,7 @@ test("long-term evidence: every quoted figure is still in its source file (doc d
 test("flagRaw: env PRESENT wins (even empty / off); absent -> config default; True -> '1'", () => {
   assert.deepEqual(flagRaw("VOLTRADE_REGIME_ENGINE", {}, BRAIN_CONFIG_MIRROR), { value: "1", source: "config" });
   assert.deepEqual(flagRaw("VOLTRADE_REGIME_ENGINE", { VOLTRADE_REGIME_ENGINE: "" }, BRAIN_CONFIG_MIRROR), { value: "", source: "env" });
-  assert.deepEqual(flagRaw("VOLTRADE_SHADOW_ENTRIES", {}, BRAIN_CONFIG_MIRROR), { value: "stocks,options", source: "config" });
+  assert.deepEqual(flagRaw("VOLTRADE_SHADOW_ENTRIES", {}, BRAIN_CONFIG_MIRROR), { value: "off", source: "config" });
   assert.deepEqual(flagRaw("VOLTRADE_REGIME_LABELS", {}, { REGIME_LABELS_DEFAULT: false }), { value: "", source: "config" });
 });
 
@@ -70,31 +70,50 @@ test("parse: selection/sizing sets and the options crisis+vrp rule mirror regime
   assert.deepEqual([...parseOptionsGates("0")], []);
 });
 
-test("status: defaults (both entry sleeves shadowed) — score inputs are SHADOW, floor/exits LIVE, dead code OFF", () => {
+test("status: the 2026-10-28 config (both entry sleeves shadowed) — score inputs are SHADOW, floor/exits LIVE, dead code OFF", () => {
+  // The config default until the 2026-11-04 directive; still reachable via the env rollback.
   const env = {};
-  assert.equal(status("stock_entries", env).status, "shadow");
+  const cfg = { ...BRAIN_CONFIG_MIRROR, SHADOW_ENTRY_SLEEVES: "stocks,options" };
+  assert.equal(status("stock_entries", env, cfg).status, "shadow");
+  assert.equal(status("stock_entries", env, cfg).status_source, "config");
+  assert.equal(status("options_entries", env, cfg).status, "shadow");
+  assert.equal(status("news", env, cfg).status, "shadow");
+  assert.match(status("news", env, cfg).detail, /nothing it touches is ordered/);
+  assert.equal(status("floor_basket", env, cfg).status, "live");
+  assert.equal(status("floor_basket", env, cfg).status_source, "config");
+  assert.equal(status("live_exits", env, cfg).status, "live");
+  assert.equal(status("live_exits", env, cfg).status_source, "code");
+  assert.equal(status("strategy_weights", env, cfg).status, "off");
+  assert.equal(status("google_trends", env, cfg).status, "off");
+  assert.equal(status("ml_v3", env, cfg).status, "shadow");
+  assert.equal(status("forecast", env, cfg).status, "shadow");
+  assert.equal(status("regime_sizing", env, cfg).status, "shadow");
+  // regime guards are gated but stock entries are shadowed -> they only block would-be entries
+  assert.equal(status("sel_knife", env, cfg).status, "shadow");
+  assert.match(status("sel_knife", env, cfg).detail, /would-be entries only/);
+  // the stress multiplier is replaced by the regime engine's sizing on the stock sleeve
+  assert.equal(status("stress_index", env, cfg).status, "off");
+  // convexity: CONVEXITY_OVERLAY.enabled is never read; the options shadow decides
+  assert.equal(status("convexity", env, cfg).status, "shadow");
+  assert.match(status("convexity", env, cfg).detail, /never read/);
+  assert.equal(status("third_leg", env, cfg).status, "shadow");
+});
+
+test("status: defaults since the 2026-11-04 directive (entries live) — entry sleeves and score inputs LIVE from config", () => {
+  const env = {};
+  assert.equal(status("stock_entries", env).status, "live");
   assert.equal(status("stock_entries", env).status_source, "config");
-  assert.equal(status("options_entries", env).status, "shadow");
-  assert.equal(status("news", env).status, "shadow");
-  assert.match(status("news", env).detail, /nothing it touches is ordered/);
+  assert.equal(status("options_entries", env).status, "live");
+  assert.equal(status("options_entries", env).status_source, "config");
+  assert.equal(status("news", env).status, "live");
+  assert.equal(status("sel_knife", env).status, "live");
+  assert.equal(status("csp_block_guards", env).status, "live");
+  assert.equal(status("convexity", env).status, "live");
+  assert.equal(status("third_leg", env).status, "live");
   assert.equal(status("floor_basket", env).status, "live");
-  assert.equal(status("floor_basket", env).status_source, "config");
   assert.equal(status("live_exits", env).status, "live");
-  assert.equal(status("live_exits", env).status_source, "code");
   assert.equal(status("strategy_weights", env).status, "off");
   assert.equal(status("google_trends", env).status, "off");
-  assert.equal(status("ml_v3", env).status, "shadow");
-  assert.equal(status("forecast", env).status, "shadow");
-  assert.equal(status("regime_sizing", env).status, "shadow");
-  // regime guards are gated but stock entries are shadowed -> they only block would-be entries
-  assert.equal(status("sel_knife", env).status, "shadow");
-  assert.match(status("sel_knife", env).detail, /would-be entries only/);
-  // the stress multiplier is replaced by the regime engine's sizing on the stock sleeve
-  assert.equal(status("stress_index", env).status, "off");
-  // convexity: CONVEXITY_OVERLAY.enabled is never read; the options shadow decides
-  assert.equal(status("convexity", env).status, "shadow");
-  assert.match(status("convexity", env).detail, /never read/);
-  assert.equal(status("third_leg", env).status, "shadow");
 });
 
 test("status: env flips — entries live, regime flags off, an explicit empty env value wins over the config default", () => {

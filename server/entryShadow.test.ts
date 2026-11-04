@@ -27,11 +27,18 @@ function slice(fromMarker: string, toMarker: string): string {
 }
 
 // ── flag ─────────────────────────────────────────────────────────────────────
-test("default (env absent) shadows stocks and options, source config", () => {
-  assert.equal(ENTRY_SHADOW_DEFAULTS.VOLTRADE_SHADOW_ENTRIES, "stocks,options");
-  assert.deepEqual(entryShadowStatus({}), { stocks: true, options: true, source: "config" });
-  assert.equal(isEntryShadowed("stocks", {}), true);
-  assert.equal(isEntryShadowed("options", {}), true);
+test("default (env absent) is live for both sleeves since the 2026-11-04 directive, source config", () => {
+  assert.equal(ENTRY_SHADOW_DEFAULTS.VOLTRADE_SHADOW_ENTRIES, "off");
+  assert.deepEqual(entryShadowStatus({}), { stocks: false, options: false, source: "config" });
+  assert.equal(isEntryShadowed("stocks", {}), false);
+  assert.equal(isEntryShadowed("options", {}), false);
+});
+
+test("the env rollback (VOLTRADE_SHADOW_ENTRIES=stocks,options) still shadows both sleeves", () => {
+  const env = { VOLTRADE_SHADOW_ENTRIES: "stocks,options" };
+  assert.deepEqual(entryShadowStatus(env), { stocks: true, options: true, source: "env" });
+  assert.equal(isEntryShadowed("stocks", env), true);
+  assert.equal(isEntryShadowed("options", env), true);
 });
 
 test("a PRESENT env var wins — every off value turns both sleeves live", () => {

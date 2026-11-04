@@ -21,8 +21,9 @@
  */
 
 export const ENTRY_SHADOW_ENV = "VOLTRADE_SHADOW_ENTRIES";
+// 2026-11-04 human directive: entries live again ("off"); prior "stocks,options".
 export const ENTRY_SHADOW_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({
-  VOLTRADE_SHADOW_ENTRIES: "stocks,options",
+  VOLTRADE_SHADOW_ENTRIES: "off",
 });
 
 /** shadow_portfolio.SHADOW_ENTRY_DECISION / SHADOW_REPEAT_DECISION. */
