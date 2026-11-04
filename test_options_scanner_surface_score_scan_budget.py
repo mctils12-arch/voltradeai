@@ -32,6 +32,10 @@ def _run_scan_options_with(monkeypatch, candidates, r3_side_effect, surface_call
     monkeypatch.setattr(options_scanner, "_get_spy_vs_ma50", lambda: 1.0)
     monkeypatch.setattr(options_scanner, "_setup_vxx_panic_put_sale", lambda vxx, spy: None)
     monkeypatch.setattr(options_scanner, "_fetch_earnings_calendar", lambda days_ahead=21: {})
+    # 2026-11-04: scan_options() reads its calendar through the status-returning
+    # fetch (Setup 3's earnings rule fails closed on a failed lookup) — the same
+    # empty, successfully-fetched calendar the line above stands for.
+    monkeypatch.setattr(options_scanner, "_fetch_earnings_calendar_with_status", lambda days_ahead=21: ({}, True))
     monkeypatch.setattr(options_scanner, "_get_options_candidates", lambda: candidates)
     monkeypatch.setattr(options_scanner, "_setup_high_iv_premium_sale", r3_side_effect)
 
@@ -126,6 +130,7 @@ def test_setup7_records_a_budget_skip_via_the_real_vol_surface_function(monkeypa
     monkeypatch.setattr(options_scanner, "_get_spy_vs_ma50", lambda: 1.0)
     monkeypatch.setattr(options_scanner, "_setup_vxx_panic_put_sale", lambda vxx, spy: None)
     monkeypatch.setattr(options_scanner, "_fetch_earnings_calendar", lambda days_ahead=21: {})
+    monkeypatch.setattr(options_scanner, "_fetch_earnings_calendar_with_status", lambda days_ahead=21: ({}, True))  # see the helper above
     monkeypatch.setattr(options_scanner, "_get_options_candidates",
                          lambda: [("MSFT", 300.0, "high_iv")])
     monkeypatch.setattr(options_scanner, "_setup_high_iv_premium_sale", r3)

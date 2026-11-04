@@ -113555,3 +113555,25 @@ Rollback trigger: ≥ 3 group closes by `strategy_loss_limit` / `strategy_ic_max
 Tests: test_options_group_loss_limit.py (16 tests). 8 fail on the old code (every behaviour change); 8 pin unchanged behaviour on both sides of each threshold (lone CSP, short and long straddles, recorded max_loss precedence). UI mirror tests updated to the new words with the same exact-equality checks: exitPlan.test.ts (3 strings), chart/levels.test.ts (1 string), and server/positionLevels.test.ts (regex re-pointed plus two new pins on the net denominators). Full Python suite 3466 passed; server 3105/3105; client 1445/1445; tsc 6 <= 6; counters OK. Visual harness (client/ touched): bot + botidle at 390/768/1440 (+1920), 0 hard failures. A one-off scroll capture of the option rows showed both META legs with the new words and no overflow.
 
 STARVED: no.
+
+## 2026-11-04 [REPAIR] — T-BOT (options_scanner.py Setup 3) — Setup-3 condors enforce their documented 14-day earnings rule; a failed calendar fails closed
+VERSION: v1.0.1280 (shipped 2026-11-04 by the parent session; main was v1.0.1279)
+
+What broke (options-bleed diagnosis 2026-11-04, bug 4): `_setup_high_iv_premium_sale` documents "No earnings within 14 days", but nothing enforced it. The function sees no calendar (its ML features hard-code days_to_earn=99.0), and `_check_ticker` called it ungated. Only Setup 7 read the calendar. `scan_options()` also fetched the calendar through the wrapper that turns a failed lookup into {} ("nobody reports"), i.e. fail OPEN. Live cost: 9 structures held through a report lost −$4,751, GOOGL's condor −$3,848 of it. In the 10-29 → 11-04 shadow log, 14 of 19 proposed condor names were 0–8 days from a report.
+
+Fix:
+- **The rule.** Setup 3 refuses a name with a report 0–14 days out (SETUP3_EARNINGS_BLACKOUT_DAYS). When `_fetch_earnings_calendar_with_status` reports lookup failure, Setup 3 FAILS CLOSED: no Setup-3 condor that scan, plus a WARNING line.
+- **The calendar.** It is still fetched once per scan, at the same 21-day window, and Setups 1 and 7 read the identical dict.
+- **Counterfactuals.** Each refusal is logged with its real score under `rejected_setup3_earnings` or `rejected_setup3_earnings_lookup_failed` (features {}, so never in ML training; at most 3 writes per scan; once per ticker per day), so the rule earns a prevention-P&L.
+- **Setup 7.** It keeps its own 10-day check. Its run condition gains `not r3`, so a Setup-3 refusal cannot fall through to the identical condor under Setup 7's looser check.
+- **ML feature.** days_to_earn=99.0 is left as is: serving a real value would move the 40% ML blend, which is a model change.
+
+Known gaps, documented in code and filed:
+- **Long monthly expiries.** The expiry is chosen later (`select_contract` → `_select_condor`: ≥30 DTE, nearest 30 preferred, chain to 50 DTE). A 37–50 DTE condor can be held up to ~29 days, so a report on days 15–29 can still land inside its hold.
+- **Setup 1.** Setup 1 (earnings IV crush) sells condors before reports BY DESIGN and is untouched. Whether that strategy earns is a separate evidence question: 9 earnings-held structures, −$4.75k.
+
+Regression test: test_condor_earnings_gate.py (13 tests). On the old code 11 fail; the two that pass are guards that should pass on both (a report 30 days out is allowed, Setup 7 keeps its check). Two surface-score test files each gain one mock line for the status fetch (no assertion changed); without it their stubbed scans now correctly fail closed. Options-scanner suites 307 passed; full Python suite 3463 passed.
+
+Rollback trigger: the `rejected_setup3_earnings` bucket shows a positive prevention-P&L of the wrong sign, i.e. refused condors would have won, over ≥ 30 labeled records. Score these on |move| vs ~5% OTM short strikes, not the directional label.
+
+STARVED: no.
