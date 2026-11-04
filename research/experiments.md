@@ -113156,3 +113156,18 @@ pts): full 1854 ms → warm 19 ms; cache 3.8 MB vs 38.7 MB raw; 44 new tests inc
 (sync == full == incremental) over gap/loiter/identity/duplicate/out-of-order/straddle fixtures.
 ROLLBACK: `VOLTRADE_SHADOWFLEET_FOLD=full`. NEXT: 24h of `mismatches == 0` on /api/health → set
 `incremental`; watch `partialBytesEstimate`. Version: see the VERSION line.
+
+### [REPAIR] 2026-11-03 — T-DATACORE — port-dwell fold made incremental (A2a, branch claude/mem-a2-portdwell-fold)
+VERSION: v1.0.1261 (shipped 2026-11-04 by the parent session; main was v1.0.1260)
+PRIOR: the 10-min port-dwell job folds 168h (~10M points, 63 s live) each cycle, and `VisitDetector`
+retained one `{t,v,c}` triple per in-fence point of every moored vessel for the whole pass. Expected:
+exact per-hour partials for ANY point order (the detector is a sequential automaton whose carried
+state is one run) and a run representation needing no per-point storage. CHANGE: runs become
+`{firstT,lastT,n,firstC,lastC,hist}` (histogram median == `sorted[floor(n/2)]`); per-hour partial =
+unfiltered head run + headAtStart/headOpen + filtered middle visits + tail run, per vessel;
+`foldPortVisitsAsync` mode switch (`VOLTRADE_PORTDWELL_FOLD`, default `shadow`) shared by
+computePortDwellAsync/Timed and entityGraph. RESULT (synthetic 7d, 672k pts, 120 calls): full
+2.7-3.4 s → warm 21-27 ms; cache 2.6 MB vs 66.6 MB raw; 33.6k in-fence triples no longer retained;
+the `.jsonl`+`.jsonl.gz` duplicate window composes exactly (no fallback). 16 new tests incl. two
+median traps whose per-hour medians disagree with the whole-run median. ROLLBACK:
+`VOLTRADE_PORTDWELL_FOLD=full`. NEXT: 24h of `mismatches == 0` → `incremental`. Version: see the VERSION line.
