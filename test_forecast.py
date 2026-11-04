@@ -5,6 +5,12 @@ Pinned: the range math, that a probability and a direction are ALWAYS emitted
 batch, the scorer (hit/miss, in-range, Brier, split-robust, pending, give-up,
 append-only), no lookahead in the features or the validation split, and the
 report's shape.
+
+Daily horizon (Part C, 2026-11-04): the target session and phase, the pre-open
+batch (base-rate direction, fc-range-har-v1 band, waits for the options capture
+and the d0 VIX close before any network call), intraday rest-of-day calls and
+the live band, the daily scorer (split-robust, both horizons kept apart), the
+daily report, and the pins to the two committed studies.
 """
 import json
 import math
@@ -335,6 +341,350 @@ class TestReport(TempStore):
         self.assertEqual([b["n"] for b in bins], [2, 0, 0, 0, 2, 0, 0, 1])
         self.assertEqual(bins[4]["freq"], 0.5)
         self.assertIsNone(bins[1]["freq"])
+
+
+
+# ── daily horizon (Part C, 2026-11-04) ──────────────────────────────────────
+# Friday 2026-10-23 20:00 ET (after the options capture window) -> D = Mon 10-26
+FRI_EVENING = datetime(2026, 10, 24, 0, 0, tzinfo=timezone.utc)
+FRI_1800_ET = datetime(2026, 10, 23, 22, 0, tzinfo=timezone.utc)
+MON_0830_ET = datetime(2026, 10, 26, 12, 30, tzinfo=timezone.utc)
+MON_1100_ET = datetime(2026, 10, 26, 15, 0, tzinfo=timezone.utc)
+MON_1605_ET = datetime(2026, 10, 26, 20, 5, tzinfo=timezone.utc)
+VIX_FRI = {"value": 18.5, "day": "2026-10-23"}
+
+
+class DailyStore(TempStore):
+    def setUp(self):
+        super().setUp()
+        self.live = os.path.join(self.dir, "live.json")
+
+    def gen(self, now, tickers=("AAPL",), fetch=None, **kw):
+        return fc.generate_daily(tickers=list(tickers), vix=kw.pop("vix", VIX_FRI), now=now,
+                                 fetch=fetch or fake_fetch_factory(), path=self.path, live_path=self.live, **kw)
+
+    def daily(self):
+        return fc.load_store(self.path, self.spath, horizon="daily")
+
+
+class TestDailyCalendar(unittest.TestCase):
+    def test_target_session_and_phase(self):
+        self.assertEqual(fc.daily_target(FRI_EVENING), (date(2026, 10, 23), date(2026, 10, 26), "pre_open"))
+        self.assertEqual(fc.daily_target(MON_0830_ET), (date(2026, 10, 23), date(2026, 10, 26), "pre_open"))
+        self.assertEqual(fc.daily_target(MON_1100_ET), (date(2026, 10, 23), date(2026, 10, 26), "open"))
+        self.assertEqual(fc.daily_target(MON_1605_ET)[2], "closing")
+        sat = datetime(2026, 10, 24, 16, 0, tzinfo=timezone.utc)
+        self.assertEqual(fc.daily_target(sat), (date(2026, 10, 23), date(2026, 10, 26), "pre_open"))
+        # after the Monday bar is final the target rolls to Tuesday
+        self.assertEqual(fc.daily_target(datetime(2026, 10, 26, 21, 0, tzinfo=timezone.utc))[:2], (date(2026, 10, 26), date(2026, 10, 27)))
+
+    def test_half_day_clock_is_stretched_onto_the_regular_session(self):
+        # Fri 2026-11-27 closes 13:00 ET; 11:15 ET is half way through it
+        half = datetime(2026, 11, 27, 16, 15, tzinfo=timezone.utc)
+        self.assertEqual(fc.daily_target(half)[2], "open")
+        self.assertAlmostEqual(fc.session_minutes(half, date(2026, 11, 27)), 570 + 195, places=6)
+        self.assertEqual(fc.daily_target(datetime(2026, 11, 27, 18, 5, tzinfo=timezone.utc))[2], "closing")
+
+
+class TestDailyPureParts(unittest.TestCase):
+    def test_base_rate_uses_closes_up_to_d0_only(self):
+        days = _trading_days(date(2023, 1, 2), date(2026, 10, 30))
+        up = {s: [_bar(d, 100.0 + k) for k, d in enumerate(days)] for s in fc.TRAIN_BASKET}   # every day up
+        br = fc.base_rate(up, "2026-10-23")
+        self.assertEqual(br["p"], 1.0)
+        self.assertEqual(br["last"], "2026-10-23")
+        self.assertEqual(br["n"], len(fc.TRAIN_BASKET) * fc.DAILY_BASE_RATE_SESSIONS)
+        # a crash AFTER d0 does not move it
+        crash = {s: b[:] for s, b in up.items()}
+        for s in crash:
+            crash[s] = [x if x["t"][:10] <= "2026-10-23" else _bar(x["t"][:10], 1.0) for x in crash[s]]
+        self.assertEqual(fc.base_rate(crash, "2026-10-23"), br)
+        self.assertIsNone(fc.base_rate({"SPY": up["SPY"][:30]}, "2026-10-23"))
+
+    def test_clim_q_is_the_tau_quantile_of_abs_returns(self):
+        c = [100.0]
+        for k in range(400):
+            c.append(c[-1] * math.exp(0.01 if k % 3 else -0.02))
+        q = fc.clim_q(c)
+        import numpy as np
+        r = np.abs(np.diff(np.log(c[-(fc.DAILY_CLIM_SESSIONS + 1):])))
+        self.assertAlmostEqual(q, float(np.quantile(r, fc.FR.RANGE_TAU)), places=12)
+        self.assertIsNone(fc.clim_q(c[:100]))
+
+    def test_daily_direction_is_the_base_rate_shrunk_by_time_left(self):
+        self.assertEqual(fc.daily_p_up(0.545, 1.0), 0.545)
+        self.assertAlmostEqual(fc.daily_p_up(0.545, 0.25), 0.5 + 0.045 * 0.5)
+        self.assertEqual(fc.daily_p_up(0.545, 0.0), 0.5)
+        self.assertEqual(fc.DAILY_DIRECTION_FEATURES, ())
+
+    def test_latest_price_reads_the_session_bar_only(self):
+        bars = [_bar("2026-10-23", 10.0), _bar("2026-10-26", 10.4)]
+        self.assertEqual(fc._latest_price(bars, date(2026, 10, 26)), 10.4)
+        self.assertIsNone(fc._latest_price(bars[:1], date(2026, 10, 26)))
+
+
+class TestDailyGenerate(DailyStore):
+    def test_preopen_batch_has_a_call_per_name_with_the_base_rate_and_the_har_band(self):
+        res = self.gen(FRI_EVENING, tickers=[{"symbol": "AAPL", "group": "position"}, "NVDA"],
+                       iv={"AAPL": 0.31}, iv_day="2026-10-23")
+        self.assertEqual(res["status"], "ok", res)
+        batches, rows, _ = self.daily()
+        self.assertEqual([r["symbol"] for r in rows], ["SPY", "AAPL", "NVDA"])
+        b = batches[0]
+        self.assertEqual((b["session"], b["base_date"], b["timing"], b["on_time"]), ("2026-10-26", "2026-10-23", "pre_open", True))
+        self.assertTrue(b["vix_used"])
+        for r in rows:
+            self.assertEqual(r["horizon"], "daily")
+            self.assertEqual(r["id"], f"D:2026-10-26:{r['symbol']}")
+            self.assertEqual(r["p_up"], b["base_rate"]["p"])            # no feature: the base rate exactly
+            self.assertEqual(r["p_base"], r["p_up"])
+            self.assertEqual(r["direction"], "up" if r["p_up"] >= 0.5 else "down")
+            self.assertEqual(r["spot"], r["base_close"])
+            self.assertAlmostEqual(r["range_lo"], r["spot"] * math.exp(-r["q"]), places=3)
+            self.assertAlmostEqual(r["range_hi"], r["spot"] * math.exp(r["q"]), places=3)
+            self.assertEqual(r["q"], r["q_1d"])
+            self.assertEqual(r["range_model_version"], fc.FR.RANGE_MODEL_VERSION)
+            self.assertEqual(r["model_version"], fc.DAILY_MODEL_VERSION)
+            self.assertGreater(r["q_clim"], 0)
+        by = {r["symbol"]: r for r in rows}
+        self.assertEqual(by["SPY"]["range_source"], "har+vix")
+        self.assertEqual(by["AAPL"]["range_source"], "har+chain_iv30")
+        self.assertEqual(by["NVDA"]["range_source"], "har")
+        self.assertIsNone(by["NVDA"]["iv"])
+        # the band equals the range module on the same closes
+        _, w, _ = fc.load_store(self.path, self.spath)
+        self.assertEqual(w, [], "daily calls never appear in the weekly store view")
+
+    def test_waits_for_the_options_capture_and_for_the_vix_close_without_touching_the_network(self):
+        calls = []
+        f = fake_fetch_factory(calls)
+        self.assertEqual(self.gen(FRI_1800_ET, fetch=f)["reason"], "options_capture_window")
+        self.assertEqual(self.gen(FRI_EVENING, fetch=f, vix={"value": 17.0, "day": "2026-10-22"})["reason"], "vix_not_published")
+        self.assertEqual(self.gen(FRI_EVENING, fetch=f, vix=None)["status"], "waiting")
+        self.assertEqual(calls, [])
+        self.assertFalse(os.path.exists(self.path))
+        # from 08:00 ET on the session it goes ahead without VIX, labeled
+        res = self.gen(MON_0830_ET, fetch=f, vix=None)
+        self.assertEqual(res["status"], "ok")
+        b, rows, _ = self.daily()
+        spy = next(r for r in rows if r["symbol"] == "SPY")
+        self.assertEqual(spy["range_source"], "har")
+        self.assertFalse(b[0]["vix_used"])
+
+    def test_one_call_per_name_and_session_first_wins(self):
+        calls = []
+        f = fake_fetch_factory(calls)
+        self.gen(FRI_EVENING, tickers=["AAPL"], fetch=f)
+        size = os.path.getsize(self.path)
+        self.assertEqual(self.gen(FRI_EVENING + timedelta(hours=1), tickers=["AAPL"], fetch=f)["reason"], "exists")
+        self.assertEqual(os.path.getsize(self.path), size)
+        self.assertEqual(len(calls), 1, "an existing pre-open batch is detected on disk, before any fetch")
+        res = self.gen(FRI_EVENING + timedelta(hours=2), tickers=["AAPL", "MSFT"], fetch=f)   # a new name before the open
+        self.assertEqual((res["status"], res["new_calls"], res["batch"]), ("ok", 1, "existing"))
+        _, rows, _ = self.daily()
+        self.assertEqual(sorted(r["symbol"] for r in rows), ["AAPL", "MSFT", "SPY"])
+        self.assertEqual(next(r for r in rows if r["symbol"] == "MSFT")["timing"], "pre_open")
+
+    def test_intraday_names_get_a_rest_of_day_call_at_the_live_price_and_the_live_band_refreshes(self):
+        self.gen(FRI_EVENING, tickers=["AAPL"])
+        res = self.gen(MON_1100_ET, tickers=["AAPL", "TSLA"])
+        self.assertEqual((res["status"], res["new_calls"]), ("ok", 1), res)
+        b, rows, _ = self.daily()
+        t = next(r for r in rows if r["symbol"] == "TSLA")
+        f = fc.FR.remaining_variance_fraction(fc.session_minutes(MON_1100_ET, date(2026, 10, 26)), "TSLA")
+        self.assertEqual((t["timing"], t["on_time"]), ("intraday", False))
+        self.assertAlmostEqual(t["remaining_fraction"], f, places=4)
+        self.assertAlmostEqual(t["q"], t["q_1d"] * math.sqrt(f), places=5)
+        self.assertAlmostEqual(t["p_up"], 0.5 + (b[0]["base_rate"]["p"] - 0.5) * math.sqrt(f), places=4)
+        start = (MON_1100_ET - timedelta(days=fc.HISTORY_CALENDAR_DAYS)).date().isoformat()
+        raw, _ = fake_fetch_factory()(["TSLA"], start, MON_1100_ET.date().isoformat(), None)   # the generator's own fetch
+        live_px = raw["TSLA"][-1]["c"]
+        self.assertEqual(raw["TSLA"][-1]["t"][:10], "2026-10-26")
+        self.assertAlmostEqual(t["spot"], live_px, places=3)
+        self.assertNotEqual(t["spot"], t["base_close"])
+        live = fc.read_live(self.live)
+        self.assertEqual(live["session"], "2026-10-26")
+        self.assertEqual(sorted(live["rows"]), ["AAPL", "SPY", "TSLA"])
+        a = next(r for r in rows if r["symbol"] == "AAPL")
+        lr = live["rows"]["AAPL"]
+        self.assertAlmostEqual(lr["q"], a["q_1d"] * math.sqrt(f), places=5)
+        self.assertAlmostEqual(lr["lo"], lr["price"] * math.exp(-lr["q"]), places=3)
+        # a second intraday hour adds nothing, refreshes the live file only
+        size = os.path.getsize(self.path)
+        res2 = self.gen(MON_1100_ET + timedelta(hours=1), tickers=["AAPL", "TSLA"])
+        self.assertEqual((res2["new_calls"], res2["live_rows"]), (0, 3))
+        self.assertEqual(os.path.getsize(self.path), size)
+
+    def test_a_batch_first_made_after_the_open_is_intraday_and_late(self):
+        res = self.gen(MON_1100_ET, tickers=["AAPL"])
+        self.assertEqual(res["status"], "ok", res)
+        b, rows, _ = self.daily()
+        self.assertEqual((b[0]["timing"], b[0]["on_time"]), ("intraday", False))
+        self.assertTrue(all(r["timing"] == "intraday" for r in rows))
+
+    def test_nothing_is_made_while_the_session_bar_settles(self):
+        calls = []
+        self.assertEqual(self.gen(MON_1605_ET, fetch=fake_fetch_factory(calls))["reason"], "session_closing")
+        self.assertEqual(calls, [])
+
+    def test_missing_spy_base_bar_writes_nothing(self):
+        res = self.gen(FRI_EVENING, fetch=fake_fetch_factory(drop=("SPY",)))
+        self.assertEqual(res["status"], "error")
+        self.assertFalse(os.path.exists(self.path))
+
+
+class TestDailyScorer(DailyStore):
+    PRE = {"kind": "forecast", "horizon": "daily", "id": "D:2026-10-26:ABC", "session": "2026-10-26", "symbol": "ABC",
+           "group": "position", "timing": "pre_open", "on_time": True, "base_date": "2026-10-23", "base_close": 100.0,
+           "spot": 100.0, "p_up": 0.54, "p_base": 0.54, "direction": "up", "q": 0.01, "q_1d": 0.01, "q_clim": 0.012,
+           "range_lo": 100 * math.exp(-0.01), "range_hi": 100 * math.exp(0.01), "made_at": "x"}
+
+    def _bars(self, pairs):
+        return [_bar(d, c) for d, c in pairs]
+
+    def test_preopen_hit_inside_and_scores(self):
+        s = fc.score_daily_one(self.PRE, self._bars([("2026-10-22", 99.0), ("2026-10-23", 100.0), ("2026-10-26", 100.5)]))
+        self.assertEqual((s["outcome_up"], s["hit"], s["in_range"]), (1, 1, 1))
+        self.assertAlmostEqual(s["brier"], (0.54 - 1) ** 2, places=9)
+        self.assertEqual(s["brier"], s["brier_base"])
+        y = math.log(100.5 / 100.0)
+        self.assertAlmostEqual(s["interval_score"], fc.FR.interval_score(0.01, y) * 100, places=4)
+        self.assertAlmostEqual(s["interval_score_clim"], fc.FR.interval_score(0.012, y) * 100, places=4)
+        self.assertEqual(s["horizon"], "daily")
+
+    def test_miss_outside_flat_and_split_robust(self):
+        s = fc.score_daily_one(self.PRE, self._bars([("2026-10-23", 100.0), ("2026-10-26", 97.0)]))
+        self.assertEqual((s["outcome_up"], s["hit"], s["in_range"]), (0, 0, 0))
+        flat = fc.score_daily_one(self.PRE, self._bars([("2026-10-23", 100.0), ("2026-10-26", 100.0)]))
+        self.assertEqual(flat["outcome_up"], 0)
+        a = fc.score_daily_one(self.PRE, self._bars([("2026-10-23", 100.0), ("2026-10-26", 100.4)]))
+        b = fc.score_daily_one(self.PRE, self._bars([("2026-10-23", 25.0), ("2026-10-26", 25.1)]))   # re-adjusted history
+        self.assertEqual({k: a[k] for k in ("outcome_up", "in_range")}, {k: b[k] for k in ("outcome_up", "in_range")})
+        self.assertAlmostEqual(a["realized_close"], b["realized_close"], places=6)
+
+    def test_intraday_call_is_judged_against_its_own_price(self):
+        intr = {**self.PRE, "timing": "intraday", "spot": 101.0, "range_lo": 101 * math.exp(-0.006), "range_hi": 101 * math.exp(0.006), "q": 0.006}
+        s = fc.score_daily_one(intr, self._bars([("2026-10-23", 100.0), ("2026-10-26", 100.8)]))   # up vs 10-23, down vs 101
+        self.assertEqual((s["outcome_up"], s["hit"], s["in_range"]), (0, 0, 1))
+
+    def test_pending_until_the_session_bar_exists(self):
+        self.assertIsNone(fc.score_daily_one(self.PRE, self._bars([("2026-10-23", 100.0)])))
+
+    def test_score_matured_scores_both_horizons_and_keeps_them_apart(self):
+        fc._append_lines(self.path, [self.PRE, {**TestScorer.FC}])
+        bars = {"ABC": self._bars([("2026-10-16", 97), ("2026-10-19", 98), ("2026-10-20", 99), ("2026-10-21", 99), ("2026-10-22", 99),
+                                    ("2026-10-23", 100), ("2026-10-26", 101), ("2026-10-27", 102), ("2026-10-28", 103), ("2026-10-29", 104), ("2026-10-30", 103)])}
+
+        def fetch(symbols, start, end, deadline):
+            return {s: bars.get(s, []) for s in symbols}, set()
+        st = fc.score_matured(now=datetime(2026, 10, 31, 2, 0, tzinfo=timezone.utc), fetch=fetch, path=self.path, scores_path=self.spath)
+        self.assertEqual(st["resolved"], 1)
+        self.assertEqual(st["daily"]["resolved"], 1)
+        _, _, wscores = fc.load_store(self.path, self.spath)
+        _, _, dscores = fc.load_store(self.path, self.spath, horizon="daily")
+        self.assertEqual(list(wscores), ["2026-W44:ABC"])
+        self.assertEqual(list(dscores), ["D:2026-10-26:ABC"])
+        st2 = fc.score_matured(now=datetime(2026, 10, 31, 3, 0, tzinfo=timezone.utc), fetch=fetch, path=self.path, scores_path=self.spath)
+        self.assertEqual((st2["resolved"], st2["daily"]["resolved"]), (0, 0))
+
+    def test_daily_give_up_and_fetch_failure(self):
+        fc._append_lines(self.path, [self.PRE])
+
+        def nothing(symbols, start, end, deadline):
+            return {}, set()
+
+        def down(symbols, start, end, deadline):
+            return {}, set(symbols)
+        late = datetime(2026, 12, 15, 2, 0, tzinfo=timezone.utc)
+        st = fc.score_matured(now=late, fetch=down, path=self.path, scores_path=self.spath)
+        self.assertEqual((st["daily"]["fetch_errors"], st["daily"]["gave_up"]), (1, 0))
+        st = fc.score_matured(now=late, fetch=nothing, path=self.path, scores_path=self.spath)
+        self.assertEqual(st["daily"]["gave_up"], 1)
+        _, _, sc = fc.load_store(self.path, self.spath, horizon="daily")
+        self.assertEqual(sc["D:2026-10-26:ABC"]["status"], "no_price_data")
+
+
+class TestDailyReport(DailyStore):
+    def test_empty_daily_report_shape(self):
+        r = fc.report(self.path, self.spath, now=FRI_EVENING, live_path=self.live)
+        d = r["daily"]
+        for k in ("model_version", "range_model_version", "direction_model", "direction_features", "latest", "live",
+                  "accuracy", "calibration", "sessions", "open", "study", "method", "caveats"):
+            self.assertIn(k, d)
+        self.assertIsNone(d["latest"])
+        self.assertTrue(d["accuracy"]["thin"])
+        self.assertEqual(d["direction_features"], [])
+        json.dumps(r)
+
+    def test_daily_report_joins_scores_live_and_skill_references(self):
+        self.gen(FRI_EVENING, tickers=["AAPL"])
+        self.gen(MON_1100_ET, tickers=["AAPL"])
+        _, rows, _ = self.daily()
+        spy = next(x for x in rows if x["symbol"] == "SPY")
+        fc._append_lines(self.spath, [{"kind": "score", "horizon": "daily", "id": spy["id"], "status": "resolved", "outcome_up": 1,
+                                       "hit": 1, "in_range": 1, "brier": round((spy["p_up"] - 1) ** 2, 6), "brier_base": round((spy["p_up"] - 1) ** 2, 6),
+                                       "interval_score": 2.0, "interval_score_clim": 2.5, "realized_close": 1.0, "resolved_date": "2026-10-26"}])
+        d = fc.report(self.path, self.spath, now=MON_1100_ET, live_path=self.live)["daily"]
+        self.assertEqual(d["latest"]["session"], "2026-10-26")
+        self.assertEqual([c["symbol"] for c in d["latest"]["forecasts"]], ["SPY", "AAPL"])
+        self.assertEqual(sum(d["latest"]["range_sources"].values()), d["latest"]["n_forecasts"])
+        self.assertTrue(all(c["live"] for c in d["latest"]["forecasts"]))
+        self.assertEqual(d["live"]["session"], "2026-10-26")
+        a = d["accuracy"]
+        self.assertEqual(a["n"], 1)
+        self.assertEqual(a["bss_vs_base_rate"], 0.0)          # the call IS the base rate
+        self.assertAlmostEqual(a["bss_vs_coinflip"], round(1 - a["brier"] / 0.25, 4))
+        self.assertAlmostEqual(a["range_skill_vs_constant"], 1 - 2.0 / 2.5, places=4)
+        self.assertEqual(sum(b["n"] for b in d["calibration"]["bins"]), 1)
+        self.assertEqual(d["sessions"][0]["resolved"], 1)
+        self.assertEqual(d["open"], 1)
+        # the weekly half of the report never sees a daily call
+        r = fc.report(self.path, self.spath, now=MON_1100_ET, live_path=self.live)
+        self.assertIsNone(r["latest"])
+        self.assertEqual(r["accuracy"]["n"], 0)
+
+    def test_a_stale_live_file_is_not_attached(self):
+        self.gen(FRI_EVENING, tickers=["AAPL"])
+        fc._write_json_atomic(self.live, {"session": "2026-10-23", "made_at": "x", "rows": {"SPY": {"price": 1}}})
+        d = fc.daily_report(self.path, self.spath, self.live)
+        self.assertIsNone(d["live"])
+        self.assertTrue(all(c["live"] is None for c in d["latest"]["forecasts"]))
+
+
+class TestDailyStudyPins(unittest.TestCase):
+    """The page's research numbers and the empty direction-feature tuple are
+    exactly the committed studies' — a new model needs a new study."""
+
+    def _js(self, name):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "research", name)) as fh:
+            return json.load(fh)
+
+    def test_direction_features_follow_the_direction_study(self):
+        js = self._js("forecast_direction_study_2026-11-04.json")
+        self.assertEqual(fc.DAILY_DIRECTION_FEATURES, tuple(js["shipped_features"]))
+        self.assertEqual(fc.DAILY_STUDY["direction"]["passed"], sum(1 for t in js["tests"].values() if t.get("verdict") == "PASS"))
+        self.assertEqual(fc.DAILY_STUDY["direction"]["tests"], js["spec"]["m_tests"])
+        b = js["base"]["SPY_y"]
+        self.assertAlmostEqual(fc.DAILY_STUDY["direction"]["spy_base_rate"], b["up_rate"], places=4)
+        self.assertAlmostEqual(fc.DAILY_STUDY["direction"]["spy_brier_base_rate"], b["brier_base"], places=5)
+        self.assertAlmostEqual(fc.DAILY_STUDY["direction"]["spy_skill_vs_coinflip"], b["skill_vs_coinflip"], places=4)
+
+    def test_range_numbers_follow_the_range_study(self):
+        js = self._js("forecast_daily_study_2026-11-04.json")
+        r = fc.DAILY_STUDY["range"]
+        spy = js["groups"]["index_h1"]["per_name_holdout"]["SPY"]
+        self.assertAlmostEqual(r["spy_coverage"], spy["V4"]["coverage"], places=4)
+        self.assertAlmostEqual(r["spy_skill_vs_constant"], 1 - spy["V4"]["is"] / spy["V_clim"]["is"], places=4)
+        self.assertAlmostEqual(r["spy_skill_vs_current"], 1 - spy["V4"]["is"] / spy["V0"]["is"], places=4)
+        iv = js["groups"]["stock_iv_h1"]["holdout"]
+        self.assertAlmostEqual(r["iv_names_coverage"], iv["V4"]["coverage"], places=4)
+        self.assertAlmostEqual(r["iv_names_skill_vs_constant"], 1 - iv["V4"]["is"] / iv["V_clim"]["is"], places=4)
+        har = js["groups"]["har_h1"]["holdout"]
+        self.assertAlmostEqual(r["names_coverage"], har["V3"]["coverage"], places=4)
+        self.assertAlmostEqual(r["names_skill_vs_constant"], 1 - har["V3"]["is"] / har["V_clim"]["is"], places=4)
+        # the shipped band is the study's chosen model in every group
+        self.assertEqual([js["groups"][k]["chosen"] for k in ("index_h1", "stock_iv_h1", "har_h1")], ["V4", "V4", "V3"])
+        self.assertTrue(all(js["groups"][k]["ship_rule_R2"] for k in ("index_h1", "stock_iv_h1", "har_h1")))
 
 
 if __name__ == "__main__":

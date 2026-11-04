@@ -399,6 +399,9 @@ class RPCDispatcher:
             # hard kill (they fetch bars; a dispatch thread can't be killed).
             "forecast_report": ("forecast", "report"),
             "forecast_generate": ("forecast", "generate_weekly"),
+            # Daily horizon (Part C, 2026-11-04): same pattern — bot.ts runs it
+            # as a subprocess; registered so an RPC caller resolves it too.
+            "forecast_generate_daily": ("forecast", "generate_daily"),
             "forecast_score": ("forecast", "score_matured"),
             # Brain page (2026-10-29, read-only — brain_evidence.py): switches,
             # shadow-log decision buckets vs SPY, source_validation, ML v3 and

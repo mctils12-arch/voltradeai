@@ -13,6 +13,7 @@ import {
   occUnderlying, forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd,
   shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_GENERATE_EVERY_MS, FORECAST_TIME_BUDGET_S,
   FORECAST_JOB_TIMEOUT_MS, TRIVIAL_PYTHON_MAX_CHARS,
+  vixFromCboe, forecastDailyPayloadPath, forecastGenerateDailyCmd, dailyAuditKind, dailyWantsVixRefresh,
 } from "./forecast";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -99,8 +100,53 @@ test("wiring: the job runs on its own unconditional interval (not Tier 3, not ma
   assert.ok(!tier3.includes("checkForecasts"));
 });
 
-test("wiring: the daemon routes the three entry points", () => {
-  for (const [m, attr] of [["forecast_report", "report"], ["forecast_generate", "generate_weekly"], ["forecast_score", "score_matured"]]) {
+test("wiring: the daemon routes the four entry points", () => {
+  for (const [m, attr] of [["forecast_report", "report"], ["forecast_generate", "generate_weekly"], ["forecast_generate_daily", "generate_daily"], ["forecast_score", "score_matured"]]) {
     assert.ok(daemon.includes(`"${m}": ("forecast", "${attr}")`), `${m} missing from voltrade_daemon.py _routes`);
   }
+});
+
+// ── daily horizon (Part C, 2026-11-04) ──────────────────────────────────────
+test("daily: the Cboe VIX close becomes {value, day}; anything else is null", () => {
+  assert.deepEqual(vixFromCboe({ date: "2026-11-03", vix: 20.83 }), { value: 20.83, day: "2026-11-03" });
+  assert.equal(vixFromCboe(null), null);
+  assert.equal(vixFromCboe(undefined), null);
+  assert.equal(vixFromCboe({ date: "2026-11-03", vix: null }), null);
+  assert.equal(vixFromCboe({ date: "11/03/2026", vix: 20.8 }), null);
+  assert.equal(vixFromCboe({ date: "2026-11-03", vix: 0 }), null);
+  assert.equal(vixFromCboe({ date: "2026-11-03", vix: "20.8" }), null);
+});
+
+test("daily: its command takes the mutex path too, and only a safe temp path is interpolated", () => {
+  const cmd = forecastGenerateDailyCmd(forecastDailyPayloadPath(1_790_000_000_000));
+  assert.ok(cmd.length > TRIVIAL_PYTHON_MAX_CHARS, cmd);
+  assert.equal(isTrivialPython(cmd, FORECAST_JOB_TIMEOUT_MS), false);
+  assert.equal(planPythonExec(cmd, FORECAST_JOB_TIMEOUT_MS).lane, "mutex");
+  assert.ok(cmd.includes("from forecast import generate_daily") && cmd.includes("os.remove(p)"));
+  assert.equal(forecastDailyPayloadPath(5.7), "/tmp/vt_forecast_daily_5.json");
+  assert.throws(() => forecastGenerateDailyCmd("/tmp/vt_forecast_1.json"), "the weekly payload path is not the daily one");
+  assert.throws(() => forecastGenerateDailyCmd("/tmp/vt_forecast_daily_1.json; rm -rf /"));
+});
+
+test("daily: only runs that made calls and failures are audited; a VIX wait asks for one refresh", () => {
+  assert.equal(dailyAuditKind({ status: "ok", new_calls: 9 }), "FORECAST-DAILY");
+  assert.equal(dailyAuditKind({ status: "ok", new_calls: 0 }), null);          // the hourly live-band refresh
+  assert.equal(dailyAuditKind({ status: "waiting", reason: "vix_not_published" }), null);
+  assert.equal(dailyAuditKind({ status: "skipped", reason: "exists" }), null);
+  assert.equal(dailyAuditKind({ status: "error", reason: "spy_base_bar_missing" }), "FORECAST-DAILY-ERROR");
+  assert.equal(dailyAuditKind(null), "FORECAST-DAILY-ERROR");
+  assert.equal(dailyWantsVixRefresh({ status: "waiting", reason: "vix_not_published" }), true);
+  assert.equal(dailyWantsVixRefresh({ status: "waiting", reason: "options_capture_window" }), false);
+  assert.equal(dailyWantsVixRefresh({ status: "ok", new_calls: 1 }), false);
+});
+
+test("wiring: the daily job shares the hourly slot, reuses the weekly payload, audits failures, never touches order flow", () => {
+  const fn = bot.slice(bot.indexOf("async function checkForecasts()"), bot.indexOf("// ── Tier 2: Intelligence"));
+  assert.ok(fn.includes("execPythonSerialized(forecastGenerateDailyCmd(tmpD), { timeout: FORECAST_JOB_TIMEOUT_MS })"));
+  assert.ok(fn.indexOf("forecastGenerateCmd(tmp)") < fn.indexOf("forecastGenerateDailyCmd(tmpD)"), "the weekly attempt runs first");
+  assert.ok(fn.includes("vix: vixFromCboe(latestCboeVix()?.latest)"), "SPY's implied vol comes from the Cboe archive");
+  assert.ok(fn.includes("FORECAST-DAILY-ERROR") && fn.includes("dailyAuditKind(parsed)"));
+  assert.ok(fn.includes("if (dailyWantsVixRefresh(parsed)) refreshCboeVix()"));
+  assert.ok(!/\/v2\/orders|submit_options_order/.test(fn));
+  assert.match(bot, /import \{ latestCboeVix, refreshCboeVix \} from "\.\/cboeVix";/);
 });

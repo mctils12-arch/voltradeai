@@ -40,7 +40,8 @@ import { readFilingHistory } from "./edgarForm4";
 import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
 import { walkforwardStatus } from "./walkforward";
 import { edgeP2Status } from "./edgeP2";
-import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
+import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload, forecastDailyPayloadPath, forecastGenerateDailyCmd, vixFromCboe, dailyAuditKind, dailyWantsVixRefresh, type ForecastDailyPayload, type DailyGenerateResult } from "./forecast";
+import { latestCboeVix, refreshCboeVix } from "./cboeVix";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -5833,6 +5834,12 @@ print(json.dumps(result))
   // first run of a week, flagged late). Score: once per UTC day after 22:00.
   // Both run as subprocesses behind execPythonSerialized's 90 s hard kill
   // (their commands are pinned above the trivial-command cutoff).
+  // DAILY HORIZON (Part C, 2026-11-04): in the same hourly slot, after the
+  // weekly attempt, its own subprocess (own 60 s budget) with the same
+  // universe plus the Cboe VIX close (server/cboeVix.ts) — generate_daily
+  // waits for the d0 VIX close and the options capture, makes the pre-open
+  // batch, adds intraday names, refreshes the display-only live band. The
+  // daily calls are scored by the same once-a-day score_matured run.
   let _forecastLastGenAttempt: number | null = null;
   let _forecastLastScoredDay: string | null = null;
   let _forecastRunning = false;
@@ -5845,6 +5852,7 @@ print(json.dumps(result))
       if (shouldAttemptGenerate(now, _forecastLastGenAttempt)) {
         _forecastLastGenAttempt = now;
         const tmp = forecastPayloadPath(now);
+        let payload: ForecastPayload | null = null;
         try {
           const positions = await alpaca("/v2/positions");
           if (!Array.isArray(positions)) throw new Error("positions unreadable — retrying next hour");
@@ -5854,7 +5862,7 @@ print(json.dumps(result))
           const days = listChainDays();
           const ivDay = days.length ? days[days.length - 1] : null;
           if (ivDay && _forecastIv?.day !== ivDay) _forecastIv = { day: ivDay, rows: (await iv30ForDays([ivDay], undefined, now, 1)).rows };
-          const payload: ForecastPayload = {
+          payload = {
             tickers, iv: ivDay && _forecastIv ? ivMapFrom(_forecastIv.rows, tickers.map((t) => t.symbol)) : {}, iv_day: ivDay,
             candidates_available: top.length > 0, candidates_scan_at: lastScanResult?.timestamp ? String(lastScanResult.timestamp) : null,
             time_budget_s: FORECAST_TIME_BUDGET_S,
@@ -5867,6 +5875,23 @@ print(json.dumps(result))
         } catch (e: unknown) {
           fs.rmSync(tmp, { force: true });
           audit("FORECAST-GENERATE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        }
+        // the daily horizon: same universe, its own subprocess and budget
+        if (payload) {
+          const tmpD = forecastDailyPayloadPath(now);
+          try {
+            const daily: ForecastDailyPayload = { ...payload, vix: vixFromCboe(latestCboeVix()?.latest) };
+            fs.writeFileSync(tmpD, JSON.stringify(daily));
+            const r = await execPythonSerialized(forecastGenerateDailyCmd(tmpD), { timeout: FORECAST_JOB_TIMEOUT_MS });
+            const out = String(r.stdout).trim();
+            const parsed: DailyGenerateResult = JSON.parse(out);
+            const kind = dailyAuditKind(parsed);
+            if (kind) audit(kind, out.slice(0, 300));
+            if (dailyWantsVixRefresh(parsed)) refreshCboeVix().catch((e) => console.error("[FORECAST] cboe vix refresh:", e?.message || e));
+          } catch (e: unknown) {
+            fs.rmSync(tmpD, { force: true });
+            audit("FORECAST-DAILY-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+          }
         }
       }
       if (shouldScore(now, _forecastLastScoredDay)) {
@@ -9327,8 +9352,9 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
   // v3 candidate model job (shadow only): same unconditional 5-minute poll.
   setInterval(() => { checkMlV3CandidateJob().catch((e) => console.error("[ML-V3]", e?.message || e)); }, 5 * 60 * 1000);
-  // Weekly forecast screen (SHADOW): same unconditional poll pattern; the
-  // first check 2 minutes after boot so a fresh deploy's page is not empty.
+  // Forecast screen (weekly + daily, SHADOW): same unconditional poll
+  // pattern; the first check 2 minutes after boot so a fresh deploy's page is
+  // not empty.
   setInterval(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 15 * 60 * 1000);
   setTimeout(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 2 * 60 * 1000);
 

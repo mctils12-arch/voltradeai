@@ -1,6 +1,8 @@
-// Weekly forecast screen (2026-10-27, SHADOW) — the shape of GET /api/forecast
-// (forecast.py report()) and the page's pure helpers: formatting, freshness,
-// and the calibration chart's geometry. Kept out of the page so they are tested.
+// Forecast screen (weekly 2026-10-27; daily horizon 2026-11-04, Part C; SHADOW)
+// — the shape of GET /api/forecast (forecast.py report(), the daily horizon
+// under `daily`) and the page's pure helpers: formatting, freshness, the KPI
+// strips and the calibration chart's geometry. Kept out of the page so they
+// are tested.
 
 export interface CalBin { lo: number; hi: number; n: number; mean_p: number | null; freq: number | null }
 export interface ForecastScore {
@@ -39,6 +41,8 @@ export interface ForecastReport {
   accuracy: Accuracy & { on_time: Accuracy; by_group: Record<string, Accuracy>; by_vol_source: Record<string, Accuracy> };
   calibration: { edges: number[]; bins: CalBin[] };
   weeks: WeekRow[]; open: number; method: string; caveats: string[];
+  /** the daily horizon (absent from a server older than Part C) */
+  daily?: DailyReport;
 }
 
 export const GROUP_LABEL: Record<string, string> = { index: "Index", position: "Position", candidate: "Candidate" };
@@ -70,7 +74,7 @@ export function ageText(iso: string | null | undefined, nowMs: number): string {
 }
 
 /** A call's state for its badge: the score once resolved, else open until its horizon. */
-export function callState(c: ForecastCall): "hit" | "miss" | "open" | "no-data" {
+export function callState(c: Pick<ForecastCall, "score">): "hit" | "miss" | "open" | "no-data" {
   if (!c.score) return "open";
   if (c.score.status !== "resolved") return "no-data";
   return c.score.hit ? "hit" : "miss";
@@ -145,5 +149,146 @@ export function forecastKpis(rep: ForecastReport | null | undefined): Kpi[] {
     { label: "Brier skill vs coin flip", value: resolved && typeof skill === "number" ? `${skill >= 0 ? "+" : ""}${(skill * 100).toFixed(1)}%` : "—", line: resolved ? `Brier ${a.brier ?? "—"} · coin flip 0.25 · ${skillText(skill)}${thin}` : "lower Brier is better · coin flip 0.25", tone: skillTone },
     { label: "Inside the 68% range", value: resolved ? pct(a.in_range_rate, 1) : "—", line: resolved ? `target ${pct(a.in_range_target, 0)} · ${a.in_range} of ${a.n}${thin}` : "no resolved calls yet" },
     { label: "Next scoring", value: latest ? shortDate(latest.horizon_end) : "—", line: latest ? `after the ${latest.horizon_end} close · ${rep?.open ?? 0} open` : "scored after the horizon's last close" },
+  ];
+}
+
+// ── daily horizon (Part C, 2026-11-04, SHADOW) — GET /api/forecast `daily` ──
+// The next session's close for the same universe: the call is made after the
+// base close (pre-open) or, for a name that joins during the session, at the
+// live price (intraday); the live band re-centres hourly through the session
+// and is display-only. Direction = the base rate (no feature passed the
+// pre-registered study); the range is fc-range-har-v1 (HAR + implied vol).
+export interface DailyScore extends ForecastScore {
+  brier_base?: number; interval_score?: number; interval_score_clim?: number | null;
+}
+export interface DailyLive {
+  price: number; price_day: string; at: string; remaining_fraction: number; q: number;
+  lo: number; hi: number; vs_spot_pct: number;
+}
+export interface DailyCall {
+  id: string; horizon: "daily"; session: string; symbol: string; group: "index" | "position" | "candidate";
+  made_at: string; timing: "pre_open" | "intraday"; on_time: boolean; base_date: string; base_close: number;
+  spot: number; horizon_end: string; p_up: number; p_base: number; direction: "up" | "down"; p_call: number;
+  base_rate: number; direction_model: string; remaining_fraction: number; q: number; q_1d: number; q_clim: number | null;
+  range_lo: number; range_hi: number; band_coverage: number; range_source: string; range_model_version: string;
+  iv: number | null; iv_day: string | null; model_version: string; score: DailyScore | null; live: DailyLive | null;
+}
+export interface DailyAccuracy {
+  n: number; thin: boolean; hits: number; hit_rate: number | null; up_rate: number | null;
+  brier: number | null; brier_base_rate: number | null; brier_coinflip: number;
+  bss_vs_base_rate: number | null; bss_vs_coinflip: number | null;
+  in_range: number; in_range_rate: number | null; in_range_target: number;
+  interval_score_pct: number | null; interval_score_clim_pct: number | null; range_skill_vs_constant: number | null;
+  range_skill_n: number; width_pct: number | null;
+}
+export interface DailyBatch {
+  session: string; made_at: string; base_date: string; timing: "pre_open" | "intraday"; on_time: boolean;
+  model_version: string; range_model_version: string; direction_model: string;
+  base_rate: { p: number; n: number; first: string | null; last: string; basket: string[] } | null;
+  vix: { value: number; day: string } | null; vix_used: boolean; iv_day: string | null; n_forecasts: number;
+  skipped: Array<{ symbol: string; reason: string }>; candidates_available: boolean; candidates_scan_at: string | null;
+  range_sources: Record<string, number>; forecasts: DailyCall[];
+}
+export interface DailySessionRow {
+  session: string; n: number; resolved: number; hits: number; hit_rate: number | null; brier: number | null;
+  in_range_rate: number | null; interval_score_pct: number | null; range_skill_vs_constant: number | null;
+}
+export interface DailyStudy {
+  range: {
+    doc: string; holdout: string; spy_coverage: number; spy_skill_vs_constant: number; spy_skill_vs_current: number;
+    iv_names_coverage: number; iv_names_skill_vs_constant: number; names_coverage: number; names_skill_vs_constant: number;
+  };
+  direction: { doc: string; holdout: string; tests: number; passed: number; spy_base_rate: number; spy_brier_base_rate: number; spy_skill_vs_coinflip: number };
+}
+export interface DailyReport {
+  model_version: string; range_model_version: string; direction_model: string; direction_features: string[];
+  horizon: string; band_coverage: number; latest: DailyBatch | null;
+  live: { session: string; made_at: string; et_minutes: number } | null;
+  accuracy: DailyAccuracy & { by_timing: Record<string, DailyAccuracy>; by_group: Record<string, DailyAccuracy>; by_range_source: Record<string, DailyAccuracy> };
+  calibration: { edges: number[]; bins: CalBin[] }; sessions: DailySessionRow[]; open: number;
+  study: DailyStudy; method: string; caveats: string[];
+}
+
+export const RANGE_SOURCE_LABEL: Record<string, string> = {
+  "har+vix": "HAR + VIX", "har+chain_iv30": "HAR + chain IV30", har: "HAR only (no IV)",
+};
+
+/** A number with fixed decimals, "—" when missing. */
+export const fixed = (x: number | null | undefined, digits = 2): string =>
+  typeof x === "number" && Number.isFinite(x) ? x.toFixed(digits) : "—";
+
+/** "+2.3%" / "-1.0%" / "—" for a fraction. */
+export function signedPct(x: number | null | undefined, digits = 1): string {
+  if (typeof x !== "number" || !Number.isFinite(x)) return "—";
+  return `${x >= 0 ? "+" : ""}${(x * 100).toFixed(digits)}%`;
+}
+
+export type Horizon = "daily" | "weekly";
+/** The stored horizon choice, daily unless the stored value says weekly. */
+export function parseHorizon(v: unknown): Horizon {
+  return v === "weekly" ? "weekly" : "daily";
+}
+
+/** The live band line on a daily card: price, its move vs the call's
+ *  reference, the band for today's close and how old the reading is. */
+export function liveText(c: Pick<DailyCall, "session">, lv: DailyLive, nowMs: number): string {
+  const move = `${lv.vs_spot_pct >= 0 ? "+" : ""}${lv.vs_spot_pct.toFixed(2)}%`;
+  return `live ${usd(lv.price)} (${move}) · band for the ${shortDate(c.session)} close ${usd(lv.lo)}–${usd(lv.hi)} · ${Math.round(lv.remaining_fraction * 100)}% of the day's variance left · ${ageText(lv.at, nowMs)} ago`;
+}
+
+/** Where the batch's bands came from, in one sentence. */
+export function dailyRangeNote(latest: Pick<DailyBatch, "range_sources" | "vix" | "vix_used" | "iv_day" | "base_date">): string {
+  const s = latest.range_sources ?? {};
+  const vix = s["har+vix"] ?? 0, iv = s["har+chain_iv30"] ?? 0, har = s.har ?? 0;
+  const parts = [
+    vix ? `SPY blends HAR-RV with VIX (${latest.vix?.value ?? "—"} at the ${latest.vix?.day ?? latest.base_date} close)` : "SPY has no VIX for its base close (HAR only)",
+    `${iv} name${iv === 1 ? "" : "s"} blend with chain IV30${iv && latest.iv_day ? ` (${latest.iv_day})` : ""}`,
+    `${har} use HAR-RV alone`,
+  ];
+  return `Range = 68% band (fc-range-har-v1: HAR-RV daily/weekly/monthly vol blended with implied vol, quantile-fit walk-forward). ${parts.join("; ")}.`;
+}
+
+/** The live band's status line for the bar above the daily cards. */
+export function dailyLiveNote(d: Pick<DailyReport, "live" | "latest">, nowMs: number): string {
+  if (d.live) return `Live band (display only, never scored): re-centred on the latest Alpaca price each hour of the session with the variance still to come — last refresh ${ageText(d.live.made_at, nowMs)} ago. Implied vol is the base close's; the repo's VIX and chain-IV feeds are end-of-day.`;
+  return "Live band: shown during the session (re-centred hourly on the latest price); outside it the call's own band stands.";
+}
+
+/** Pre-open vs intraday calls, scored separately. */
+export function timingNote(by: Record<string, DailyAccuracy> | undefined): string {
+  const p = by?.pre_open, i = by?.intraday;
+  const part = (a: DailyAccuracy | undefined, label: string) => (a && a.n ? `${label}: ${a.n} resolved, ${pct(a.in_range_rate)} inside, Brier ${a.brier ?? "—"}` : `${label}: none resolved`);
+  return `${part(p, "Pre-open calls")} · ${part(i, "intraday calls (made at the live price for the rest of the day)")}.`;
+}
+
+/** The daily strip: calls for the target close, direction skill vs a coin
+ *  flip (and vs the base rate), inside-the-range rate, range skill vs a
+ *  constant band, and when the open calls are scored. Tones stay off while
+ *  thin and only compare numbers the tile shows. */
+export function dailyKpis(d: DailyReport | null | undefined): Kpi[] {
+  const latest = d?.latest ?? null;
+  const a = d?.accuracy ?? null;
+  const g = { index: 0, position: 0, candidate: 0 };
+  let intraday = 0;
+  for (const c of latest?.forecasts ?? []) {
+    if (c.group in g) g[c.group as keyof typeof g] += 1;
+    if (c.timing === "intraday") intraday += 1;
+  }
+  const resolved = !!a && a.n > 0;
+  const thin = a?.thin ? " · thin" : "";
+  const tone = (x: number | null | undefined): Kpi["tone"] =>
+    resolved && !a?.thin && typeof x === "number" ? (x > 0.005 ? "g" : x < -0.005 ? "r" : undefined) : undefined;
+  const base = latest?.base_rate?.p ?? latest?.forecasts?.[0]?.base_rate ?? null;
+  return [
+    { label: latest ? `Calls for ${shortDate(latest.session)}` : "Calls for the next close", value: latest ? String(latest.forecasts.length) : "—",
+      line: latest ? `${g.index} index · ${g.position} positions · ${g.candidate} candidates${intraday ? ` · ${intraday} intraday` : ""}` : "no daily batch yet" },
+    { label: "Direction skill vs coin flip", value: resolved ? signedPct(a?.bss_vs_coinflip) : "—",
+      line: resolved ? `Brier ${a?.brier ?? "—"} · base rate ${a?.brier_base_rate ?? "—"} · coin flip 0.25${thin}` : `P(up) = base rate ${pct(base, 1)} · no feature beat it`, tone: tone(a?.bss_vs_coinflip) },
+    { label: "Inside the 68% range", value: resolved ? pct(a?.in_range_rate, 1) : "—",
+      line: resolved ? `target ${pct(a?.in_range_target, 0)} · ${a?.in_range} of ${a?.n}${thin}` : "no resolved calls yet" },
+    { label: "Range skill vs constant band", value: resolved ? signedPct(a?.range_skill_vs_constant) : "—",
+      line: resolved ? `interval score ${fixed(a?.interval_score_pct)}% vs ${fixed(a?.interval_score_clim_pct)}% constant${thin}` : `research: ${signedPct(d?.study?.range?.spy_skill_vs_constant)} (SPY, 2019–2026)`, tone: tone(a?.range_skill_vs_constant) },
+    { label: "Next scoring", value: latest ? shortDate(latest.session) : "—",
+      line: latest ? `after the ${latest.session} close · ${d?.open ?? 0} open` : "scored after the target session's close" },
   ];
 }

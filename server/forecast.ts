@@ -1,7 +1,8 @@
-// forecast.ts — the Node half of the weekly forecast screen (2026-10-27,
-// SHADOW; the model and the store are forecast.py). Pure helpers so the
-// scheduling decision, the universe and the exact python3 -c command strings
-// are testable without booting bot.ts; bot.ts does the I/O.
+// forecast.ts — the Node half of the forecast screen (weekly 2026-10-27;
+// daily horizon 2026-11-04, Part C; SHADOW; the models and the store are
+// forecast.py / forecast_range.py). Pure helpers so the scheduling decision,
+// the universe and the exact python3 -c command strings are testable without
+// booting bot.ts; bot.ts does the I/O.
 //
 // Nothing here reaches order flow: the job reads Alpaca positions and the
 // last scan's top_10, writes a temp payload, and runs forecast.py.
@@ -102,4 +103,52 @@ export function shouldAttemptGenerate(nowMs: number, lastAttemptMs: number | nul
 export function shouldScore(nowMs: number, lastScoredUtcDay: string | null): boolean {
   const d = new Date(nowMs);
   return d.getUTCHours() >= FORECAST_SCORE_UTC_HOUR && lastScoredUtcDay !== d.toISOString().slice(0, 10);
+}
+
+// ── daily horizon (Part C, 2026-11-04, SHADOW) ──────────────────────────────
+// The next session's close, alongside the weekly call: same universe, same
+// hourly attempt (shouldAttemptGenerate), its own subprocess so the two jobs
+// keep separate time budgets. forecast.py generate_daily() decides what to do
+// each hour (wait for the d0 VIX close, make the pre-open batch, add calls for
+// names that joined intraday, refresh the display-only live band); this side
+// only builds its payload and reads the outcome.
+
+/** SPY's implied vol for the daily range model: the Cboe VIX close the Node
+ *  side already archives (server/cboeVix.ts latestCboeVix().latest). */
+export interface ForecastVix { value: number; day: string }
+export interface ForecastDailyPayload extends ForecastPayload { vix: ForecastVix | null }
+
+/** {value, day} from a cboeVix record, or null when it is not a usable close. */
+export function vixFromCboe(latest: { date?: unknown; vix?: unknown } | null | undefined): ForecastVix | null {
+  const v = typeof latest?.vix === "number" ? latest.vix : Number.NaN;
+  const d = typeof latest?.date === "string" ? latest.date : "";
+  return Number.isFinite(v) && v > 0 && /^\d{4}-\d{2}-\d{2}$/.test(d) ? { value: v, day: d } : null;
+}
+
+export function forecastDailyPayloadPath(nowMs: number, dir = "/tmp"): string {
+  return `${dir}/vt_forecast_daily_${Math.floor(nowMs)}.json`;
+}
+
+export function forecastGenerateDailyCmd(payloadPath: string): string {
+  if (!/^\/tmp\/vt_forecast_daily_\d+\.json$/.test(payloadPath)) throw new Error("daily forecast payload path must be /tmp/vt_forecast_daily_<digits>.json");
+  return `python3 -c "import json, os, sys; from forecast import generate_daily; p = sys.argv[1]; d = json.load(open(p)); os.remove(p); print(json.dumps(generate_daily(**d), default=str))" ${payloadPath}`;
+}
+
+export interface DailyGenerateResult { status?: string; reason?: string; new_calls?: number }
+
+/** The audit row for one hourly daily run, or null. Only runs that made calls
+ *  and failures are audited — the hourly live-band refresh and the waits are
+ *  routine and would bury the log. */
+export function dailyAuditKind(r: DailyGenerateResult | null | undefined): "FORECAST-DAILY" | "FORECAST-DAILY-ERROR" | null {
+  if (!r || typeof r.status !== "string") return "FORECAST-DAILY-ERROR";
+  if (r.status === "error") return "FORECAST-DAILY-ERROR";
+  if (r.status === "ok" && (r.new_calls ?? 0) > 0) return "FORECAST-DAILY";
+  return null;
+}
+
+/** generate_daily is holding the pre-open batch for the d0 VIX close: the
+ *  Cboe CSV publishes in the evening (~21:00 ET) and the archive polls every
+ *  4 h, so the job asks for one refresh instead of waiting for the poll. */
+export function dailyWantsVixRefresh(r: DailyGenerateResult | null | undefined): boolean {
+  return !!r && r.status === "waiting" && r.reason === "vix_not_published";
 }

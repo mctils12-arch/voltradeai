@@ -51,6 +51,9 @@ WALKFORWARD_DIR = os.path.join(DATA_DIR, "walkforward")
 # — the calls (+ one batch line per week) and, separately, their scores.
 FORECASTS_PATH = os.path.join(DATA_DIR, "voltrade_forecasts.jsonl")
 FORECAST_SCORES_PATH = os.path.join(DATA_DIR, "voltrade_forecast_scores.jsonl")
+# The daily horizon (Part C, 2026-11-04) shares both files (horizon="daily");
+# its display-only live band is one overwritten JSON — a cache, never a record.
+FORECAST_DAILY_LIVE_PATH = os.path.join(DATA_DIR, "voltrade_forecast_daily_live.json")
 
 # Ticker dossier calibration ledger (dossier_ranges.py, 2026-10-29): append-only
 # JSONL — every served range band (ticker x base date x horizon) and trade plan
