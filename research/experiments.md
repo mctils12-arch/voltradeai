@@ -113142,3 +113142,17 @@ no deploy.
 TESTS: server/dtccIdsDiskGuard.test.ts (7). The existing A1 tests pin a
 64 GiB free-space reading so they never depend on the host's disk.
 ROLLBACK: revert this PR (the DB returns to unguarded). STARVED: no.
+### [REPAIR] 2026-11-03 — T-DATACORE — shadow-fleet fold made incremental (A2a, branch claude/mem-a2-shadowfleet-fold)
+VERSION: v1.0.1259 (shipped 2026-11-04 by the parent session; main was v1.0.1258)
+PRIOR: the 10-min shadow-stats job re-streams the whole 72h vessel archive each cycle (memory audit
+1c: ~2.5 of every 10 min in gunzip+JSON.parse across the four archive folds; the fold's transient
+state + GC churn is a heap/RSS peak driver). Expected: per-hour partials make warm cycles ~100×
+cheaper with byte-identical output. CHANGE: `server/vesselArchiveFold.ts` (new shared lister/streamer/
+partial cache/mode flag/deep diff/stats/single-pass orchestrator) + `ShadowAggregator.exportPartial/
+absorbPartial` (Float64 rows, interned ids, exact under the verified hour invariant; fallback to the
+full fold otherwise) + `computeShadowStatsAsync` mode switch (`VOLTRADE_SHADOWFLEET_FOLD`, default
+`shadow`: runs both, diffs, logs `FOLD-MISMATCH shadowfleet`, serves full). RESULT (synthetic 7d, 360k
+pts): full 1854 ms → warm 19 ms; cache 3.8 MB vs 38.7 MB raw; 44 new tests incl. three-way exactness
+(sync == full == incremental) over gap/loiter/identity/duplicate/out-of-order/straddle fixtures.
+ROLLBACK: `VOLTRADE_SHADOWFLEET_FOLD=full`. NEXT: 24h of `mismatches == 0` on /api/health → set
+`incremental`; watch `partialBytesEstimate`. Version: see the VERSION line.
