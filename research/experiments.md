@@ -113530,3 +113530,28 @@ Regression test: server/posKillOptionHours.test.ts (6, on the posKillMarkGuard h
 Rollback trigger: an option position whose regular-hours marks stayed beyond its backstop for > 2 sessions without a kill.
 
 STARVED: no.
+
+## 2026-11-04 [REPAIR] — T-BOT (options_manager.py `_manage_strategy_group`; UI mirror client/src/bot/exitPlan.ts + shared/positionLevels.ts comments) — the group loss limit is measured against the net credit (debit), as its comment says; the IC max-loss exit derives max loss from the legs when state has none
+VERSION: v1.0.1279 (shipped 2026-11-04 by the parent session; main was v1.0.1278)
+
+What broke (options-bleed diagnosis 2026-11-04, bug 3): Rule 3 divided the loss by the GROSS premium of every leg ("# Lost 2x credit"). On a spread that gross is several times the net credit, which put the trigger beyond the structure's own max loss. GOOGL Nov-27 condor (short 310P 6.95 / long 300P 4.70 / short 355C 7.45 / long 365C 5.15, 2 lots): 2x gross = $9,700 against a $1,090 max loss, so the rule could never fire. The debit rule ("Lost 50% of debit") had the mirror defect. Rule 2b (IC exit at 50% of max loss) read max_loss only from per-leg state and skipped silently when it was missing; live, GOOGL's state was re-initialised as "unknown". So the condor had no reachable P&L exit at any loss.
+
+Fix:
+- **Credit structures:** close at a loss ≥ LOSS_LIMIT_MULTIPLIER x net credit (net credit > 0).
+- **Debit structures:** close at a loss ≥ 50% of net debit. Thresholds unchanged.
+- **Unchanged decisions:** for all-short or all-long structures (a lone short put, a short or long straddle) net == gross, so decisions are identical.
+- **Rule 2b fallback:** `_max_loss_from_legs()` = widest wing x 100 x qty − net credit, used only when no leg's state has max_loss. It prices only a balanced credit vertical or iron condor (one expiry, equal quantities, short strikes not crossed); anything else returns 0 and the rule stays off as before. A recorded max_loss still wins.
+- **Reasons:** they now name the denominator.
+
+GOOGL numbers, before → after:
+- Rule 3 trigger: $9,700 (unreachable) → $1,820. Still beyond the $1,090 max loss: a credit structure that collected more than a third of its widest wing can never lose 2x its credit.
+- Rule 2b with max_loss missing: never ran → fires at $545 (50% of the $1,090 worked out from the legs). Held at −$530, closed at −$560.
+- The put side alone as a credit vertical (net credit $450, max loss $1,550): old trigger $4,660 (never) → new $900 (held at −$890, closed at −$910).
+
+LIVE BEHAVIOUR CHANGES: credit and debit verticals and low-credit condors had no reachable group loss stop. Since 11-02 they are also exempt from the Node per-leg kill (POS-KILL STRUCTURE HOLD), so they will now actually be closed by these rules. Tagged [REPAIR] because the rule did not do what its comment and the exit-plan UI said. A reviewer may treat it as RULE REVIEW. No backtest models multi-leg group exits (backtest_v2 does not), so verification is live.
+
+Rollback trigger: ≥ 3 group closes by `strategy_loss_limit` / `strategy_ic_max_loss_exit` in 20 trading days whose structures would have finished better than the close (expiry value vs close fill). Revert to observe-only.
+
+Tests: test_options_group_loss_limit.py (16 tests). 8 fail on the old code (every behaviour change); 8 pin unchanged behaviour on both sides of each threshold (lone CSP, short and long straddles, recorded max_loss precedence). UI mirror tests updated to the new words with the same exact-equality checks: exitPlan.test.ts (3 strings), chart/levels.test.ts (1 string), and server/positionLevels.test.ts (regex re-pointed plus two new pins on the net denominators). Full Python suite 3466 passed; server 3105/3105; client 1445/1445; tsc 6 <= 6; counters OK. Visual harness (client/ touched): bot + botidle at 390/768/1440 (+1920), 0 hard failures. A one-off scroll capture of the option rows showed both META legs with the new words and no overflow.
+
+STARVED: no.
