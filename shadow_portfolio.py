@@ -66,6 +66,11 @@ from typing import Optional, List, Dict, Tuple
 from collections import defaultdict
 
 try:
+    import fcntl as _fcntl
+except ImportError:  # Windows (VolTrade.bat): no advisory locks, same as the pre-cache fallback
+    _fcntl = None
+
+try:
     from storage_config import DATA_DIR
 except ImportError:
     DATA_DIR = "/data/voltrade" if os.path.isdir("/data") else "/tmp"
@@ -146,31 +151,373 @@ def _alpaca_headers() -> dict:
 
 
 # ── File I/O — POSIX lock + atomic write, matches the sector cache fix ──────
-def _load_shadow_log() -> List[dict]:
-    """Load shadow records with shared read lock. Returns [] if not yet created."""
+#
+# SHADOW-LOG READ CACHE ([REPAIR] 2026-11-03, memory fix A4). _load_shadow_log()
+# used to json-parse the whole ~45 MB file on EVERY call, and a scan calls it
+# per candidate (log_candidate from deep_score, update_last_decision from the
+# sizing / sector / spread filters) plus once per admission loop and per
+# entry-shadow batch — 11 call sites. The parse is the memory churn (one parse
+# of 20k records allocates a few hundred MB of short-lived objects); the file
+# only changes when something saves it. ticker_dossier._io_shadow_deciles
+# already keys its own cache on the file's mtime — this generalizes that.
+#
+# CONTRACT: a call returns exactly what parsing the file at that moment would
+# return, served from the cache or from disk. Two mechanisms keep that true:
+#   1. STAT KEY. The cache is keyed on (path, mtime_ns, size, inode) from one
+#      os.stat per call. Every writer in this repo (_save_shadow_log,
+#      _xa_merge_save, the tests) replaces the file atomically (mkstemp +
+#      os.replace), which always allocates a NEW inode while the old one is
+#      still linked — so a write by ANY process changes the key and the next
+#      call re-parses. A successful _save_shadow_log stores the list it wrote
+#      under the new inode's key (taken inside the exclusive lock), so a save
+#      followed by a load is one parse, not two.
+#   2. COPY-ON-WRITE. Callers get a shallow copy, so list-level edits (append,
+#      rotation) never reach the cache — but the record DICTS are shared with
+#      the cache and with every other snapshot handed out. So a record is
+#      NEVER modified in place: the hot-path relabels replace the record in
+#      the caller's own list with an updated copy (_relabel_latest_taken,
+#      log_shadow_entries), and the batch jobs that do edit records in place
+#      (backfill_outcomes; _xa_merge_save already did) work on a PRIVATE parse
+#      that shares nothing. A readonly snapshot therefore stays exactly the
+#      file image it was served as, however many edits land after it
+#      (test_shadow_log_cache.py pins this under concurrent writers).
+#   3. LEASES — defense in depth for callers this module does not control
+#      (ml_insight, brain_evidence, source_validation, ticker_dossier, scripts
+#      import _load_shadow_log). A mutable (default) load records a lease for
+#      the calling thread, and while any lease is outstanding the cache is NOT
+#      served (every load re-parses), so a caller that edited shared dicts in
+#      place and then raised, or whose save failed, can never corrupt what the
+#      cache serves (the daemon is multi-threaded). The lease ends when the
+#      same thread saves (the file now equals that list) or calls
+#      _shadow_log_cache_release() on a path that provably modified nothing.
+#      readonly=True loads take no lease: the in-module readers that pass it
+#      are pure (test_shadow_log_cache.py checks each one). Every parse starts
+#      a new GENERATION and the returned list carries its generation; a save
+#      retains only a list of the CURRENT generation, so dicts of an older one
+#      — possibly still held by a lease holder dropped when the generation
+#      changed — never re-enter the cache. A leaked lease (an external importer
+#      that never saves or releases) costs exactly one extra parse at the next
+#      load, after which the new generation is clean again.
+#   4. IDLE RELEASE. The parsed list (~134 MB of objects for 20k records) is
+#      dropped after VOLTRADE_SHADOW_LOG_CACHE_TTL_S seconds without a use
+#      (default 120: longer than any gap between a scan's own calls and the
+#      post-scan readers, short enough that the daemon is back at its
+#      pre-cache resident size between scans — the 24/7 average is what the
+#      host bills). One daemon Timer thread at most, re-armed by every use;
+#      a release is never observable: the stat key is untouched, so the next
+#      load simply parses the same file again and gets identical records;
+#      generation and leases are kept, so a save in flight still retains.
+#      TTL 0 = never release.
+#
+# VOLTRADE_SHADOW_LOG_CACHE=0 restores the pre-cache behaviour exactly (every
+# call parses the file and returns a plain list) — rollback without a deploy
+# of new code. shadow_log_cache_stats() is the health diagnostic.
+SHADOW_LOG_CACHE_ENV = "VOLTRADE_SHADOW_LOG_CACHE"
+SHADOW_LOG_CACHE_TTL_ENV = "VOLTRADE_SHADOW_LOG_CACHE_TTL_S"
+SHADOW_LOG_CACHE_TTL_DEFAULT_S = 120.0
+# The cache's clocks, bound here so a test that fakes shadow_portfolio.time for
+# the exit-aligned job's deadline cannot move the idle timer.
+_MONOTONIC = time.monotonic
+_WALL_TIME = time.time
+
+
+def _shadow_log_cache_enabled() -> bool:
+    return os.environ.get(SHADOW_LOG_CACHE_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _shadow_log_cache_ttl_s() -> float:
+    """Seconds of idleness after which the parsed list is dropped; 0 = never."""
+    raw = os.environ.get(SHADOW_LOG_CACHE_TTL_ENV, "").strip()
+    if not raw:
+        return SHADOW_LOG_CACHE_TTL_DEFAULT_S
     try:
-        import fcntl
+        return max(0.0, float(raw))
+    except ValueError:
+        logger.warning(f"{SHADOW_LOG_CACHE_TTL_ENV}={raw!r} is not a number; using {SHADOW_LOG_CACHE_TTL_DEFAULT_S}")
+        return SHADOW_LOG_CACHE_TTL_DEFAULT_S
+
+
+class _ShadowRecords(list):
+    """What _load_shadow_log() returns when the cache is on: a list in every
+    respect (json.dump, len, indexing, reversed, del, deepcopy, ==) that also
+    remembers the cache generation its dicts came from. Slicing returns a
+    plain list, so callers that rotate do it in place (del records[:k]) and
+    the generation survives to the save."""
+    __slots__ = ("_shadow_gen",)
+
+    def __init__(self, records=(), gen=None):
+        super().__init__(records)
+        self._shadow_gen = gen
+
+
+class _ShadowLogCache:
+    """Process-wide cache state; every field is read and written under `lock`."""
+    __slots__ = ("lock", "records", "key", "gen", "leases", "last_used", "timer",
+                 "hits", "misses", "reloads", "retained", "invalidations", "lease_releases",
+                 "releases", "last_release_at")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.records: Optional[List[dict]] = None  # mirrors the file version `key` names; None = parse next time
+        self.key: Optional[tuple] = None
+        self.gen = 0                               # bumps on every parse
+        self.leases: Dict[int, int] = {}           # thread ident -> outstanding mutable copies of this generation
+        self.last_used = 0.0                       # _MONOTONIC() of the last install / serve
+        self.timer: Optional[threading.Timer] = None   # the one armed idle timer, or None
+        self.hits = self.misses = self.reloads = self.retained = self.invalidations = self.lease_releases = 0
+        self.releases = 0                          # idle releases
+        self.last_release_at: Optional[float] = None   # wall clock of the last idle release
+
+
+_SHADOW_CACHE = _ShadowLogCache()
+
+
+def _shadow_stat_key(st: os.stat_result) -> tuple:
+    return (SHADOW_LOG_PATH, st.st_mtime_ns, st.st_size, st.st_ino)
+
+
+def _shadow_cache_arm(delay: float) -> None:
+    """Caller holds the cache lock: arm the one idle timer."""
+    c = _SHADOW_CACHE
+    t = threading.Timer(max(0.05, delay), lambda: _shadow_cache_idle_fire(t))
+    t.daemon = True
+    t.name = "shadow-log-cache-idle"
+    c.timer = t
+    t.start()
+
+
+def _shadow_cache_touch() -> None:
+    """Caller holds the cache lock: records were just installed or served —
+    note the use and make sure the idle timer is armed."""
+    c = _SHADOW_CACHE
+    c.last_used = _MONOTONIC()
+    if c.records is not None and c.timer is None:
+        ttl = _shadow_log_cache_ttl_s()
+        if ttl > 0:
+            _shadow_cache_arm(ttl)
+
+
+def _shadow_cache_drop() -> None:
+    """Caller holds the cache lock: forget the parsed list (parse next time)
+    and disarm the idle timer. Generation and leases are kept on purpose."""
+    c = _SHADOW_CACHE
+    c.records, c.key = None, None
+    if c.timer is not None:
+        c.timer.cancel()
+        c.timer = None
+
+
+def _shadow_cache_idle_fire(me: Optional[threading.Timer]) -> None:
+    """The idle timer's body: release the parsed list if nothing used it for
+    the TTL, else re-arm for the remainder. A timer that is no longer the
+    armed one (a reset or drop re-armed since) does nothing."""
+    c = _SHADOW_CACHE
+    try:
+        ttl = _shadow_log_cache_ttl_s()
+        with c.lock:
+            if c.timer is not me:
+                return
+            c.timer = None
+            if c.records is None or ttl <= 0:
+                return
+            idle = _MONOTONIC() - c.last_used
+            if idle < ttl:
+                _shadow_cache_arm(ttl - idle)
+                return
+            n = len(c.records)
+            c.records, c.key = None, None
+            c.releases += 1
+            c.last_release_at = _WALL_TIME()
+        logger.debug(f"shadow log cache: released {n} records after {idle:.0f}s idle")
+    except Exception as e:
+        logger.warning(f"shadow log cache: idle release failed: {e}")
+
+
+def _read_shadow_log_file() -> Tuple[List[dict], Optional[tuple]]:
+    """Parse the whole log under a shared lock — the pre-cache loader with the
+    same results: [] when the file is absent, undecodable or unreadable. Also
+    returns the stat key of the inode that was parsed (fstat on the open
+    handle, so key <-> content is exact even if the path is replaced
+    mid-read), or None when nothing was parsed."""
+    try:
         with open(SHADOW_LOG_PATH, "r") as f:
+            if _fcntl is not None:
+                _fcntl.flock(f.fileno(), _fcntl.LOCK_SH)
             try:
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                return json.load(f)
+                key = _shadow_stat_key(os.fstat(f.fileno()))
+                return json.load(f), key
             finally:
-                try: fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                except Exception: pass
-    except (FileNotFoundError, json.JSONDecodeError):
+                if _fcntl is not None:
+                    try:
+                        _fcntl.flock(f.fileno(), _fcntl.LOCK_UN)
+                    except OSError as e:
+                        logger.debug(f"shadow log: unlock after read failed: {e}")
+    except FileNotFoundError:
+        return [], None
+    except json.JSONDecodeError as e:
+        logger.warning(f"shadow log: undecodable JSON, serving []: {e}")
+        return [], None
+    except Exception as e:
+        logger.warning(f"shadow log: read failed, serving []: {e}")
+        return [], None
+
+
+def _load_shadow_log(readonly: bool = False) -> List[dict]:
+    """Load shadow records. Returns [] if not yet created.
+
+    Served from the process cache while the file is unchanged since the last
+    parse or save (contract above); the returned list is the caller's own
+    shallow copy — append, rotate and REPLACE records freely, but never modify
+    a record dict in place (it is shared with other snapshots): build an
+    updated copy and assign it into your list, or use
+    _load_shadow_log_private() for a parse that shares nothing. Default
+    (mutable) loads lease the cache until this thread saves or calls
+    _shadow_log_cache_release(); readonly=True promises no edits at all and
+    takes no lease. VOLTRADE_SHADOW_LOG_CACHE=0: parse on every call."""
+    c = _SHADOW_CACHE
+    if not _shadow_log_cache_enabled():
+        with c.lock:
+            c.misses += 1
+        return _read_shadow_log_file()[0]
+    key = None
+    try:
+        key = _shadow_stat_key(os.stat(SHADOW_LOG_PATH))
+    except FileNotFoundError:
+        with c.lock:
+            c.misses += 1
+            _shadow_cache_drop()
         return []
-    except ImportError:
-        try:
-            with open(SHADOW_LOG_PATH, "r") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    except Exception:
-        return []
+    except OSError as e:
+        logger.warning(f"shadow log: stat failed, parsing instead: {e}")
+    tid = threading.get_ident()
+    with c.lock:
+        if key is not None and c.records is not None and c.key == key and not c.leases:
+            c.hits += 1
+            if not readonly:
+                c.leases[tid] = c.leases.get(tid, 0) + 1
+            _shadow_cache_touch()
+            return _ShadowRecords(c.records, c.gen)
+        c.misses += 1
+    records, fkey = _read_shadow_log_file()
+    with c.lock:
+        if fkey is None:
+            _shadow_cache_drop()
+            return records
+        c.reloads += 1
+        c.gen += 1
+        c.records, c.key = records, fkey   # the cache keeps the parsed list; callers only ever get copies
+        c.leases = {} if readonly else {tid: 1}
+        _shadow_cache_touch()
+        return _ShadowRecords(records, c.gen)
+
+
+def _load_shadow_log_private() -> List[dict]:
+    """A fresh parse that shares nothing with the cache — for a batch job that
+    edits records IN PLACE (backfill_outcomes). Same result as the pre-cache
+    loader; its save hands _save_shadow_log an untagged list, which invalidates
+    the cache so the next load parses once."""
+    records, fkey = _read_shadow_log_file()
+    c = _SHADOW_CACHE
+    with c.lock:
+        c.misses += 1
+        if fkey is not None:
+            c.reloads += 1
+    return records
+
+
+def _shadow_cache_after_save(records: List[dict], key: tuple) -> None:
+    """Inside _save_shadow_log's exclusive lock, right after os.replace: the
+    file is now exactly json.dump(records) under `key`. A list of the current
+    generation becomes the cache (this thread's lease ends); anything else —
+    an untagged list, or one from a generation that was dropped — invalidates
+    it so the next load parses."""
+    c = _SHADOW_CACHE
+    gen = getattr(records, "_shadow_gen", None)
+    tid = threading.get_ident()
+    with c.lock:
+        if gen is None or gen != c.gen:
+            _shadow_cache_drop()
+            c.invalidations += 1
+            return
+        c.records, c.key = list(records), key
+        c.retained += 1
+        n = c.leases.get(tid, 0)
+        if n > 1:
+            c.leases[tid] = n - 1
+        elif n == 1:
+            del c.leases[tid]
+        _shadow_cache_touch()
+
+
+def _shadow_cache_invalidate() -> None:
+    """A save did not land (or landed outside _save_shadow_log): parse next time."""
+    c = _SHADOW_CACHE
+    with c.lock:
+        _shadow_cache_drop()
+        c.invalidations += 1
+
+
+def _shadow_log_cache_release(records: List[dict]) -> None:
+    """A mutable load that modified NOTHING hands its lease back (same thread).
+    Only valid when no dict reachable from `records` was changed — the callers
+    below use it on their no-op exits."""
+    c = _SHADOW_CACHE
+    gen = getattr(records, "_shadow_gen", None)
+    tid = threading.get_ident()
+    with c.lock:
+        if gen is None or gen != c.gen:
+            return
+        n = c.leases.get(tid, 0)
+        if n > 1:
+            c.leases[tid] = n - 1
+        elif n == 1:
+            del c.leases[tid]
+        c.lease_releases += 1
+
+
+def _shadow_log_cache_reset() -> None:
+    """Tests: forget everything, zero the counters."""
+    c = _SHADOW_CACHE
+    with c.lock:
+        _shadow_cache_drop()
+        c.gen, c.leases, c.last_used = 0, {}, 0.0
+        c.hits = c.misses = c.reloads = c.retained = c.invalidations = c.lease_releases = 0
+        c.releases, c.last_release_at = 0, None
+
+
+def shadow_log_cache_stats() -> dict:
+    """Health diagnostic: is the cache on, how often it served vs parsed, and
+    which file version it mirrors. `records` is None while nothing is cached."""
+    c = _SHADOW_CACHE
+    with c.lock:
+        return {
+            "enabled": _shadow_log_cache_enabled(),
+            "hits": c.hits,
+            "misses": c.misses,
+            "reloads": c.reloads,
+            "retained": c.retained,
+            "invalidations": c.invalidations,
+            "lease_releases": c.lease_releases,
+            "records": len(c.records) if c.records is not None else None,
+            "last_stat_ns": c.key[1] if c.key is not None else None,
+            "generation": c.gen,
+            "leases": sum(c.leases.values()),
+            "ttl_s": _shadow_log_cache_ttl_s(),
+            "releases": c.releases,
+            "last_release_at": c.last_release_at,
+            "idle_s": round(_MONOTONIC() - c.last_used, 1) if c.records is not None else None,
+            "timer_pending": c.timer is not None,
+            "path": SHADOW_LOG_PATH,
+        }
 
 
 def _save_shadow_log(records: List[dict]) -> bool:
-    """Save with exclusive lock + atomic write. Returns True on success."""
+    """Save with exclusive lock + atomic write. Returns True on success.
+
+    On success `records` is what the file holds and becomes the cache (when it
+    came from the current cache generation): do not modify it or its dicts
+    afterwards — load again instead. On failure the cache is invalidated,
+    because the caller's unsaved edits may already sit in the shared dicts."""
     try:
         import fcntl
         use_lock = True
@@ -191,9 +538,14 @@ def _save_shadow_log(records: List[dict]) -> bool:
             try:
                 with os.fdopen(fd, "w") as tf:
                     json.dump(records, tf)
+                # The temp inode IS the new log after the rename (rename keeps
+                # mtime/size/ino), so this is the post-write stat key.
+                key = _shadow_stat_key(os.stat(tmp_path))
                 os.replace(tmp_path, SHADOW_LOG_PATH)
+                _shadow_cache_after_save(records, key)
                 return True
             except Exception:
+                _shadow_cache_invalidate()
                 try: os.unlink(tmp_path)
                 except Exception: pass
                 return False
@@ -204,6 +556,7 @@ def _save_shadow_log(records: List[dict]) -> bool:
             except Exception: pass
             lock_f.close()
     except Exception as e:
+        _shadow_cache_invalidate()
         logger.debug(f"Shadow log save failed: {e}")
         return False
 
@@ -390,7 +743,9 @@ def log_candidate(
         records = _load_shadow_log()
         records.append(record)
         if len(records) > MAX_SHADOW_RECORDS:
-            records = records[-MAX_SHADOW_RECORDS:]  # keep newest
+            # keep newest — in place (same records as records[-MAX:]; the
+            # list keeps its cache generation, see _save_shadow_log)
+            del records[:len(records) - MAX_SHADOW_RECORDS]
         _save_shadow_log(records)
     except Exception as e:
         logger.debug(f"log_candidate failed for {ticker}: {e}")
@@ -469,6 +824,7 @@ def update_last_decision(
         records = _load_shadow_log()
         if not _relabel_latest_taken(records, ticker, decision, decision_reason,
                                      datetime.now(timezone.utc), max_age_seconds):
+            _shadow_log_cache_release(records)  # nothing was modified
             return False
         return _save_shadow_log(records)
     except Exception as e:
@@ -476,11 +832,12 @@ def update_last_decision(
         return False
 
 
-def _freshest_taken(records: List[dict], ticker: str, now: datetime,
-                    max_age_seconds: float) -> Optional[dict]:
-    """The freshest record for ticker when it is "taken" and inside the window; no I/O."""
+def _freshest_taken_index(records: List[dict], ticker: str, now: datetime,
+                          max_age_seconds: float) -> Optional[int]:
+    """Index of the freshest record for ticker when it is "taken" and inside the window; no I/O."""
     ticker_u = str(ticker).upper()
-    for record in reversed(records):
+    for i in range(len(records) - 1, -1, -1):
+        record = records[i]
         if record.get("ticker") != ticker_u:
             continue
         if record.get("decision") != "taken":
@@ -491,19 +848,30 @@ def _freshest_taken(records: List[dict], ticker: str, now: datetime,
             return None
         if (now - ts).total_seconds() > max_age_seconds:
             return None  # too old — not this scan's candidate
-        return record
+        return i
     return None
+
+
+def _freshest_taken(records: List[dict], ticker: str, now: datetime,
+                    max_age_seconds: float) -> Optional[dict]:
+    """The freshest record for ticker when it is "taken" and inside the window; no I/O."""
+    i = _freshest_taken_index(records, ticker, now, max_age_seconds)
+    return None if i is None else records[i]
 
 
 def _relabel_latest_taken(records: List[dict], ticker: str, decision: str,
                           decision_reason: str, now: datetime,
                           max_age_seconds: float) -> bool:
-    """In-place relabel of the freshest "taken" record for ticker; no I/O."""
-    record = _freshest_taken(records, ticker, now, max_age_seconds)
-    if record is None:
+    """Relabel the freshest "taken" record for ticker; no I/O. COPY-ON-WRITE:
+    the record is replaced in `records` by an updated copy, never modified in
+    place — its dict may be shared with the read cache and with other
+    snapshots (see _load_shadow_log). Same keys in the same order, so the
+    saved JSON is what the in-place write produced."""
+    i = _freshest_taken_index(records, ticker, now, max_age_seconds)
+    if i is None:
         return False
-    record["decision"] = str(decision)
-    record["decision_reason"] = str(decision_reason)[:200]
+    records[i] = {**records[i], "decision": str(decision),
+                  "decision_reason": str(decision_reason)[:200]}
     return True
 
 
@@ -555,6 +923,8 @@ def update_decisions_batch(updates: list, max_age_seconds: float = NODE_GATE_REL
         out["updated"] = changed
         if changed:
             out["saved"] = bool(_save_shadow_log(records))
+        else:
+            _shadow_log_cache_release(records)  # _relabel_latest_taken modifies only when it returns True
         return out
     except Exception as e:
         logger.debug(f"update_decisions_batch failed: {e}")
@@ -621,13 +991,15 @@ def log_shadow_entries(entries: list, max_age_seconds: float = NODE_GATE_RELABEL
                     row["relabeled"] = True
                 out["results"].append(row)
                 continue
-            rec = _freshest_taken(records, ticker, now, max_age_seconds) if e.get("relabel") else None
-            if rec is not None:
-                rec["decision"] = SHADOW_ENTRY_DECISION
-                rec["decision_reason"] = reason
+            idx = _freshest_taken_index(records, ticker, now, max_age_seconds) if e.get("relabel") else None
+            if idx is not None:
+                # copy-on-write: the record dict may be shared with the read
+                # cache and other snapshots — replace it, never edit it in place
+                rec = {**records[idx], "decision": SHADOW_ENTRY_DECISION, "decision_reason": reason}
                 se = _sanitize_shadow_entry(details)
                 if se is not None:
                     rec["shadow_entry"] = se
+                records[idx] = rec
                 row["relabeled"] = True
             else:
                 records.append(_build_record(
@@ -641,8 +1013,10 @@ def log_shadow_entries(entries: list, max_age_seconds: float = NODE_GATE_RELABEL
             out["results"].append(row)
         if changed:
             if len(records) > MAX_SHADOW_RECORDS:
-                records = records[-MAX_SHADOW_RECORDS:]
+                del records[:len(records) - MAX_SHADOW_RECORDS]  # keep newest, in place
             out["saved"] = bool(_save_shadow_log(records))
+        else:
+            _shadow_log_cache_release(records)  # every branch that modifies a record sets changed
         return out
     except Exception as ex:
         logger.warning(f"log_shadow_entries failed: {ex}")
@@ -862,7 +1236,12 @@ def backfill_outcomes(max_records: int = 500) -> dict:
     stats = {"updated": 0, "already_filled": 0, "missing_price": 0,
              "permanently_unlabelable": 0, "skipped": 0, "total_records": 0}
 
-    records = _load_shadow_log()
+    # A PRIVATE parse: this job edits records in place (outcomes, retry
+    # counters), which must never touch dicts the read cache shares with other
+    # snapshots. Its save hands an untagged list to _save_shadow_log, which
+    # invalidates the cache; the next load parses once. (bot.ts runs this job
+    # as a python3 -c subprocess, where the cache is cold anyway.)
+    records = _load_shadow_log_private()
     stats["total_records"] = len(records)
     if not records:
         return stats
@@ -1054,7 +1433,7 @@ def load_shadow_data(
     import numpy as np
 
     horizon_key = f"+{horizon_days}d"
-    records = _load_shadow_log()
+    records = _load_shadow_log(readonly=True)
 
     # Filter to records with this horizon filled in
     labeled = []
@@ -1261,7 +1640,7 @@ def get_shadow_stats() -> dict:
     Summary stats for dashboards / health checks.
     Shows learning velocity, label distribution, decision breakdown.
     """
-    records = _load_shadow_log()
+    records = _load_shadow_log(readonly=True)
     if not records:
         return {
             "total_records": 0,
@@ -2063,6 +2442,7 @@ def backfill_exit_aligned(max_records: int = 3000, max_windows: int = 40,
         day_recs = [records[i] for i in by_day[day][: max_records - planned]]
         plan.append((day, day_recs))
         planned += len(day_recs)
+    _shadow_log_cache_release(records)  # this job never modifies the loaded list (_xa_merge_save re-reads)
     del records, by_day
 
     results: Dict[Tuple[str, str], tuple] = {}
@@ -2450,8 +2830,8 @@ def shadow_band_report_deduped(records: List[dict], min_n: int = 20) -> dict:
 
 
 def get_shadow_band_report_deduped() -> dict:
-    return shadow_band_report_deduped(_load_shadow_log())
+    return shadow_band_report_deduped(_load_shadow_log(readonly=True))
 
 
 def get_shadow_band_report() -> dict:
-    return shadow_band_report(_load_shadow_log())
+    return shadow_band_report(_load_shadow_log(readonly=True))
