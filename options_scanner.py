@@ -754,11 +754,94 @@ def _fetch_earnings_calendar_with_status(days_ahead: int = 10) -> Tuple[Dict[str
             near_edge_gap=earliest is None or (earliest - today_d).days > EARNINGS_CALENDAR_NEAR_EDGE_DAYS,
         )
         cov["truncated"] = bool(cov["at_row_cap"] or cov["near_edge_gap"])
+        cov.update(primary_truncated=cov["truncated"], completed_by_chunks=False,
+                   chunk_requests=0, chunk_rows=0)
+        if cov["truncated"]:
+            _complete_cut_window(result, cov, today_d, earliest, days_ahead)
     except Exception:
         return result, False
     finally:
         _record_earnings_coverage(days_ahead, cov)
     return result, True
+
+
+# STRUCTURAL FOLLOW-UP to KB #45 (c) (2026-11-04, third fix on this gate):
+# when the one-page window fetch comes back cut, re-fetch ONLY the missing
+# near end [today, earliest date returned] in small date chunks, splitting any
+# chunk that itself fills a page, so every consumer of the calendar (T1, CSP
+# universe Layer 2, scanner setups) gets a complete near end instead of each
+# caller confirming per symbol. A chunk is trusted only if every row it
+# returns lies inside the dates requested: a server that ignores the range
+# (or answers with another window) is not evidence of completeness.
+EARNINGS_CHUNK_DAYS = 3
+EARNINGS_CHUNK_MAX_REQUESTS = 12
+
+
+def _complete_cut_window(result: Dict[str, int], cov: Dict[str, Any], today_d, earliest,
+                         days_ahead: int) -> None:
+    """Fill `result` with the near end a cut page lost; set cov['truncated']
+    False only when every chunk answered, in range, below the row cap."""
+    end_d = earliest if earliest is not None else today_d + timedelta(days=days_ahead)
+    spans = []
+    d = today_d
+    while d <= end_d:
+        spans.append((d, min(d + timedelta(days=EARNINGS_CHUNK_DAYS - 1), end_d)))
+        d += timedelta(days=EARNINGS_CHUNK_DAYS)
+    budget = EARNINGS_CHUNK_MAX_REQUESTS
+    complete = True
+    while spans:
+        lo, hi = spans.pop(0)
+        if budget <= 0:
+            complete = False
+            break
+        budget -= 1
+        cov["chunk_requests"] += 1
+        try:
+            r = requests.get(
+                "https://finnhub.io/api/v1/calendar/earnings",
+                params={"from": lo.strftime("%Y-%m-%d"), "to": hi.strftime("%Y-%m-%d"), "token": FINNHUB_KEY},
+                timeout=10,
+            )
+            status = getattr(r, "status_code", 200)
+            if isinstance(status, int) and status != 200:
+                complete = False
+                break
+            body = r.json()
+            rows = body.get("earningsCalendar") if isinstance(body, dict) else None
+            if not isinstance(rows, list):
+                complete = False
+                break
+        except Exception:
+            complete = False
+            break
+        parsed = []
+        for item in rows:
+            sym = str(item.get("symbol", "") or "") if isinstance(item, dict) else ""
+            dd = _iso_date(item.get("date")) if isinstance(item, dict) else None
+            if not sym or dd is None:
+                continue
+            if dd < lo or dd > hi:        # range ignored -> this answer proves nothing
+                parsed = None
+                break
+            parsed.append((sym, dd))
+        if parsed is None:
+            complete = False
+            break
+        cov["chunk_rows"] += len(rows)
+        if len(rows) >= EARNINGS_CALENDAR_ROW_CAP:
+            if lo == hi:                  # one day cannot be split further
+                complete = False
+                break
+            mid = lo + (hi - lo) // 2
+            spans[0:0] = [(lo, mid), (mid + timedelta(days=1), hi)]
+            continue
+        for sym, dd in parsed:
+            days = (dd - today_d).days
+            if 0 <= days <= days_ahead and days < result.get(sym, days + 1):
+                result[sym] = days
+    if complete:
+        cov["completed_by_chunks"] = True
+        cov["truncated"] = False
 
 
 def _fetch_symbol_earnings_with_status(symbol: str, days_ahead: int = 10) -> Tuple[Optional[int], bool]:

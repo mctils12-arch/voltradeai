@@ -113488,3 +113488,17 @@ Regression test: test_csp_earnings_failopen.py (31 tests). On the old code 28 fa
 Live verification: /api/diag/timings shows t1_earnings_coverage with calendar_entries == 1500 or an earliest_date_returned well after window_from (confirming the cap); no SELL_CSP on a name reporting within the window.
 
 STARVED: no.
+
+## 2026-11-04 [REPAIR] — T-BOT (options_scanner._fetch_earnings_calendar_with_status) — cut Finnhub window page is completed by chunked near-end re-fetch (structural follow-up to KB #45 (c))
+VERSION: v1.0.1276 (main was v1.0.1275). SESSION: scheduled; loop ratio last 10 = REPAIR x7 (over threshold); this is the RECURRENCE-ESCALATES structural item filed by the IREN fix (third fix on the same gate), so it is the generator-fix, not a fourth patch. The pre-registered check (next 3 REPAIRs outside the memory batch => real thrash) is at 1 of 3 outside-batch (the IREN fix); this is the second, so the next non-batch REPAIR triggers the root-cause analysis.
+
+HEALTH (20:17Z): /api/health ok, serving ok, alpaca/python/bot/scanner/feeds/jobs ok, liveness not dark, drawdown -6.4%, heap 3.35 GB of 6.19 GB, deployed 1.0.1275 = main. Nothing in priority 1–2 broken. A8 (heap cap) still waits on a >24 h uptime measurement.
+
+Change: when the one-page window fetch is cut (full page, or no row in the first 4 days), the missing near end [today, earliest date returned] is re-fetched in 3-day chunks (a chunk that fills a page is halved; max 12 extra requests). A chunk counts only if all its rows lie in the requested dates (a server ignoring the range proves nothing). Only if every chunk answers in range below the cap does coverage.truncated become False; otherwise the existing per-symbol confirmation + fail-closed path from v1.0.1275 stays in force. All consumers (T1, csp_universe Layer 2, scanner setups) now get the complete near end. New coverage fields: primary_truncated, completed_by_chunks, chunk_requests, chunk_rows. Return contract unchanged. No threshold/sizing/order change.
+
+Downstream chain: complete calendar -> T1 stops making per-symbol Finnhub calls on busy windows (fewer API calls, fewer unverified refusals) -> csp_universe Layer 2's 7-day rule and scanner setups see the next-week reports for the first time on busy calendars -> more earnings-adjacent names blocked there (intended). Costs: up to 12 extra Finnhub calls per uncached fetch, cached 15 min by T1.
+
+Prior: on busy windows completed_by_chunks=True in >=80% of fetches; no CSP sold within 3 days of a report. Backtest: not run (data-completeness fix, no strategy parameter).
+Tests: test_earnings_chunk_completion.py (8; 6 fail on the old code). test_csp_earnings_failopen.py FakeFinnhub.window_calls now counts only the full-range primary request (chunk requests counted by new chunk_calls); no assertion changed. Earnings/csp/tier/regime/scanner/option subset 700 passed (2 collection errors are PIL env, unrelated).
+Live verification: /api/diag/timings t1_earnings_coverage shows completed_by_chunks true and truncated false on busy windows.
+STARVED: no.
