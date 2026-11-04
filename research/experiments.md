@@ -113143,7 +113143,7 @@ TESTS: server/dtccIdsDiskGuard.test.ts (7). The existing A1 tests pin a
 64 GiB free-space reading so they never depend on the host's disk.
 ROLLBACK: revert this PR (the DB returns to unguarded). STARVED: no.
 ### [REPAIR] 2026-11-03 — T-DATACORE — shadow-fleet fold made incremental (A2a, branch claude/mem-a2-shadowfleet-fold)
-VERSION: v1.0.1259 (shipped 2026-11-04 by the parent session; main was v1.0.1258)
+VERSION: v1.0.1260 (shipped 2026-11-04 by the parent session; main was v1.0.1259)
 PRIOR: the 10-min shadow-stats job re-streams the whole 72h vessel archive each cycle (memory audit
 1c: ~2.5 of every 10 min in gunzip+JSON.parse across the four archive folds; the fold's transient
 state + GC churn is a heap/RSS peak driver). Expected: per-hour partials make warm cycles ~100×
