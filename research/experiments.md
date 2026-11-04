@@ -112922,3 +112922,29 @@ LOOP HEALTH: last 10 tags mix PRODUCT/PIPELINE/RESEARCH/RULE-REVIEW with 2 REPAI
 QUEUE TRIAGE (why nothing was started): (a) same-day sold-leg churn needs intraday option marks, archive holds too few sessions (re-test ~30 sessions, per the 11-02 exit study); (b) Edge P1/P2/P3 gate checks are date-gated (P1 ~2026-12-24); (c) price_panel volume headroom is a human decision (wishlist); (d) the 10-21 time-stop candidate (`days_held >= 7` hard-coded in bot_engine.py:2396 vs TIME_STOP_DAYS=10; backtest_v2 uses the config 10/5/3) is a real live-vs-backtest divergence but the filed prior is 70% inside noise and a proper ablation (7 vs 10 vs regime schedule, per regime, plus counterfactual logging of time-stop exits) is a multi-session build that should not be rushed into a market-hours add-on. Filed nothing new — no duplicate research.
 OPEN STALE PRs noted for the human/next session (not touched): #1506 [REPAIR] N17 (bot_engine/instrument_selector/options_scanner hours check, opened 10-28, base now 6 days behind main — needs rebase before merge), #1552 [PIPELINE] Edge P1 gate-1 checker (no CI status reported), #1466 docs-only log, #1556 draft trade-cockpit preview.
 No code changed. STARVED: no. Merge of this docs-only PR has no timing constraint.
+
+## 2026-11-04 [REPAIR] CI `changes` checkout budget 5 → 15 min (human-approved frozen-path edit) — shared territory (.github/workflows, research/*)
+
+BREAK: on 2026-11-03 from ~16:50Z, 6 of 7 CI runs (this session's #1588 ×3
+and #1590 ×2, other sessions' runs at 18:12Z, 20:17Z, 2026-11-04 00:13Z)
+were cancelled inside the `changes` job's actions/checkout before any test
+ran — nothing could merge or deploy. ROOT CAUSE: `fetch-depth: 0` fetches
+every branch (~965 refs, ~1.26 GiB pack) under `timeout-minutes: 5`;
+GitHub's server-side object enumeration for that fetch measured 126 s on
+its own (probe 19:20Z), so normal transfer variance pushed the step past
+the cap (healthy runs: 22-37 s; 2026-11-04 02:36Z: 28 s). Filed
+2026-11-03 in wishlist.md (frozen path) and APPROVED by the human
+2026-11-04 together with a branch prune.
+FIX: `changes` timeout 15 min (headroom, not the expected cost). RATCHET:
+server/ciCheckoutBudget.test.ts — every job that checks out with
+fetch-depth: 0 must carry >= 15 min (verified red on the 5-min file,
+green on the new one; parses the workflow text, comments stripped, no
+YAML dependency).
+PRUNE (approved, BLOCKED for sessions): every branch delete through this
+session's git access returns HTTP 403 (batch and single, own branch
+included) — not routed around. Manifest + the leased one-liner for the
+human: docs/audits/branch_prune_candidates_2026-11-04.tsv (843 merged
+branches, tip == merged head, merge > 24 h old).
+ROLLBACK: revert this PR (the timeout returns to 5 min; the test goes red
+by design). No runtime code changed, so no package.json bump.
+STARVED: no (Wave 1 of the memory batch ships behind this).
