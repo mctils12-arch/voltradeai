@@ -58,11 +58,11 @@ export function registerBuiltinHeapGauges(): void {
   // entries = cached partials; the counters are copied as the module reports them.
   registerHeapGauge("fold.shadowfleet", () => {
     const f = shadowFleetFoldStats();
-    return { entries: f.partialsCached, bytes: f.partialBytesEstimate, mode: f.mode, mismatches: f.mismatches, matches: f.matches, compareSkipped: f.compareSkipped, fallbacks: f.fallbacks, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastRunAt: f.lastRunAt };
+    return { entries: f.partialsCached, bytes: f.partialBytesEstimate, mode: f.mode, mismatches: f.mismatches, matches: f.matches, compareSkipped: f.compareSkipped, fallbacks: f.fallbacks, compactDrops: f.compactDrops, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastRunAt: f.lastRunAt };
   });
   registerHeapGauge("fold.portdwell", () => {
     const f = portDwellFoldStats();
-    return { entries: f.partialsCached, bytes: f.partialBytesEstimate, mode: f.mode, mismatches: f.mismatches, matches: f.matches, compareSkipped: f.compareSkipped, fallbacks: f.fallbacks, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastRunAt: f.lastRunAt };
+    return { entries: f.partialsCached, bytes: f.partialBytesEstimate, mode: f.mode, mismatches: f.mismatches, matches: f.matches, compareSkipped: f.compareSkipped, fallbacks: f.fallbacks, compactDrops: f.compactDrops, lastFullMs: f.lastFullMs, lastIncrementalMs: f.lastIncrementalMs, lastMismatchAt: f.lastMismatchAt, lastRunAt: f.lastRunAt };
   });
   registerHeapGauge("fold.gnss", () => {
     const f = gnssFoldStats();
