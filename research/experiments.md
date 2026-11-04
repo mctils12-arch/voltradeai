@@ -113308,3 +113308,29 @@ assertions 25954); tsc ratchet OK 6≤6.
 ROLLBACK TRIGGER: PY-JOB-SKIPPED on consecutive nights, or ml_retrain heartbeat "late" from queue waits → set
 VOLTRADE_SERIALIZE_PY_JOBS=0. JUDGE AT +7d: count PY-JOB-QUEUED lines and their waited_ms; confirm no TIER3-ML-ERROR
 "[likely OOM kill]" overnight. STARVED: no.
+
+### 2026-11-03 — [REPAIR] A7: lazy-load sharp + the 15 large inlined datacore JSON tables (T-DATACORE)
+VERSION: v1.0.1268 (shipped 2026-11-04 by the parent session; main was v1.0.1267)
+Prior: the 2026-11-03 memory audit put ~41MB of statically inlined JSON (source text + parsed
+objects held at module scope) and libvips (~30–60MB RSS, loaded at boot for a tile-only path) in
+Node's 2.55–2.84GB RSS. Expected: 0.05–0.15GB sustained + faster boot, identical outputs.
+Change: server/lazyAssets.ts — 15 tables (18.46MB on disk; dist/index.cjs 19,281,158 → 2,708,413 B,
+−86%) become memoized on-first-use disk loaders from the dist/datacore copy script/build.ts now
+stages (cwd-independent resolution; missing file THROWS naming the path), sharp becomes a memoized
+dynamic import at its 3 use sites. VOLTRADE_LAZY_ASSETS=0 preloads everything at boot (rollback, no
+code change). 13 small/boot-critical tables stay inlined (layers.json, ofac, sites, …).
+Measured (local prod-layout boot, dist/ only, no repo datacore/, back-to-back under the same load):
+RSS at first /api/health 200: main 450MB → lazy 242MB (−208) / eager 276MB (−174); heapUsed 166 →
+91 / 124MB; +15s of boot pollers 808 → 691 / 721MB; after every lazy endpoint hit twice 817 → 754 /
+730MB; eager preload of 17.6MB + sharp = 897ms; boot-to-200 unchanged within noise (7.9–11s). The
+EAGER delta isolates the cost of carrying JSON as inlined JS literals (source text + V8 literal
+boilerplate + parse memory) — ~170MB, i.e. the audit's "41MB" was conservative. First-hit cost per
+lazy table is buried in load noise except cancer-rates (~+2s cold: two parses + a geometry join
+that used to run at boot). Deploy-gate smoke PASS (200 in 3.7s, kill switch latched + stale liveness).
+Tests: server/lazyAssets.test.ts (parity vs static import for every table, staging ratchets,
+resolution, flag, stamp non-retention, sharp); streamsInventory/riverPlants pins updated to the new
+accessor at equal strength. Full server suite green; tsc 6/6; counters OK; deploy-gate smoke PASS;
+one endpoint per lazy table exercised against the bundle booted from a dist/-only directory.
+Rollback trigger: any /api/data/* 500 naming "lazyAssets:" in prod → set VOLTRADE_LAZY_ASSETS=0
+(same bundle), then fix staging. Follow-up: A3 idle-TTL may call LazyJsonTable.reset() for the
+dashboard-only tables.

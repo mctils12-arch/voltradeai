@@ -45,7 +45,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
-import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
+import { LAZY_TABLES } from "./lazyAssets"; // us_power_plants.json: 1.2MB, read on first use (A7)
 import { trackSet } from "./heapDiag";
 
 const BASE_URL = "https://www.nrc.gov/reading-rm/doc-collections/event-status/reactor-status";
@@ -397,11 +397,17 @@ export function gzipOldStatusDays(baseDir?: string, nowMs?: number): number {
 
 // ── Cache + poll ─────────────────────────────────────────────────────────
 
-// Computed once from the static registry import — the nuclear rows/indices
+// Computed once, on the poller's first refresh — the nuclear rows/indices
 // inside us_power_plants.json don't change between deploys, so re-filtering
 // per request would be pure waste (same "poller boots eagerly, request path
-// stays a free cache read" discipline as every other datacore stream).
-const REGISTRY_NUCLEAR_PLANTS = loadRegistryNuclearPlants((datacorePowerplants as any).plants);
+// stays a free cache read" discipline as every other datacore stream). The
+// 1.2MB registry itself is a lazy table (A7): it is read from disk by the
+// first consumer that asks, not inlined into the bundle and parsed at boot.
+let registryNuclearMemo: RegistryNuclearPlant[] | null = null;
+function registryNuclearPlants(): RegistryNuclearPlant[] {
+  if (!registryNuclearMemo) registryNuclearMemo = loadRegistryNuclearPlants((LAZY_TABLES.usPowerPlants.get() as any).plants);
+  return registryNuclearMemo;
+}
 
 let cache: { at: number; date: string; rows: ReactorStatusRow[]; plants: PlantReactorStatus[] } | null = null;
 let polling = false;
@@ -465,11 +471,11 @@ export async function refreshReactorStatus(fetchImpl: FetchFn = fetch as any,
     const rows = await fetchReactorStatus(fetchImpl, nowMs);
     if (rows.length) {
       archiveReactorStatus(rows, baseDir, nowMs);
-      cache = { at: Date.now(), date: latestDay(rows), rows, plants: joinToPlants(rows, REGISTRY_NUCLEAR_PLANTS) };
+      cache = { at: Date.now(), date: latestDay(rows), rows, plants: joinToPlants(rows, registryNuclearPlants()) };
     } else if (!cache) {
       const archived = readArchivedReactorStatus(baseDir, nowMs);
       if (archived.length > 0) {
-        cache = { at: Date.now(), date: latestDay(archived), rows: archived, plants: joinToPlants(archived, REGISTRY_NUCLEAR_PLANTS) };
+        cache = { at: Date.now(), date: latestDay(archived), rows: archived, plants: joinToPlants(archived, registryNuclearPlants()) };
       }
     }
     gzipOldStatusDays(baseDir, nowMs);

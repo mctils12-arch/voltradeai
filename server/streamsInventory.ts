@@ -27,7 +27,7 @@ import zlib from "zlib";
 import { promisify } from "util";
 import { archiveBaseDir, newestDataFile } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
-import { SNAPSHOT_STREAMS, type SnapshotStamp } from "./snapshotStreams";
+import { snapshotStreams, type SnapshotStamp } from "./snapshotStreams";
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -160,7 +160,7 @@ export async function buildStreamsInventory(
   baseDir?: string,
   manifestDir?: string,
   now: number = Date.now(),
-  snapshots: Record<string, SnapshotStamp> = SNAPSHOT_STREAMS,
+  snapshots: Record<string, SnapshotStamp> = snapshotStreams(),
   volumeFiles: Record<string, string> = defaultVolumeFiles(),
 ): Promise<{ time: number; count: number; manifest_dir_found: boolean; note?: string; streams: StreamInventoryEntry[] }> {
   const base = baseDir || archiveBaseDir();

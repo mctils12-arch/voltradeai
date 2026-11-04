@@ -11,7 +11,7 @@
  * _doc) — it only aggregates the already-compiled snapshot for display.
  * Zero network calls, zero pollers.
  */
-import signalLadderJson from "../datacore/signal_ladder.json";
+import { LAZY_TABLES } from "./lazyAssets"; // signal_ladder.json: 214KB, read on first use (A7)
 
 export type LadderStatus =
   | "raw_only"
@@ -111,7 +111,7 @@ export function loadSignalLadder(): {
   roots: LadderRootView[];
   summary: LadderSummary;
 } {
-  const data = signalLadderJson as {
+  const data = LAZY_TABLES.signalLadder.get() as {
     compiled: string;
     sources: string[];
     roots: LadderRoot[];

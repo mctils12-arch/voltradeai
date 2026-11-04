@@ -15,6 +15,7 @@ import { antiScraping, registerHoneypots } from "./antiScraping";
 import { registerRobots } from "./robots";
 import { registerAdminStats } from "./adminStats";
 import { registerTerms } from "./terms";
+import { preloadLazyAssets, describePreload } from "./lazyAssets";
 
 const app = express();
 app.set("trust proxy", true); // Bug 36: Railway runs behind a reverse proxy
@@ -107,6 +108,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // [A7 2026-11-03] Large datacore tables + sharp load on first use by
+  // default (server/lazyAssets.ts). VOLTRADE_LAZY_ASSETS=0 preloads them all
+  // right here, before any route registers — the pre-A7 boot/memory profile
+  // as a rollback that needs no code change. Logged either way so a boot
+  // log always says which mode this container is in.
+  const assets = await preloadLazyAssets();
+  log(describePreload(assets), "lazyAssets");
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

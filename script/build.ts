@@ -55,6 +55,12 @@ async function buildAll() {
     minify: true,
     external: externals,
     logLevel: "info",
+    // [A7 2026-11-03] server/lazyAssets.ts resolves its staged tables from
+    // its own directory; under tsx/ESM that is import.meta.url, which the
+    // cjs bundle never reaches (it takes the __dirname branch). esbuild
+    // still notices the token and would print the empty-import-meta warning
+    // on every build — silenced here, deliberately, for that one known site.
+    logOverride: { "empty-import-meta": "silent" },
   });
 
   // [REPAIR 2026-07-07] Runtime datacore files → dist/datacore/. The
@@ -128,6 +134,29 @@ async function buildAll() {
   // /api/data/iron-steel-plants) — added in the same PR, same
   // R14/2026-07-20 lesson, caught by the ratchet test below.
   await cp("datacore/gem/steel_units.json", "dist/datacore/gem/steel_units.json");
+
+  // [A7 2026-11-03, memory audit] The LARGE datacore tables are no longer
+  // statically imported (esbuild inlined ~18MB of JSON into dist/index.cjs,
+  // parsed and held from boot whether or not a request ever needed it).
+  // server/lazyAssets.ts reads each from THIS staged copy on first use, so
+  // every entry of its LAZY_TABLES registry must be listed here — the frozen
+  // Dockerfile ships dist/ only. server/lazyAssets.test.ts fails until a new
+  // registry entry gets its cp() line (same R14 lesson as the gem/ block).
+  await cp("datacore/powerplants/us_power_plants.json", "dist/datacore/powerplants/us_power_plants.json");
+  await cp("datacore/aircraft/entity_spine.json", "dist/datacore/aircraft/entity_spine.json");
+  await cp("datacore/cpc/degree_days.json", "dist/datacore/cpc/degree_days.json");
+  await cp("datacore/military_installations.json", "dist/datacore/military_installations.json");
+  await cp("datacore/quake_history.json", "dist/datacore/quake_history.json");
+  await cp("datacore/nuclear_tests.json", "dist/datacore/nuclear_tests.json");
+  await cp("datacore/boundaries/ne_110m_admin0.json", "dist/datacore/boundaries/ne_110m_admin0.json");
+  await cp("datacore/boundaries/ne_50m_admin1_lines.json", "dist/datacore/boundaries/ne_50m_admin1_lines.json");
+  await cp("datacore/pfas/ucmr5_detections.json", "dist/datacore/pfas/ucmr5_detections.json");
+  await cp("datacore/cdc_cancer/county_rates.json", "dist/datacore/cdc_cancer/county_rates.json");
+  await cp("datacore/cdc_cancer/counties-10m.topo.json", "dist/datacore/cdc_cancer/counties-10m.topo.json");
+  await cp("datacore/jodi/primary_stocks.json", "dist/datacore/jodi/primary_stocks.json");
+  await cp("datacore/rail/ep724_carloads.json", "dist/datacore/rail/ep724_carloads.json");
+  await cp("datacore/eia/weekly_series.json", "dist/datacore/eia/weekly_series.json");
+  await cp("datacore/signal_ladder.json", "dist/datacore/signal_ladder.json");
 }
 
 buildAll().catch((err) => {

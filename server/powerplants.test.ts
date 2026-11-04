@@ -72,7 +72,17 @@ test("attribution ships with the data (CC BY 4.0 requires it)", () => {
 test("route + layer registry wired", () => {
   const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
   assert.ok(routes.includes("/api/data/powerplants"), "route missing");
-  assert.ok(routes.includes("us_power_plants.json"), "static import missing (Dockerfile never copies datacore/ — esbuild must bake it)");
+  // [A7 2026-11-03] The 1.2MB table is no longer baked into the bundle by a
+  // static import; it is a lazy table. The prod guarantee the old pin stood
+  // for ("the Dockerfile never copies datacore/, so the route must still find
+  // the data") now rests on three links, each pinned: the route reads it
+  // through the registry, the registry names the file, and build.ts stages
+  // that file into dist/datacore/ (the only datacore the image ships).
+  assert.ok(routes.includes("LAZY_TABLES.usPowerPlants.get()"), "route must read the table through LAZY_TABLES.usPowerPlants (server/lazyAssets.ts)");
+  const lazyAssets = fs.readFileSync(path.join(here, "lazyAssets.ts"), "utf8");
+  assert.ok(lazyAssets.includes('usPowerPlants: lazyJsonTable("datacore/powerplants/us_power_plants.json")'), "lazyAssets registry must point usPowerPlants at datacore/powerplants/us_power_plants.json");
+  const build = fs.readFileSync(path.join(here, "..", "script", "build.ts"), "utf8");
+  assert.ok(build.includes('cp("datacore/powerplants/us_power_plants.json", "dist/datacore/powerplants/us_power_plants.json"'), "script/build.ts must stage us_power_plants.json into dist/ (Dockerfile never copies datacore/)");
   const layers = JSON.parse(fs.readFileSync(path.join(here, "..", "datacore", "layers.json"), "utf8"));
   const pp = layers.layers.find((l: any) => l.id === "powerplants");
   assert.ok(pp, "layers.json entry missing");

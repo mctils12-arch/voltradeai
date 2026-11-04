@@ -7,28 +7,28 @@ import fs from "fs";
 import https from "https";
 import { WebSocket as WSClient } from "ws";
 import cookieParser from "cookie-parser";
-// datacore JSON is imported statically so esbuild bakes it into dist/index.cjs
-// — the frozen Dockerfile's runtime stage copies selective paths and datacore/
+// SMALL datacore JSON (registry, sites, chips index, the two <10KB nuclear
+// catalogs) is imported statically so esbuild bakes it into dist/index.cjs —
+// the frozen Dockerfile's runtime stage copies selective paths and datacore/
 // never reaches the image, which made runtime fs reads return {} in prod.
+// The LARGE tables (power plants, quake history, nuclear tests, military
+// installations, boundaries…) are NOT inlined any more: server/lazyAssets.ts
+// reads each from the dist/datacore/ copy script/build.ts stages, on first
+// use, memoized (A7, 2026-11-03 memory audit; VOLTRADE_LAZY_ASSETS=0 preloads).
 import datacoreLayers from "../datacore/layers.json";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
 import datacoreSiteChips from "../datacore/sentinel2/site_latest_index.json";
-import datacorePowerplants from "../datacore/powerplants/us_power_plants.json";
-import datacoreNuclearTests from "../datacore/nuclear_tests.json";
+import { LAZY_TABLES } from "./lazyAssets";
 import datacoreNuclearAccidents from "../datacore/nuclear_accidents.json";
 import datacoreNuclearFacilities from "../datacore/nuclear_facilities.json";
-import datacoreMilitaryInstallations from "../datacore/military_installations.json";
 import { jodiOilStocksView } from "./jodiOil";
 import { unComtradeView } from "./unComtrade";
 import { railTrafficView } from "./railTraffic";
 import { guardedRefresh } from "./crashSafeRefresh";
 import { saveSnapshot, loadSnapshot } from "./derivedSnapshot";
-import datacoreQuakeHistory from "../datacore/quake_history.json";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
-import datacoreBoundaries from "../datacore/boundaries/ne_110m_admin0.json";
-import datacoreBoundariesAdmin1 from "../datacore/boundaries/ne_50m_admin1_lines.json";
 import { version as pkgVersion } from "../package.json";
 import {
   archiveAircraft, archiveVessels, archiveTrains, compressOldHoursAsync, rollupOldDaysAsync,
@@ -1625,7 +1625,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!hit) return res.json({ warming_up: true, gauges: [], note: "river-gauge feed warming up" });
       const r = Math.min(200, Math.max(1, parseFloat(String(req.query.radius_km)) || 50));
       const pts = gaugePoints(hit.gauges || []);
-      const plants = powerplantTable(datacorePowerplants);
+      const plants = powerplantTable(LAZY_TABLES.usPowerPlants.get());
       const gauges = plantsNearGauges(pts, plants, r);
       res.json({
         kind: "raw", as_of: hit.at, radius_km: r,
@@ -1649,7 +1649,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const hit = latestAlerts();
       if (!hit) return res.json({ warming_up: true, alerts: [], note: "NWS alerts feed warming up" });
-      const plants = powerplantTable(datacorePowerplants);
+      const plants = powerplantTable(LAZY_TABLES.usPowerPlants.get());
       const alerts = plantsUnderAlerts((hit.display || []) as any, plants);
       res.json({
         kind: "raw", as_of: hit.at,
@@ -1833,7 +1833,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // client-side (DESIGN.md: heavy geo work never on the Railway box).
   app.get("/api/data/powerplants", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
-    res.json({ kind: "raw", ...(datacorePowerplants as any) });
+    res.json({ kind: "raw", ...(LAZY_TABLES.usPowerPlants.get() as any) });
   });
 
   // Admin boundaries (RAW; Natural Earth 1:110m admin-0, PUBLIC DOMAIN —
@@ -1842,7 +1842,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // fetched only when the layer is enabled (zero-cost-when-off).
   app.get("/api/data/boundaries", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
-    res.json({ kind: "raw", source: "Natural Earth 1:110m admin-0 (public domain)", ...(datacoreBoundaries as any) });
+    res.json({ kind: "raw", source: "Natural Earth 1:110m admin-0 (public domain)", ...(LAZY_TABLES.boundariesAdmin0.get() as any) });
   });
 
   // State/province borders (RAW; Natural Earth 1:50m admin-1 lines, PUBLIC
@@ -1896,7 +1896,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/data/boundaries_admin1", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
-    res.json({ kind: "raw", source: "Natural Earth 1:50m admin-1 (public domain)", ...(datacoreBoundariesAdmin1 as any) });
+    res.json({ kind: "raw", source: "Natural Earth 1:50m admin-1 (public domain)", ...(LAZY_TABLES.boundariesAdmin1Lines.get() as any) });
   });
 
   // Live trains overlay (RAW) — Finland Digitraffic (CC BY 4.0) + Norway
@@ -3128,7 +3128,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // The LIVE quakes layer covers the present separately).
   app.get("/api/data/quakehistory", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
-    const d: any = datacoreQuakeHistory;
+    const d: any = LAZY_TABLES.quakeHistory.get();
     res.json({ kind: "raw", predictive: false, source: d.source,
                attribution: "USGS ANSS ComCat", count: d.count,
                min_year: d.min_year, max_year: d.max_year, quakes: d.quakes });
@@ -3166,7 +3166,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // and counted in the payload, never plotted at (0,0).
   app.get("/api/data/nucleartests", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
-    const d: any = datacoreNuclearTests;
+    const d: any = LAZY_TABLES.nuclearTests.get();
     res.json({
       kind: "raw", predictive: false,
       source: d.source,
@@ -3239,7 +3239,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // vessel layers (no_cross_ties enforced in the artifact + registry + client).
   app.get("/api/data/military_installations", (_req, res) => {
     res.set("Cache-Control", "public, max-age=86400");
-    const d: any = datacoreMilitaryInstallations;
+    const d: any = LAZY_TABLES.militaryInstallations.get();
     res.json({
       kind: "raw", predictive: false,
       source: "US DoD open data, OpenStreetMap contributors (ODbL), and cited government publications",
@@ -6525,8 +6525,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       superfund: latestSuperfund()?.sites ?? null,
       waterViolators: latestWaterViolators()?.violators ?? null,
       pfas: latestPfas().systems,
-      quakes: (datacoreQuakeHistory as any).quakes ?? [],
-      nuclearTests: (datacoreNuclearTests as any).tests ?? [],
+      quakes: (LAZY_TABLES.quakeHistory.get() as any).quakes ?? [],
+      nuclearTests: (LAZY_TABLES.nuclearTests.get() as any).tests ?? [],
       floodZone,
       cancerCounty,
     });

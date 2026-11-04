@@ -34,7 +34,7 @@ import fs from "fs";
 import zlib from "zlib";
 import { performance } from "perf_hooks";
 import sitesJson from "../datacore/sites/strategic_sites.json";
-import plantsJson from "../datacore/powerplants/us_power_plants.json";
+import { LAZY_TABLES } from "./lazyAssets"; // us_power_plants.json: 1.2MB, read on first use (A7)
 import entityMapJson from "../datacore/entity_map.json";
 import { readFilingHistory, type Form4Filing } from "./edgarForm4";
 import { foldPortVisitsAsync, portsFromSites, type PortDef, type PortVisit } from "./portDwell";
@@ -470,7 +470,7 @@ export async function resolveGraphInputs(opts: BuildGraphOpts): Promise<{
   form4Filings: Form4Filing[]; portVisitsByPort: Map<string, PortVisit[]>;
 }> {
   const sites: SiteRow[] = opts.sites ?? ((sitesJson as any).sites || []);
-  const plants: PlantRow[] = opts.plants ?? ((plantsJson as any).plants || []);
+  const plants: PlantRow[] = opts.plants ?? ((LAZY_TABLES.usPowerPlants.get() as any).plants || []);
   const entities: EntityMapEntry[] = opts.entities ?? ((entityMapJson as any).entities || []);
   const form4Filings = opts.form4Filings ?? readFilingHistory(30, opts.baseDir, opts.nowMs);
   let portVisitsByPort = opts.portVisitsByPort;

@@ -24,7 +24,7 @@
  * landing-page hero counters).
  */
 import sitesJson from "../datacore/sites/strategic_sites.json";
-import plantsJson from "../datacore/powerplants/us_power_plants.json";
+import { LAZY_TABLES } from "./lazyAssets"; // us_power_plants.json: 1.2MB, read on first use (A7)
 import type { StreamInventoryEntry } from "./streamsInventory";
 
 export interface StreamHealthSummary {
@@ -85,7 +85,7 @@ export function buildArchiveSummary(
 export function verificationCoverage(): VerificationCoverage {
   const sites: any[] = (sitesJson as any).sites || [];
   const ports = sites.filter((s) => s.category === "port");
-  const plants = plantsJson as any;
+  const plants = LAZY_TABLES.usPowerPlants.get() as any;
   return {
     // strategic_sites.json's own _doc: "ALL 16 coordinates imagery-verified
     // 2026-07-03 ... scripts/site_verify.py renders each coordinate on Esri

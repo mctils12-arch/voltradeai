@@ -25,7 +25,7 @@
  * latest_period — every row carries its OWN period, not a shared "as of"
  * date, so the UI can be honest about it row by row.
  */
-import jodiPrimaryStocks from "../datacore/jodi/primary_stocks.json";
+import { LAZY_TABLES } from "./lazyAssets"; // primary_stocks.json: 1.4MB, read on first use (A7)
 
 export const JODI_PRODUCT = "TOTCRUDE" as const;
 
@@ -109,7 +109,7 @@ interface JodiPrimaryStocksFile {
  *  with no TOTCRUDE series at all is simply absent from `rows`, matching
  *  the source script's own "skip, never zero" rule for missing periods. */
 export function jodiOilStocksView(
-  doc: JodiPrimaryStocksFile = jodiPrimaryStocks as unknown as JodiPrimaryStocksFile,
+  doc: JodiPrimaryStocksFile = LAZY_TABLES.jodiPrimaryStocks.get() as JodiPrimaryStocksFile,
 ): JodiOilStocksView {
   const rows: JodiCountryRow[] = [];
   for (const [key, s] of Object.entries(doc.series)) {
