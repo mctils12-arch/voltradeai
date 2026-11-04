@@ -465,33 +465,148 @@ def _option_underlying(position: Dict[str, Any]) -> str:
 
 
 # ── REGIME ENGINE step 5 (docs/regime/FINDINGS.md): the CSP guards ──────────
-_T1_EARNINGS_CACHE = {"at": 0.0, "days_ahead": 0, "cal": {}, "ok": False}
+_T1_EARNINGS_CACHE = {"at": 0.0, "days_ahead": 0, "cal": {}, "ok": False, "coverage": {}}
 T1_EARNINGS_CACHE_S = 900.0   # csp_universe refreshes its layers every 15 min: same cadence, one Finnhub call
+# KB #45 (c), 2026-11-04 (live: an IREN put sold the day before earnings). A name ABSENT from
+# a calendar that failed, or that Finnhub cut (it drops a busy window's NEAREST dates), is
+# confirmed with one per-symbol lookup before it may be sold. The lookups are bounded per scan
+# (the scan runs inside the daemon's 300 s budget), and successful answers are cached like the
+# window calendar.
+T1_EARNINGS_CONFIRM_MAX = 8
+_T1_SYMBOL_EARNINGS_CACHE: Dict[Tuple[str, int], Tuple[float, Optional[int]]] = {}
+_T1_EARNINGS_DIAG: Dict[str, Any] = {}
+_T1_EARNINGS_DIAG_KEYS = (
+    "engine_active", "window_days", "lookup_ok", "truncated", "authoritative", "calendar_entries",
+    "window_from", "window_to", "earliest_date_returned", "latest_date_returned", "at_row_cap",
+    "near_edge_gap", "row_cap", "http_status", "calendar_fetched_at", "symbol_lookups",
+    "symbol_cache_hits", "symbol_lookup_failures", "symbol_budget_skipped", "confirmed_in_window",
+    "earnings_unverified",
+)
+
+
+class _T1EarningsLookup(tuple):
+    """(calendar, lookup_ok): unpacks and compares like the plain pair every caller and test
+    uses, plus .coverage, the window fetch's coverage record (options_scanner)."""
+
+    def __new__(cls, cal, ok, coverage=None):
+        obj = super().__new__(cls, (cal, ok))
+        obj.coverage = dict(coverage or {})
+        return obj
 
 
 def _t1_earnings_calendar(days_ahead: int):
     """({ticker: days_to_earnings}, lookup_ok) from options_scanner's Finnhub calendar, cached
-    15 minutes per window. lookup_ok=False (outage, rate limit) means the earnings guard is
-    BLIND and fails open, flagged on the record — never a block on missing data."""
+    15 minutes per window. It also carries .coverage, the record of the fetch that produced it
+    (truncated, calendar_entries, window, earliest/latest date returned). On a failed lookup
+    (lookup_ok=False) or a cut page (coverage['truncated']), an ABSENT name is not evidence of
+    "no earnings": tier1_csp_core confirms it per symbol and fails closed when it cannot
+    (KB #45 (c), 2026-11-04; this used to fail open)."""
     now = time.time()
     c = _T1_EARNINGS_CACHE
     if c["days_ahead"] == days_ahead and now - c["at"] < T1_EARNINGS_CACHE_S:
-        return c["cal"], c["ok"]
+        return _T1EarningsLookup(c["cal"], c["ok"], c.get("coverage"))
+    coverage = {}
     try:
-        from options_scanner import _fetch_earnings_calendar_with_status
-        cal, ok = _fetch_earnings_calendar_with_status(days_ahead=days_ahead)
+        import options_scanner as _osc
+        seq0 = _osc.earnings_calendar_seq()
+        cal, ok = _osc._fetch_earnings_calendar_with_status(days_ahead=days_ahead)
+        rec = _osc.earnings_calendar_coverage(days_ahead)
+        if rec.get("seq", 0) > seq0:       # the record THIS fetch wrote (a substituted fetcher writes none)
+            coverage = rec
     except Exception as e:
         logger.debug(f"T1 earnings calendar unavailable: {e}")
         cal, ok = {}, False
-    c.update(at=now, days_ahead=days_ahead, cal=dict(cal or {}), ok=bool(ok))
-    return c["cal"], c["ok"]
+    c.update(at=now, days_ahead=days_ahead, cal=dict(cal or {}), ok=bool(ok), coverage=coverage)
+    return _T1EarningsLookup(c["cal"], c["ok"], c["coverage"])
+
+
+def _t1_confirm_state() -> Dict[str, Any]:
+    """Per-scan counters (and the breaker) of the per-symbol confirmations."""
+    return {"symbol_lookups": 0, "symbol_cache_hits": 0, "symbol_lookup_failures": 0,
+            "symbol_budget_skipped": 0, "confirmed_in_window": 0, "earnings_unverified": 0,
+            "broken": False}
+
+
+def _t1_confirm_earnings(ticker: str, days_ahead: int, scan: Dict[str, Any]):
+    """(days_to_earnings or None, source) for ONE candidate the window calendar cannot vouch for.
+    source 'symbol': Finnhub's per-symbol calendar answered (None = no report inside the window).
+    source 'unverified': no answer, because the lookup failed, this scan's T1_EARNINGS_CONFIRM_MAX
+    lookups are spent, or an earlier lookup this scan failed. The caller then fails CLOSED.
+    Answers are cached T1_EARNINGS_CACHE_S; failures are not, so the next scan asks again."""
+    key = (str(ticker).upper(), int(days_ahead))
+    now = time.time()
+    hit = _T1_SYMBOL_EARNINGS_CACHE.get(key)
+    if hit is not None and now - hit[0] < T1_EARNINGS_CACHE_S:
+        scan["symbol_cache_hits"] += 1
+        return hit[1], "symbol"
+    if scan["broken"] or scan["symbol_lookups"] >= T1_EARNINGS_CONFIRM_MAX:
+        scan["symbol_budget_skipped"] += 1
+        return None, "unverified"
+    scan["symbol_lookups"] += 1
+    try:
+        from options_scanner import _fetch_symbol_earnings_with_status
+        days, ok = _fetch_symbol_earnings_with_status(ticker, days_ahead=days_ahead)
+    except Exception as e:
+        logger.debug(f"T1 per-symbol earnings lookup {ticker} unavailable: {e}")
+        days, ok = None, False
+    if not ok:
+        scan["symbol_lookup_failures"] += 1
+        scan["broken"] = True      # Finnhub is failing: the scan's other absent names are refused without a call
+        return None, "unverified"
+    if len(_T1_SYMBOL_EARNINGS_CACHE) > 512:
+        for k, v in list(_T1_SYMBOL_EARNINGS_CACHE.items()):     # a snapshot: two scans can overlap in the daemon
+            if now - v[0] >= T1_EARNINGS_CACHE_S:
+                _T1_SYMBOL_EARNINGS_CACHE.pop(k, None)
+    _T1_SYMBOL_EARNINGS_CACHE[key] = (now, days)
+    return days, "symbol"
+
+
+def _t1_publish_earnings_diag(rg: Dict[str, Any], scan: Dict[str, Any]) -> None:
+    """Keep what this Tier-1 run's earnings guard saw, for get_t1_earnings_coverage()."""
+    active = rg.get("engine") is not None
+    cov = rg.get("earnings_coverage") or {}
+    d = {k: None for k in _T1_EARNINGS_DIAG_KEYS}
+    d.update({k: cov.get(k) for k in ("calendar_entries", "window_from", "window_to", "earliest_date_returned",
+                                      "latest_date_returned", "at_row_cap", "near_edge_gap", "row_cap",
+                                      "http_status")})
+    d.update({k: v for k, v in scan.items() if k != "broken"})
+    d.update(engine_active=active, window_days=rg.get("earnings_window"), calendar_fetched_at=cov.get("at"),
+             lookup_ok=bool(rg.get("earnings_ok")) if active else None,
+             truncated=bool(rg.get("earnings_truncated")) if active else None,
+             authoritative=(bool(rg.get("earnings_ok")) and not rg.get("earnings_truncated")) if active else None,
+             at=time.time())
+    _T1_EARNINGS_DIAG.update(d)      # every key, every run: a full overwrite, never a half-empty read
+
+
+def get_t1_earnings_coverage() -> Dict[str, Any]:
+    """KB #45 (c) diagnostic: what the Tier-1 earnings guard saw on its last run. That covers
+    the window calendar's rows, window, earliest/latest date returned, truncated, lookup_ok,
+    and whether an absent name could be trusted (authoritative). It also counts the per-symbol
+    confirmations: lookups, cache hits, failures, budget-skipped, confirmed reports inside the
+    window, and refusals for an unverified date. `windows` holds every calendar window this
+    process fetched (21 d scanner, 30 d csp_universe Layer 2, 47 d T1). run_tiers puts it in
+    tier_timings, which reaches /api/diag/timings the same way csp_layer2_prefetch does.
+    Read-only; never raises."""
+    out: Dict[str, Any] = {k: None for k in _T1_EARNINGS_DIAG_KEYS}
+    out.update(_T1_EARNINGS_DIAG)
+    at = out.pop("at", None)
+    out["age_sec"] = round(time.time() - at, 1) if at else None
+    try:
+        import options_scanner as _osc
+        fields = ("calendar_entries", "window_from", "window_to", "earliest_date_returned",
+                  "latest_date_returned", "truncated", "lookup_ok", "http_status")
+        out["windows"] = {k: {f: v.get(f) for f in fields} for k, v in _osc.earnings_calendar_coverage().items()}
+    except Exception as e:
+        out["windows"] = {"error": f"{type(e).__name__}: {str(e)[:80]}"}
+    return out
 
 
 def _t1_regime_context() -> dict:
     """The regime engine's state-level verdict on NEW cash-secured puts for this scan
     (step 5), or an inert context when the engine is off or has no state. Never raises."""
     out = {"engine": None, "state": None, "verdict": None, "gates": set(), "size_mult": 1.0,
-           "target_delta": None, "earnings": {}, "earnings_ok": False}
+           "target_delta": None, "earnings": {}, "earnings_ok": False, "earnings_truncated": False,
+           "earnings_window": None, "earnings_coverage": {}}
     try:
         import regime_engine as _re
         if not _re.engine_allowed():
@@ -502,9 +617,14 @@ def _t1_regime_context() -> dict:
         gates = _re.options_gates()
         verdict = _re.csp_verdict(state, {"dte_max": T1_TARGET_DTE_MAX})
         acting = _re.apply_csp_gates(verdict, gates)
-        cal, ok = _t1_earnings_calendar(T1_TARGET_DTE_MAX + int(_re.OPTIONS_PARAMS["earnings_buffer_days"]))
+        window = T1_TARGET_DTE_MAX + int(_re.OPTIONS_PARAMS["earnings_buffer_days"])
+        lookup = _t1_earnings_calendar(window)
+        cal, ok = lookup
+        coverage = getattr(lookup, "coverage", None) or {}
         out.update(engine=_re, state=state, verdict=verdict, gates=gates, size_mult=float(acting["size_mult"]),
-                   target_delta=acting["target_delta"], earnings=cal, earnings_ok=ok)
+                   target_delta=acting["target_delta"], earnings=cal, earnings_ok=ok,
+                   earnings_truncated=bool(coverage.get("truncated")), earnings_window=window,
+                   earnings_coverage=coverage)
     except Exception as e:
         logger.debug(f"T1 regime context unavailable: {e}")
     return out
@@ -576,6 +696,10 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     _rg_target_delta = _rg["target_delta"] if _rg["target_delta"] is not None else T1_TARGET_DELTA
     _rg_seen: Dict[str, int] = {}
     _rg_rejections: List[Dict[str, Any]] = []
+    # KB #45 (c), 2026-11-04: an ABSENT name reads as "no report" only on a calendar that was
+    # fetched AND not cut. Otherwise each name about to be sold is confirmed per symbol below.
+    _rg_earn_authoritative = bool(_rg["earnings_ok"]) and not _rg["earnings_truncated"]
+    _rg_confirm = _t1_confirm_state()
 
     # Current tickers already held (avoid doubling up)
     # BUG FIX 2026-10-13 (f5-t1-occ-dedupe): option positions carry OCC
@@ -643,16 +767,34 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
         # REGIME ENGINE step 5: this name's verdict (state flags + its earnings date).
         _rg_meta = None
         if _rg["engine"] is not None:
+            _rg_days = _rg["earnings"].get(ticker)
+            _rg_earn_src = "calendar"
             _rg_v = _rg["engine"].csp_verdict(
-                _rg["state"], {"days_to_earnings": _rg["earnings"].get(ticker), "dte_max": T1_TARGET_DTE_MAX})
+                _rg["state"], {"days_to_earnings": _rg_days, "dte_max": T1_TARGET_DTE_MAX})
+            if _rg_days is None and not _rg_earn_authoritative \
+                    and not _rg["engine"].apply_csp_gates(_rg_v, _rg["gates"])["block"]:
+                # KB #45 (c): the calendar cannot vouch for this ABSENT name (the lookup failed,
+                # or Finnhub cut the window's nearest dates: the live IREN put). Establish its
+                # date before selling it. When nobody can, the earnings guard refuses it.
+                _rg_days, _rg_earn_src = _t1_confirm_earnings(ticker, _rg["earnings_window"], _rg_confirm)
+                if _rg_earn_src == "unverified":
+                    _rg_confirm["earnings_unverified"] += 1
+                elif _rg_days is not None:
+                    _rg_confirm["confirmed_in_window"] += 1
+                _rg_v = _rg["engine"].csp_verdict(
+                    _rg["state"], {"days_to_earnings": _rg_days, "dte_max": T1_TARGET_DTE_MAX,
+                                   "earnings_unverified": _rg_earn_src == "unverified"})
             _rg_act = _rg["engine"].apply_csp_gates(_rg_v, _rg["gates"])
             _rg_meta = {"flags": _rg_v["flags"], "would_block": _rg_v["would_block"], "gates": sorted(_rg["gates"]),
                         "size_mult": _rg_v["size_mult"], "target_delta": _rg_v["target_delta"],
                         "earnings_lookup_ok": _rg["earnings_ok"], "composite": _rg_v["composite"],
-                        "vol_state": _rg_v["vol_state"], "as_of": _rg_v["as_of"]}
+                        "vol_state": _rg_v["vol_state"], "as_of": _rg_v["as_of"],
+                        "earnings_source": _rg_earn_src, "earnings_calendar_truncated": _rg["earnings_truncated"]}
             if _rg_v["would_block"]:
                 _g = (_rg_act["blocked_by"] or _rg_v["would_block"])[0]
                 _decision = f"rejected_regime_{_g}" if _rg_act["block"] else f"would_reject_regime_{_g}"
+                if _g == "earnings" and _rg_earn_src == "unverified":
+                    _decision += "_unverified"   # its own prevention-P&L bucket: refused on missing data, not a known date
                 # COUNTERFACTUAL (2026-10-28 live flip, logging only): legacy would propose this
                 # name (no regime guard); the engine blocked or would block it. A name that passes
                 # is logged where its action is appended below.
@@ -717,6 +859,7 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     # prevention-P&L (per-decision bucket on /api/diag/shadow) before promotion.
     if _rg_rejections:
         log_csp_gate_shadow(_rg_rejections)
+    _t1_publish_earnings_diag(_rg, _rg_confirm)
 
     # Return at most 3 new CSP entries per scan cycle (avoid overconcentration)
     return actions[:3]
@@ -1057,6 +1200,10 @@ class TieredStrategy:
             pass
         else:
             tier_timings["csp_layer2_prefetch"] = get_last_layer2_prefetch_stats()
+        # KB #45 (c), 2026-11-04: the Tier-1 earnings guard's view of the calendar (rows, window,
+        # earliest/latest date returned, truncated, lookup_ok, per-symbol confirmations), on the
+        # same path to /api/diag/timings as csp_layer2_prefetch.
+        tier_timings["t1_earnings_coverage"] = get_t1_earnings_coverage()
         _notify("tier1")
 
         # Tier 2 — multiply T1 sizing (if PM approved)

@@ -51,6 +51,7 @@ import sys
 import json
 import time
 import logging
+import threading
 import requests
 
 # [REPAIR 2026-07-28] KNOWN BROKEN #25 follow-up: this module was one
@@ -640,6 +641,50 @@ def _fetch_iv_rank(ticker: str) -> Optional[float]:
 
 
 
+# KB #45 path (c), CONFIRMED 2026-11-04 (live: an IREN put sold the day before
+# its earnings, like BAC on 10-13). Finnhub's ALL-COMPANY /calendar/earnings
+# answers ONE page of at most this many rows, newest dates FIRST. A window
+# holding more releases than that silently loses its EARLIEST dates, and with
+# from=today those are the next few days, exactly where the CSP earnings
+# guards look. (A live October month held 3,166 releases, about two pages:
+# github.com/jere67/parallax PR #47.) The cut page still parses as a
+# successful lookup. Signatures of a cut page: a full page, or no row at all
+# in the window's first NEAR_EDGE+1 days. 3 days covers a Friday window with
+# no Friday reporters; a busy calendar has rows nearly every weekday. A
+# false positive only costs the Tier-1 gate a few per-symbol lookups.
+EARNINGS_CALENDAR_ROW_CAP = 1500
+EARNINGS_CALENDAR_NEAR_EDGE_DAYS = 3
+SYMBOL_EARNINGS_TIMEOUT_S = 5
+_EARNINGS_CAL_COVERAGE: Dict[str, Dict[str, Any]] = {}
+_EARNINGS_CAL_SEQ = [0]
+_EARNINGS_CAL_LOCK = threading.Lock()
+
+
+def _record_earnings_coverage(days_ahead: int, cov: Dict[str, Any]) -> None:
+    with _EARNINGS_CAL_LOCK:
+        _EARNINGS_CAL_SEQ[0] += 1
+        cov["seq"] = _EARNINGS_CAL_SEQ[0]
+        cov["at"] = time.time()
+        _EARNINGS_CAL_COVERAGE[str(int(days_ahead))] = cov
+
+
+def earnings_calendar_seq() -> int:
+    """Sequence number of the latest coverage record (any window)."""
+    return _EARNINGS_CAL_SEQ[0]
+
+
+def earnings_calendar_coverage(days_ahead: Optional[int] = None) -> Dict[str, Any]:
+    """What the last window fetch for `days_ahead` actually received:
+    calendar_entries, window_from/to, earliest/latest_date_returned,
+    at_row_cap, near_edge_gap, truncated, lookup_ok, http_status, seq and at.
+    Pass no argument to get every window, keyed by str(days_ahead). Read-only
+    copies; {} when nothing was recorded."""
+    with _EARNINGS_CAL_LOCK:
+        if days_ahead is None:
+            return {k: dict(v) for k, v in _EARNINGS_CAL_COVERAGE.items()}
+        return dict(_EARNINGS_CAL_COVERAGE.get(str(int(days_ahead))) or {})
+
+
 def _fetch_earnings_calendar_with_status(days_ahead: int = 10) -> Tuple[Dict[str, int], bool]:
     """
     Fetch earnings calendar from Finnhub.
@@ -648,11 +693,25 @@ def _fetch_earnings_calendar_with_status(days_ahead: int = 10) -> Tuple[Dict[str
     response, timeout) — callers need this distinguished from a genuinely
     empty calendar (lookup_ok=True, result={}) so a fetch failure doesn't
     get silently read as "nobody has earnings soon" by every caller.
+
+    A SUCCESSFUL lookup can still be incomplete. Finnhub cuts a busy
+    window's earliest dates (EARNINGS_CALENDAR_ROW_CAP above), so a name
+    missing from the result does not prove "no report". Every call records
+    its coverage on every path (earnings_calendar_coverage(days_ahead)), and
+    `truncated` there says whether an absent name can be trusted. The
+    return contract is unchanged for existing callers.
     """
     result: Dict[str, int] = {}
+    cov: Dict[str, Any] = {
+        "days_ahead": int(days_ahead), "window_from": None, "window_to": None,
+        "calendar_entries": 0, "earliest_date_returned": None, "latest_date_returned": None,
+        "row_cap": EARNINGS_CALENDAR_ROW_CAP, "at_row_cap": False, "near_edge_gap": False,
+        "truncated": False, "lookup_ok": False, "http_status": None,
+    }
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         end   = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        cov.update(window_from=today, window_to=end)
         r = requests.get(
             "https://finnhub.io/api/v1/calendar/earnings",
             params={"from": today, "to": end, "token": FINNHUB_KEY},
@@ -663,6 +722,7 @@ def _fetch_earnings_calendar_with_status(days_ahead: int = 10) -> Tuple[Dict[str
         # reports soon" -> the earnings gate failed OPEN. Treat it as a
         # failed lookup.
         status = getattr(r, "status_code", 200)
+        cov["http_status"] = status if isinstance(status, int) else None
         if isinstance(status, int) and status != 200:
             return result, False
         body = r.json()
@@ -671,19 +731,84 @@ def _fetch_earnings_calendar_with_status(days_ahead: int = 10) -> Tuple[Dict[str
         # Compare calendar DATES, not datetimes: a same-day report is
         # (date - now).days == -1 and used to be dropped (KB #45b).
         today_d = datetime.now().date()
-        for item in body["earningsCalendar"]:
+        rows = body["earningsCalendar"]
+        dates = []
+        for item in rows:
             sym = item.get("symbol", "")
             dt  = item.get("date", "")
             if sym and dt:
                 try:
-                    days = (datetime.strptime(dt, "%Y-%m-%d").date() - today_d).days
+                    d = datetime.strptime(dt, "%Y-%m-%d").date()
+                    dates.append(d)
+                    days = (d - today_d).days
                     if 0 <= days <= days_ahead:
                         result[sym] = days
                 except Exception:
                     pass
+        earliest = min(dates) if dates else None
+        cov.update(
+            calendar_entries=len(rows), lookup_ok=True,
+            earliest_date_returned=earliest.strftime("%Y-%m-%d") if earliest else None,
+            latest_date_returned=max(dates).strftime("%Y-%m-%d") if dates else None,
+            at_row_cap=len(rows) >= EARNINGS_CALENDAR_ROW_CAP,
+            near_edge_gap=earliest is None or (earliest - today_d).days > EARNINGS_CALENDAR_NEAR_EDGE_DAYS,
+        )
+        cov["truncated"] = bool(cov["at_row_cap"] or cov["near_edge_gap"])
     except Exception:
         return result, False
+    finally:
+        _record_earnings_coverage(days_ahead, cov)
     return result, True
+
+
+def _fetch_symbol_earnings_with_status(symbol: str, days_ahead: int = 10) -> Tuple[Optional[int], bool]:
+    """
+    (days to `symbol`'s nearest report inside [today, today+days_ahead], or
+    None when it has none there; lookup_ok) from Finnhub's per-symbol
+    calendar: the same endpoint with the symbol= filter. That is one
+    company's rows, which the all-company page cap cannot cut. Same failure
+    rules as the window fetch: non-200, a body without an `earningsCalendar`
+    list, or any exception gives (None, False), which callers must never
+    read as "no report".
+    """
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        return None, False
+    try:
+        today_d = datetime.now().date()
+        r = requests.get(
+            "https://finnhub.io/api/v1/calendar/earnings",
+            params={"from": today_d.strftime("%Y-%m-%d"),
+                    "to": (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d"),
+                    "symbol": sym, "token": FINNHUB_KEY},
+            timeout=SYMBOL_EARNINGS_TIMEOUT_S,
+        )
+        status = getattr(r, "status_code", 200)
+        if isinstance(status, int) and status != 200:
+            return None, False
+        body = r.json()
+        if not isinstance(body, dict) or not isinstance(body.get("earningsCalendar"), list):
+            return None, False
+        nearest: Optional[int] = None
+        for item in body["earningsCalendar"]:
+            if not isinstance(item, dict) or str(item.get("symbol", "")).strip().upper() != sym:
+                continue
+            d = _iso_date(item.get("date"))
+            days = (d - today_d).days if d is not None else -1
+            if 0 <= days <= days_ahead and (nearest is None or days < nearest):
+                nearest = days
+        return nearest, True
+    except Exception as e:
+        logger.debug(f"per-symbol earnings lookup {sym} failed: {type(e).__name__}: {e}")
+        return None, False
+
+
+def _iso_date(value):
+    """date from 'YYYY-MM-DD', else None (a blank or malformed calendar date)."""
+    try:
+        return datetime.strptime(str(value or ""), "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _fetch_earnings_calendar(days_ahead: int = 10) -> Dict[str, int]:

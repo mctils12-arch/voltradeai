@@ -967,7 +967,11 @@ def options_gates(env=None, config=None) -> set:
 def csp_verdict(state, candidate, params=None) -> dict:
     """Pure: what the regime says about ONE new cash-secured put.
 
-    candidate: days_to_earnings (int or None), dte_max (the contract window's far edge).
+    candidate: days_to_earnings (int or None), dte_max (the contract window's far edge),
+    earnings_unverified (optional, default False). Set it when days_to_earnings is None
+    because nobody could say: the window calendar failed or was cut, and the per-symbol
+    lookup did not answer either. The earnings guard then fails CLOSED. None alone still
+    means a complete calendar holds no report for the name.
     Returns flags (0/1 per guard, persisted on the shadow record), reasons, the guards
     that WOULD block, the size multiplier and target delta the gates would apply, and
     which of those act (gates) — the caller applies only the acting ones."""
@@ -999,6 +1003,12 @@ def csp_verdict(state, candidate, params=None) -> dict:
     if dte is not None and 0 <= int(dte) <= window:
         flags["earnings"] = 1
         reasons["earnings"] = f"earnings in {int(dte)} days, inside the {window}-day window"
+    elif dte is None and candidate.get("earnings_unverified"):
+        # KB #45 (c), 2026-11-04: an absent name on a failed or cut calendar is unknown,
+        # not "no earnings" (the live IREN put reported the next day).
+        flags["earnings"] = 1
+        reasons["earnings"] = (f"earnings date UNVERIFIED: the calendar failed or was cut and the per-symbol "
+                               f"lookup did not answer; fail closed inside the {window}-day window")
     ebp = st.get("ebp") if isinstance(st.get("ebp"), dict) else {}
     if ebp.get("ebp") is not None and float(ebp["ebp"]) > 0:
         flags["ebp"] = 1
