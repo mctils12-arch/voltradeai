@@ -718,6 +718,51 @@ def _pursue_group_close(group: dict, state: dict) -> list:
              "reason": f"{rule}: retry #{attempts + 1} — {reason}"[:220], "type": rule, "retry": attempts + 1, "order": result}]
 
 
+def _max_loss_from_legs(legs: list, net_credit: float) -> float:
+    """Max loss at expiry of a defined-risk CREDIT structure, from its legs:
+    widest wing (strike difference) x 100 x qty - the net credit received —
+    the formula the entry builders use (options_execution: max_loss_per x qty).
+
+    REPAIR 2026-11-04: the iron-condor 50%-of-max-loss exit read max_loss only
+    from the legs' state and did nothing when none was recorded. Only shapes
+    the formula is exact for are priced: a credit vertical (one short and one
+    long of one type, the long further out of the money) or an iron condor (a
+    put and a call credit vertical whose short strikes do not cross), every
+    leg the same quantity, root and expiry. Anything else returns 0, so the
+    rule stays off as it was, rather than acting on a guess.
+    """
+    strikes = {"put": {"short": [], "long": []}, "call": {"short": [], "long": []}}
+    qtys, series = set(), set()
+    for pos in legs:
+        parsed = _parse_occ_symbol(pos.get("symbol", ""))
+        qty = abs(int(float(pos.get("qty", 0))))
+        if not parsed or qty <= 0:
+            return 0.0
+        qtys.add(qty)
+        series.add((parsed["ticker"], parsed["expiry_date"]))
+        side = "short" if pos.get("side", "long") == "short" else "long"
+        strikes[parsed["option_type"]][side].append(parsed["strike"])
+    if len(qtys) != 1 or len(series) != 1:
+        return 0.0
+    widths = []
+    for opt_type, sides in strikes.items():
+        if not sides["short"] and not sides["long"]:
+            continue
+        if len(sides["short"]) != 1 or len(sides["long"]) != 1:
+            return 0.0
+        short_k, long_k = sides["short"][0], sides["long"][0]
+        width = short_k - long_k if opt_type == "put" else long_k - short_k
+        if width <= 0:
+            return 0.0  # a debit vertical: its max loss is the debit, not this formula
+        widths.append(width)
+    if not widths:
+        return 0.0
+    if len(widths) == 2 and strikes["put"]["short"][0] > strikes["call"]["short"][0]:
+        return 0.0  # short strikes cross: both sides can finish in the money
+    max_loss = max(widths) * 100 * qtys.pop() - net_credit
+    return round(max_loss, 2) if max_loss > 0 else 0.0
+
+
 def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
     """
     Manage a multi-leg strategy as ONE unit.
@@ -736,7 +781,6 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         return actions
 
     # Calculate COMBINED P&L across all legs
-    total_entry_cost = 0           # gross sum (legacy — kept for non-credit paths)
     total_current_value = 0
     total_unrealized_pnl = 0
     # NET-CREDIT FIX 2026-05-03 (audit Finding #2):
@@ -757,14 +801,14 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         current = abs(float(pos.get("current_price", 0)))
         pnl = float(pos.get("unrealized_pl", 0))
 
-        total_entry_cost += entry * qty * 100
         total_current_value += current * qty * 100
         total_unrealized_pnl += pnl
 
         # Net credit: short legs add, long legs subtract.
         # For pure credit structures (CSP, naked put, short straddle) all
-        # legs are short, so net_credit == total_entry_cost (no behavior
-        # change). For spreads/condors the long-leg debit nets against
+        # legs are short, so net_credit equals the gross premium of the legs
+        # (and for an all-long structure -net_credit does): no behavior
+        # change there. For spreads/condors the long-leg debit nets against
         # short-leg credit, giving the true max profit.
         if side == "short":
             net_credit += entry * qty * 100
@@ -776,12 +820,6 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
         if parsed:
             dte = _days_to_expiry(parsed["expiry_date"])
             min_dte = min(min_dte, dte)
-
-    # Combined P&L percentage
-    if total_entry_cost > 0:
-        combined_pnl_pct = total_unrealized_pnl / total_entry_cost
-    else:
-        combined_pnl_pct = 0
 
     # ── CLOSING MODE (REPAIR 2026-11-02): a close already requested for this
     # group is pursued until the broker no longer holds the legs — no rule
@@ -882,24 +920,29 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                 group_max_loss = max(group_max_loss, ml)
                 break  # All legs share the same max_loss
 
+        # REPAIR 2026-11-04: with no max_loss in any leg's state (live: the
+        # GOOGL Nov-27 condor's state was re-initialised as "unknown") this
+        # rule used to skip silently. The legs carry what it needs.
+        max_loss_note = ""
+        if group_max_loss <= 0:
+            group_max_loss = _max_loss_from_legs(legs, net_credit)
+            max_loss_note = " (from the legs; none recorded)"
+
         if group_max_loss > 0:
             loss_pct_of_max = abs(total_unrealized_pnl) / group_max_loss
             if loss_pct_of_max >= IC_MAX_LOSS_EXIT_PCT:
-                result = _request_group_close(legs, ticker, state, "strategy_ic_max_loss_exit", (
-                        f"IC MAX-LOSS EXIT: Unrealized loss ${abs(total_unrealized_pnl):.2f} is "
-                        f"{loss_pct_of_max:.0%} of max loss ${group_max_loss:.2f} — "
-                        f"closing before full max loss (threshold: {IC_MAX_LOSS_EXIT_PCT:.0%})"
-                    ))
+                reason = (
+                    f"IC MAX-LOSS EXIT: Unrealized loss ${abs(total_unrealized_pnl):.2f} is "
+                    f"{loss_pct_of_max:.0%} of max loss ${group_max_loss:.2f}{max_loss_note} — "
+                    f"closing before full max loss (threshold: {IC_MAX_LOSS_EXIT_PCT:.0%})"
+                )
+                result = _request_group_close(legs, ticker, state, "strategy_ic_max_loss_exit", reason)
                 actions.append({
                     "action": "CLOSE_STRATEGY",
                     "ticker": ticker,
                     "strategy": strategy,
                     "legs": all_occ_symbols,
-                    "reason": (
-                        f"IC MAX-LOSS EXIT: Unrealized loss ${abs(total_unrealized_pnl):.2f} is "
-                        f"{loss_pct_of_max:.0%} of max loss ${group_max_loss:.2f} — "
-                        f"closing before full max loss (threshold: {IC_MAX_LOSS_EXIT_PCT:.0%})"
-                    ),
+                    "reason": reason,
                     "type": "strategy_ic_max_loss_exit",
                     "combined_pnl": round(total_unrealized_pnl, 2),
                     "max_loss": group_max_loss,
@@ -909,30 +952,48 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
                 return actions
 
     # ── Exit Rule 3: LOSS LIMIT ───────────────────────────────────
-    if is_credit_strategy and total_entry_cost > 0:
-        if combined_pnl_pct <= -LOSS_LIMIT_MULTIPLIER:  # Lost 2x credit
-            result = _request_group_close(legs, ticker, state, "strategy_loss_limit", f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting")
+    # REPAIR 2026-11-04: measured against the NET premium, as the comments
+    # always said. Both rules used to divide the loss by the GROSS premium of
+    # every leg (shorts and longs added together), several times the net on a
+    # spread, which typically put the trigger beyond the structure's own max
+    # loss (widest wing x 100 x qty - net credit; a debit vertical's is its
+    # net debit) — the GOOGL Nov-27 condor: 2x gross $9,700 vs a $1,090 max
+    # loss, so the rule could never fire. Thresholds unchanged. All legs
+    # short (short straddle, a lone short put) or all long (long straddle):
+    # net == gross, identical decisions. A credit structure that collected
+    # more than a third of its widest wing still cannot lose 2x its credit;
+    # on a condor the 50%-of-max-loss exit above is the stop that acts.
+    if is_credit_strategy and net_credit > 0:
+        pnl_of_credit = total_unrealized_pnl / net_credit
+        if pnl_of_credit <= -LOSS_LIMIT_MULTIPLIER:  # Lost 2x credit
+            reason = (f"LOSS LIMIT: loss ${-total_unrealized_pnl:.0f} is {-pnl_of_credit:.0%} of the net credit "
+                      f"${net_credit:.0f} (limit {LOSS_LIMIT_MULTIPLIER:.0%}) on {strategy} — cutting")
+            result = _request_group_close(legs, ticker, state, "strategy_loss_limit", reason)
             actions.append({
                 "action": "CLOSE_STRATEGY",
                 "ticker": ticker,
                 "strategy": strategy,
                 "legs": all_occ_symbols,
-                "reason": f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting",
+                "reason": reason,
                 "type": "strategy_loss_limit",
                 "combined_pnl": round(total_unrealized_pnl, 2),
                 "order": result,
             })
             return actions
 
-    if is_debit_strategy and total_entry_cost > 0:
-        if combined_pnl_pct <= -0.50:  # Lost 50% of debit
-            result = _request_group_close(legs, ticker, state, "strategy_loss_limit", f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting debit position")
+    net_debit = -net_credit        # positive when we paid cash at entry
+    if is_debit_strategy and net_debit > 0:
+        pnl_of_debit = total_unrealized_pnl / net_debit
+        if pnl_of_debit <= -0.50:  # Lost 50% of debit
+            reason = (f"LOSS LIMIT: loss ${-total_unrealized_pnl:.0f} is {-pnl_of_debit:.0%} of the net debit "
+                      f"${net_debit:.0f} on {strategy} — cutting debit position")
+            result = _request_group_close(legs, ticker, state, "strategy_loss_limit", reason)
             actions.append({
                 "action": "CLOSE_STRATEGY",
                 "ticker": ticker,
                 "strategy": strategy,
                 "legs": all_occ_symbols,
-                "reason": f"LOSS LIMIT: {combined_pnl_pct:.0%} loss on {strategy} — cutting debit position",
+                "reason": reason,
                 "type": "strategy_loss_limit",
                 "combined_pnl": round(total_unrealized_pnl, 2),
                 "order": result,

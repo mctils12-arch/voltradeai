@@ -114,5 +114,5 @@ test("a BOUGHT leg's legend never claims the manager's 50% target (2026-11-02): 
   // the long wing of a credit spread still shows the GROUP's target — the strategy, not the leg, has one
   const wing = overlayFor({ ticker: "META261120P00580000", qty: 1, entryPrice: 1.9, currentPrice: 1.3, isOption: true, optionMeta: { underlyingTicker: "META", strike: 580, optionType: "PUT", expiry: "2026-11-20", daysToExpiry: 18, strategy: "bull_put_credit_spread" } }, T);
   assert.equal(wing.legend.find(([k]) => k === "manager target")![1], "closes the whole bull put credit spread at 50% of its net credit");
-  assert.ok(wing.legend.find(([k]) => k === "manager exits")![1].startsWith("strategy closed as one unit · force close ≤5 DTE in 13d · target: 50% of net credit · stop: loss of 2× the premium · close all at 21 DTE · due now"));
+  assert.ok(wing.legend.find(([k]) => k === "manager exits")![1].startsWith("strategy closed as one unit · force close ≤5 DTE in 13d · target: 50% of net credit · stop: loss of 2× net credit · close all at 21 DTE · due now"));
 });
