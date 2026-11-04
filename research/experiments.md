@@ -113502,3 +113502,16 @@ Prior: on busy windows completed_by_chunks=True in >=80% of fetches; no CSP sold
 Tests: test_earnings_chunk_completion.py (8; 6 fail on the old code). test_csp_earnings_failopen.py FakeFinnhub.window_calls now counts only the full-range primary request (chunk requests counted by new chunk_calls); no assertion changed. Earnings/csp/tier/regime/scanner/option subset 700 passed (2 collection errors are PIL env, unrelated).
 Live verification: /api/diag/timings t1_earnings_coverage shows completed_by_chunks true and truncated false on busy windows.
 STARVED: no.
+
+## 2026-11-04 [REPAIR] — T-BOT (options_manager.py Phase 2) — single-leg option closes wait for regular hours, like group closes
+VERSION: v1.0.1277 (shipped 2026-11-04 by the parent session; main was v1.0.1276)
+
+What broke (options-bleed diagnosis 2026-11-04, bug 1): `_request_group_close` already deferred while the market was closed, but the Phase-2 single-leg rules (CRITICAL DTE, assignment risk, 21-DTE, profit target, sold and bought loss limits, gamma) submitted at any hour, and Tier-2 `run_full_scan` runs 04:00–20:00 ET. Live 2026-10-29 07:31 ET: "XLF261127P00055500: LOSS LIMIT: Cost to close $5.00 is 6.9x the credit … order submitted". The pre-market ask became a $5.00 DAY limit that filled at the open at $1.61 against a fair value near $0.49, with XLF up 1.2%. Closes in the first 5 minutes of the session carried −$5,083 of the sleeve's −$12,658 (−$2,942 of it residual friction).
+
+Fix: every Phase-2 close and roll (a roll is a close plus a sell-to-open) is decided and submitted only while `_market_is_open()` says so. That is the same cached Alpaca clock, and a failed read still counts as open. Outside regular hours the leg is left untouched: no order, no roll, no exit feedback, state kept (popping it would restart the hold gate). The run reports a CLOSE whose order is {"status": "deferred"}, the group path's shape, so the OPTIONS-EXIT row reads "order deferred". Nothing is persisted: the rule is judged again on regular-hours marks at the next regular-hours tick. Thresholds, prices and `_submit_close_order` are unchanged.
+
+Regression test: test_options_exit_market_hours.py (7 tests, 24 subtests, Broker mock, no network). On the old code 14 subtests fail across 6 tests; the open-market test passes on both versions. A mutation check confirms that removing any one gate fails tests, and an AST check pins that every `_submit_close_order` / `_roll_or_skip` call in manage_options_positions sits behind the gate. test_options_group_close.py tearDown now resets `_CLOCK_CACHE`: a test-isolation leak, no assertion changed. Full Python suite 3457 passed (was 3450). TS readers of the actions (positionLevels, optionsMgmtAudit, haltScope, …) pass 74/74.
+
+Follow-up (not in this change; filed in open_questions): the first ticks after 09:30 can still see opening-rotation marks. A 09:45 window is a separate RULE-REVIEW with its own evidence.
+
+STARVED: no.
