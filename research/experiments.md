@@ -112991,3 +112991,41 @@ incremental folds (shadow-compare), A3 idle TTLs, A4 shadow-log single
 read, A5 vol-surface LRU, A6 daemon routing + job serialization, A7 lazy
 image lib/JSON, A8 heap cap + trend alert LAST after A1 is measured.
 STARVED: yes (the rest of Wave 1 is queued behind this baseline).
+## 2026-11-03 [REPAIR] v1.0.1256 — memory fix A5: LRU cap on vol_surface's module caches (T-BOT; human-approved batch 2026-11-03, Wave 1)
+
+CONTEXT: memory audit docs/memory_audit_2026-11-03.md — the daemon's
+vol_surface module kept two unbounded dicts for its whole life:
+`_surface_cache` (one full surface per ticker ever scored: every
+expiry's strikes + IVs + SABR fits) and `_sabr_cache` (one calibration
+per (ticker, expiry)). TTL-expired entries were never removed, only
+overwritten on a rebuild, so the caches grew with the universe scanned
+(every candidate the options scanner scored, not just the ones held).
+CHANGE: the caches keep the 200 most-recently-USED tickers (surface) and
+2000 (ticker, expiry) fits (SABR) — a hit refreshes recency, an insert
+evicts least-recently-used past the cap, re-inserting a key never grows
+the cache. TTLs unchanged (CACHE_TTL / SABR_CACHE_TTL still 3600 s — they
+govern freshness, the caps govern memory). `vol_surface_cache_stats()`
+exposes sizes/caps/evictions/TTLs for the health diagnostic (wiring into
+the daemon health RPC is deferred to A6's daemon PR to avoid a
+voltrade_daemon.py collision).
+FLAG/ROLLBACK: VOLTRADE_VOL_SURFACE_CACHE_CAP=0 and
+VOLTRADE_SABR_CACHE_CAP=0 restore the unbounded pre-A5 behavior without
+a code change; unset = 200 / 2000.
+OUTPUT IDENTITY: a scan asks for a ticker's surface, gets the cached one
+if fresh or rebuilds it; the cap only decides whether a ticker NOT asked
+for recently still occupies memory — no score, strategy pick or order
+input changes. The one observable difference: a ticker evicted and then
+re-requested within the TTL rebuilds (one Alpaca chain fetch) instead of
+hitting; with 200 slots vs a scan universe of ~100-150 candidates per
+pass this is expected to be rare — `surface_evictions` in the stats is
+the counter to watch (should stay ≈0 per day; a steadily rising count
+means the cap is below the working set → raise it, not the TTL).
+EXPECTED SAVING: per-daemon, bounded instead of unbounded — on the order
+of 50-150 MB after a full day of scans (a surface is ~0.3-1 MB parsed);
+also removes the daemon's slow RSS climb toward its 1 GB watchdog.
+Tests: test_vol_surface_cache_cap.py (9: approved defaults; env parsing
+incl. 0 = unbounded and garbage → default; LRU evicts least-recently-USED
+not oldest-inserted; re-insert never grows; cap 0 unbounded; 3000-ticker
+churn holds 200; stats getter; source pin that no raw insert remains and
+both hit paths touch; the real build_surface hit path refreshes recency).
+Full python suite 3368 passed. STARVED: yes (rest of Wave 1 queued).
