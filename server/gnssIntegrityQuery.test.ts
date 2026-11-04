@@ -8,7 +8,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import {
-  aggregateGnssIntegrity, bandForRow, inBbox, readGnssIntegrityWindow,
+  aggregateGnssIntegrity, aggregateGnssIntegrityWithAirframes, bandForRow, inBbox, readGnssIntegrityWindow,
+  readGnssIntegrityDay, poolGnssIntegrityDays,
   LOW_ALT_MAX_M, MID_ALT_MAX_M,
 } from "./gnssIntegrityQuery";
 
@@ -107,6 +108,11 @@ test("aggregateGnssIntegrity: distinct_airframes counts unique icao24s, not rows
   const cells = aggregateGnssIntegrity(rows);
   assert.equal(cells[0].n_total, 3);
   assert.equal(cells[0].distinct_airframes, 2);
+  // 2026-11-03 (memory fix A2b): the count is the size of the set the
+  // airframe-carrying aggregate exposes — one loop, two projections.
+  const detailed = aggregateGnssIntegrityWithAirframes(rows);
+  assert.deepEqual(Array.from(detailed[0].airframes).sort(), ["a", "b"]);
+  assert.deepEqual(detailed.map((c) => ({ band: c.band, origin: c.origin, n_total: c.n_total, n_zero: c.n_zero, distinct_airframes: c.airframes.size })), cells);
 });
 
 test("readGnssIntegrityWindow: unions multiple days, reports missing days honestly, never fabricates a read", async () => {
@@ -127,6 +133,12 @@ test("readGnssIntegrityWindow: unions multiple days, reports missing days honest
   const cruiseCells = r.cells.filter((c) => c.band === "cruise");
   assert.equal(cruiseCells.reduce((s, c) => s + c.n_total, 0), 2);
   assert.equal(cruiseCells.reduce((s, c) => s + c.n_zero, 0), 1);
+  // 2026-11-03 (memory fix A2b): the window is now per-day reads + a pure
+  // pool over them — pinned identical to the one-shot result above.
+  const reads = [];
+  for (const day of ["2026-08-11", "2026-08-12", "2026-08-13"]) reads.push(await readGnssIntegrityDay(day, undefined, base));
+  assert.deepEqual(poolGnssIntegrityDays(reads), r);
+  assert.equal(reads[2].present, false, "a day with no files reads as not present");
   fs.rmSync(base, { recursive: true, force: true });
 });
 

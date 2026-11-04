@@ -109,6 +109,49 @@ export interface IntegrityCell {
   distinct_airframes: number;
 }
 
+/** Sort order every cell list in this module emits: band, then origin. ONE
+ *  comparator (not three inline copies) so the pooled window, the permanent
+ *  fold's merge and the incremental live fold (gnssIntegrityFold.ts) can
+ *  never drift into different orders — /api/data/gnss-integrity-signal is
+ *  compared byte-for-byte across fold modes. */
+export function compareIntegrityCells(a: { band: string; origin: string }, b: { band: string; origin: string }): number {
+  return a.band === b.band ? a.origin.localeCompare(b.origin) : a.band.localeCompare(b.band);
+}
+
+/** One band x origin cell that still carries the contributing airframe
+ *  identities (the Set aggregateGnssIntegrity reduces to a count). Kept so
+ *  a per-day partial can be UNIONED into a multi-day pooled count exactly:
+ *  summing per-day distinct counts over-counts an airframe seen on two days
+ *  (mergeCells below documents that approximation for the permanent fold;
+ *  the incremental LIVE fold must instead equal the pooled read exactly). */
+export interface IntegrityCellWithAirframes {
+  band: AltitudeBand;
+  origin: ArchiveOrigin;
+  n_total: number;
+  n_zero: number;
+  airframes: Set<string>;
+}
+
+/** The aggregate with the airframe sets still attached — same row rules,
+ *  same cell order as aggregateGnssIntegrity, which is now a projection of
+ *  this (one classification loop, not two drifting copies). */
+export function aggregateGnssIntegrityWithAirframes(rows: ArchiveAircraftRow[], bbox?: Bbox): IntegrityCellWithAirframes[] {
+  const cells = new Map<string, IntegrityCellWithAirframes>();
+  for (const r of rows) {
+    if (typeof r.ni !== "number") continue;
+    if (!inBbox(r, bbox)) continue;
+    const band = bandForRow(r);
+    const origin = originOfPosType(r.pt);
+    const key = `${band}|${origin}`;
+    let c = cells.get(key);
+    if (!c) { c = { band, origin, n_total: 0, n_zero: 0, airframes: new Set() }; cells.set(key, c); }
+    c.n_total++;
+    if (r.ni === 0) c.n_zero++;
+    if (r.i) c.airframes.add(r.i);
+  }
+  return Array.from(cells.values()).sort(compareIntegrityCells);
+}
+
 /**
  * Aggregate raw archived aircraft rows into band x origin cells. Rows with
  * no `ni` field are skipped entirely (excluded from every denominator —
@@ -117,25 +160,9 @@ export interface IntegrityCell {
  * run the SAME query twice and compare cells directly.
  */
 export function aggregateGnssIntegrity(rows: ArchiveAircraftRow[], bbox?: Bbox): IntegrityCell[] {
-  const cells = new Map<string, { n_total: number; n_zero: number; airframes: Set<string> }>();
-  for (const r of rows) {
-    if (typeof r.ni !== "number") continue;
-    if (!inBbox(r, bbox)) continue;
-    const band = bandForRow(r);
-    const origin = originOfPosType(r.pt);
-    const key = `${band}|${origin}`;
-    let c = cells.get(key);
-    if (!c) { c = { n_total: 0, n_zero: 0, airframes: new Set() }; cells.set(key, c); }
-    c.n_total++;
-    if (r.ni === 0) c.n_zero++;
-    if (r.i) c.airframes.add(r.i);
-  }
-  return Array.from(cells.entries())
-    .map(([key, c]) => {
-      const [band, origin] = key.split("|") as [AltitudeBand, ArchiveOrigin];
-      return { band, origin, n_total: c.n_total, n_zero: c.n_zero, distinct_airframes: c.airframes.size };
-    })
-    .sort((a, b) => (a.band === b.band ? a.origin.localeCompare(b.origin) : a.band.localeCompare(b.band)));
+  return aggregateGnssIntegrityWithAirframes(rows, bbox).map((c) => ({
+    band: c.band, origin: c.origin, n_total: c.n_total, n_zero: c.n_zero, distinct_airframes: c.airframes.size,
+  }));
 }
 
 /** Merge-add `from` cells into `into` (never overwrite — a day can
@@ -164,8 +191,7 @@ export function mergeCells(into: IntegrityCell[], from: IntegrityCell[]): Integr
       byKey.set(key, { ...c });
     }
   }
-  return Array.from(byKey.values())
-    .sort((a, b) => (a.band === b.band ? a.origin.localeCompare(b.origin) : a.band.localeCompare(b.band)));
+  return Array.from(byKey.values()).sort(compareIntegrityCells);
 }
 
 export interface GnssIntegrityWindowResult {
@@ -175,6 +201,53 @@ export interface GnssIntegrityWindowResult {
   rows_scanned: number;
   /** True if ANY day's read hit its row cap — cells may undercount that day. */
   truncated: boolean;
+}
+
+/** One day's raw read — the unit the incremental live fold
+ *  (gnssIntegrityFold.ts) caches per closed day. `present` is false when the
+ *  stream directory is absent or the date has no files (-> days_missing). */
+export interface GnssIntegrityDayRead {
+  day: string;
+  present: boolean;
+  rows: ArchiveAircraftRow[];
+  truncated: boolean;
+}
+
+/** The per-day half of readGnssIntegrityWindow: exactly its reader call
+ *  (even-sampled, bbox pushed down as the rowFilter). Split out 2026-11-03
+ *  (memory fix A2b) so a caller can fold one day at a time instead of
+ *  holding the whole window's rows; readGnssIntegrityWindow is unchanged in
+ *  behavior and is now readGnssIntegrityDay x days + poolGnssIntegrityDays. */
+export async function readGnssIntegrityDay(
+  day: string, bbox?: Bbox, baseDir?: string, perDayLimit = 20_000,
+): Promise<GnssIntegrityDayRead> {
+  const rowFilter = bbox ? (r: ArchiveAircraftRow) => inBbox(r, bbox) : undefined;
+  const result = await readArchiveDayEvenSample("aircraft", day, baseDir, perDayLimit, rowFilter);
+  if (!result || result.files.length === 0) return { day, present: false, rows: [], truncated: false };
+  return { day, present: true, rows: result.rows as ArchiveAircraftRow[], truncated: result.truncated };
+}
+
+/** Pool per-day reads (in window order) into one window result — the
+ *  bookkeeping readGnssIntegrityWindow always did, as a pure function over
+ *  reads so the shadow fold can run it over rows it also folds per day. */
+export function poolGnssIntegrityDays(reads: GnssIntegrityDayRead[], bbox?: Bbox): GnssIntegrityWindowResult {
+  const allRows: ArchiveAircraftRow[] = [];
+  const daysRead: string[] = [];
+  const daysMissing: string[] = [];
+  let truncated = false;
+  for (const r of reads) {
+    if (!r.present) { daysMissing.push(r.day); continue; }
+    daysRead.push(r.day);
+    if (r.truncated) truncated = true;
+    for (const row of r.rows) allRows.push(row);
+  }
+  return {
+    cells: aggregateGnssIntegrity(allRows, bbox),
+    days_read: daysRead,
+    days_missing: daysMissing,
+    rows_scanned: allRows.length,
+    truncated,
+  };
 }
 
 /**
@@ -188,23 +261,7 @@ export interface GnssIntegrityWindowResult {
 export async function readGnssIntegrityWindow(
   days: string[], bbox?: Bbox, baseDir?: string, perDayLimit = 20_000,
 ): Promise<GnssIntegrityWindowResult> {
-  const allRows: ArchiveAircraftRow[] = [];
-  const daysRead: string[] = [];
-  const daysMissing: string[] = [];
-  let truncated = false;
-  const rowFilter = bbox ? (r: ArchiveAircraftRow) => inBbox(r, bbox) : undefined;
-  for (const day of days) {
-    const result = await readArchiveDayEvenSample("aircraft", day, baseDir, perDayLimit, rowFilter);
-    if (!result || result.files.length === 0) { daysMissing.push(day); continue; }
-    daysRead.push(day);
-    if (result.truncated) truncated = true;
-    for (const row of result.rows) allRows.push(row as ArchiveAircraftRow);
-  }
-  return {
-    cells: aggregateGnssIntegrity(allRows, bbox),
-    days_read: daysRead,
-    days_missing: daysMissing,
-    rows_scanned: allRows.length,
-    truncated,
-  };
+  const reads: GnssIntegrityDayRead[] = [];
+  for (const day of days) reads.push(await readGnssIntegrityDay(day, bbox, baseDir, perDayLimit));
+  return poolGnssIntegrityDays(reads, bbox);
 }

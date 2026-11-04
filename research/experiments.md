@@ -113171,3 +113171,18 @@ computePortDwellAsync/Timed and entityGraph. RESULT (synthetic 7d, 672k pts, 120
 the `.jsonl`+`.jsonl.gz` duplicate window composes exactly (no fallback). 16 new tests incl. two
 median traps whose per-hour medians disagree with the whole-run median. ROLLBACK:
 `VOLTRADE_PORTDWELL_FOLD=full`. NEXT: 24h of `mismatches == 0` → `incremental`. Version: see the VERSION line.
+
+### 2026-11-03 [REPAIR] T-DATACORE — GNSS-integrity signal: incremental per-closed-day fold (memory fix A2b, branch claude/mem-a2-gnss-fold)
+VERSION: v1.0.1262 (shipped 2026-11-04 by the parent session; main was v1.0.1261)
+PRIOR: the 10-min refresh's +80 MB transient (21 days x 2 regions of sampled rows pooled in one array) can be
+replaced by cached per-day partials with byte-identical output, because the even sampler's unit of determinism is
+the day (per-file budget = ceil(limit/files-in-day)) and distinct_airframes only needs a per-day identity SET to
+stay an exact union. Expected: identical payload, steady-state transient < 15 MB, cycle < 0.2 s.
+RESULT (synthetic 504k-row window, --expose-gc): full +83 MB peak / 5-6 s per cycle -> incremental warm +6 MB /
+30 ms, open-day growth +13 MB / 135 ms; outputs identical in every case (cold, warm, after growth, shadow).
+New VOLTRADE_GNSS_FOLD = full | shadow (DEFAULT: both folds from the same rows, deep-compare minus generated_at,
+FOLD-MISMATCH gnss -> console.error + audit_log, full served) | incremental. gnssFoldStats() for /api/health.
+Rollback: VOLTRADE_GNSS_FOLD=full. Switch to incremental once shadow shows mismatches == 0 over days.
+Tests: gnssIntegrityFold.test.ts (15), foldShadow.test.ts (6), identical-output tests in gnssIntegritySignal/
+gnssIntegrityQuery extended. Archive/format untouched. Sustained cost: the partial cache, ~1.4 MB measured,
+<= ~7 MB live bound. STARVED: no.
