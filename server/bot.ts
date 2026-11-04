@@ -83,6 +83,7 @@ import {
   TIER1_VIA_DAEMON_ENV, TIER1_SYNC_TIMEOUT_MS, RESEARCH_ANALYZE_TIMEOUT_MS, tier1ViaDaemon, researchViaDaemon,
   classifyRpc, rpcMayFallBack, posMonitorSyncLines, viaTransitionLine, type SyncVia, type AnalyzeTickerJson,
 } from "./daemonRouting";
+import { PyJobQueue, PyJobWaitTimeout, serializePyJobs } from "./pyJobQueue";
 import { squeezeReport } from "./squeezeGex";
 import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
@@ -378,6 +379,35 @@ setInterval(() => {
 const longPythonJobsInFlight = new Set<string>();
 trackSet("bot.longPythonJobsInFlight", longPythonJobsInFlight); // memory audit 2026-11-03 A0
 
+// A6 (2026-11-03, memory audit; server/pyJobQueue.ts): at most ONE heavy Python
+// subprocess at a time. startMlRetrain (around the long lane below) and each
+// overnight research phase take this queue, so the 04:00 / hourly retrain can
+// no longer start while a research scan, backtest or analysis is still running
+// — two 250-600 MB interpreters beside the daemon in one cgroup. Tier 1 and the
+// Tier-2 scans NEVER take it: they must not wait behind research. Every wait is
+// audited (PY-JOB-QUEUED <name> waited_ms=<n>); a holder still there past its
+// own kill budget + grace is force-released (PY-JOB-STALE).
+// VOLTRADE_SERIALIZE_PY_JOBS=0 runs every job directly, exactly as before.
+const heavyPyJobs = new PyJobQueue(serializePyJobs(), {
+  onWait: (name, waitedMs, behind) => audit("PY-JOB-QUEUED", `${name} waited_ms=${waitedMs} behind=${behind}`),
+  onStaleRelease: (name, heldMs, budgetMs) =>
+    audit("PY-JOB-STALE", `${name} held the heavy-job queue ${Math.round(heldMs / 1000)}s, past its ${Math.round(budgetMs / 1000)}s budget — released so the next job can run`),
+});
+/**
+ * An overnight research phase waits at most this long for the queue: a 20 min
+ * retrain would otherwise hold the Tier-2 handler (which awaits the research)
+ * past the 04:00 ET start of the scan window. Longer = that hour's phase is
+ * skipped and audited (PY-JOB-SKIPPED); the retrain itself never gives up.
+ */
+const OVERNIGHT_PHASE_MAX_WAIT_MS = 5 * 60_000;
+/**
+ * Stale-release budget for one research phase: the longest (20:00-22:00 ET,
+ * bot_engine full + up to 5 extreme-mover analyses) is ~7 min of kill timers
+ * plus Python-mutex waits; 15 min is 2x that and inside overnight_research's
+ * 30 min maxRunMs. Every subprocess inside a phase still has its own SIGKILL.
+ */
+const OVERNIGHT_PHASE_BUDGET_MS = 15 * 60_000;
+
 async function runLongPythonJob(
   key: string, cmd: string, timeoutMs: number,
 ): Promise<{ skipped: true } | { skipped: false; stdout: string; stderr: string }> {
@@ -394,9 +424,24 @@ async function runLongPythonJob(
 // The ML retrain, shared by Tier 3 (model > 24 h old) and the daily branch.
 // Fire-and-forget: returns at once; the outcome (with elapsed seconds and the
 // trigger) is audited as TIER3 / TIER3-ML-ERROR when the job ends.
+// A6: a retrain is queued or running — a second trigger is skipped, not queued
+// (the long lane's own single-flight check only sees a retrain that has started).
+let mlRetrainPending = false;
+
 function startMlRetrain(trigger: string): void {
-  const startedAt = Date.now();
-  beat("ml_retrain", "start");
+  // A6 (2026-11-03): the retrain takes the heavy-job queue around the long lane,
+  // so it never runs beside an overnight research phase. The start beat fires
+  // when the job actually starts, not when it enters the queue, so the
+  // ml_retrain heartbeat (maxRunMs 20 min) measures the run and not the wait.
+  // A skip stays a one-shot finish beat (jobHeartbeat.applyBeat handles a
+  // finish with no open run).
+  let startedAt = Date.now();
+  if (mlRetrainPending) {
+    audit("TIER3", `ML retrain (${trigger}) not started — one is already running or queued`);
+    beat("ml_retrain", "finish", "skipped", "already running or queued");
+    return;
+  }
+  mlRetrainPending = true;
   void (async () => {
     try {
       // History: batch 8 (2026-05-04) asked execPythonSerialized for 900 s
@@ -405,13 +450,18 @@ function startMlRetrain(trigger: string): void {
       // ML_RETRAIN_TIMEOUT_MS (server/pythonExec.ts: estimate + headroom)
       // and the audit line carries elapsed seconds so it can be tightened
       // from evidence.
-      const run = await runLongPythonJob("ml-retrain", "python3 ml_retrain_safe.py", ML_RETRAIN_TIMEOUT_MS);
+      const { result: run, waitedMs } = await heavyPyJobs.run("ml-retrain", ML_RETRAIN_TIMEOUT_MS, async () => {
+        startedAt = Date.now();
+        beat("ml_retrain", "start");
+        return runLongPythonJob("ml-retrain", "python3 ml_retrain_safe.py", ML_RETRAIN_TIMEOUT_MS);
+      });
       const elapsedS = Math.round((Date.now() - startedAt) / 1000);
       if (run.skipped) {
         audit("TIER3", `ML retrain (${trigger}) not started — one is already running`);
         beat("ml_retrain", "finish", "skipped", "already running");
         return;
       }
+      const queuedNote = waitedMs >= 1000 ? `, queued ${Math.round(waitedMs / 1000)}s` : "";
       const trainResult = JSON.parse(run.stdout.trim());
       // ALPHA AUDIT 2026-05-07 batch 12: when the retrain returns a
       // status that starts with "error:", append error_location and
@@ -440,10 +490,10 @@ function startMlRetrain(trigger: string): void {
         const _extra = _detailExtra ? ` — ${_detailExtra}` : "";
         const _loc = trainResult.error_location ? ` @ ${trainResult.error_location}` : "";
         const _tbTail = trainResult.traceback_tail ? ` | tb: ${String(trainResult.traceback_tail).slice(-200).replace(/\n/g, " ")}` : "";
-        audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${elapsedS}s): ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
+        audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${elapsedS}s${queuedNote}): ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
         beat("ml_retrain", "finish", "error", `${_statusStr}${_reason}${_loc}`);
       } else {
-        audit("TIER3", `ML retrain complete (${trigger}, ${elapsedS}s) — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+        audit("TIER3", `ML retrain complete (${trigger}, ${elapsedS}s${queuedNote}) — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
         beat("ml_retrain", "finish", "ok", `status ${trainResult.status}`);
       }
     } catch (trainErr: any) {
@@ -479,6 +529,8 @@ function startMlRetrain(trigger: string): void {
       const _detail = _tail.trim() || String(trainErr?.message || trainErr);
       audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${Math.round((Date.now() - startedAt) / 1000)}s, code=${_code} signal=${_signal})${_cls}: ${_detail}`);
       beat("ml_retrain", "finish", "error", `code=${_code} signal=${_signal}${_cls}`);
+    } finally {
+      mlRetrainPending = false;
     }
   })();
 }
@@ -7664,8 +7716,23 @@ print(json.dumps(run_update()))
     beat("overnight_research", "start");
 
     try {
+      // A6 (2026-11-03): each phase below is one heavy-job-queue entry
+      // (heavyPyJobs), so it never runs beside the ML retrain; a phase that
+      // cannot start within OVERNIGHT_PHASE_MAX_WAIT_MS is skipped this hour.
+      const researchPhase = async (name: string, phase: () => Promise<void>): Promise<void> => {
+        try {
+          await heavyPyJobs.run(name, OVERNIGHT_PHASE_BUDGET_MS, phase, { maxWaitMs: OVERNIGHT_PHASE_MAX_WAIT_MS });
+        } catch (e: unknown) {
+          if (e instanceof PyJobWaitTimeout) {
+            audit("PY-JOB-SKIPPED", `${name} skipped this hour: waited ${Math.round(e.waitedMs / 1000)}s behind ${e.behind} (max ${Math.round(OVERNIGHT_PHASE_MAX_WAIT_MS / 1000)}s)`);
+            return;
+          }
+          throw e;
+        }
+      };
+
       // 8pm-10pm: Scan market, find tomorrow's opportunities + analyze today's extreme movers
-      if (etHour >= 20 && etHour < 22) {
+      if (etHour >= 20 && etHour < 22) await researchPhase("overnight-evening-scan", async () => {
         audit("RESEARCH", "Evening scan — analyzing today's movers for tomorrow's plays");
         const enginePath3 = path.resolve("bot_engine.py");
         const { stdout: scanOut3 } = await execPythonSerialized(`python3 -W ignore "${enginePath3}" full 2>/dev/null`, { timeout: 300000 });
@@ -7789,10 +7856,10 @@ print('cleared')
         } catch (emErr: any) {
           console.error("[overnight-extreme-movers]", emErr?.message);
         }
-      }
+      });
 
       // 10pm-12am: Run backtests on current strategies to validate they still work
-      if (etHour >= 22 || etHour < 0) {
+      if (etHour >= 22 || etHour < 0) await researchPhase("overnight-backtest", async () => {
         audit("RESEARCH", "Running backtest validation on active strategies...");
         const btPath = path.resolve("backtest.py");
         try {
@@ -7806,10 +7873,10 @@ print('cleared')
             audit("RESEARCH", `Backtest ${r.strategy}: Sharpe ${r.sharpe}, Return ${r.totalReturn}%, Drawdown ${r.maxDrawdown}% — ${status}`);
           }
         } catch (err: any) { console.error("[bot]", err?.message || err); }
-      }
+      });
 
       // 12am-2am: Deep analyze earnings reporters for tomorrow
-      if (etHour >= 0 && etHour < 2) {
+      if (etHour >= 0 && etHour < 2) await researchPhase("overnight-earnings", async () => {
         audit("RESEARCH", "Analyzing upcoming earnings and overnight news...");
         const earningsTickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"];
         for (const t of earningsTickers) {
@@ -7822,10 +7889,10 @@ print('cleared')
             }
           } catch (err: any) { console.error("[bot]", err?.message || err); }
         }
-      }
+      });
 
       // 2am-4am: Prepare pre-market report
-      if (etHour >= 2 && etHour < 4) {
+      if (etHour >= 2 && etHour < 4) await researchPhase("overnight-premarket-scan", async () => {
         audit("RESEARCH", "Compiling pre-market report...");
         // Re-scan to get freshest data
         const enginePath4 = path.resolve("bot_engine.py");
@@ -7840,7 +7907,7 @@ print('cleared')
             audit("RESEARCH", "PRE-MARKET REPORT: No high-conviction trades found. Bot will monitor during pre-market.");
           }
         } catch (err: any) { console.error("[bot]", err?.message || err); }
-      }
+      });
 
       // The 4am daily branch (resets, retrain, backup) moved to
       // runDailyMaintenance() below: this caller only runs when ET < 4
