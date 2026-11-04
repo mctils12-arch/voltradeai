@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue 19:10 ET / Wed 00:10Z, market closed) [PIPELINE] — T-DATACORE (result file only) — P3 gate-1 real-quote clause, day 2 of 3: Spearman 0.247; pooled 0.213 (interim, KILL pending day 3)
+HEALTH: /api/health 200 ok, liveness not dark, drawdown -5.0%, shadow entries on. Nothing critical KNOWN BROKEN surfaced. Product work proceeds.
+PRIOR (the pre-registered rule, not re-tuned): pooled rank corr < 0.3 over the 3 days (11-02, 11-03, 11-04) => P3 on the Alpaca indicative feed KILLED at gate 1.
+RUN: `p3_realquote_check.py --day 2026-11-03 --n 150 --min-pairs-ours 5` (same parameters as 11-02), chain_vs fetched with DIAG_TOKEN after the close. Result research/p3_realquote_gate1_2026-11-03.json: used 143 of 150 (7 stale Cboe quotes skipped), Spearman 0.2472, median |diff| 2.51 vol pts, mean VS ours -3.4 pts vs Cboe -0.1 pts.
+POOLED (`--pool` on 11-02 + 11-03): n=290, Spearman 0.2131, bootstrap 95% CI [0.085, 0.340], tool verdict KILLED_AT_GATE_1. Both days individually are below 0.3 and the pooled point estimate is well below; the CI upper bound touches 0.34, which is disclosure only per the pre-registered rule.
+STATUS: INTERIM, not yet logged as the final kill. The rule committed to three days; day 3 is Wed 11-04 after the 16:00 ET close (Cboe serves the last quote, so run it from ~16:30 ET). Moving the bar mid-test in either direction is exactly what the rule forbids. Expect the same outcome (prior ~85% that pooled stays < 0.3 given two days both below).
+NOTE: ours-mean VS is -3.4 pts on 11-03 vs -0.5 on 11-02, while Cboe stays ~0: the indicative feed's call-minus-put IV carries a day-varying bias as well as noise, which is a further sign it is not a real-quote VS. Fix candidates stay separate hypotheses (own IV from bid/ask mid; archive Cboe delayed chains forward after verifying Railway reachability).
+Measurement code untouched (reads archive + result files). No trade path, no surface.
+NEXT: 11-04 after close: fetch chain_vs?day=2026-11-04, run with --out research/p3_realquote_gate1_2026-11-04.json, `--pool` all three, log the final verdict; if KILLED, log P3-on-indicative dead at gate 1 and file the Cboe-forward-archive hypothesis.
+MERGE: result JSON + log only; safe any time.
+STARVED: no.
+
 ## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue ~08:05 ET / 13:05Z, pre-market) [PIPELINE] — T-DATACORE (scripts tooling only) — P3 gate-1 pooling rule compiled into code (v1.0.1254)
 HEALTH: not independently probed this run (no site URL/token path available to this session; sandbox denied reading DIAG_TOKEN from env). Last logged state (2026-11-02): health ok, nothing critical KNOWN BROKEN. Product work proceeds.
 WHY NOW: the 11-02 entry's NEXT needs post-close reruns on 11-03 and 11-04 (Cboe serves the LAST quote, so a pre-market run would be refused/stale) — it is 13Z, so the measurement itself cannot be run this session. The decision rule, however, was fixed in prose only; a hand-pooled verdict is where a bar quietly moves.
