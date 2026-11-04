@@ -1016,6 +1016,47 @@ def _roll_or_skip(allow_rolls: bool, occ_symbol: str, qty: int, current_side: st
     return _attempt_roll(occ_symbol, qty, current_side, parsed, equity)
 
 
+# ── REPAIR 2026-11-04: a single-leg close waits for regular hours, like a group close ──
+# Options trade only in regular hours, so a mark read outside them is not a
+# price. 2026-10-29 07:31 ET (11:31:35Z): the sold-option LOSS LIMIT rule read
+# XLF261127P00055500's pre-market mark ("Cost to close $5.00 is 6.9x the
+# credit") and submitted a $5.00 DAY limit at the pre-market ask; it filled at
+# the open at $1.61 against a fair value near $0.49. _request_group_close
+# already deferred while the market was closed; the single-leg rules (Phase 2
+# of manage_options_positions) submitted at any hour. Now every Phase-2 close,
+# and every roll (a close plus a sell-to-open), is decided and submitted only
+# while _market_is_open() says so (cached; a failed clock read counts as open).
+# Outside regular hours the leg is left as it is: no order, no roll attempt,
+# no exit feedback, its state kept (popping it would restart the hold gate at
+# the open). The run reports a CLOSE whose order is {"status": "deferred"},
+# the group path's shape, so the OPTIONS-EXIT audit row reads "order
+# deferred". Unlike a group close nothing is persisted: the closed-market
+# marks that tripped the rule are exactly what cannot be trusted, so the rule
+# is judged again, on regular-hours marks, at the next regular-hours tick.
+SINGLE_LEG_DEFERRED_DETAIL = ("market closed — no order; the rule is judged again on "
+                              "regular-hours marks at the next regular-hours tick")
+
+
+def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: str,
+                            reason: str, dte: int) -> bool:
+    """Outside regular hours: report the rule as a deferred CLOSE and return
+    True; the caller `continue`s, leaving the leg untouched. In regular hours
+    (or on a failed clock read): append nothing and return False, so the rule
+    rolls / submits exactly as before."""
+    if _market_is_open():
+        return False
+    actions.append({
+        "action": "CLOSE",
+        "ticker": ticker,
+        "occ_symbol": occ_symbol,
+        "reason": f"{reason} — deferred: market closed",
+        "type": rule,
+        "dte": dte,
+        "order": {"status": "deferred", "method": "none", "detail": SINGLE_LEG_DEFERRED_DETAIL},
+    })
+    return True
+
+
 def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
                              roll_skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
     """
@@ -1024,6 +1065,12 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     allow_rolls=False (exits-only mode, used while a halt blocks entries, and
     while entry_shadow shadows the options sleeve): every roll point closes
     the position instead of rolling it; roll_skip_detail names why.
+
+    Regular hours only (REPAIR 2026-11-04): while the market is closed no
+    single-leg close or roll is submitted. A rule that fires is reported as a
+    CLOSE whose order is {"status": "deferred"} (_defer_single_leg_close) and
+    is judged again on regular-hours marks. Strategy groups defer the same
+    way (_request_group_close).
 
     Checks every open options position for:
       1. DTE exit (21 DTE threshold)
@@ -1272,6 +1319,9 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
 
         # ── Check 1: CRITICAL DTE — Force close (ignores hold time) ─────
         if dte <= DTE_CRITICAL:
+            if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "dte_critical",
+                                       f"CRITICAL DTE: {dte} days to expiry", dte):
+                continue
             close_side = "sell" if side == "long" else "buy"
             # Use mid price for closing
             limit_px = snap.get("mid", current_price) if snap else current_price
@@ -1304,6 +1354,9 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
             abs(current_delta) > ASSIGNMENT_DELTA_THRESHOLD and
                 dte <= 10):
             # Deep ITM sold option near expiry — high assignment risk
+            if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "assignment_close",
+                                       f"ASSIGNMENT RISK: |delta|={abs(current_delta):.2f}, {dte} DTE", dte):
+                continue
             # Try to roll first
             roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity, roll_skip_detail)
             if roll_result.get("rolled"):
@@ -1347,6 +1400,10 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
 
         # ── Check 3: DTE Exit Threshold (21 DTE) ────────────────────────
         if dte <= DTE_EXIT_THRESHOLD:
+            if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol,
+                                       "dte_close" if side == "short" else "dte_close_bought",
+                                       f"21 DTE EXIT: {dte} DTE", dte):
+                continue
             if side == "short":
                 # Sold option at 21 DTE — try to roll
                 roll_result = _roll_or_skip(allow_rolls, occ_symbol, qty, "sell", parsed, equity, roll_skip_detail)
@@ -1411,6 +1468,9 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
                 # For sold options: profit = credit received - current cost to close
                 profit_pct = (initial_credit - current_price) / initial_credit
                 if profit_pct >= PROFIT_TARGET_PCT:
+                    if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "profit_target",
+                                               f"PROFIT TARGET: {profit_pct:.0%} of max profit reached", dte):
+                        continue
                     # Hit 50% profit target — close and redeploy capital
                     close_side = "buy"
                     limit_px = snap.get("mid", current_price) if snap else current_price
@@ -1440,6 +1500,10 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
             if initial_credit > 0 and current_price > 0:
                 loss_ratio = current_price / initial_credit
                 if loss_ratio >= LOSS_LIMIT_MULTIPLIER:
+                    if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "loss_limit",
+                                               (f"LOSS LIMIT: Cost to close ${current_price:.2f} is "
+                                                f"{loss_ratio:.1f}x the credit received ${initial_credit:.2f}"), dte):
+                        continue
                     close_side = "buy"
                     limit_px = snap.get("ask", current_price) if snap else current_price
                     result = _submit_close_order(occ_symbol, qty, close_side, limit_px)
@@ -1463,6 +1527,10 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
             if entry_price > 0 and current_price > 0:
                 loss_pct = (entry_price - current_price) / entry_price
                 if loss_pct >= 0.50:
+                    if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "bought_loss_limit",
+                                               (f"LOSS LIMIT: Bought option down {loss_pct:.0%} from entry "
+                                                f"(${entry_price:.2f} → ${current_price:.2f})"), dte):
+                        continue
                     close_side = "sell"
                     limit_px = snap.get("bid", current_price) if snap else current_price
                     if limit_px <= 0:
@@ -1485,6 +1553,9 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
 
         # ── Check 6: Gamma Risk ──────────────────────────────────────────
         if abs(current_gamma) > GAMMA_THRESHOLD and dte <= 30:
+            if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "gamma_risk",
+                                       f"GAMMA RISK: gamma={current_gamma:.3f} exceeds {GAMMA_THRESHOLD} with {dte} DTE", dte):
+                continue
             close_side = "sell" if side == "long" else "buy"
             limit_px = snap.get("mid", current_price) if snap else current_price
             if limit_px <= 0:

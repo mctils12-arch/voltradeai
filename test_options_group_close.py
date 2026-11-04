@@ -111,6 +111,10 @@ class GroupCloseCase(unittest.TestCase):
         for p in self.patches:
             p.stop()
         self.tmp.cleanup()
+        # 2026-11-04: single-leg closes read this module-wide clock cache too
+        # (test_options_exit_market_hours.py); a "closed" reading left by
+        # test_market_closed_defers_without_an_order must not leak into them.
+        om._CLOCK_CACHE.update({"at": 0.0, "is_open": None})
 
     def write_state(self, state):
         with open(self.state_path, "w") as f:
