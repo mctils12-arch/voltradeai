@@ -113201,3 +113201,21 @@ graphPollStats() for /api/health (lastSharedInputsMs isolates the AIS fold's sha
 is never retained in any mode, the slice is < 1 MB. Rollback: VOLTRADE_GRAPH_POLL=full.
 Tests: entityGraph.test.ts +10, foldShadow.test.ts (6). The AIS port fold inside buildGraph is untouched
 (port-dwell fold branch owns it). STARVED: no.
+
+## 2026-11-04 [REPAIR] A2 observability — fold-compare stats on /api/health + vessel-fold FOLD-MISMATCH rows in the audit log (T-DATACORE)
+VERSION: v1.0.1264 (shipped 2026-11-04 by the parent session; main was v1.0.1263)
+
+GAP (found in this session's review of the deployed A2 folds): the four folds
+ship in `shadow` mode and may switch to `incremental` only after 24 h of zero
+mismatches, but shadow-fleet / port-dwell mismatches reached only
+console.error and none of the four tallies were on /api/health — the switch
+condition was unreadable from any session.
+FIX: heap-diagnostic gauges fold.shadowfleet / fold.portdwell / fold.gnss /
+fold.graph (mode, mismatches, matches, skips, fallbacks, last full vs
+incremental ms, partials cached); vesselArchiveFold's mismatch hook now writes
+the FOLD-MISMATCH audit_log row the GNSS and graph folds already write.
+SWITCH RULE (unchanged, now checkable): each fold flips to `incremental` only
+after ≥ 24 h with its gauge's `mismatches === 0` and no FOLD-MISMATCH rows in
+/api/diag/audit; flips are env changes or a default-flip PR, one fold at a time.
+TESTS: heapDiag.test.ts (4 fold gauges read, mode reported, 0 mismatches fresh;
+audit-hook wiring ratchet). Build + deploy-gate smoke PASS. STARVED: no.
