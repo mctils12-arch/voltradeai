@@ -195,7 +195,13 @@ class TestTier1Wiring(unittest.TestCase):
         self.assertTrue(actions[0].metadata["regime_guards"]["earnings_lookup_ok"])
 
     def test_calendar_outage_fails_open_and_is_flagged(self):
-        actions, logged = self.run_t1(state(), "all", earnings={}, ok=False)
+        # KB #45 (c), 2026-11-04: an outage no longer passes names BLIND. Each candidate is first
+        # confirmed with Finnhub's per-symbol calendar. Here those lookups answer "no report in
+        # the window", so the names are still proposed and the record still carries the outage
+        # flag. A name nobody can confirm is refused; that branch is
+        # test_csp_earnings_failopen.py::test_window_and_symbol_lookup_both_failing_refuses_every_absent_name.
+        with patch("options_scanner._fetch_symbol_earnings_with_status", return_value=(None, True)):
+            actions, logged = self.run_t1(state(), "all", earnings={}, ok=False)
         self.assertEqual(len(actions), 3)
         self.assertEqual(logged, [])
         self.assertFalse(actions[0].metadata["regime_guards"]["earnings_lookup_ok"])

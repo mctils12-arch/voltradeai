@@ -113468,3 +113468,23 @@ Regression test (would have caught it): server/foldCacheConcurrency.test.ts (5 t
 Live verification: after deploy, fold.portdwell.mismatches and fold.shadowfleet.mismatches stay flat and compactDrops stays 0 on /api/health. Port-dwell then needs a fresh 24h of zero mismatches before it may switch to incremental (the A2 rule).
 
 STARVED: no.
+
+## 2026-11-04 [REPAIR] — T-BOT (tiered_strategy.py T1 CSP guard, regime_engine.csp_verdict, options_scanner earnings fetch) — CSP earnings guard fails closed: per-candidate confirmation when the window calendar is missing or cut (KB #45 path c, CONFIRMED)
+VERSION: v1.0.1275 (shipped 2026-11-04 by the parent session; main was v1.0.1274)
+
+What broke (live 2026-11-04 18:41:56Z): the tier engine sold IREN261211P00018000 (1 @ $1.68), and IREN reports 2026-11-05 after the close (Nasdaq). Root cause, confirmed: Finnhub's ALL-COMPANY /calendar/earnings answers ONE page of at most 1,500 rows, newest dates FIRST. A busy window loses its EARLIEST dates, and with from=today those are the next few days, exactly where the guards look. Sources: github.com/jere67/parallax PR #47 ("silently stops at 1,500 rows and drops the earliest dates"; a live month held 3,166 releases) and Finnhub's sample responses. The cut page still parses as a successful lookup, so an absent name read as "no earnings": T1 passed days_to_earnings=None to csp_verdict, which raises no flag for None. Pattern fit: the 6 shadow misses (IREN, IONQ, WULF, SMCI, PFE, KDP) all sit 0–3 days out and include large caps Finnhub certainly covers. Ruled out: an inactive gate (/api/diag/regime_counterfactual shows earnings blocks every day 10-29 → 11-04), a ticker-case mismatch, and an outage. This is the third fix on this gate (v1.0.649, v1.0.1085); the earlier two never saw truncation. Structural follow-up (fetch the window in chunks so every consumer gets a complete calendar) is filed in wishlist.md per RECURRENCE ESCALATES.
+
+Fix:
+- **Coverage record.** `options_scanner._fetch_earnings_calendar_with_status` records what each window fetch received: rows, window, earliest/latest date, HTTP status. A page is marked truncated when it is full (1,500 rows) or has no row in the window's first 4 days. The return contract is unchanged.
+- **Per-symbol lookup.** New `_fetch_symbol_earnings_with_status`: the same endpoint with symbol=, which the page cap cannot cut.
+- **T1 confirmation.** When the calendar failed or is cut, a candidate ABSENT from it is confirmed with one per-symbol lookup before it may be sold. At most 8 per scan, cached 15 min, and the first failure stops further lookups that scan. With no answer, the name is refused as `rejected_regime_earnings_unverified` (`csp_verdict` gains `earnings_unverified`, which fails the earnings guard closed) and logged to the shadow portfolio and the counterfactual stream.
+- **Diagnostic.** `get_t1_earnings_coverage()` in the tier timings, readable at /api/diag/timings → tier_engine_breakdown.tier_timings.t1_earnings_coverage, covering the 21, 30 and 47-day windows.
+- No threshold, sizing or order-path change.
+
+Not covered here (filed): csp_universe Layer 2's 7-day rule, scanner Setups 1/3/7, and issuers Finnhub omits entirely all read the same window calendar. The chunked fetch fixes the first group; a second source (e.g. Nasdaq) would close the last.
+
+Regression test: test_csp_earnings_failopen.py (31 tests). On the old code 28 fail, including the IREN reproduction: proposed with earnings_lookup_ok=True. The 3 guards pass on both: a report 60 days out is allowed, a complete calendar triggers no per-symbol calls, and answers are cached. test_regime_options.py: one setup mock for the per-symbol lookup in test_calendar_outage_fails_open_and_is_flagged, assertions untouched. Full Python suite 3481 passed.
+
+Live verification: /api/diag/timings shows t1_earnings_coverage with calendar_entries == 1500 or an earliest_date_returned well after window_from (confirming the cap); no SELL_CSP on a name reporting within the window.
+
+STARVED: no.
