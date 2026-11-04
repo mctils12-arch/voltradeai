@@ -4836,3 +4836,4 @@ RECURRENCE ESCALATES: the CSP earnings gate has been fixed three times (v1.0.649
 - Cost: about 4–7 Finnhub calls per refresh instead of 1, at the existing 15-minute cache. That is well inside the 60/min free limit.
 - Second source for issuers Finnhub omits entirely: the Nasdaq earnings-date endpoint, as a per-candidate cross-check. It is unofficial, so it is labeled as an estimate.
 - This is a session task (T-BOT), not a human decision. It is filed here because CLAUDE.md requires a structural proposal after two failed fixes on one subsystem. The human may veto.
+- **UPDATE 2026-11-04 21:10Z: DONE.** #1616 (another session, v1.0.1276) completes a cut window's near end by chunked re-fetch for every consumer. The second-source cross-check for issuers Finnhub omits is still open.

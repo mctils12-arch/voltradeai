@@ -23362,7 +23362,7 @@ STANDALONE VALUE: a dated CIK<->ticker map incl. delisted names is itself a sell
 Live recurrence: the tier engine sold IREN261211P00018000 at 18:41:56Z, the day before IREN's report (11-05 after the close).
 - **Path (c), truncation, is the cause.** Finnhub's all-company /calendar/earnings answers one page of at most 1,500 rows, newest dates first. A busy window loses its NEAREST dates, and the cut page parses as a successful lookup, so an absent name read as "no earnings".
 - **Fix:** #1615 (v1.0.1275). The window fetch records its coverage and marks a cut page. T1 confirms each absent candidate with a per-symbol lookup and fails closed (`rejected_regime_earnings_unverified`). Diagnostic: /api/diag/timings → t1_earnings_coverage.
-- **STILL EXPOSED:** csp_universe Layer 2's 7-day rule and scanner Setups 1/3/7 read the same cut calendar. The structural fix (chunked window fetch) is filed in wishlist.md under RECURRENCE ESCALATES, since this is the third fix on this gate.
+- **Then exposed, now closed by #1616:** csp_universe Layer 2's 7-day rule and scanner Setups 1/3/7 read the same cut calendar until #1616 completed the cut window's near end for every consumer.
 
 **#45 live confirmation (2026-11-04 20:15Z, /api/diag/timings → t1_earnings_coverage, v1.0.1275):** all three windows came back at exactly the 1,500-row cap, cut at the near end:
 
@@ -23372,4 +23372,4 @@ Live recurrence: the tier engine sold IREN261211P00018000 at 18:41:56Z, the day 
 | 30-day | 1,500 | 11-10 | 11-04 |
 | 47-day | 1,500 | 11-11 | 11-04 |
 
-Every earnings gate was therefore blind to the next 5–7 days. Already inside #1615's per-symbol path, T1 confirmed 1 candidate and found it reporting inside the window. The structural chunked fetch is being built (branch claude/earnings-calendar-chunked).
+Every earnings gate was therefore blind to the next 5–7 days. Already inside #1615's per-symbol path, T1 confirmed 1 candidate and found it reporting inside the window. The structural chunked fetch shipped as #1616 (another session, v1.0.1276, 20:31Z): a cut page's missing near end is re-fetched in 3-day chunks for every consumer. This session's parallel branch claude/earnings-calendar-chunked was dropped (first-merged wins; its only extra was a shared per-day cache). Remaining exposure: issuers Finnhub omits entirely; a second source would close that.
