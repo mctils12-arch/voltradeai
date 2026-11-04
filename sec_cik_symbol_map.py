@@ -106,8 +106,9 @@ def coverage(filing_rows: list, m: dict, panel_symbols: Optional[set] = None, sl
             "by_year": {k: {"joined": v[0], "rows": v[1], "frac": v[0] / v[1]} for k, v in sorted(by_year.items())}}
 
 
-def rows_from_form4_cache(form4_dir: str) -> Iterable:
-    """Edge P2's compact cache: [ticker, issuer_cik, owner_cik, code, filing_date, trans_date, value]."""
+def rows_from_form4_cache(form4_dir: str, skipped: Optional[Counter] = None) -> Iterable:
+    """Edge P2's compact cache: [ticker, issuer_cik, owner_cik, code, filing_date, trans_date, value].
+    Unparseable lines are COUNTED into `skipped["bad_line"]` (never silently lost)."""
     for fn in sorted(os.listdir(form4_dir)):
         if not fn.endswith(".jsonl.gz"):
             continue
@@ -117,6 +118,8 @@ def rows_from_form4_cache(form4_dir: str) -> Iterable:
                     r = json.loads(line)
                     yield r[0], r[1], r[4]
                 except (ValueError, IndexError, TypeError):
+                    if skipped is not None:
+                        skipped["bad_line"] += 1
                     continue
 
 
@@ -126,7 +129,8 @@ def main(argv=None) -> int:
     ap.add_argument("--rows", required=True, help="gate-2 rows JSON (cik + accepted_at)")
     ap.add_argument("--panel-symbols", help="file with one panel ticker per line (optional)")
     a = ap.parse_args(argv)
-    m = build_map(rows_from_form4_cache(a.form4_dir))
+    skipped: Counter = Counter()
+    m = build_map(rows_from_form4_cache(a.form4_dir, skipped))
     syms = None
     if a.panel_symbols:
         with open(a.panel_symbols) as f:
@@ -135,6 +139,7 @@ def main(argv=None) -> int:
         rows = json.load(f)
     rep = coverage(rows, m, syms)
     rep["ciks_mapped"] = len(m)
+    rep["cache_lines_skipped"] = skipped["bad_line"]
     print(json.dumps(rep, indent=1))
     return 0
 

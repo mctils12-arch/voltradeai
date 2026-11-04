@@ -62,8 +62,10 @@ def test_cache_reader_roundtrip(tmp_path):
     with gzip.open(p, "wt") as fh:
         fh.write(json.dumps(["ABC", "55", "9", "P", "2016-02-02", "2016-02-01", 1000]) + "\n")
         fh.write("not json\n")
-    rows = list(m.rows_from_form4_cache(str(tmp_path)))
+    skipped = m.Counter()
+    rows = list(m.rows_from_form4_cache(str(tmp_path), skipped))
     assert rows == [("ABC", "55", "2016-02-02")]
+    assert skipped["bad_line"] == 1
     assert m.resolve(m.build_map(rows), "55", "2016-03-01")[0] == "ABC"
 
 
