@@ -113290,3 +113290,21 @@ errors ("stop-state sync:").
 ADJACENT (not fixed): overnight research subprocess scans ask 300/180 s but the mutex lane kills at 90 s (full scan ≈177 s
 live) — likely SIGKILLed nightly; analyze.py --mode=scan is a no-op flag; HEAVY_DAEMON_ONLY's manage_positions entry is
 stale. STARVED: no (queue item complete).
+
+### 2026-11-03 — [REPAIR] A6 (part 2): serialize the heavy Python subprocess jobs — T-BOT
+VERSION: v1.0.1267 (shipped 2026-11-04 by the parent session; main was v1.0.1266)
+Territory: T-BOT (server/bot.ts, server/pyJobQueue.ts). Branch claude/mem-a6-serialize-jobs.
+PRIOR: the retrain (long lane, 20 min budget, outside the Python mutex) could start while an overnight research phase
+(mutex lane) was running → two 250–600 MB interpreters beside the daemon. Expected: zero overlap between the retrain
+and research phases; Tier 1 / Tier 2 never wait (not in the queue); retrain delayed ≤ one research phase (~7 min);
+a research phase skipped (audited) when a retrain holds the queue > 5 min.
+CHANGE: server/pyJobQueue.ts (FIFO queue, stale release at budget+10 s, bounded wait that never lets a successor
+overtake the runner; VOLTRADE_SERIALIZE_PY_JOBS default 1); startMlRetrain takes the queue around the unchanged
+runLongPythonJob call, start beat at actual start, mlRetrainPending skips a second trigger; the four research phases are
+queue entries (budget 15 min, max wait 5 min). Audits: PY-JOB-QUEUED <name> waited_ms=<n> behind=<holder>,
+PY-JOB-SKIPPED, PY-JOB-STALE.
+EVIDENCE: 13 queue tests incl. the Tier-1 non-delay property; 105/105 with the existing pins; counters OK (tests 712,
+assertions 25954); tsc ratchet OK 6≤6.
+ROLLBACK TRIGGER: PY-JOB-SKIPPED on consecutive nights, or ml_retrain heartbeat "late" from queue waits → set
+VOLTRADE_SERIALIZE_PY_JOBS=0. JUDGE AT +7d: count PY-JOB-QUEUED lines and their waited_ms; confirm no TIER3-ML-ERROR
+"[likely OOM kill]" overnight. STARVED: no.
