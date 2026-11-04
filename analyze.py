@@ -2450,6 +2450,16 @@ def analyze_ticker(ticker_symbol):
     return result
 
 
+def analyze_ticker_rpc(symbol):
+    """The one entry point behind both `python3 analyze.py <SYMBOL> --mode=scan`
+    (the __main__ block below prints exactly this) and voltrade_daemon.py's
+    "analyze_ticker" route (A6, 2026-11-03): analyze_ticker() with the CLI's
+    argument normalisation and NaN/Inf cleaning, so the two paths cannot drift.
+    Exceptions propagate — the CLI turns them into {"error": ...} + exit 1,
+    the daemon into its {"status": "error"} envelope."""
+    return _clean_nan(analyze_ticker(str(symbol).upper().strip()))
+
+
 # ── Market scanner ─────────────────────────────────────────────────────────────
 
 # Broad universe: S&P 500 / Nasdaq 100 representative + high-vol names
@@ -2658,8 +2668,8 @@ if __name__ == "__main__":
             sys.exit(1)
     else:
         try:
-            result = analyze_ticker(cmd)
-            print(json.dumps(_clean_nan(result)))
+            # A6 (2026-11-03): the same function the daemon's analyze_ticker route runs.
+            print(json.dumps(analyze_ticker_rpc(cmd)))
         except Exception as e:
             print(json.dumps({"error": str(e)}))
             sys.exit(1)

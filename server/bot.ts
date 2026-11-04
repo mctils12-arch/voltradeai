@@ -79,6 +79,10 @@ import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { shouldDispatchTierAction, tierDeferAuditMessage } from "./tierDispatchGate";
 import { healthHttpCode, servingVerdict } from "./healthGate";
 import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, JOB_REGISTRY } from "./jobHeartbeat";
+import {
+  TIER1_VIA_DAEMON_ENV, TIER1_SYNC_TIMEOUT_MS, RESEARCH_ANALYZE_TIMEOUT_MS, tier1ViaDaemon, researchViaDaemon,
+  classifyRpc, rpcMayFallBack, posMonitorSyncLines, viaTransitionLine, type SyncVia, type AnalyzeTickerJson,
+} from "./daemonRouting";
 import { squeezeReport } from "./squeezeGex";
 import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
@@ -164,7 +168,10 @@ async function pythonRpc(method: string, args: any = {}, timeoutMs?: number): Pr
       done({ status: "error", error_message: "Daemon timeout" });
     }, effectiveTimeout);
     client.on("connect", () => {
-      client.write(JSON.stringify({ method, args }) + "\n");
+      // A6 (2026-11-03): tell the daemon this call's own deadline so its
+      // handler stops waiting — and frees its in-flight slot — when we do
+      // (voltrade_daemon.py _effective_join_sec). Older daemons ignore the key.
+      client.write(JSON.stringify({ method, args, timeout_sec: effectiveTimeout / 1000 }) + "\n");
     });
     client.on("data", (chunk) => {
       buf += chunk.toString();
@@ -4636,17 +4643,34 @@ print(json.dumps(result[:20]))
     sector_clash?: unknown; sector?: string; tiebreak_score?: unknown;
   }> = [];
 
+  // A6 (2026-11-03, server/daemonRouting.ts): the one per-ticker analysis
+  // call. `python3 analyze.py <T> --mode=scan` runs analyze_ticker() in a
+  // fresh interpreter (numpy/pandas/scipy/yfinance imported per ticker); the
+  // daemon's "analyze_ticker" route runs analyze.analyze_ticker_rpc — the same
+  // function that CLI prints — in the resident process. The fresh interpreter
+  // runs only when the daemon never ran the call (socket down / busy / route
+  // missing) or VOLTRADE_RESEARCH_VIA_DAEMON=0; never after a daemon timeout
+  // or in-method error (the same no-second-run rule as the Tier-1 sync). Same
+  // 30 s budget on both paths. null = the subprocess printed nothing.
+  async function analyzeTickerJson(ticker: string): Promise<AnalyzeTickerJson | null> {
+    if (researchViaDaemon()) {
+      const rpc = classifyRpc(await pythonRpc("analyze_ticker", { symbol: ticker }, RESEARCH_ANALYZE_TIMEOUT_MS));
+      if (rpc.kind === "ok") return (rpc.result ?? null) as AnalyzeTickerJson | null;
+      if (!rpcMayFallBack(rpc)) throw new Error(`daemon analyze_ticker ${ticker} ${rpc.kind}: ${rpc.message}`);
+    }
+    const { stdout } = await execPythonSerialized(
+      `python3 "${path.resolve("analyze.py")}" "${ticker}" --mode=scan`,
+      { timeout: RESEARCH_ANALYZE_TIMEOUT_MS },
+    );
+    return stdout.trim() ? (JSON.parse(stdout.trim()) as AnalyzeTickerJson) : null;
+  }
+
   // Generate signals for a list of tickers
   async function generateSignals(tickers: string[]) {
-    const scriptPath = path.resolve("analyze.py");
     for (const ticker of tickers) {
       try {
-        const { stdout } = await execPythonSerialized(
-          `python3 "${scriptPath}" "${ticker}" --mode=scan`,
-          { timeout: 30000 }
-        );
-        if (!stdout.trim()) continue;
-        const raw = JSON.parse(stdout.trim());
+        const raw = await analyzeTickerJson(ticker);
+        if (!raw) continue;
 
         // Score the signal
         const vrp = raw.vrp ?? 0;
@@ -4680,8 +4704,8 @@ print(json.dumps(result[:20]))
         }
 
         // Squeeze boost
-        if (edge?.squeeze_score > 70) {
-          reason += ` | SQUEEZE ALERT: ${edge.squeeze_desc}`;
+        if ((edge?.squeeze_score ?? 0) > 70) {
+          reason += ` | SQUEEZE ALERT: ${edge?.squeeze_desc}`;
           confidence = Math.min(95, confidence + 15);
         }
 
@@ -5332,6 +5356,8 @@ print(json.dumps(result[:20]))
   let _shadowBackfilledToday = false;
   let _lookupLedgerFilledToday = false;
   let _dossierLedgerScoredToday = false;
+  // A6: which path ran the last Tier-1 stop-state sync (TIER1-SYNC lines on change only).
+  let tier1SyncVia: SyncVia | null = null;
 
   // ── Tier 1: Reflex — order management, morning queue (45s) ─────────────────
   // NOTE: Position monitoring (stops, trailing stops, take-profits) has been
@@ -5349,22 +5375,44 @@ print(json.dumps(result[:20]))
 
     // 2. Sync position monitor stop state from bot_engine (refreshes ATR/phases)
     //    This keeps the WS monitor's levels accurate without blocking exits.
+    //    A6 (2026-11-03, server/daemonRouting.ts): daemon RPC first — bot_engine
+    //    is resident there, and scan_market's step 7 already runs this same
+    //    manage_positions() in-daemon every Tier-2 cycle — so the fresh
+    //    interpreter below (a full bot_engine import every 45 s) runs only when
+    //    the daemon never ran the call (socket down / disabled / busy / route
+    //    missing) or VOLTRADE_TIER1_VIA_DAEMON=0. Same 15 s budget on both
+    //    paths. A daemon timeout or in-method error does NOT fall back: the
+    //    dispatch thread cannot be killed, so a second concurrent
+    //    manage_positions() would race it on voltrade_stop_state.json.
     try {
-      const { stdout } = await execPythonSerialized(`python3 -c "
+      const tier1SyncCmd = `python3 -c "
 from bot_engine import manage_positions
 import json
 result = manage_positions()
 print(json.dumps(result))
-"`, { timeout: 15000 });
-      const mgmt = JSON.parse(stdout.trim());
+"`;
+      let mgmt: unknown;
+      let via: SyncVia = "subprocess";
+      let fallbackReason: string | undefined;
+      const rpc = tier1ViaDaemon() ? classifyRpc(await pythonRpc("manage_positions", {}, TIER1_SYNC_TIMEOUT_MS)) : null;
+      if (rpc?.kind === "ok") {
+        mgmt = rpc.result;
+        via = "daemon";
+      } else {
+        if (rpc && !rpcMayFallBack(rpc)) throw new Error(`daemon manage_positions ${rpc.kind}: ${rpc.message}`);
+        fallbackReason = rpc ? `${rpc.kind}: ${rpc.message}` : `${TIER1_VIA_DAEMON_ENV}=0`;
+        const { stdout } = await execPythonSerialized(tier1SyncCmd, { timeout: TIER1_SYNC_TIMEOUT_MS });
+        mgmt = JSON.parse(stdout.trim());
+      }
+      const viaLine = viaTransitionLine(tier1SyncVia, via, fallbackReason);
+      tier1SyncVia = via;
+      if (viaLine) audit("TIER1-SYNC", viaLine);
       // Bot_engine may still compute actions — but we do NOT execute them here.
       // The WS handler fires exits in real-time. We only use this to refresh
       // the on-disk stop_state.json which syncMonitoredPositions() reads.
       // Log if bot_engine found something the WS monitor should have caught
-      for (const action of (mgmt.actions || [])) {
-        if (monitoredPositions[action.ticker]) {
-          audit("POS-MONITOR-SYNC", `bot_engine flagged ${action.ticker} (${action.type}) — WS monitor should handle`);
-        }
+      for (const line of posMonitorSyncLines(mgmt, (ticker) => Boolean(monitoredPositions[ticker]))) {
+        audit("POS-MONITOR-SYNC", line);
       }
     } catch (err: any) {
       console.error("[tier1-sync]", err?.message || err);
@@ -7766,11 +7814,8 @@ print('cleared')
         const earningsTickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"];
         for (const t of earningsTickers) {
           try {
-            const { stdout: aOut } = await execPythonSerialized(
-              `python3 "${path.resolve('analyze.py')}" "${t}" --mode=scan`, { timeout: 30000 }
-            );
-            const analysis = JSON.parse(aOut.trim());
-            const ei = analysis.earnings_intel;
+            const analysis = await analyzeTickerJson(t);
+            const ei = analysis?.earnings_intel;
             if (ei && ei.days_to_earnings >= 0 && ei.days_to_earnings <= 5) {
               audit("RESEARCH", `EARNINGS ALERT: ${t} reports in ${ei.days_to_earnings} days (${ei.timing}). Beat rate: ${ei.beat_pct}%. IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
               notify("earnings", `${t} earnings in ${ei.days_to_earnings} days — IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
