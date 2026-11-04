@@ -736,6 +736,38 @@ function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: strin
   return "pending";
 }
 
+// POS-KILL OPTION HOURS 2026-11-04 ([REPAIR], research/experiments.md this
+// date; options-bleed diagnosis bug 2). syncMonitoredPositions runs every
+// minute around the clock, so an option's kill breach was observed — and
+// confirmed — on pre-market / after-hours marks, when options do not trade:
+// the confirmed kill then POSTed getOrderParams(current, 'stop_loss'), which
+// outside regular hours is an extended_hours limit Alpaca rejects for options
+// (125 POS-KILL-ERROR rows on 10-28/29), and a breach left pending at the
+// close confirmed on the first tick of the next session, at the opening
+// print. Now: while the clock says the market is CLOSED, an option position's
+// breach is neither observed nor kept (the pending count resets), one
+// POS-KILL-OPTION-OFFHOURS line per ticker per UTC day; stocks are unchanged.
+// An unknown clock (read failed) counts as open, i.e. today's behaviour —
+// a kill is never withheld by a clock outage. Thresholds unchanged.
+const POS_KILL_CLOCK_TTL_MS = 60_000;
+let posKillClockCache: { at: number; isOpen: boolean | null } | null = null;
+/** Alpaca /v2/clock is_open, cached 60 s; null when the read fails or is malformed. */
+async function posKillReadMarketOpen(): Promise<boolean | null> {
+  const now = Date.now();
+  if (posKillClockCache && now - posKillClockCache.at < POS_KILL_CLOCK_TTL_MS) return posKillClockCache.isOpen;
+  let isOpen: boolean | null = null;
+  try {
+    const clock = await alpaca("/v2/clock");
+    if (clock && typeof clock === "object" && typeof (clock as { is_open?: unknown }).is_open === "boolean") {
+      isOpen = (clock as { is_open: boolean }).is_open;
+    }
+  } catch (err) {
+    console.warn(`[pos-kill] clock read failed — option kills judged as if open: ${err instanceof Error ? err.message : err}`);
+  }
+  posKillClockCache = { at: now, isOpen };
+  return isOpen;
+}
+
 // POS-KILL STRUCTURE HOLD 2026-11-02 ([RULE-REVIEW], human-directed "fix the
 // condor close … make sure we don't have this issue again"). Live 10-28/29
 // (research/experiments.md 2026-11-02): this per-leg kill read the two LONG
@@ -8109,6 +8141,8 @@ print(json.dumps({'files': count}))
   // POS-KILL STRUCTURE HOLD 2026-11-02: once-per-day audit bookkeeping and the current sync's structure legs
   const posKillStructureHoldDay: Map<string, string> = new Map();
   let posKillStructuresCurrent: Map<string, string> = new Map();
+  // POS-KILL OPTION HOURS 2026-11-04: the market-open reading for the current sync (null = unknown)
+  let posKillMarketOpenCurrent: boolean | null = null;
 
   /**
    * Load positions + stop state from Alpaca + disk, build the monitoredPositions map.
@@ -8136,6 +8170,8 @@ except: print('{}')
       const activeTickers = new Set<string>();
       // POS-KILL STRUCTURE HOLD 2026-11-02: legs of a defined-risk structure, read once per sync
       posKillStructuresCurrent = posKillOptionsStructures();
+      // POS-KILL OPTION HOURS 2026-11-04: the clock, read once per sync (cached 60 s)
+      posKillMarketOpenCurrent = await posKillReadMarketOpen();
 
       for (const pos of positions) {
         const ticker = pos.symbol || "";
@@ -8230,9 +8266,19 @@ except: print('{}')
         // "confirmed" (second consecutive valid-mark observation — the only
         // value that may reach the liquidation POST below). Threshold
         // unchanged; only WHEN the exit fires changes.
+        // POS-KILL OPTION HOURS 2026-11-04: outside regular hours an option's
+        // breach is never kept — the pending count is cleared before and after
+        // the observation — so a kill needs two valid-mark ticks while the
+        // market is open, and the off-hours gate in the kill branch below
+        // leaves before any order. (typeof guard: the loop body runs
+        // standalone in the test harnesses.)
+        const optionOffHours = isOptionPos
+          && (typeof posKillMarketOpenCurrent !== "undefined" ? posKillMarketOpenCurrent : null) === false;
+        if (optionOffHours) posKillPendingBreach.delete(ticker);
         const breach: "nomark" | "clear" | "pending" | "confirmed" = hasMark
           ? posKillObserveBreach(posKillPendingBreach, ticker, pnlPct <= POSITION_KILL_LOSS_PCT, pnlPct, Date.now())
           : "nomark";
+        if (optionOffHours) posKillPendingBreach.delete(ticker);
         if (isOptionPos && pnlPct <= STOCK_KILL_LOSS_PCT && pnlPct > POSITION_KILL_LOSS_PCT) {
           const skipDay = new Date().toISOString().split("T")[0];
           const skipLog: Record<string, string> = (state as any)._posKillOptionSkipDay || ((state as any)._posKillOptionSkipDay = {});
@@ -8270,6 +8316,16 @@ except: print('{}')
           // it too. Both paths `continue` like every other exit from this
           // branch — the position stays held, its monitor entry from the
           // previous tick stays in place, and the next tick re-decides.
+          if (optionOffHours) {
+            const offDay = new Date().toISOString().split("T")[0];
+            const offLog: Record<string, string> = (state as any)._posKillOffHoursDay || ((state as any)._posKillOffHoursDay = {});
+            if (offLog[ticker] !== offDay) {
+              for (const k of Object.keys(offLog)) if (offLog[k] !== offDay) delete offLog[k];
+              offLog[ticker] = offDay;
+              audit("POS-KILL-OPTION-OFFHOURS", `${ticker}: option down ${pnlPct.toFixed(1)}% (threshold: ${POSITION_KILL_LOSS_PCT}%) while the market is closed — options do not trade now; the breach is judged only on regular-hours ticks`);
+            }
+            continue;
+          }
           if (breach === "nomark") {
             const noMarkDay = new Date().toISOString().split("T")[0];
             if (posKillNoMarkAuditDay.get(ticker) !== noMarkDay) {

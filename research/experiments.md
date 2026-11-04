@@ -113515,3 +113515,18 @@ Regression test: test_options_exit_market_hours.py (7 tests, 24 subtests, Broker
 Follow-up (not in this change; filed in open_questions): the first ticks after 09:30 can still see opening-rotation marks. A 09:45 window is a separate RULE-REVIEW with its own evidence.
 
 STARVED: no.
+
+## 2026-11-04 [REPAIR] — T-BOT (server/bot.ts syncMonitoredPositions, outside the order POST) — POS-KILL: an option's kill breach is judged only while the market is open
+VERSION: v1.0.1278 (shipped 2026-11-04 by the parent session; main was v1.0.1277)
+
+What broke (options-bleed diagnosis 2026-11-04, bug 2): syncMonitoredPositions runs every minute around the clock, so an option's POS-KILL breach was observed and confirmed on pre-market / after-hours marks, when options do not trade. The confirmed kill then POSTed getOrderParams(current, 'stop_loss'): outside regular hours that is an extended_hours limit, which Alpaca rejects for options (125 POS-KILL-ERROR rows on 10-28/29). A breach left pending at the close confirmed on the first tick of the next session, i.e. at the opening print, where option fills ran at a median 1.41x fair value in the diagnosis.
+
+Fix (decision timing only; thresholds, the POST and its order parameters untouched): the sync reads Alpaca's clock once (cached 60 s). While it says CLOSED, an option position's breach is never kept — the pending count is cleared before and after the observation — and the kill branch leaves before every order path with one POS-KILL-OPTION-OFFHOURS line per ticker per UTC day. A kill therefore needs two consecutive valid-mark ticks while the market is open. Stocks are unchanged. An unknown clock (failed or malformed read) counts as open, so a kill is never withheld by a clock outage.
+
+Not changed here (frozen path, filed in research/wishlist.md): during regular hours the option kill still sends getOrderParams(current, 'stop_loss') = a MARKET order. orderParams.ts already has an 'options_exit' context (always limit); switching the call site is a change to HOW an order is transmitted on a raw order POST path in server/bot.ts, which is the human's call.
+
+Regression test: server/posKillOptionHours.test.ts (6, on the posKillMarkGuard harness). On the old bot.ts the off-hours test and the pending-at-close test fail on their behavioural assertions (orders are POSTed); stock and unknown-clock cases pass on both. Existing posKillMarkGuard + posKillStructureHold harnesses 18/18 unchanged.
+
+Rollback trigger: an option position whose regular-hours marks stayed beyond its backstop for > 2 sessions without a kill.
+
+STARVED: no.
