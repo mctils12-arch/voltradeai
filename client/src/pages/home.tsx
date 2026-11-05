@@ -39,7 +39,7 @@ const TABS: Tab[] = [
   { id: "data",      label: "Data",      icon: <Globe size={14} />,     mobileIcon: <Globe size={20} />,     requiresAuth: false },
   { id: "planner",   label: "Planner",   icon: <Crosshair size={14} />, mobileIcon: <Crosshair size={20} />, requiresAuth: false },
   { id: "taxes",     label: "Taxes",     icon: <Calculator size={14} />, mobileIcon: <Calculator size={20} />, requiresAuth: false },
-  // Weekly forecast screen (2026-10-27, SHADOW): owner-only — its calls name the open positions
+  // Forecast screen (weekly 2026-10-27, daily 2026-11-04; SHADOW): owner-only — its calls name the open positions
   { id: "forecast",  label: "Forecast",  icon: <Target size={14} />,    mobileIcon: <Target size={20} />,    requiresAuth: true, requiresOwner: true },
   // Brain page (2026-10-29): what the bot uses now (live/shadow/off) + short- vs long-term evidence — owner-only
   { id: "brain",     label: "Brain",     icon: <Brain size={14} />,     mobileIcon: <Brain size={20} />,     requiresAuth: true, requiresOwner: true },
@@ -604,7 +604,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             <div style={{ textAlign: "center", paddingTop: "4rem", color: "var(--text-tertiary)" }}>
               <Target size={48} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
               <p style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--text-secondary)" }}>
-                {authenticated ? "The weekly forecast is restricted to the account owner" : "Sign in to see the weekly forecast"}
+                {authenticated ? "The forecast is restricted to the account owner" : "Sign in to see the forecast"}
               </p>
               {!authenticated && (
                 <button className="vt-fc-btn" style={{ marginTop: "1.5rem" }} onClick={() => setShowLogin(true)}>Sign in</button>

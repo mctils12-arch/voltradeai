@@ -5005,6 +5005,18 @@ button.vt-shadow-chip:hover, button.vt-shadow-chip:focus-visible { color: var(--
   .vt-fc-details summary { padding: 12px 0; }
 }
 @media (prefers-reduced-motion: reduce) { .vt-fc-spin, .vt-fc-skel { animation: none; } }
+/* Daily horizon (Part C, 2026-11-04; pages/forecast.tsx): the Daily / Weekly
+   switch and a daily card's live-band line. Tokens only; the switch keeps the
+   .vt-fc-btn touch sizes (44px on phones). */
+.vt-fc-horizon { display: inline-flex; gap: 4px; padding: 2px; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.vt-fc-horizon .vt-fc-btn { border-color: transparent; }
+.vt-fc-horizon .vt-fc-btn[aria-pressed="true"] { border-color: var(--accent); }
+.vt-ck-pb > .vt-fc-model:first-child { padding-top: 0; border-top: 0; }   /* the daily research check is its own panel */
+.vt-fc-live { font-size: 11.5px; line-height: 1.45; color: var(--text-secondary); padding: 4px 8px; border-radius: var(--radius-sm); background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); overflow-wrap: anywhere; }
+@media (max-width: 639px) {
+  .vt-fc-horizon { display: flex; flex: 1 1 100%; }
+  .vt-fc-horizon .vt-fc-btn { flex: 1 1 0; }
+}
 
 /* ── Brain page (2026-10-29; pages/brain.tsx). Builds on the .vt-fc primitives
    (chip, button, table) and the cockpit block at the end of this file. Tokens

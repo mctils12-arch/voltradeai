@@ -49,7 +49,10 @@ const WIDE = [{ w: 1920, h: 1080, label: "wide", touch: false }];
 const COCKPIT_PAGES = new Map([
   // (innerText carries the eyebrow's CSS uppercase, hence /i)
   // cols = distinct panel left edges (a 2-wide + 1-wide row is 3 columns)
-  ["forecast", { tiles: 5, cols1440: 3, cols1920: 4, first: /^Calls this week 8 1 index · 3 positions · 4 candidates$/i }],
+  // forecast (Part C, 2026-11-04): the DAILY view is the default; `horizon` presses the Weekly switch and
+  // requires the weekly strip, then presses Daily and requires the daily strip back
+  ["forecast", { tiles: 5, cols1440: 3, cols1920: 4, first: /^Calls for Nov 4 9 1 index · 3 positions · 5 candidates · 2 intraday$/i,
+    horizon: { weekly: /^Calls this week 8 1 index · 3 positions · 4 candidates$/i } }],
   ["brain", { tiles: 6, cols1440: 2, cols1920: 3, first: /^All parts 11 /i, filter: { status: "shadow", cards: 8 } }],
   ["dossier", { tiles: 6, cols1440: 3, cols1920: 4, first: /^Price · 5 sessions \$27\.42\+5\.2% 5d last close \$27\.09/i }],
   ["dossierempty", { tiles: 0, cols1440: 0, cols1920: 0, empty: true }],
@@ -412,6 +415,90 @@ function forecastFixture() {
     method: "P(up) = ridge logistic regression on vol-scaled 5- and 20-session momentum, 1-session reversal and SPY's distance from its 50-day average, fit weekly on 3 years of daily bars (15 index/sector ETFs + the week's names, one sample per 5 sessions), validated on a time-ordered 30% holdout. Range = 68% band of a zero-drift lognormal from chain IV30 when archived, else 20-session realized vol.",
     caveats: ["Experimental model, shadow only: nothing trades on these calls.", "Training names exist today (survivorship bias); edges at a 1-week horizon are small, so most probabilities sit near the base rate — read the holdout Brier skill before trusting any call.", "Accuracy figures under 30 resolved calls are marked thin."],
     via: "daemon",
+    daily: forecastDailyFixture(),
+  };
+}
+
+// Daily horizon (Part C, 2026-11-04): forecast.py daily_report()'s real shape —
+// the calls for the next close (SPY on VIX, three positions, five candidates,
+// two of them made intraday at the live price), each with its live band
+// mid-session, and 25 earlier sessions resolved so the daily track record, the
+// calibration dot and the by-session table render. Fixture numbers only.
+function forecastDailyFixture() {
+  const rnd = (() => { let s = 11; return () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648; })();
+  const BASE = 0.5452;
+  const now = Date.now();
+  const mk = (session, base, sym, group, spot, q1, src, timing, f, score, live) => {
+    const p = Math.round((0.5 + (BASE - 0.5) * Math.sqrt(f)) * 10000) / 10000, q = Math.round(q1 * Math.sqrt(f) * 1e6) / 1e6;
+    return { id: `D:${session}:${sym}`, horizon: "daily", session, symbol: sym, group, made_at: new Date(now - (timing === "pre_open" ? 15 : 2) * 3600_000).toISOString(),
+      timing, on_time: timing === "pre_open", base_date: base, base_close: spot, spot: timing === "pre_open" ? spot : Math.round(spot * 1.004 * 100) / 100, horizon_end: session,
+      p_up: p, p_base: p, direction: p >= 0.5 ? "up" : "down", p_call: Math.max(p, 1 - p), base_rate: BASE, direction_model: "base-rate-v1",
+      remaining_fraction: f, q, q_1d: q1, q_clim: Math.round(q1 * 0.93 * Math.sqrt(f) * 1e6) / 1e6,
+      range_lo: Math.round(spot * Math.exp(-q) * 100) / 100, range_hi: Math.round(spot * Math.exp(q) * 100) / 100, band_coverage: 0.6827,
+      range_source: src, range_model_version: "fc-range-har-v1", iv: src === "har" ? null : (src === "har+vix" ? 0.2083 : 0.41), iv_day: src === "har" ? null : base,
+      model_version: "fc-daily-v1", score, live };
+  };
+  const liveOf = (spot, q1, f) => { const px = Math.round(spot * (1 + (rnd() - 0.45) * 0.012) * 100) / 100, q = q1 * Math.sqrt(f);
+    return { price: px, price_day: "2026-11-04", at: new Date(now - 6 * 60_000).toISOString(), remaining_fraction: f, q: Math.round(q * 1e6) / 1e6,
+      lo: Math.round(px * Math.exp(-q) * 100) / 100, hi: Math.round(px * Math.exp(q) * 100) / 100, vs_spot_pct: Math.round((px / spot - 1) * 1e5) / 1e3 }; };
+  const F_NOW = 0.41;
+  const cur = [
+    ["SPY", "index", 754.35, 0.0079, "har+vix", "pre_open"], ["XLE", "position", 91.42, 0.0121, "har", "pre_open"], ["KWEB", "position", 24.54, 0.0189, "har+chain_iv30", "pre_open"],
+    ["VXUS", "position", 71.4, 0.0074, "har", "pre_open"], ["NVDA", "candidate", 206.69, 0.0228, "har+chain_iv30", "pre_open"], ["AMD", "candidate", 162.7, 0.0251, "har", "pre_open"],
+    ["RKLB", "candidate", 61.2, 0.0402, "har", "pre_open"], ["PFE", "candidate", 27.1, 0.0109, "har", "intraday"], ["CRWV", "candidate", 98.6, 0.0388, "har", "intraday"],
+  ].map(([s, g, spot, q1, src, timing]) => mk("2026-11-04", "2026-11-03", s, g, spot, q1, src, timing, timing === "pre_open" ? 1 : 0.62, null, liveOf(spot, q1, F_NOW)));
+  const past = [];
+  const sessions = [];
+  const d0 = new Date("2026-11-03T12:00:00Z");
+  for (let k = 0, day = new Date(d0); sessions.length < 25; k++) {
+    if (day.getUTCDay() !== 0 && day.getUTCDay() !== 6) sessions.push(day.toISOString().slice(0, 10));
+    day = new Date(day.getTime() - 86400_000);
+  }
+  for (let i = 0; i < sessions.length; i++) {
+    const s = sessions[i], base = sessions[i + 1] ?? "2026-10-07";
+    for (const [sym, g, q1, src] of [["SPY", "index", 0.0081, "har+vix"], ["XLE", "position", 0.0124, "har"], ["KWEB", "position", 0.0192, "har+chain_iv30"], ["VXUS", "position", 0.0076, "har"], ["NVDA", "candidate", 0.0231, "har+chain_iv30"], ["AMD", "candidate", 0.0249, "har"], ["XLF", "candidate", 0.0098, "har"]]) {
+      const y = (rnd() - 0.5) * q1 * 3.1, up = y > 0 ? 1 : 0, inr = Math.abs(y) <= q1 ? 1 : 0;
+      const isv = 2 * q1 + (2 / 0.3173) * Math.max(Math.abs(y) - q1, 0), isc = 2 * q1 * 0.93 + (2 / 0.3173) * Math.max(Math.abs(y) - q1 * 0.93, 0) * 1.25;
+      const f = mk(s, base, sym, g, 100, q1, src, "pre_open", 1, null, null);
+      f.score = { kind: "score", horizon: "daily", id: f.id, status: "resolved", resolved_date: s, realized_close: Math.round(100 * Math.exp(y) * 100) / 100,
+        realized_ret_pct: Math.round((Math.exp(y) - 1) * 1e4) / 100, outcome_up: up, hit: up, in_range: inr,
+        brier: Math.round((f.p_up - up) ** 2 * 1e6) / 1e6, brier_base: Math.round((f.p_up - up) ** 2 * 1e6) / 1e6,
+        interval_score: Math.round(isv * 100 * 1e5) / 1e5, interval_score_clim: Math.round(isc * 100 * 1e5) / 1e5 };
+      past.push(f);
+    }
+  }
+  const acc = (rows) => {
+    const n = rows.length; const sum = (fn) => rows.reduce((a, f) => a + fn(f), 0);
+    const b = n ? Math.round(sum((f) => f.score.brier) / n * 1e5) / 1e5 : null;
+    const isv = n ? sum((f) => f.score.interval_score) / n : null, isc = n ? sum((f) => f.score.interval_score_clim) / n : null;
+    return { n, thin: n < 30, hits: sum((f) => f.score.hit), hit_rate: n ? Math.round(sum((f) => f.score.hit) / n * 1e4) / 1e4 : null, up_rate: n ? Math.round(sum((f) => f.score.outcome_up) / n * 1e4) / 1e4 : null,
+      brier: b, brier_base_rate: b, brier_coinflip: 0.25, bss_vs_base_rate: n ? 0 : null, bss_vs_coinflip: b === null ? null : Math.round((1 - b / 0.25) * 1e4) / 1e4,
+      in_range: sum((f) => f.score.in_range), in_range_rate: n ? Math.round(sum((f) => f.score.in_range) / n * 1e4) / 1e4 : null, in_range_target: 0.6827,
+      interval_score_pct: isv === null ? null : Math.round(isv * 1e5) / 1e5, interval_score_clim_pct: isc === null ? null : Math.round(isc * 1e5) / 1e5,
+      range_skill_vs_constant: isv === null ? null : Math.round((1 - isv / isc) * 1e4) / 1e4, range_skill_n: n, width_pct: n ? Math.round(sum((f) => 200 * f.q) / n * 1e4) / 1e4 : null };
+  };
+  const edges = [0, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 1];
+  const bins = (pairs) => edges.slice(0, -1).map((lo, k) => { const inb = pairs.filter(([p]) => p >= lo && p < edges[k + 1]); const n = inb.length;
+    return { lo, hi: edges[k + 1], n, mean_p: n ? Math.round(inb.reduce((a, [p]) => a + p, 0) / n * 1e4) / 1e4 : null, freq: n ? Math.round(inb.reduce((a, [, o]) => a + o, 0) / n * 1e4) / 1e4 : null }; });
+  const a = acc(past);
+  return {
+    model_version: "fc-daily-v1", range_model_version: "fc-range-har-v1", direction_model: "base-rate-v1", direction_features: [], horizon: "next session close", band_coverage: 0.6827,
+    latest: { session: "2026-11-04", made_at: new Date(now - 15 * 3600_000).toISOString(), base_date: "2026-11-03", timing: "pre_open", on_time: true,
+      model_version: "fc-daily-v1", range_model_version: "fc-range-har-v1", direction_model: "base-rate-v1", direction_features: [],
+      base_rate: { p: BASE, n: 11340, first: "2023-10-26", last: "2026-11-03", basket: ["SPY", "QQQ"] }, vix: { value: 20.83, day: "2026-11-03" }, vix_used: true,
+      iv_day: "2026-11-03", n_forecasts: cur.length, skipped: [], candidates_available: true, candidates_scan_at: new Date(now - 16 * 3600_000).toISOString(),
+      range_sources: { "har+vix": 1, "har+chain_iv30": 2, har: 6 }, forecasts: cur },
+    live: { session: "2026-11-04", made_at: new Date(now - 6 * 60_000).toISOString(), et_minutes: 731 },
+    accuracy: { ...a, by_timing: { pre_open: a, intraday: acc([]) }, by_group: { index: acc(past.filter((f) => f.group === "index")), position: acc(past.filter((f) => f.group === "position")), candidate: acc(past.filter((f) => f.group === "candidate")) },
+      by_range_source: { "har+vix": acc(past.filter((f) => f.range_source === "har+vix")), "har+chain_iv30": acc(past.filter((f) => f.range_source === "har+chain_iv30")), har: acc(past.filter((f) => f.range_source === "har")) } },
+    calibration: { edges, bins: bins(past.map((f) => [f.p_up, f.score.outcome_up])) },
+    sessions: sessions.map((s) => { const rs = past.filter((f) => f.session === s); const x = acc(rs);
+      return { session: s, n: rs.length, resolved: x.n, hits: x.hits, hit_rate: x.hit_rate, brier: x.brier, in_range_rate: x.in_range_rate, interval_score_pct: x.interval_score_pct, range_skill_vs_constant: x.range_skill_vs_constant }; }),
+    open: cur.length,
+    study: { range: { doc: "research/forecast_daily_study_2026-11-04.md", holdout: "2019-01-02 → 2026-11-02", spy_coverage: 0.7081, spy_skill_vs_constant: 0.0793, spy_skill_vs_current: 0.0604, iv_names_coverage: 0.6838, iv_names_skill_vs_constant: 0.0445, names_coverage: 0.6579, names_skill_vs_constant: 0.0386 },
+      direction: { doc: "research/forecast_direction_study_2026-11-04.md", holdout: "2019-01-02 → 2026-11-02", tests: 14, passed: 0, spy_base_rate: 0.5508, spy_brier_base_rate: 0.24767, spy_skill_vs_coinflip: 0.0093 } },
+    method: "Direction: P(up) = the point-in-time base rate (fixture).",
+    caveats: ["Experimental model, shadow only: nothing trades on these calls."],
   };
 }
 
@@ -3377,6 +3464,22 @@ async function main() {
                 if (lay.panelRow < 2) fail(`no two grid panels share a row at ${vp.w}`);
                 if (vp.w >= 1440 && Math.max(lay.panelRow, lay.tileRow) < 3) fail(`fewer than 3 panels share a row at ${vp.w}`);
               } else if (lay.cols !== 1 || lay.panelRow !== 1) fail(`phone: ${lay.cols} columns, ${lay.panelRow} panels on one row (expected a single column)`);
+            }
+            // the forecast's Daily / Weekly switch (Part C): Weekly shows the weekly strip, Daily brings the daily strip back
+            if (expect.horizon) {
+              const press = async (h) => { const b = page.locator(`button[data-vt-fc-horizon="${h}"]`); if (vp.touch) await b.tap(); else await b.click(); await page.waitForTimeout(150); };
+              if (!(await page.locator('button[data-vt-fc-horizon="weekly"]').count())) fail("no Weekly horizon switch");
+              else {
+                await press("weekly");
+                const w = await read();
+                if (!w || !expect.horizon.weekly.test(w.tileText[0] || "")) fail(`weekly view: first KPI tile reads "${w?.tileText[0]}"`);
+                if (!w || w.tiles !== expect.tiles || !w.panels) fail(`weekly view: ${w?.tiles} tiles, ${w?.panels} panels`);
+                if (w && w.over.length) fail(`weekly view: past the right edge: ${w.over.join(", ")}`);
+                await page.screenshot({ path: path.join(OUT, `${name}-weekly-full-${vp.w}.png`), fullPage: true, animations: "disabled" });
+                await press("daily");
+                const d = await read();
+                if (!d || !expect.first.test(d.tileText[0] || "")) fail(`daily view did not come back: first tile "${d?.tileText[0]}"`);
+              }
             }
             // the Brain's status tiles are the filters: Shadow shows only shadow cards, All parts brings every card back
             if (expect.filter) {

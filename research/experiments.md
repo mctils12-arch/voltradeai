@@ -113848,3 +113848,72 @@ committed — same posture as P1.
 REASONING STANDARD #4: 14 pre-registered tests at a Bonferroni bar of 0.05/14. Nothing passed, so nothing ships and nothing is "almost significant".
 
 STARVED: no.
+
+## 2026-11-05 [PRODUCT] — T-BOT + T-CLIENT (forecast.py, server/forecast.ts, server/bot.ts forecast job, voltrade_daemon.py route, client forecast page) — DAILY forecast horizon: next-session calls, live band, daily scoring, skill vs coin flip (Part C items 1, 4, 5; Wave 2 PR 3 of 3)
+VERSION: v1.0.1288 (shipped 2026-11-05 by the parent session; main was v1.0.1287)
+
+Built 2026-11-04 under the human-approved forecast batch. Shipped 2026-11-05 after the two study PRs (range model, direction verdict) it consumes. It is SHADOW: display and tracking only, and nothing in the trading loop reads it.
+
+Part C items 1, 4 and 5 of the human-approved forecast batch. SHADOW: display
+and tracking only; nothing in the trading loop reads it. Stacked on
+claude/fc-direction-features (which sits on claude/fc-range-har).
+
+forecast.py
+- generate_daily: one call per name per target session D (the next close) for
+  the weekly's universe (SPY, open positions, the last scan's top candidates).
+  The pre-open batch waits for the options archive's 16:30-18:30 ET capture
+  and the d0 VIX close (until 08:00 ET on D), both checked before any network
+  call; names that join during the session get a rest-of-day call at the live
+  Alpaca price (timing "intraday", on_time false, scored in their own bucket).
+  Direction = the point-in-time base rate (15-ETF basket, last 756 daily
+  returns), shrunk all the way (DAILY_DIRECTION_FEATURES = (), the direction
+  study's verdict). Range = fc-range-har-v1 (VIX for SPY, chain IV30 dated the
+  base close for names, else HAR alone — labeled per call).
+- The live band (display only, never scored): every hourly run during the
+  session re-centres each call's band on the latest price with the variance
+  still to come; one overwritten file (FORECAST_DAILY_LIVE_PATH), not a record.
+- Same append-only files, horizon="daily"; load_store() filters by horizon so
+  the weekly report/scorer, ticker_dossier and brain_evidence are unchanged.
+- score_matured also scores daily calls after each close: hit, Brier and the
+  base-rate reference Brier, inside/outside the band, interval score and the
+  constant-band reference (split-robust: one fetched series' ratio).
+- report()["daily"]: the latest session's calls with scores and live bands,
+  accuracy with Brier skill vs the base rate AND vs 0.25 (n, thin), range
+  coverage and range skill, by timing / group / range source, calibration
+  bins, the last 30 sessions, and the two studies' holdout numbers (pinned).
+
+Node: server/forecast.ts (payload with the Cboe VIX close, command, audit
+rule: new calls and failures only; a VIX wait triggers one cboeVix refresh),
+bot.ts runs it in the weekly's hourly slot as its own subprocess (90 s kill,
+60 s budget); voltrade_daemon.py routes forecast_generate_daily.
+
+Page: Daily (default) / Weekly switch; the daily view's KPI strip (calls,
+direction skill vs coin flip, inside the 68% range, range skill vs a constant
+band, next scoring), call cards with the live band, daily track record and
+calibration, the research check, by-session table. "Experimental model" and
+"Shadow · nothing trades on these" kept. Weekly view unchanged.
+
+Visual harness: forecast fixture gains the daily report; the cockpit check
+reads the daily strip by default and presses Weekly/Daily (new assertion);
+390/768/1440/1920 PASS.
+
+HEAVY-JOB QUEUE (added 2026-11-05 at ship time, per the Wave 2 plan): the forecast subprocesses import numpy/pandas like the retrain and the overnight phases. The hourly generate (weekly + daily) and the daily score now take A6's heavyPyJobs queue (server/pyJobQueue.ts), so they never run beside the ML retrain.
+- Each run bounds its wait at FORECAST_QUEUE_MAX_WAIT_MS = 5 min.
+- A generate that cannot start restores its previous attempt time, so the next 15-minute poll retries it. A score records its day only once it actually runs.
+- Every deferral is audited as PY-JOB-SKIPPED, and every wait as PY-JOB-QUEUED (the queue's own hook).
+- The stale-release budget is FORECAST_QUEUE_BUDGET_MS = 6 × the 90 s kill.
+- The hourly body moved into a nested generateForecasts(now), unchanged, so main's existing wiring test still reads it from checkForecasts' slice untouched.
+- Rollback: VOLTRADE_SERIALIZE_PY_JOBS=0 (the queue's own switch).
+
+MEASUREMENT INTEGRITY: the weekly scorer is unchanged. load_store() filters by horizon, so weekly scores, ticker_dossier and brain_evidence read exactly what they read before. Daily scoring is new (hit, Brier vs the base-rate Brier and vs 0.25, coverage, interval score vs a constant band), and nothing it measures existed before.
+
+Downstream: one extra 60 s-budget Python subprocess per hourly slot (same universe), now queued behind any heavy job. A display-only live-band file is overwritten in place.
+
+Verification at ship time (rebased onto main with #1625–#1628): Python forecast suites 87 passed; client forecast tests 12; full server suite 3,133/3,133; tsc 6 ≤ 6; counters 28/28 (assertions 28,044 → 28,346). Visual harness `--page forecast` PASS at 390, 768, 1440 and 1920 with 0 hard failures. The screenshots were reviewed against DESIGN.md:
+- The daily view is the default.
+- Every number carries freshness (made/age), provenance (model, range source per call) and confidence (P(up) vs base rate, 'no edge').
+- Experimental and Shadow labels are visible.
+- 390 stacks with no overflow.
+- Touch-target warnings are the pre-existing nav chips.
+
+STARVED: no.

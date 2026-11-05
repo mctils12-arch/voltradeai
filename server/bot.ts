@@ -40,7 +40,8 @@ import { readFilingHistory } from "./edgarForm4";
 import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
 import { walkforwardStatus } from "./walkforward";
 import { edgeP2Status } from "./edgeP2";
-import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, type ForecastPayload } from "./forecast";
+import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, FORECAST_QUEUE_MAX_WAIT_MS, FORECAST_QUEUE_BUDGET_MS, type ForecastPayload, forecastDailyPayloadPath, forecastGenerateDailyCmd, vixFromCboe, dailyAuditKind, dailyWantsVixRefresh, type ForecastDailyPayload, type DailyGenerateResult } from "./forecast";
+import { latestCboeVix, refreshCboeVix } from "./cboeVix";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
 import { EMAIL_FROM } from "./emailSender";
 import { observeFeedDeadAir } from "./feedDeadAir";
@@ -5833,49 +5834,97 @@ print(json.dumps(result))
   // first run of a week, flagged late). Score: once per UTC day after 22:00.
   // Both run as subprocesses behind execPythonSerialized's 90 s hard kill
   // (their commands are pinned above the trivial-command cutoff).
+  // DAILY HORIZON (Part C, 2026-11-04): in the same hourly slot, after the
+  // weekly attempt, its own subprocess (own 60 s budget) with the same
+  // universe plus the Cboe VIX close (server/cboeVix.ts) — generate_daily
+  // waits for the d0 VIX close and the options capture, makes the pre-open
+  // batch, adds intraday names, refreshes the display-only live band. The
+  // daily calls are scored by the same once-a-day score_matured run.
   let _forecastLastGenAttempt: number | null = null;
   let _forecastLastScoredDay: string | null = null;
   let _forecastRunning = false;
   let _forecastIv: { day: string; rows: Array<{ u: string; iv30: number | null }> } | null = null;
   async function checkForecasts() {
+    /** One hourly forecast run: the weekly screen, then the daily horizon on
+     *  the same universe (its own subprocess and budget). Errors are audited
+     *  here; checkForecasts runs this inside the heavy-job queue. */
+    async function generateForecasts(now: number): Promise<void> {
+      const tmp = forecastPayloadPath(now);
+      let payload: ForecastPayload | null = null;
+      try {
+        const positions = await alpaca("/v2/positions");
+        if (!Array.isArray(positions)) throw new Error("positions unreadable — retrying next hour");
+        const top = Array.isArray(lastScanResult?.top_10) ? lastScanResult.top_10 : [];
+        const tickers = forecastUniverse(positions, top);
+        // chain IV30 for the newest archived day, derived once per day (chainIv.ts)
+        const days = listChainDays();
+        const ivDay = days.length ? days[days.length - 1] : null;
+        if (ivDay && _forecastIv?.day !== ivDay) _forecastIv = { day: ivDay, rows: (await iv30ForDays([ivDay], undefined, now, 1)).rows };
+        payload = {
+          tickers, iv: ivDay && _forecastIv ? ivMapFrom(_forecastIv.rows, tickers.map((t) => t.symbol)) : {}, iv_day: ivDay,
+          candidates_available: top.length > 0, candidates_scan_at: lastScanResult?.timestamp ? String(lastScanResult.timestamp) : null,
+          time_budget_s: FORECAST_TIME_BUDGET_S,
+        };
+        fs.writeFileSync(tmp, JSON.stringify(payload));
+        const r = await execPythonSerialized(forecastGenerateCmd(tmp), { timeout: FORECAST_JOB_TIMEOUT_MS });
+        const out = String(r.stdout).trim();
+        const parsed: { status?: string } = JSON.parse(out);
+        if (parsed.status !== "skipped") audit(parsed.status === "ok" ? "FORECAST-GENERATE" : "FORECAST-GENERATE-ERROR", out.slice(0, 300));
+      } catch (e: unknown) {
+        fs.rmSync(tmp, { force: true });
+        audit("FORECAST-GENERATE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+      }
+      // the daily horizon: same universe, its own subprocess and budget
+      if (payload) {
+        const tmpD = forecastDailyPayloadPath(now);
+        try {
+          const daily: ForecastDailyPayload = { ...payload, vix: vixFromCboe(latestCboeVix()?.latest) };
+          fs.writeFileSync(tmpD, JSON.stringify(daily));
+          const r = await execPythonSerialized(forecastGenerateDailyCmd(tmpD), { timeout: FORECAST_JOB_TIMEOUT_MS });
+          const out = String(r.stdout).trim();
+          const parsed: DailyGenerateResult = JSON.parse(out);
+          const kind = dailyAuditKind(parsed);
+          if (kind) audit(kind, out.slice(0, 300));
+          if (dailyWantsVixRefresh(parsed)) refreshCboeVix().catch((e) => console.error("[FORECAST] cboe vix refresh:", e?.message || e));
+        } catch (e: unknown) {
+          fs.rmSync(tmpD, { force: true });
+          audit("FORECAST-DAILY-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        }
+      }
+    }
+
     if (_forecastRunning) return;
     _forecastRunning = true;
     try {
       const now = Date.now();
       if (shouldAttemptGenerate(now, _forecastLastGenAttempt)) {
+        const priorAttempt = _forecastLastGenAttempt;
         _forecastLastGenAttempt = now;
-        const tmp = forecastPayloadPath(now);
+        // A6 heavy-job queue (2026-11-05): never beside the ML retrain; a run
+        // that cannot start in FORECAST_QUEUE_MAX_WAIT_MS retries next poll.
         try {
-          const positions = await alpaca("/v2/positions");
-          if (!Array.isArray(positions)) throw new Error("positions unreadable — retrying next hour");
-          const top = Array.isArray(lastScanResult?.top_10) ? lastScanResult.top_10 : [];
-          const tickers = forecastUniverse(positions, top);
-          // chain IV30 for the newest archived day, derived once per day (chainIv.ts)
-          const days = listChainDays();
-          const ivDay = days.length ? days[days.length - 1] : null;
-          if (ivDay && _forecastIv?.day !== ivDay) _forecastIv = { day: ivDay, rows: (await iv30ForDays([ivDay], undefined, now, 1)).rows };
-          const payload: ForecastPayload = {
-            tickers, iv: ivDay && _forecastIv ? ivMapFrom(_forecastIv.rows, tickers.map((t) => t.symbol)) : {}, iv_day: ivDay,
-            candidates_available: top.length > 0, candidates_scan_at: lastScanResult?.timestamp ? String(lastScanResult.timestamp) : null,
-            time_budget_s: FORECAST_TIME_BUDGET_S,
-          };
-          fs.writeFileSync(tmp, JSON.stringify(payload));
-          const r = await execPythonSerialized(forecastGenerateCmd(tmp), { timeout: FORECAST_JOB_TIMEOUT_MS });
-          const out = String(r.stdout).trim();
-          const parsed: { status?: string } = JSON.parse(out);
-          if (parsed.status !== "skipped") audit(parsed.status === "ok" ? "FORECAST-GENERATE" : "FORECAST-GENERATE-ERROR", out.slice(0, 300));
+          await heavyPyJobs.run("forecast-generate", FORECAST_QUEUE_BUDGET_MS, () => generateForecasts(now), { maxWaitMs: FORECAST_QUEUE_MAX_WAIT_MS });
         } catch (e: unknown) {
-          fs.rmSync(tmp, { force: true });
-          audit("FORECAST-GENERATE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+          if (!(e instanceof PyJobWaitTimeout)) throw e;
+          _forecastLastGenAttempt = priorAttempt;
+          audit("PY-JOB-SKIPPED", `forecast-generate deferred to the next poll: waited ${Math.round(e.waitedMs / 1000)}s behind ${e.behind}`);
         }
       }
       if (shouldScore(now, _forecastLastScoredDay)) {
-        _forecastLastScoredDay = new Date(now).toISOString().slice(0, 10);
+        const scoreDay = new Date(now).toISOString().slice(0, 10);
         try {
-          const r = await execPythonSerialized(forecastScoreCmd(), { timeout: FORECAST_JOB_TIMEOUT_MS });
-          audit("FORECAST-SCORE", String(r.stdout).trim().slice(0, 300));
+          await heavyPyJobs.run("forecast-score", FORECAST_QUEUE_BUDGET_MS, async () => {
+            _forecastLastScoredDay = scoreDay;
+            try {
+              const r = await execPythonSerialized(forecastScoreCmd(), { timeout: FORECAST_JOB_TIMEOUT_MS });
+              audit("FORECAST-SCORE", String(r.stdout).trim().slice(0, 300));
+            } catch (e: unknown) {
+              audit("FORECAST-SCORE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+            }
+          }, { maxWaitMs: FORECAST_QUEUE_MAX_WAIT_MS });
         } catch (e: unknown) {
-          audit("FORECAST-SCORE-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+          if (!(e instanceof PyJobWaitTimeout)) throw e;
+          audit("PY-JOB-SKIPPED", `forecast-score deferred to the next poll: waited ${Math.round(e.waitedMs / 1000)}s behind ${e.behind}`);
         }
       }
     } finally {
@@ -9327,8 +9376,9 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
   // v3 candidate model job (shadow only): same unconditional 5-minute poll.
   setInterval(() => { checkMlV3CandidateJob().catch((e) => console.error("[ML-V3]", e?.message || e)); }, 5 * 60 * 1000);
-  // Weekly forecast screen (SHADOW): same unconditional poll pattern; the
-  // first check 2 minutes after boot so a fresh deploy's page is not empty.
+  // Forecast screen (weekly + daily, SHADOW): same unconditional poll
+  // pattern; the first check 2 minutes after boot so a fresh deploy's page is
+  // not empty.
   setInterval(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 15 * 60 * 1000);
   setTimeout(() => { checkForecasts().catch((e) => console.error("[FORECAST]", e?.message || e)); }, 2 * 60 * 1000);
 
