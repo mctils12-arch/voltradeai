@@ -23335,6 +23335,8 @@ LADDER PATH: gate 1 (this join's coverage + a spot-check of 25 resolved ticker/C
 KILL: coverage < 50% after widening => Lazy Prices is not testable on free data (file build-first analysis in wishlist: name-matching vs paid CIK-ticker history).
 STANDALONE VALUE: a dated CIK<->ticker map incl. delisted names is itself a sellable /api/v1 reference product (nobody gives it away).
 
+RESULT 2026-11-05 (v1.0.1289, `sec_issuer_pairs.py`): HYPOTHESIS SUPPORTED, borderline — all-form issuer pairs 2014q1-2026q3 join 68-72% of each sampled year's Q1 10-K filers (kill <50% cleared). Still open: 25-pair cover-page spot check, small/illiquid skew of the unmapped remainder, panel adapter. See experiments.md 2026-11-05.
+
 ## 2026-11-04 — from the options-bleed diagnosis (research/options_bleed_2026-11-04.md)
 
 - **[RULE-REVIEW candidate] Option exits wait until 09:45 ET, except the 5-DTE critical close.**
