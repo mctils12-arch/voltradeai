@@ -1,0 +1,82 @@
+// FLOOR AUDIT (2026-11-05). The scan returns the volatility-managed floor's
+// pass as scan_market's `spy_floor` (bot_engine._run_floor_step), but bot.ts
+// never read it, so the floor's trades showed up only in the broker's order
+// history. And while Node's -20% kill switch is tripped, the floor may only
+// reduce exposure (human decision 2026-11-05) and every action it takes there
+// must be logged. This turns one floor pass into audit rows: a summary row
+// plus one row per order-level action. Passes that only deferred (outside
+// 09:45-15:54 ET, or the broker clock said closed) or waited on a working
+// order write nothing in a scan; the kill pass says once per day that it ran.
+
+export interface FloorAuditRow { type: "FLOOR-VM" | "FLOOR-KILL-REDUCE" | "FLOOR-KILL-REDUCE-ERROR"; message: string }
+
+interface FloorAction {
+  type?: string; ticker?: string; symbol?: string; qty?: number; limit?: number;
+  ok?: boolean; order_id?: string | null; error?: string | null; reason?: string;
+}
+
+/** action types that put (or tried to put) an order at the broker */
+const ORDER_ACTIONS: Record<string, string> = {
+  floor_vm_buy: "BUY",
+  floor_vm_sell: "SELL",
+  floor_vm_legacy_sell: "SELL legacy",
+  cc_unwind: "BUY TO CLOSE covered call",
+};
+/** action types that explain why something did not trade (logged only with orders, or in the kill pass) */
+const NOTE_ACTIONS = new Set(["cc_unwind_blocked", "floor_vm_no_quote"]);
+
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const pct = (v: unknown) => (num(v) === null ? "?" : `${(num(v)! * 100).toFixed(1)}%`);
+const times = (v: unknown) => (num(v) === null ? "?" : `${num(v)!.toFixed(2)}x`);
+
+function summary(r: Record<string, unknown>): string {
+  return `sigma20 ${pct(r.sigma)}, target ${times(r.target_exposure)}, now ${times(r.current_exposure)} of capital $${num(r.capital)?.toFixed(0) ?? "?"}`;
+}
+
+function actionLine(a: FloorAction): string | null {
+  const t = String(a.type || "");
+  const who = String(a.ticker || a.symbol || "?").toUpperCase();
+  if (t in ORDER_ACTIONS) {
+    const sym = t === "cc_unwind" ? String(a.symbol || who) : who;
+    const px = num(a.limit) === null ? "" : ` @ ${num(a.limit)!.toFixed(2)} limit`;
+    const res = a.ok === false || a.error ? `REJECTED: ${String(a.error || "").slice(0, 160)}` : a.order_id ? `order ${a.order_id}` : "sent";
+    return `${ORDER_ACTIONS[t]} ${a.qty ?? "?"} ${sym}${px} — ${res}`;
+  }
+  if (NOTE_ACTIONS.has(t)) return `${who}: ${t === "floor_vm_no_quote" ? "no quote, not traded" : `covered-call unwind blocked (${String(a.reason || "").slice(0, 160)})`}`;
+  return null;
+}
+
+/**
+ * One floor pass -> audit rows. `context` "scan" is the regular Tier 2 scan;
+ * "kill" is the reduce-only pass while the kill switch is tripped.
+ * `idleLoggedToday` lets the kill pass say once per day that it ran without
+ * acting; the caller owns that flag (returned rows tell it whether to set it).
+ */
+export function floorAuditRows(result: unknown, context: "scan" | "kill", idleLoggedToday = false): FloorAuditRow[] {
+  const r = (result && typeof result === "object" ? result : {}) as Record<string, unknown>;
+  const type: FloorAuditRow["type"] = context === "kill" ? "FLOOR-KILL-REDUCE" : "FLOOR-VM";
+  const status = String(r.status ?? "");
+  if (status.startsWith("error")) {
+    return [{ type: context === "kill" ? "FLOOR-KILL-REDUCE-ERROR" : "FLOOR-VM", message: `floor pass failed: ${status.slice(0, 200)}` }];
+  }
+  if (r.mode !== "vol_managed_spy") {
+    // the basket floor (rollback mode) keeps its own behaviour; the kill pass says it held
+    return context === "kill" && !idleLoggedToday
+      ? [{ type, message: `kill switch tripped: ${status || "the basket floor holds (no reduce-only pass)"}` }]
+      : [];
+  }
+  const actions = Array.isArray(r.actions) ? (r.actions as FloorAction[]) : [];
+  const lines = actions.map(actionLine).filter((l): l is string => l !== null);
+  const traded = actions.some((a) => String(a.type || "") in ORDER_ACTIONS);
+  const head = context === "kill" ? "kill switch tripped, reduce-only (sells only: SSO, then SPY, then legacy)" : "rebalance";
+  if (traded || (context === "kill" && lines.length)) {
+    return [{ type, message: `${head} — ${summary(r)}` }, ...lines.map((message) => ({ type, message }))];
+  }
+  if (context === "kill" && !idleLoggedToday) {
+    const why = status === "deferred"
+      ? `deferred (${String(actions.find((a) => a.type === "floor_vm_deferred")?.reason || "outside the trade window")})`
+      : r.rebalance === false ? "nothing to reduce (within the band of its target)" : status || "no action";
+    return [{ type, message: `${head}: pass ran, ${why} — ${summary(r)}` }];
+  }
+  return [];
+}
