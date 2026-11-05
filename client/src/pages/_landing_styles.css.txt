@@ -953,6 +953,25 @@
 #data-intel .dataintel-label {
   font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.7;
 }
+/* 2026-11-05: not-a-number states read as status, never as an accent bar
+   (the "—" placeholder in accent blue looked like a decoration) */
+#data-intel .dataintel-num[data-state="loading"],
+#data-intel .dataintel-num[data-state="pending"],
+#data-intel .dataintel-num[data-state="retrying"],
+#data-intel .dataintel-num[data-state="unavailable"] { color: var(--muted); font-weight: 600; letter-spacing: 0; }
+#data-intel .dataintel-num[data-state="loading"] { animation: di-num-pulse 1.4s ease-in-out infinite; }
+/* status words are set smaller, in the number's own line box (40px x the
+   page's 1.6 line-height), so the row neither wraps nor jumps when the
+   number arrives */
+#data-intel .dataintel-num[data-state="pending"],
+#data-intel .dataintel-num[data-state="retrying"],
+#data-intel .dataintel-num[data-state="unavailable"] { font-size: 22px; line-height: 64px; }
+@media (max-width: 640px) {
+  #data-intel .dataintel-num[data-state="pending"],
+  #data-intel .dataintel-num[data-state="retrying"],
+  #data-intel .dataintel-num[data-state="unavailable"] { font-size: 20px; line-height: 51.2px; }
+}
+@keyframes di-num-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }
 #data-intel .di-hero-row {
   display: grid; grid-template-columns: 1fr; gap: 32px 56px; margin-top: 28px;
   align-items: start;

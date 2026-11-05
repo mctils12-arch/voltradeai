@@ -185,9 +185,9 @@
          "Open the live map" button removed per directive -->
     <div class="di-hero-row">
       <div class="dataintel-stats" id="dataintel-stats" aria-live="polite">
-        <div class="dataintel-stat"><span class="dataintel-num" id="di-layers">&mdash;</span><span class="dataintel-label">live map layers</span></div>
-        <div class="dataintel-stat"><span class="dataintel-num" id="di-streams">&mdash;</span><span class="dataintel-label">data streams recording</span></div>
-        <div class="dataintel-stat"><span class="dataintel-num" id="di-samples">&mdash;</span><span class="dataintel-label">archived observations</span></div>
+        <div class="dataintel-stat"><span class="dataintel-num" id="di-layers" data-state="loading">&mdash;</span><span class="dataintel-label">live map layers</span></div>
+        <div class="dataintel-stat"><span class="dataintel-num" id="di-streams" data-state="loading">&mdash;</span><span class="dataintel-label">data streams recording</span></div>
+        <div class="dataintel-stat"><span class="dataintel-num" id="di-samples" data-state="loading">&mdash;</span><span class="dataintel-label">archived observations</span></div>
       </div>
       <form class="dataintel-waitlist" id="dataintel-waitlist" novalidate>
         <label for="di-email" class="dataintel-waitlist-label">Want the data as an API? Join the preview waitlist &mdash; email only, no billing.</label>

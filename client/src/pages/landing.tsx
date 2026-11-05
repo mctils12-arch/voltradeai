@@ -7,6 +7,7 @@ import { useLocation } from "wouter";
 import landingStyles from "./_landing_styles.css.txt?raw";
 import landingBody from "./_landing_body.html.txt?raw";
 import landingScript from "./_landing_script.js.txt?raw";
+import { statViews, STAT_FETCH_TIMEOUT_MS, STAT_RETRY_MS, STAT_MAX_TRIES, type StatView } from "./landingStats";
 
 const D3_CDN = "https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js";
 const TOPOJSON_CDN = "https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js";
@@ -81,20 +82,45 @@ export default function LandingPage() {
     // waitlist form must work even if the globe's CDN scripts fail —
     // graceful degradation means content degrades to placeholders, never
     // to a dead form.
-    const num = (id: string, v: number) => {
-      const el = document.getElementById(id);
-      if (el && Number.isFinite(v)) el.textContent = v.toLocaleString();
-    };
     // Real self-updating counters (hero-refinements 2026-07-05): one
     // endpoint computed server-side from the registry + the archive —
     // never hardcoded, never a phantom field (the old code summed a
     // `samples` field prod never returned, which is why observations
     // showed a dash in production).
-    fetch("/api/data/platform/stats").then((r) => r.json()).then((d) => {
-      if (d.layers_live > 0) num("di-layers", d.layers_live);
-      if (d.streams_recording > 0) num("di-streams", d.streams_recording);
-      if (d.observations > 0) num("di-samples", d.observations);
-    }).catch(() => {});
+    // 2026-11-05 (landingStats.ts): every counter resolves to a designed
+    // state within one timed-out request — a number, "counting…" while the
+    // server's first count runs, "retrying…" / "unavailable" when the
+    // request fails; the placeholder no longer reads as an accent-blue bar.
+    // Bounded retries.
+    const show = (id: string, v: StatView) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = v.text;
+      el.dataset.state = v.state;
+    };
+    let statTries = 0;
+    let statTimer = 0;
+    let statCtl: AbortController | null = null;
+    const loadStats = () => {
+      statTries += 1;
+      const ctl = new AbortController();
+      statCtl = ctl;
+      const abortTimer = window.setTimeout(() => ctl.abort(), STAT_FETCH_TIMEOUT_MS);
+      fetch("/api/data/platform/stats", { signal: ctl.signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then((d) => {
+          window.clearTimeout(abortTimer);
+          if (cancelled) return;
+          const v = statViews(d, statTries < STAT_MAX_TRIES);
+          show("di-layers", v.layers);
+          show("di-streams", v.streams);
+          show("di-samples", v.observations);
+          if (v.retry) statTimer = window.setTimeout(loadStats, STAT_RETRY_MS);
+        });
+    };
+    loadStats();
+    cleanups.push(() => { window.clearTimeout(statTimer); statCtl?.abort(); });
     const form = document.getElementById("dataintel-waitlist");
     if (form) {
       const onSubmit = (e: Event) => {
