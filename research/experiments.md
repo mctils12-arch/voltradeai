@@ -113928,3 +113928,30 @@ Verification at ship time (rebased onto main with #1625–#1628): Python forecas
 - Touch-target warnings are the pre-existing nav chips.
 
 STARVED: no.
+
+## 2026-11-05 [NO-ACTION] — scheduled market-hours session: DRAWDOWN KILL fired on a market-wide selloff (mechanism working as designed)
+VERSION: none (docs only). Territory: SHARED research/* only.
+
+LOOP RATIO: last 10 tags = REPAIR x6 / RESEARCH x3 / PRODUCT x1 — under the 7+ threshold; no thrash.
+
+HEALTH (16:10Z, 11:10 ET): /api/health status ok; serving ok; alpaca ACTIVE; scanner 0 failures; no dead feeds;
+no failing jobs; 0 unhandled rejections; memory ok. bot.status = KILLED (DRAWDOWN_KILL latch). Liveness alarm NOT
+tripped (dark:false; halt began 15:46Z, ~1 market hour old at check — the >2 market-hour alarm would start ~12:46 ET).
+
+WHAT HAPPENED: SPY -3.24% on the day. Account equity $89,848 vs peak $99,962 = -10.1% -> MAX DRAWDOWN KILL SWITCH at
+15:46:34Z (daily-loss tier halt had already fired 14:53Z at -3.0%). Alert email sent. Auto-resume evaluator is running
+(classification UNRECONCILED: 11 closed qty with a pre-window cost basis; needs drawdown above -8% AND 13 market hours
+paper re-baseline, 3 consecutive OK). Benchmark: account -15.3% vs SPY +1.6% since 2026-05-06 (gap -16.9pp); 30d
+-14.5% vs SPY -4.8%. Open book is small: GLD/QQQ/SMH/KWEB/VXUS floor + 3 short puts (IREN, AAL, CMCSA) being closed
+by the options_manager 2.0x loss limit. Entries had been live again since 2026-11-04's directive; the kill is the
+first hard halt after that, with the account in a broad drawdown — a kill-switch success, not a break (mechanism
+fired once, at threshold, with exits owned by existing managers).
+
+WHY NO ACTION: nothing in priority 1-2 is broken. No fix is indicated for a halt that is doing its job; changing
+risk thresholds mid-selloff on one day's evidence violates RULE REVIEW (counterfactual data/ablation required, one
+threshold at a time). A8 (heap cap) is still measurement-gated: uptime today 2.8 h (a restart occurred), so the >24 h
+trend read the 2026-11-04 entry specified is not yet available. Human notified via push. Next session: if the kill is
+still latched >2 market hours, surface as TOP-OF-REPORT liveness alarm; read the auto-resume evaluator outcome; do
+not hand-resume.
+MERGE NOTE: docs-only; merge after 4:00 PM ET by routine.
+STARVED: no.
