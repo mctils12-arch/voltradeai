@@ -114222,3 +114222,95 @@ Rollback trigger: any ORDER-BLOCKED-CLOSED or POS-KILL-STOCK-CLOSED line stamped
 Tests: test_broker_clock_gate.py (30): the reader (open; closed; the 13:00 half-day close; extrapolation in each direction; no reading → allowed; TTL cache incl. failures and the system_config TTL; a broken response never raises), the gate (RuntimeError, one log per symbol per ET day), _is_regular_hours on a Saturday, the old basket floor (weekend rebalance and zero-target exit deferred and retried; the gate backstops a wrong hours answer), the GLD defensive floor (exit and rebalance wait for the open), the VM floor, the covered-call buy-back, options_manager single-leg and mleg closes and _market_is_open, submit_options_order and _submit_mleg_order (no POST while closed; unchanged while open), intraday short covers, and the source scan (21 gated POSTs, no other module posts orders). server/brokerClockGate.test.ts (20): the human's cases — a 17:30 stop exit passes on a normal day and is refused after a half-day close, at 21:00 and on a Saturday; a pre-market ENTRY is refused, a pre-market exit passes — plus holidays (calendar and broker cross-check), only sells of held longs, the switch, the audit dedup, unknown/extrapolated clocks. server/orderGateWiring.test.ts (14): alpaca() gates before sending (reads/cancels untouched), the shared clock cache keeps its body, one gate on market_calendar.py, and the real POS-KILL/TIME-EXIT loop body held while closed. conftest.py: an autouse fixture gives every other test "no clock reading" (allowed, no network, no extra requests.get calls). Existing suites unchanged and passing.
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (options_manager.py Check 1a + group Exit Rule 1b; options_scanner._fetch_symbol_earnings_reports; system_config OPTIONS_EARNINGS_CLOSE_ENABLED + OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS; ml_model_v2.OPTIONS_EXIT_REASONS; server/optionsMgmtAudit.ts) — EARNINGS CLOSE: an open sold option is closed on the last session before its underlying reports, with a deploy backfill; Setup-1 defined-risk earnings condors exempt. Human-directed, EXPLORATORY, review 2027-02-05
+VERSION: v1.0.1299 (shipped 2026-11-05 by the parent session; main was v1.0.1298)
+
+Human directive (2026-11-05): "Existing short options into earnings: add a rule that closes any already-open sold option before the underlying's earnings (last session before the report, after 9:45 ET), not just one that blocks new ones. Backfill a check against current positions on deploy."
+
+Why:
+- The entry gates refuse NEW short premium into a report (KNOWN BROKEN #45: the T1 CSP guard, Setup 3's 14-day blackout). Nothing closed a sold option that was already open.
+- research/options_bleed_2026-11-04.md: 9 structures held through a report lost −$4,751, GOOGL's Setup-3 condor −$3,848 of it.
+- Live 2026-11-04: IREN261211P00018000 was sold the day before IREN's report (11-05 after the close; a calendar bug, since fixed). It was stopped out at 2x on 11-05, before the report.
+
+The rule:
+- **What closes.** Every open SOLD option whose underlying reports between today and the option's expiry is closed on its close session, the last regular session before the report.
+- **The close session.** The report date itself for "amc". The previous trading day for "bmo", "dmh" or no announced hour (market_calendar.py's weekends and holidays).
+- **How.**
+  - A standalone short leg is bought back at the ask, like the loss-limit and assignment closes. trade_feedback records exit_reason `earnings_close`, added to OPTIONS_EXIT_REASONS.
+  - A strategy group with a sold leg is closed whole through `_request_group_close` (`strategy_earnings_close`), stamped and pursued like every group exit. Group exits are not attributed (KNOWN BROKEN #12(c)).
+- **Exempt (scope decision 2026-11-05).** The directive's concern is a sold option held into a report BY ACCIDENT (the IREN CSP). The standing directive is "as much on as possible to see if it works". Setup 1 (`earnings_iv_crush`) opens iron condors 0–7 days before a report FOR the report; closing one before it would only pay the spread twice.
+  - Exempt: a multi-leg group whose recorded setup is in `OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS` (default `("earnings_iv_crush",)`, the string Setup 1 actually records) AND that is defined-risk.
+  - Defined-risk here means every sold contract is covered by a bought contract of the same type (call/put) on the same underlying: a condor or credit spread with its wings.
+  - Never exempt: a lone short leg (even one recording that setup), a group with an uncovered sold leg (a wing gone, or an adopted extra short), any other setup or strategy, and every standalone single leg.
+  - Exempt legs are not looked up.
+  - Setting the tuple to `()` makes the rule literal: any sold option.
+- **Placement.** After CRITICAL DTE and BEFORE the 60-minute hold gate: an option sold 30 minutes before the close session ends must not ride into the report.
+- **Timing.**
+  - The existing deferrals apply: nothing is sent while the market is closed or before 09:45 ET.
+  - A leg still held after its close session (a failed close, a process that was down) is closed at the first eligible tick, through the report date. After a BMO report that is 09:45 on report day.
+- **Duplicates.** The single-leg close is judged every tick before the hold gate, so it WAITs while a buy order is working on the contract; a second buy-to-close could open a long. With no ask quoted it HOLDs and is judged again next tick. A rejected close keeps the leg's state.
+- **Report dates.** New `options_scanner._fetch_symbol_earnings_reports`: Finnhub's per-symbol calendar, returning date AND hour, with the same failure rules as `_fetch_symbol_earnings_with_status` (unchanged).
+  - Cached per underlying per ET day.
+  - A failed lookup closes nothing on a guess: one WARNING per underlying per ET day, retried every tick.
+  - After one failed request a pass sends no more; an underlying that failed today is asked last.
+  - No FINNHUB_KEY: the rule is inert (one log line).
+- **Backfill.** The first pass after a process start (a deploy, a daemon restart) returns one `earnings_backfill` action listing every sold option's next report and close session. A leg may instead show "none before expiry", "lookup failed", or "exempt_setup" for a leg of an exempt group. A leg already due closes in that same pass.
+- **Audit.**
+  - server/optionsMgmtAudit.ts writes an OPTIONS-EARNINGS row for the backfill and for each lookup warning; WARNING actions were never audited.
+  - Both bot.ts consumers use that formatter: the scan result, and the halted exits-only call (daemon RPC `manage_options_exits` and its subprocess fallback).
+  - Closes and deferrals stay OPTIONS-EXIT rows.
+- **Settings.** system_config `OPTIONS_EARNINGS_CLOSE_ENABLED` = True (rollback: False) and `OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS` = `("earnings_iv_crush",)`.
+
+Downstream (two steps):
+- **What a close costs.** A sold leg whose life spans a report is bought back on the close session at the ask. It pays the spread and gives up the IV crush, in exchange for no gap.
+- **Which legs qualify.**
+  - T1 CSPs rarely do: T1 refuses a name reporting inside DTE + 2 days, so the rule catches leaks like IREN.
+  - Setup 3/7 condors on 37–50 DTE expiries now close before a report 15–29 days out, which closes Setup 3's documented gap.
+- **Freed collateral.** It returns to the T1 slot pool. T1 then sells a different name, since its guard refuses the reporting one.
+- **Setup 1 is unchanged.** Its intact condors still ride their reports by design, so whether the earnings IV crush earns stays measurable.
+  - A Setup-1 condor that loses a wing, or a lone Setup-1 short leg, is closed like any accident.
+  - Nothing gates Setup-1 entries on earnings (bot_engine runs the regime gate as `csp_verdict(state, {})`). Without the exemption every Setup-1 condor would be opened and then closed before its own report.
+- **Finnhub load.** About one request per underlying with a non-exempt sold option per ET day (≈3–9), against a 60/min free tier. An outage costs at most one 5 s timeout per tick.
+- **Audit volume.** Deferrals follow the existing pattern: one deferred row per tick, from the pre-market through 09:45, on a close-session morning for each due leg. On top of that, one backfill row per process start and at most one failure row per underlying per day.
+
+Known limits:
+- market_calendar.py lists 2026 holidays only. Until December's year-add, a 2027 weekday holiday counts as a session, so a close could slip to report day.
+- Finnhub's dates for future quarters can be estimates.
+- An adjusted OCC root (e.g. IONQ1) is looked up under that root and finds no report.
+- The exemption reads the setup recorded in the options state. A Setup-1 condor whose state was lost is not exempt and is closed, which errs toward the literal rule.
+- In the halted path's subprocess fallback (daemon down), every call is a fresh process. The cache and the backfill flag do not persist: one lookup per underlying per call, and the backfill row repeats each call.
+
+Rollback triggers (counterfactual, /api/diag/book option_bars):
+- **The rule.** Over the first 20 earnings closes, compare each contract's close on the first session after the report with our buy-back fill. If holding through would have cost less on average, net of the spread paid, report it to the human: the rule is human-directed and the human decides.
+- **The exemption.** If the first 10 exempt Setup-1 condors held through their reports lose on net (realized at their exits), set `OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS` to `()`, one setting, and the rule becomes literal.
+
+Tests:
+- **New:** test_options_earnings_close.py (33).
+  - The close-session map across a weekend, Thanksgiving, Labor Day and a Saturday date (pure), and the due window.
+  - BMO tomorrow closes today at the ask with earnings_close recorded; the live IREN case (AMC today).
+  - A leg sold 30 minutes ago is not held by the hold gate.
+  - Nothing closes before the close session, after expiry or without a report; only the leg whose life spans the report closes.
+  - Bought legs are untouched and cost no lookup. On report day after a BMO report the leg closes late; the session after, nothing.
+  - Market closed and 09:35 defer with no order. A working buy order WAITs, a working sell does not, no ask HOLDs, and a rejected close keeps state.
+  - A condor entered 10 minutes ago closes whole in one request while a bought straddle is untouched; a group close waits out 09:45 and is then pursued.
+  - Exemption, 7 tests:
+    - An earnings_iv_crush condor with its report tomorrow BMO is not closed (and not looked up), and stays exempt when its underlying is looked up for a GOOGL CSP, which closes.
+    - The same condor with any other setup is closed, and so is a lone short leg recorded as earnings_iv_crush.
+    - An emptied tuple (patch.dict) closes the condor.
+    - "Defined-risk" pinned: a condor or a put credit spread is covered; a lone short, a missing call wing, and 4 sold puts against 2 bought are not.
+    - The backfill lists the condor's sold legs as exempt_setup.
+  - Lookup failure: no close, one WARNING per underlying per ET day, retried, warned again the next day; one failing symbol does not starve another.
+  - The backfill on the first pass only (due, scheduled, none before expiry, lookup failed), and none when the first pass had no sold option.
+  - One request per underlying per ET day; inert without FINNHUB_KEY or with the flag off; the flag ships on.
+  - The fetcher: dates, hours, window, one company only, duplicate dates, failures never read as "no report".
+- **Mutation checks.**
+  - Disabling the rule fails 18 of the 33; moving it after the hold gate fails 6.
+  - Never exempting fails 4; always exempting fails 6; a type-level (not quantity-level) coverage test fails 2.
+- **server/optionsMgmtAudit.test.ts (+3):** the two notices become OPTIONS-EARNINGS rows while other WARNINGs still do not; a long notice is cut at 1,200 characters and never counts against the exit cap; the type names match options_manager.py.
+- **Updated pins (exact):**
+  - test_options_outcome_breakdown's set gains earnings_close (test renamed `_documented_10`).
+  - test_options_group_close's `_request_group_close(legs, ticker, state,` count goes 7 → 8: the new group exit goes through the same pursued close.
+- **Existing suites:** 422 passed across 29 related Python files (the 33 new included); test_ts_code_only 11 passed. The server suites positionLevels, chainCspEntry, haltScope and posKillOptionHours: 63/63. tsc 6 ≤ 6; counters OK.
+
+STARVED: no.

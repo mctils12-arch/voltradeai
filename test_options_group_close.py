@@ -252,7 +252,8 @@ class TestSourcePins(unittest.TestCase):
         src = inspect.getsource(om._manage_strategy_group)
         self.assertNotIn("state.pop(", src, "a group exit must never drop its legs' state")
         self.assertNotIn("_close_strategy_mleg(legs, ticker)", src, "every exit submits through _request_group_close")
-        self.assertEqual(src.count("_request_group_close(legs, ticker, state,"), 7)
+        # 8th site 2026-11-05: Exit Rule 1b, the EARNINGS CLOSE (strategy_earnings_close)
+        self.assertEqual(src.count("_request_group_close(legs, ticker, state,"), 8)
         self.assertIn("return _pursue_group_close(group, state)", src)
 
     def test_mleg_transmission_is_the_same_post(self):

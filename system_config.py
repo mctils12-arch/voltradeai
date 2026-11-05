@@ -111,6 +111,31 @@ BASE_CONFIG = {
     "MAX_OPTIONS_PCT":      0.08,  # Max 8% per options position (v1.0.34: was 10%)
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
     "KELLY_DIVISOR":        3.0,   # Third-Kelly: divide full Kelly by 3 — was 4.0 (quarter-Kelly)
+    # EARNINGS CLOSE 2026-11-05 (human directive: "Existing short options into
+    # earnings: add a rule that closes any already-open sold option before the
+    # underlying's earnings (last session before the report, after 9:45 ET),
+    # not just one that blocks new ones. Backfill a check against current
+    # positions on deploy."). options_manager closes every open sold option (a
+    # standalone short leg, or a whole strategy group with a short leg) on the
+    # last regular session before its underlying reports, when the report
+    # falls before the option's expiry. Prior behaviour: no such rule; only
+    # entry gates refused NEW short premium into a report. Expected effect:
+    # no sold option is held through a report by accident (deliberate
+    # earnings structures: OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS below).
+    # Rollback: False stops the rule, its Finnhub lookups and its notices.
+    "OPTIONS_EARNINGS_CLOSE_ENABLED": True,
+    # EARNINGS CLOSE EXEMPTION 2026-11-05 (session scope decision on the
+    # directive above: its concern is a sold option held into a report BY
+    # ACCIDENT, the IREN CSP, and the standing directive is "as much on as
+    # possible to see if it works"). A multi-leg group whose recorded setup is
+    # listed here AND that is defined-risk (every sold contract covered by a
+    # bought one of the same type on the same underlying: a condor or credit
+    # spread with its wings) is NOT closed before its report. Setup 1
+    # ("earnings_iv_crush") opens such condors 0-7 days before a report FOR
+    # the report; closing one first would only pay the spread twice. A lone
+    # short leg, an uncovered sold leg, and every other setup or strategy are
+    # never exempt. () makes the rule literal: any sold option is closed.
+    "OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS": ("earnings_iv_crush",),
 
     # ── PASSIVE SPY FLOOR (v1.0.29) ────────────────────────────────────
     # Problem: in calm bull years (2017, 2019, 2023) momentum signals don't work.

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatOptionsMgmt, OPTIONS_MGMT_AUDIT_CAP } from "./optionsMgmtAudit";
+import { formatOptionsMgmt, OPTIONS_EARNINGS_NOTICE_MAX_CHARS, OPTIONS_EARNINGS_NOTICE_TYPES, OPTIONS_MGMT_AUDIT_CAP } from "./optionsMgmtAudit";
 
 // the live 2026-10-19 TSLA condor close, in options_manager's own action shape
 const CONDOR_CLOSE = {
@@ -48,6 +48,51 @@ test("a manager error is surfaced; nothing / garbage gives no rows; a busy scan 
   const rows = formatOptionsMgmt({ actions: many });
   assert.equal(rows.length, OPTIONS_MGMT_AUDIT_CAP + 1);
   assert.equal(rows.at(-1)?.message, "… 3 more options exits/rolls this scan");
+});
+
+// 2026-11-05 EARNINGS CLOSE: options_manager's two notices that do not repeat
+// every scan, in its own action shapes (options_manager._earnings_close_context)
+const EARNINGS_BACKFILL = {
+  action: "INFO", type: "earnings_backfill",
+  legs: [{ occ_symbol: "IREN261211P00018000", underlying: "IREN", expiry: "2026-12-11", report_date: "2026-11-05", report_hour: "amc", close_session: "2026-11-05", status: "due" }],
+  reason: "EARNINGS BACKFILL (first pass since start): 1 sold option(s) checked — IREN261211P00018000: IREN reports 2026-11-05 after the close, close session 2026-11-05 (due now)",
+};
+const EARNINGS_LOOKUP_FAILED = {
+  action: "WARNING", ticker: "AAL", type: "earnings_lookup_failed", legs: ["AAL261204P00013000"],
+  reason: "EARNINGS CLOSE: AAL's next report date is unknown (the Finnhub lookup failed) — 1 sold option(s) not closed on a guess (AAL261204P00013000); retried every tick, warned once per ET day",
+};
+
+test("earnings notices (the deploy backfill, a failed report-date lookup) become OPTIONS-EARNINGS rows; other warnings still do not", () => {
+  const earningsClose = { action: "CLOSE", ticker: "IREN", occ_symbol: "IREN261211P00018000", type: "earnings_close",
+    reason: "EARNINGS CLOSE: IREN reports 2026-11-05 after the close; 2026-11-05 is the last session before it — closing the sold option rather than holding it through the report",
+    order: { status: "submitted", detail: "Close buy 1x IREN261211P00018000 @ $2.70" } };
+  const rows = formatOptionsMgmt({ actions: [
+    EARNINGS_BACKFILL,
+    { action: "WARNING", ticker: "KMI", strategy: "buy_straddle", reason: "EDGE WARNING: VRP at +6.0%", type: "sabr_edge_warning" },
+    EARNINGS_LOOKUP_FAILED,
+    earningsClose,
+  ] });
+  assert.deepEqual(rows.map((r) => r.type), ["OPTIONS-EARNINGS", "OPTIONS-EARNINGS", "OPTIONS-EXIT"]);
+  assert.equal(rows[0].message, EARNINGS_BACKFILL.reason);
+  assert.equal(rows[1].message, EARNINGS_LOOKUP_FAILED.reason);
+  assert.match(rows[2].message, /^IREN IREN261211P00018000: EARNINGS CLOSE: IREN reports 2026-11-05 after the close.* · order submitted$/);
+});
+
+test("a long earnings notice is cut at OPTIONS_EARNINGS_NOTICE_MAX_CHARS and never counts against the exit cap", () => {
+  const long = { ...EARNINGS_BACKFILL, reason: "EARNINGS BACKFILL: " + "X261211P00018000: no X report before expiry 2026-12-11; ".repeat(60) };
+  const many = Array.from({ length: OPTIONS_MGMT_AUDIT_CAP }, () => CONDOR_CLOSE);
+  const rows = formatOptionsMgmt({ actions: [long, ...many] });
+  assert.equal(rows[0].type, "OPTIONS-EARNINGS");
+  assert.equal(rows[0].message.length, OPTIONS_EARNINGS_NOTICE_MAX_CHARS);
+  assert.equal(rows.filter((r) => r.type === "OPTIONS-EXIT").length, OPTIONS_MGMT_AUDIT_CAP, "no '… more' row: the notice is not an exit");
+  assert.deepEqual(OPTIONS_EARNINGS_NOTICE_TYPES, ["earnings_backfill", "earnings_lookup_failed"]);
+});
+
+test("the notice types are the ones options_manager.py emits", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const om = fs.readFileSync(path.join(here, "..", "options_manager.py"), "utf8");
+  assert.ok(om.includes('EARNINGS_BACKFILL_TYPE = "earnings_backfill"'));
+  assert.ok(om.includes('EARNINGS_LOOKUP_FAILED_TYPE = "earnings_lookup_failed"'));
 });
 
 test("bot.ts audits the scan's options_management rows", () => {
