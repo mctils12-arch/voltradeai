@@ -113763,3 +113763,52 @@ Tests:
 Full server suite 3,124/3,124; counters 28/28; tsc 6 ≤ 6.
 
 STARVED: no.
+
+## 2026-11-05 [RESEARCH] — T-BOT (new forecast_range.py, scripts/forecast_daily_study.py, research/forecast_daily_study_2026-11-04.*) — daily forecast RANGE model fc-range-har-v1: HAR-RV + implied vol, pre-registered walk-forward study (Part C item 2, Wave 2 PR 1 of 3)
+VERSION: v1.0.1286 (shipped 2026-11-05 by the parent session; main was v1.0.1285)
+
+Built 2026-11-04 under the human-approved forecast batch, against the pre-registration written before any result (copied verbatim into the study .md, § Pre-registration). Shipped 2026-11-05, after the Wave 1 measurement window, as the first of three stacked PRs. It is a pure module plus a study, and nothing at runtime calls it yet; PR 3 (the daily horizon) wires it.
+
+Part C item 2 of the human-approved forecast batch ("Range model — the part
+with real skill"). Shadow only: nothing trades on it, and nothing calls it
+until the daily horizon (claude/fc-daily-horizon, stacked on this) wires it.
+
+forecast_range.py (new, pure): the next session's 68.27% band half-width in
+log space, q = th_d|r_t| + th_w RV_w + th_m RV_m [+ th_iv IV/sqrt(252)] —
+Corsi's HAR components blended with implied vol, fit as a linear quantile
+regression at tau = 0.6827 (no intercept, th >= 0; minimizing that pinball
+loss = minimizing the band's interval score). Three frozen coefficient sets
+from the study's last walk-forward refit (2026-10-13): SPY with VIX (IV weight
+0.71), any name with a chain IV30 (0.78), HAR only. Also the intraday
+remaining-variance table for the display-only live band, the interval score
+(measurement) and the quantile solver (MM/IRLS + exact non-negative QP,
+agrees with HiGHS to ~1e-9).
+
+scripts/forecast_daily_study.py + research/forecast_daily_study_2026-11-04
+.{md,json}: pre-registered (priors and rules written before any result),
+Yahoo daily bars + Cboe implied-vol indices, expanding walk-forward refit
+every 21 sessions, purge + embargo = horizon, model chosen on 2013-2018 only.
+Holdout 2019-01-02 -> 2026-11-02, next-session band:
+  index (SPY w/ VIX)  coverage 68.6% [66.9, 70.5]  IS -4.8% vs the current
+                      path (CI excludes 0)  +7.0% vs a constant band
+  names with IV       68.4% [66.8, 69.8]  -4.0%  +4.4%
+  names without IV    65.8% [64.7, 66.9]  -1.2%  +3.9%  (under-covers 2.5 pts)
+  current path (sigma_for at h=1): 75.5% / 75.1% / 70.1% — too wide;
+  Fridays 92.9% (calendar-day IV scaling).
+Not calibrated by regime: index BULL 75.6% vs BEAR 60.4%. The weekly would
+benefit too (R3 passed) — reported, NOT switched (follow-up). Intraday: the
+pre-registered variance-ratio scaling failed its prior (77-87% coverage); a
+declared post-hoc quantile-ratio scaling ships for the live band. No
+intraday IV source exists in the repo (VIX and chain IV30 are end-of-day).
+
+Tests: test_forecast_range.py (regressors read closes <= t only, IV
+plausibility, set selection, labeled fallback, interval score, solver vs an
+exact LP, sign constraint, frozen sets == study json), test_forecast_daily_
+study.py (no lookahead in regressors and refits, purge/embargo, bootstrap,
+remaining fraction, CSV parsing).
+
+MEASUREMENT NOTE: forecast_range.interval_score is a NEW metric, the standard Gneiting–Raftery interval score. It does not change any existing metric, so no before/after on old inputs applies. It is the loss the band is fit to minimize; that is stated, not hidden.
+
+Runtime cost: none in this PR (no import from bot.ts, the daemon or forecast.py yet).
+
+STARVED: no.
