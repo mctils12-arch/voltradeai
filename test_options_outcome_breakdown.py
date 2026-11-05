@@ -109,14 +109,16 @@ class TestOptionsOutcomeBreakdown(unittest.TestCase):
             {"orphan_exit": 1},
         )
 
-    def test_options_exit_reasons_constant_has_exactly_the_documented_9(self):
+    def test_options_exit_reasons_constant_has_exactly_the_documented_10(self):
         # 9th member 2026-11-05: leftover_long_close (LEFTOVER LONG LEG rule)
+        # 10th member 2026-11-05: earnings_close (EARNINGS CLOSE rule)
         self.assertEqual(
             OPTIONS_EXIT_REASONS,
             frozenset({
                 "dte_critical", "assignment_close", "dte_close",
                 "dte_close_bought", "profit_target", "loss_limit",
                 "bought_loss_limit", "gamma_risk", "leftover_long_close",
+                "earnings_close",
             }),
         )
 

@@ -7,16 +7,24 @@
 // code). This formats one audit row per close / roll, plus a manager error.
 // WARNING actions (advisory, nothing changes) are left out: they repeat on
 // every scan for the same position and would crowd the 2000-row log.
+// 2026-11-05 EARNINGS CLOSE: two earnings notices do not repeat, so they get
+// an OPTIONS-EARNINGS row each: the first pass's schedule of every sold option
+// ("earnings_backfill", once per process start) and a failed report-date
+// lookup ("earnings_lookup_failed", once per underlying per ET day).
 
 export interface OptionsMgmtAction {
   action?: string; ticker?: string; strategy?: string; occ_symbol?: string; legs?: string[];
   reason?: string; type?: string; combined_pnl?: number; dte?: number; roll_detail?: string;
   order?: { status?: string; detail?: string; method?: string; leg_results?: Array<{ status?: string }> } | null;
 }
-export interface OptionsMgmtRow { type: "OPTIONS-EXIT" | "OPTIONS-ROLL" | "OPTIONS-MGMT-ERROR"; message: string }
+export interface OptionsMgmtRow { type: "OPTIONS-EXIT" | "OPTIONS-ROLL" | "OPTIONS-MGMT-ERROR" | "OPTIONS-EARNINGS"; message: string }
 
 /** a scan closing more positions than this is summarised in one extra row */
 export const OPTIONS_MGMT_AUDIT_CAP = 10;
+/** options_manager's earnings notices (EARNINGS_BACKFILL_TYPE / EARNINGS_LOOKUP_FAILED_TYPE) */
+export const OPTIONS_EARNINGS_NOTICE_TYPES: readonly string[] = ["earnings_backfill", "earnings_lookup_failed"];
+/** an earnings notice lists every sold option; longer text is cut here */
+export const OPTIONS_EARNINGS_NOTICE_MAX_CHARS = 1200;
 
 const money = (v: number) => `${v < 0 ? "−" : "+"}$${Math.abs(v).toFixed(2)}`;
 
@@ -44,9 +52,11 @@ export function formatOptionsMgmt(result: unknown, cap: number = OPTIONS_MGMT_AU
   const r = result as { actions?: unknown; error?: unknown };
   const out: OptionsMgmtRow[] = [];
   if (typeof r.error === "string" && r.error) out.push({ type: "OPTIONS-MGMT-ERROR", message: `options manager failed this scan: ${r.error.slice(0, 200)}` });
-  const acts = (Array.isArray(r.actions) ? r.actions : [])
-    .filter((a): a is OptionsMgmtAction => !!a && typeof a === "object")
-    .filter((a) => a.action === "CLOSE" || a.action === "CLOSE_STRATEGY" || a.action === "ROLL");
+  const all = (Array.isArray(r.actions) ? r.actions : []).filter((a): a is OptionsMgmtAction => !!a && typeof a === "object");
+  for (const a of all.filter((a) => OPTIONS_EARNINGS_NOTICE_TYPES.includes(String(a.type)))) {
+    out.push({ type: "OPTIONS-EARNINGS", message: String(a.reason || a.type).slice(0, OPTIONS_EARNINGS_NOTICE_MAX_CHARS) });
+  }
+  const acts = all.filter((a) => a.action === "CLOSE" || a.action === "CLOSE_STRATEGY" || a.action === "ROLL");
   for (const a of acts.slice(0, cap)) out.push({ type: a.action === "ROLL" ? "OPTIONS-ROLL" : "OPTIONS-EXIT", message: describe(a) });
   if (acts.length > cap) out.push({ type: "OPTIONS-EXIT", message: `… ${acts.length - cap} more options exits/rolls this scan` });
   return out;

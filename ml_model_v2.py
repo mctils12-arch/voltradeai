@@ -2628,7 +2628,7 @@ def track_fill(order_data: dict) -> None:
 # exposes ticker, so classifying by ticker format is off the table. Every
 # standalone single-leg options CLOSE this repo records
 # (options_manager.py's `_record_options_exit_feedback` call sites, wired
-# 2026-08-22 per KNOWN BROKEN #12(c); a 9th reason added 2026-11-05) stamps one
+# 2026-08-22 per KNOWN BROKEN #12(c); a 9th and a 10th reason added 2026-11-05) stamps one
 # of these exit_reason strings; exitFill.ts's equity/ETF exit path (the only other live writer of
 # a non-orphan record) uses a disjoint 5-value vocabulary (stop_loss,
 # trailing_stop, take_profit, time_stop, position_kill) — confirmed by
@@ -2644,6 +2644,8 @@ OPTIONS_EXIT_REASONS = frozenset({
     "profit_target", "loss_limit", "bought_loss_limit", "gamma_risk",
     # 2026-11-05: the LEFTOVER LONG LEG rule (options_manager.py Check 1b)
     "leftover_long_close",
+    # 2026-11-05: the EARNINGS CLOSE rule (options_manager.py Check 1a)
+    "earnings_close",
 })
 
 

@@ -886,6 +886,64 @@ def _fetch_symbol_earnings_with_status(symbol: str, days_ahead: int = 10) -> Tup
         return None, False
 
 
+# EARNINGS CLOSE (2026-11-05, options_manager.manage_options_positions): an
+# already-open sold option is closed on the last regular session before its
+# underlying reports, which needs the report's DATE and HOUR. Finnhub's
+# calendar rows carry "hour": "bmo" (before the open), "amc" (after the
+# close), "dmh" (during market hours) or "" (not announced).
+# _fetch_symbol_earnings_with_status above is unchanged for its callers.
+EARNINGS_REPORT_HOURS = ("bmo", "amc", "dmh")
+
+
+def _fetch_symbol_earnings_reports(symbol: str, date_from, date_to) -> Tuple[Optional[List[Tuple[Any, str]]], bool]:
+    """
+    ([(report date, hour), ...] ascending, one entry per date, for `symbol`'s
+    reports inside [date_from, date_to] (datetime.date, both inclusive);
+    lookup_ok) from Finnhub's per-symbol calendar, the request
+    _fetch_symbol_earnings_with_status makes. hour is "bmo", "amc", "dmh",
+    or "" for a blank or unrecognised value. Two rows on one date keep the
+    earlier-closing reading: any hour other than "amc" wins over "amc".
+    ([], True) is a real answer: no report in the window. Same failure rules
+    as the other per-symbol fetch: non-200, a body without an
+    `earningsCalendar` list, or any exception gives (None, False), which
+    callers must never read as "no report".
+    """
+    sym = str(symbol or "").strip().upper()
+    if not sym or date_from is None or date_to is None or date_to < date_from:
+        return None, False
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/calendar/earnings",
+            params={"from": date_from.strftime("%Y-%m-%d"), "to": date_to.strftime("%Y-%m-%d"),
+                    "symbol": sym, "token": FINNHUB_KEY},
+            timeout=SYMBOL_EARNINGS_TIMEOUT_S,
+        )
+        status = getattr(r, "status_code", 200)
+        if isinstance(status, int) and status != 200:
+            logger.warning(f"per-symbol earnings report lookup {sym}: HTTP {status}")
+            return None, False
+        body = r.json()
+        if not isinstance(body, dict) or not isinstance(body.get("earningsCalendar"), list):
+            logger.warning(f"per-symbol earnings report lookup {sym}: no earningsCalendar list in the reply")
+            return None, False
+        by_date: Dict[Any, str] = {}
+        for item in body["earningsCalendar"]:
+            if not isinstance(item, dict) or str(item.get("symbol", "")).strip().upper() != sym:
+                continue
+            d = _iso_date(item.get("date"))
+            if d is None or d < date_from or d > date_to:
+                continue
+            hour = str(item.get("hour") or "").strip().lower()
+            if hour not in EARNINGS_REPORT_HOURS:
+                hour = ""
+            if by_date.get(d, "amc") == "amc":
+                by_date[d] = hour
+        return sorted(by_date.items()), True
+    except Exception as e:
+        logger.warning(f"per-symbol earnings report lookup {sym} failed: {type(e).__name__}: {e}")
+        return None, False
+
+
 def _iso_date(value):
     """date from 'YYYY-MM-DD', else None (a blank or malformed calendar date)."""
     try:

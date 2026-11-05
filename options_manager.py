@@ -794,12 +794,15 @@ def _max_loss_from_legs(legs: list, net_credit: float) -> float:
     return round(max_loss, 2) if max_loss > 0 else 0.0
 
 
-def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
+def _manage_strategy_group(group: dict, equity: float, state: dict, earnings: dict = None) -> list:
     """
     Manage a multi-leg strategy as ONE unit.
 
     Calculates combined P&L across all legs, then applies exit rules
     to the WHOLE strategy, not individual legs.
+
+    `earnings` is manage_options_positions' _earnings_close_context() for the
+    pass (None: the earnings close is not judged).
 
     Returns: list of actions taken
     """
@@ -887,6 +890,36 @@ def _manage_strategy_group(group: dict, equity: float, state: dict) -> list:
             "reason": f"CRITICAL DTE: {min_dte} days — closing entire {strategy}",
             "type": "strategy_dte_critical",
             "combined_pnl": round(total_unrealized_pnl, 2),
+            "order": result,
+        })
+        return actions
+
+    # ── Exit Rule 1b: EARNINGS CLOSE (2026-11-05) — ignores hold time ─────
+    # A group with a sold leg is closed whole on the last session before the
+    # underlying reports, if the report falls before that leg's expiry (the
+    # EARNINGS CLOSE block above manage_options_positions). A defined-risk
+    # group opened FOR its report (_earnings_close_exempt) is left to the
+    # other rules.
+    for pos in legs:
+        parsed_leg = _parse_occ_symbol(pos.get("symbol", "")) if pos.get("side", "long") == "short" else None
+        earn = _earnings_close_due_for(earnings, parsed_leg["ticker"], _expiry_date(parsed_leg)) if parsed_leg else None
+        if not earn:
+            continue
+        if _earnings_close_exempt(group):
+            break
+        reason = _earnings_close_reason(earnings, parsed_leg["ticker"], *earn, f"the whole {strategy}")
+        result = _request_group_close(legs, ticker, state, "strategy_earnings_close", reason)
+        actions.append({
+            "action": "CLOSE_STRATEGY",
+            "ticker": ticker or parsed_leg["ticker"],
+            "strategy": strategy,
+            "legs": all_occ_symbols,
+            "reason": reason,
+            "type": "strategy_earnings_close",
+            "combined_pnl": round(total_unrealized_pnl, 2),
+            "report_date": earn[0].isoformat(),
+            "report_hour": earn[1],
+            "close_session": earn[2].isoformat(),
             "order": result,
         })
         return actions
@@ -1228,6 +1261,281 @@ def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: s
     return True
 
 
+# ── EARNINGS CLOSE (2026-11-05) ─────────────────────────────────────────────
+# Human directive, 2026-11-05: "Existing short options into earnings: add a
+# rule that closes any already-open sold option before the underlying's
+# earnings (last session before the report, after 9:45 ET), not just one that
+# blocks new ones. Backfill a check against current positions on deploy."
+# The entry gates refuse NEW short premium into a report (KNOWN BROKEN #45:
+# tiered_strategy's T1 guard, scanner Setup 3's 14-day blackout). Nothing
+# closed a sold option already open. research/options_bleed_2026-11-04.md: 9
+# structures held through a report lost -$4,751. Live 2026-11-04: an IREN put
+# was sold the day before IREN's report (a calendar bug, since fixed).
+#
+# The rule: every open SOLD option whose underlying reports between today and
+# the option's expiry is closed on the CLOSE SESSION, the last regular session
+# before the report. A standalone short leg is bought back at the ask (like the
+# loss-limit and assignment closes); a strategy group with a short leg is
+# closed whole (_request_group_close).
+# - Close session: the report date itself for an "amc" (after the close)
+#   report; the previous trading day for "bmo", "dmh" or an unannounced hour
+#   (market_calendar.py's weekends and holidays).
+# - Judged BEFORE the 60-minute hold gate, like CRITICAL DTE: an option sold
+#   30 minutes before the close session ends must not ride into the report.
+# - The usual deferrals apply: nothing is sent while the market is closed or
+#   before 09:45 ET.
+# - Still held after its close session (a close that failed, a process that was
+#   down): closed at the first eligible tick, up to and including the report
+#   date.
+# Exempt: a multi-leg group whose recorded setup is in system_config
+# OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS ("earnings_iv_crush", Setup 1) and that is
+# defined-risk (every sold contract covered by a bought one of the same type on
+# the same underlying: a condor or credit spread with its wings). It was opened
+# FOR the report; closing it first would only pay the spread twice. The rule
+# targets a sold option held into a report by accident. A lone short leg is
+# never exempt.
+# Report dates: Finnhub's per-symbol calendar (options_scanner.
+# _fetch_symbol_earnings_reports), looked up once per underlying per ET day. A
+# failed lookup closes nothing on a guess: one WARNING per underlying per ET
+# day, retried every tick. Without FINNHUB_KEY the rule cannot run (logged).
+# Backfill: the first pass after a process start (a deploy, a daemon restart)
+# lists every sold option's next report and close session in one
+# "earnings_backfill" action (an exempt group's legs as "exempt_setup"); a leg
+# already due is closed in that same pass.
+EARNINGS_BACKFILL_TYPE = "earnings_backfill"
+EARNINGS_LOOKUP_FAILED_TYPE = "earnings_lookup_failed"
+EARNINGS_HOUR_WORDS = {"bmo": "before the open", "amc": "after the close",
+                       "dmh": "during market hours", "": "at an unannounced hour"}
+_EARNINGS_REPORT_CACHE: dict = {}   # underlying -> (ET day, window end, [(date, hour), ...]); good answers only
+_EARNINGS_FAILED: dict = {}         # underlying -> ET day its own lookup last failed (it is asked last)
+_EARNINGS_WARNED: dict = {}         # underlying -> ET day of its last lookup-failure WARNING
+_EARNINGS_RUN = {"backfill_done": False, "unconfigured_logged": False}
+
+
+def _now_et() -> datetime:
+    """New York wall-clock time."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/New_York"))
+
+
+def _expiry_date(parsed: dict):
+    """The parsed OCC symbol's expiry as a date, None if it is not a date."""
+    try:
+        return datetime.strptime(parsed["expiry_date"], "%Y-%m-%d").date()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def earnings_close_session(report_date, hour: str):
+    """The last regular session before a report on `report_date` (a date): the
+    report date itself for an "amc" report on a trading day; otherwise ("bmo",
+    "dmh", unannounced, or a report dated on a closed day) the previous trading
+    day. market_calendar.py lists 2026 holidays only until December's year-add."""
+    from market_calendar import is_market_holiday
+    if str(hour or "").strip().lower() == "amc" and not is_market_holiday(report_date):
+        return report_date
+    session = report_date - timedelta(days=1)
+    while is_market_holiday(session):
+        session -= timedelta(days=1)
+    return session
+
+
+def earnings_close_due(today, report_date, hour: str) -> bool:
+    """True from the close session through the report date (all dates)."""
+    return earnings_close_session(report_date, hour) <= today <= report_date
+
+
+def _earnings_close_enabled() -> bool:
+    try:
+        from system_config import BASE_CONFIG
+        return bool(BASE_CONFIG.get("OPTIONS_EARNINGS_CLOSE_ENABLED", True))
+    except Exception as e:
+        logger.warning(f"system_config unreadable, the earnings close stays on: {e}")
+        return True
+
+
+def _earnings_close_exempt(group: dict) -> bool:
+    """True for a strategy group opened FOR its report: its recorded setup is in
+    OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS and every sold contract is covered by a
+    bought contract of the same type (call/put) on the same underlying. A group
+    with an uncovered sold leg (a lone short leg, or an adopted extra short) is
+    never exempt."""
+    setup = str(group.get("setup") or "")
+    try:
+        from system_config import BASE_CONFIG
+        exempt_setups = tuple(BASE_CONFIG.get("OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS", ()) or ())
+    except Exception as e:
+        logger.warning(f"system_config unreadable, no earnings-close exemption: {e}")
+        return False
+    if not setup or setup not in exempt_setups:
+        return False
+    sold, bought = {}, {}      # (underlying, call/put) -> contracts
+    for pos in group.get("legs") or []:
+        parsed = _parse_occ_symbol(pos.get("symbol", ""))
+        if not parsed:
+            return False
+        book = sold if pos.get("side", "long") == "short" else bought
+        kind = (parsed["ticker"], parsed["option_type"])
+        book[kind] = book.get(kind, 0) + abs(int(float(pos.get("qty", 0) or 0)))
+    return bool(sold) and all(bought.get(kind, 0) >= n for kind, n in sold.items())
+
+
+def _finnhub_configured() -> bool:
+    try:
+        import options_scanner
+        key = str(getattr(options_scanner, "FINNHUB_KEY", "") or "")
+    except Exception as e:
+        logger.warning(f"options_scanner unavailable to the earnings close: {type(e).__name__}: {e}")
+        return False
+    return bool(key) and key != "YOUR_FINNHUB_KEY_HERE"
+
+
+def _earnings_reports(root: str, today, horizon, fetch: bool = True):
+    """(reports, how) for `root` inside [today, horizon]. how is "cached" (this
+    ET day's answer covers the window), "fetched" (one Finnhub request), or,
+    with reports None, "failed" or "skipped" (fetch=False and nothing cached).
+    Failures are never cached, so the next tick asks again."""
+    hit = _EARNINGS_REPORT_CACHE.get(root)
+    if hit and hit[0] == today.isoformat() and hit[1] >= horizon:
+        return hit[2], "cached"
+    if not fetch:
+        return None, "skipped"
+    try:
+        import options_scanner
+        reports, ok = options_scanner._fetch_symbol_earnings_reports(root, today, horizon)
+    except Exception as e:
+        logger.warning(f"earnings report lookup for {root} unavailable: {type(e).__name__}: {e}")
+        return None, "failed"
+    if not ok or reports is None:
+        return None, "failed"
+    _EARNINGS_REPORT_CACHE[root] = (today.isoformat(), horizon, list(reports))
+    return list(reports), "fetched"
+
+
+def _earnings_close_context(options_positions: list, actions: list, strategy_groups: dict = None) -> dict:
+    """This pass's earnings-close inputs: {"active", "today", "by_root":
+    {underlying: {"ok", "how", "report"}}, "exempt": {occ: setup}}, where
+    `report` is the underlying's next (date, hour) inside the latest expiry
+    among its sold options (an exempt group's legs left out), or None. Appends
+    the lookup-failure WARNINGs (once per underlying per ET day) and, on the
+    first active pass since process start, the "earnings_backfill" summary."""
+    ctx = {"active": False, "today": None, "by_root": {}, "exempt": {}}
+    if not _earnings_close_enabled():
+        return ctx
+    if not _finnhub_configured():
+        if not _EARNINGS_RUN["unconfigured_logged"]:
+            _EARNINGS_RUN["unconfigured_logged"] = True
+            logger.warning("EARNINGS CLOSE inactive: FINNHUB_KEY is not set, so no report date can be looked up")
+        return ctx
+    today = _now_et().date()
+    day = today.isoformat()
+    ctx.update(active=True, today=today)
+    for group in (strategy_groups or {}).values():
+        if _earnings_close_exempt(group):
+            ctx["exempt"].update({pos.get("symbol", ""): str(group.get("setup") or "") for pos in group["legs"]})
+    shorts, exempt_shorts = [], []      # (occ symbol, underlying, expiry) of every sold option
+    for p in options_positions:
+        parsed = _parse_occ_symbol(p.get("symbol", ""))
+        expiry = _expiry_date(parsed) if parsed else None
+        if expiry is None or p.get("side", "long") != "short" or abs(int(float(p.get("qty", 0) or 0))) <= 0:
+            continue
+        leg = (p.get("symbol", ""), parsed["ticker"], expiry)
+        (exempt_shorts if leg[0] in ctx["exempt"] else shorts).append(leg)
+    horizon = {}
+    for _occ, root, expiry in shorts:
+        horizon[root] = max(expiry, horizon.get(root, expiry))
+    for root in [r for r, v in _EARNINGS_REPORT_CACHE.items() if v[0] != day]:
+        _EARNINGS_REPORT_CACHE.pop(root, None)
+    for memo in (_EARNINGS_FAILED, _EARNINGS_WARNED):
+        for root in [r for r, d in memo.items() if d != day]:
+            memo.pop(root, None)
+    # After one failed request the pass sends no more (a Finnhub outage costs
+    # one timeout per tick, not one per underlying); cached answers still count.
+    # An underlying whose own lookup failed today is asked last, so one bad
+    # symbol cannot starve the others.
+    fetch = True
+    for root in sorted(horizon, key=lambda r: (_EARNINGS_FAILED.get(r) == day, r)):
+        reports, how = _earnings_reports(root, today, horizon[root], fetch=fetch)
+        if how == "failed":
+            fetch = False
+            _EARNINGS_FAILED[root] = day
+        elif reports is not None:
+            _EARNINGS_FAILED.pop(root, None)
+        nxt = next((r for r in reports if today <= r[0] <= horizon[root]), None) if reports is not None else None
+        ctx["by_root"][root] = {"ok": reports is not None, "how": how, "report": nxt}
+    for root, info in sorted(ctx["by_root"].items()):
+        if info["ok"] or _EARNINGS_WARNED.get(root) == day:
+            continue
+        _EARNINGS_WARNED[root] = day
+        legs = sorted(occ for occ, r, _e in shorts if r == root)
+        why = ("the Finnhub lookup failed" if info["how"] == "failed"
+               else "not looked up this tick: another lookup failed first")
+        actions.append({
+            "action": "WARNING", "ticker": root, "type": EARNINGS_LOOKUP_FAILED_TYPE, "legs": legs,
+            "reason": (f"EARNINGS CLOSE: {root}'s next report date is unknown ({why}) — {len(legs)} sold "
+                       f"option(s) not closed on a guess ({', '.join(legs)}); retried every tick, warned once "
+                       f"per ET day"),
+        })
+    if not _EARNINGS_RUN["backfill_done"]:
+        _EARNINGS_RUN["backfill_done"] = True
+        if shorts or exempt_shorts:
+            actions.append(_earnings_backfill_action(ctx, shorts + exempt_shorts))
+    return ctx
+
+
+def _earnings_backfill_action(ctx: dict, shorts: list) -> dict:
+    """The deploy-time check: every sold option's next report inside its own
+    life and its close session, in one INFO action. An exempt group's legs are
+    listed as "exempt_setup" (not looked up: the rule never closes them)."""
+    rows, parts = [], []
+    for occ, root, expiry in sorted(shorts):
+        info = ctx["by_root"].get(root) or {}
+        report = info.get("report")
+        row = {"occ_symbol": occ, "underlying": root, "expiry": expiry.isoformat(),
+               "report_date": None, "report_hour": None, "close_session": None}
+        if occ in ctx["exempt"]:
+            row.update(status="exempt_setup", setup=ctx["exempt"][occ])
+            parts.append(f"{occ}: exempt (setup {ctx['exempt'][occ]}, a defined-risk structure opened for its report)")
+        elif not info.get("ok"):
+            row["status"] = "lookup_failed"
+            parts.append(f"{occ}: report date unknown (lookup failed; not closed on a guess, retried every tick)")
+        elif report is None or report[0] > expiry:
+            row["status"] = "none_before_expiry"
+            parts.append(f"{occ}: no {root} report before expiry {expiry.isoformat()}")
+        else:
+            rdate, hour = report
+            session = earnings_close_session(rdate, hour)
+            due = earnings_close_due(ctx["today"], rdate, hour)
+            row.update(report_date=rdate.isoformat(), report_hour=hour, close_session=session.isoformat(),
+                       status="due" if due else "scheduled")
+            parts.append(f"{occ}: {root} reports {rdate.isoformat()} {EARNINGS_HOUR_WORDS.get(hour, EARNINGS_HOUR_WORDS[''])}"
+                         f", close session {session.isoformat()}{' (due now)' if due else ''}")
+        rows.append(row)
+    return {"action": "INFO", "type": EARNINGS_BACKFILL_TYPE, "legs": rows,
+            "reason": (f"EARNINGS BACKFILL (first pass since start): {len(rows)} sold option(s) checked — "
+                       + "; ".join(parts))}
+
+
+def _earnings_close_due_for(ctx: dict, root: str, expiry):
+    """(report date, hour, close session) when a sold option on `root` expiring
+    on `expiry` (a date) must be closed now, else None."""
+    if not ctx or not ctx.get("active") or expiry is None:
+        return None
+    report = (ctx["by_root"].get(root) or {}).get("report")
+    if not report or report[0] > expiry or not earnings_close_due(ctx["today"], report[0], report[1]):
+        return None
+    return report[0], report[1], earnings_close_session(report[0], report[1])
+
+
+def _earnings_close_reason(ctx: dict, root: str, report_date, hour: str, session, what: str) -> str:
+    head = f"EARNINGS CLOSE: {root} reports {report_date.isoformat()} {EARNINGS_HOUR_WORDS.get(hour, EARNINGS_HOUR_WORDS[''])}"
+    if ctx["today"] > session:
+        return (f"{head}; its last session before the report ({session.isoformat()}) has passed — closing {what} "
+                f"at the first eligible tick")
+    return (f"{head}; {session.isoformat()} is the last session before it — closing {what} rather than holding it "
+            f"through the report")
+
+
 def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
                              roll_skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
     """
@@ -1244,6 +1552,8 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     way (_request_group_close).
 
     Checks every open options position for:
+      0. Earnings close (a sold option, on the last session before its
+         underlying reports; see the EARNINGS CLOSE block above)
       1. DTE exit (21 DTE threshold)
       2. Profit target (50% of max profit for sold premium)
       3. Loss limit (2x credit received)
@@ -1392,9 +1702,19 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
                             "reason": f"{occ} carried no strategy but matches the {group['strategy']} legs on {group['ticker']} {parsed_pos['expiry_date']} — managed with the group"})
         standalone_positions = kept
 
+    # ── EARNINGS CLOSE (2026-11-05): every sold option's next report, looked up
+    # once per underlying per ET day; the first pass since process start also
+    # reports the schedule (the deploy backfill). A bug here must never stop
+    # the other exit rules: it is logged with its traceback and skipped.
+    try:
+        earnings = _earnings_close_context(options_positions, actions, strategy_groups)
+    except Exception as e:
+        logger.exception(f"EARNINGS CLOSE skipped this pass: {type(e).__name__}: {e}")
+        earnings = None
+
     # ── Phase 1: Manage multi-leg strategy groups ─────────────────────
     for group_key, group in strategy_groups.items():
-        group_actions = _manage_strategy_group(group, equity, state)
+        group_actions = _manage_strategy_group(group, equity, state, earnings)
         actions.extend(group_actions)
         positions_checked += len(group["legs"])
 
@@ -1526,6 +1846,51 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
             })
             # Remove from state
             state.pop(occ_symbol, None)
+            continue
+
+        # ── Check 1a: EARNINGS CLOSE (2026-11-05) — ignores hold time ───────
+        # A sold option is bought back at the ask on the last session before
+        # its underlying reports (the EARNINGS CLOSE block above). Judged before
+        # the hold gate, like CRITICAL DTE: a leg sold late in that session
+        # must not ride into the report.
+        _earn = _earnings_close_due_for(earnings, parsed["ticker"], _expiry_date(parsed)) if side == "short" else None
+        if _earn:
+            _earn_reason = _earnings_close_reason(earnings, parsed["ticker"], *_earn, "the sold option")
+            if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "earnings_close", _earn_reason, dte):
+                continue
+            # Judged again every tick (before the hold gate): never a second
+            # buy-to-close while one is working (it could open a long).
+            if [o for o in _open_orders_for([occ_symbol]) if isinstance(o, dict) and str(o.get("side", "")).lower() == "buy"]:
+                actions.append({"action": "WAIT", "ticker": parsed["ticker"], "occ_symbol": occ_symbol,
+                                "reason": f"{_earn_reason} — a close order is already working at the broker",
+                                "type": "earnings_close_working", "dte": dte})
+                continue
+            limit_px = snap.get("ask", 0) if snap else 0
+            if not limit_px or limit_px <= 0:
+                actions.append({"action": "HOLD", "ticker": parsed["ticker"], "occ_symbol": occ_symbol,
+                                "reason": f"{_earn_reason} — no ask quoted, judged again next tick",
+                                "type": "earnings_close_no_ask", "dte": dte})
+                continue
+            result = _submit_close_order(occ_symbol, qty, "buy", limit_px)
+            _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                           unrealized_pnl, "earnings_close", pos_state.get("entry_timestamp"), order_result=result)
+            actions.append({
+                "action": "CLOSE",
+                "ticker": parsed["ticker"],
+                "occ_symbol": occ_symbol,
+                "reason": _earn_reason,
+                "type": "earnings_close",
+                "dte": dte,
+                "pnl": round(unrealized_pnl, 2),
+                "report_date": _earn[0].isoformat(),
+                "report_hour": _earn[1],
+                "close_session": _earn[2].isoformat(),
+                "order": result,
+            })
+            # A rejected close keeps the leg's state (its strategy and entry
+            # time); the rule simply fires again on the next tick.
+            if result.get("status") == "submitted":
+                state.pop(occ_symbol, None)
             continue
 
         # ── MINIMUM HOLD TIME GATE ──────────────────────────────────────
