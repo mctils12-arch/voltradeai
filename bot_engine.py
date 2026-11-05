@@ -47,6 +47,9 @@ import os
 import time
 import subprocess
 import requests
+# BROKER CLOCK ORDER GATE 2026-11-05: every order POST below first calls
+# broker_clock.check_order_allowed() (no order while Alpaca's clock says closed)
+import broker_clock
 # Alpaca rate limiter — prevents silent 429 errors during parallel scans
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -5248,6 +5251,7 @@ def _run_third_leg(macro: dict) -> dict:
                             "time_in_force":"day",
                         }
                         try:
+                            broker_clock.check_order_allowed("SVXY", "third-leg VRP buy")
                             o = _req.post(f"{base_url}/v2/orders",
                                           json=order, headers=headers, timeout=10)
                             actions.append({
@@ -5299,6 +5303,7 @@ def _run_third_leg(macro: dict) -> dict:
                 continue
             qty = pos.get("qty", "0")
             try:
+                broker_clock.check_order_allowed(sym, f"third-leg exit ({trigger})")
                 o = _req.post(f"{base_url}/v2/orders",
                     json={"symbol": sym, "qty": qty, "side": "sell",
                           "type": "market", "time_in_force": "day"},
@@ -5363,6 +5368,7 @@ def _close_sqqq_position(headers: dict, base_url: str) -> list:
                     "type":          "market",
                     "time_in_force": "day",
                 }
+                broker_clock.check_order_allowed("SQQQ", "legacy SQQQ cleanup")
                 o = _req.post(f"{base_url}/v2/orders", json=order, headers=headers, timeout=10)
                 actions.append({
                     "type": "convexity_legacy_cleanup",
@@ -5501,6 +5507,7 @@ def _run_convexity_overlay(macro: dict) -> dict:
                         "time_in_force": "day",
                     }
                     try:
+                        broker_clock.check_order_allowed(put_sym, "convexity put roll close")
                         o = _req.post(f"{base_url}/v2/orders", json=close_order, headers=headers, timeout=10)
                         actions.append({
                             "type": "convexity_roll_close",
@@ -5648,6 +5655,7 @@ def _run_convexity_overlay(macro: dict) -> dict:
                 "time_in_force": "day",
             }
             try:
+                broker_clock.check_order_allowed(occ_symbol, "convexity put buy")
                 o = _req.post(f"{base_url}/v2/orders", json=order, headers=headers, timeout=10)
                 actions.append({
                     "type": "convexity_overlay",
@@ -5721,6 +5729,9 @@ def _unwind_covered_calls(ticker: str) -> list:
                 import logging as _uwlog
                 _uwlog.getLogger("bot_engine").info(
                     f"[CC-UNWIND] {ticker}: Buying back {buy_qty}x {sym} before stock sale")
+                # A blocked buy-back raises OrderBlocked (a RuntimeError):
+                # re-raised below, so the caller does not sell the stock.
+                broker_clock.check_order_allowed(sym, "covered-call buy-back")
                 resp = _req.post(f"{ALPACA_BASE_URL}/v2/orders",
                     json={"symbol": sym, "qty": str(buy_qty),
                           "side": "buy", "type": "market", "time_in_force": "day"},
@@ -5748,14 +5759,24 @@ def _is_regular_hours() -> bool:
     every ~5-minute scan cycle around the clock. Alpaca rejects/cancels a
     market order placed outside regular hours, so the next cycle's drift
     check still saw the same gap and resubmitted — an unbounded cancel/
-    resubmit loop (observed live: 50+ SMH orders canceled over 3 days)."""
+    resubmit loop (observed live: 50+ SMH orders canceled over 3 days).
+
+    BROKER CLOCK ORDER GATE 2026-11-05: the time of day alone passed
+    weekends, exchange holidays and half-day afternoons (the Tier 2 scan runs
+    04:00-20:00 ET every day), so inside 09:30-16:00 the broker's clock must
+    also say open (broker_clock.orders_allowed: Alpaca /v2/clock, cached; an
+    unreadable clock with no usable last reading counts as open, i.e. the
+    time-of-day test alone, as before). Every floor deferral branch keyed on
+    this function therefore defers on those days too."""
     try:
         et_time = datetime.now(ZoneInfo("America/New_York"))
     except ZoneInfoNotFoundError:
         # tzdata missing on this host — fail closed rather than guess.
         return False
     hour = et_time.hour + et_time.minute / 60.0
-    return 9.5 <= hour < 16.0
+    if not 9.5 <= hour < 16.0:
+        return False
+    return broker_clock.orders_allowed()[0]
 
 
 # ── Floor regime dwell (2026-10-13) ─────────────────────────────────────────
@@ -6026,7 +6047,12 @@ def _floor_vm_broker_clock() -> tuple:
 def _floor_vm_order(symbol: str, qty: int, side: str, limit_px: float) -> dict:
     """A marketable DAY limit at the NBBO (buy at the ask, sell at the bid):
     fills like a market order in these index ETFs, but never through a quote
-    that moves while the order is in flight."""
+    that moves while the order is in flight. A blocked order (the broker's
+    clock says closed) is a failed one: nothing is sent."""
+    try:
+        broker_clock.check_order_allowed(symbol, f"floor {side}")
+    except broker_clock.OrderBlocked as _blocked:
+        return {"ok": False, "order_id": None, "error": str(_blocked)[:200]}
     alpaca_throttle.acquire()
     resp = requests.post(
         f"{ALPACA_BASE_URL}/v2/orders",
@@ -6096,9 +6122,14 @@ def _manage_vol_managed_floor(macro: dict = None, reduce_only: bool = False) -> 
         return result
 
     hour = _et_now_hour()
-    if not _is_regular_hours() or not (FLOOR_VM_TRADE_WINDOW_ET[0] <= hour < FLOOR_VM_TRADE_WINDOW_ET[1]):
+    in_window = FLOOR_VM_TRADE_WINDOW_ET[0] <= hour < FLOOR_VM_TRADE_WINDOW_ET[1]
+    if not _is_regular_hours() or not in_window:
         result["status"] = "deferred"
-        result["actions"].append({"type": "floor_vm_deferred", "reason": "outside 09:45-15:54 ET"})
+        # inside the window, _is_regular_hours() is False only when the broker
+        # clock says closed (BROKER CLOCK ORDER GATE 2026-11-05: a holiday or
+        # a half-day afternoon)
+        result["actions"].append({"type": "floor_vm_deferred",
+                                  "reason": "outside 09:45-15:54 ET" if not in_window else "market closed (broker clock)"})
         return result
     clock_ok, clock_why = _floor_vm_broker_clock()
     if not clock_ok:
@@ -6383,6 +6414,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                                             "shares": _shares, "reason": "market_closed",
                                         })
                                     else:
+                                        broker_clock.check_order_allowed(b_ticker, "floor basket buy")
                                         alpaca_throttle.acquire()
                                         requests.post(
                                             f"{ALPACA_BASE_URL}/v2/orders",
@@ -6434,6 +6466,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                                                 })
                                                 _cc_blocked = True
                                         if not _cc_blocked:
+                                            broker_clock.check_order_allowed(b_ticker, "floor basket sell")
                                             alpaca_throttle.acquire()
                                             requests.post(
                                                 f"{ALPACA_BASE_URL}/v2/orders",
@@ -6521,6 +6554,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                                 result["actions"].append({"type": "cc_unwind_blocked", "ticker": _xt, "reason": str(_uw_err)})
                                 _exit_blocked = True
                                 continue
+                            broker_clock.check_order_allowed(_xt, "floor zero-target exit")
                             alpaca_throttle.acquire()
                             requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                                 json={"symbol": _xt, "qty": str(qty),
@@ -6637,6 +6671,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                 "reason": "market_closed"})
         elif shares_diff > 0:
             try:
+                broker_clock.check_order_allowed(floor_ticker, "floor buy")
                 alpaca_throttle.acquire()
                 requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                     json={"symbol": floor_ticker, "qty": str(shares_diff),
@@ -6664,6 +6699,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                         result["actions"].append({"type": "cc_unwind_blocked", "reason": str(_uw_err)})
                         return result
                 try:
+                    broker_clock.check_order_allowed(floor_ticker, "floor sell")
                     alpaca_throttle.acquire()
                     requests.post(f"{ALPACA_BASE_URL}/v2/orders",
                         json={"symbol": floor_ticker, "qty": str(sell_qty),
@@ -6713,6 +6749,9 @@ def _manage_defensive_floor(macro: dict, floor_regime: dict = None) -> dict:
         onsets before VXX spikes.
       * Only rebalances on regime change or >10% drift band, to avoid churn.
       * Uses limit orders near last trade to minimize spread slippage.
+      * Regular hours only (BROKER CLOCK ORDER GATE 2026-11-05): outside them
+        an order is deferred, its state not persisted, and the next scan
+        re-decides (it used to send orders at any hour, queued for the open).
 
     This mirrors _manage_spy_floor() for the QQQ leg but moves the opposite
     direction, so as QQQ floor → 0 in BEAR, GLD floor ramps up.
@@ -6813,7 +6852,17 @@ def _manage_defensive_floor(macro: dict, floor_regime: dict = None) -> dict:
         # ── Target 0: sell any existing GLD on regime change ─────────────
         if target_pct <= 0:
             if (regime_changed or last_regime is None) and current_shares > 0:
+                if not _is_regular_hours():
+                    # BROKER CLOCK ORDER GATE 2026-11-05: this floor sent its
+                    # orders at any hour (queued for the next open). Deferred,
+                    # not skipped: last_regime is NOT persisted, so the exit
+                    # is retried on the next scan (the basket floor's
+                    # zero-target contract, KNOWN BROKEN #16).
+                    result["actions"].append({"type": "defensive_exit_deferred", "shares": current_shares,
+                                              "ticker": defensive_ticker, "reason": "market_closed"})
+                    return result
                 try:
+                    broker_clock.check_order_allowed(defensive_ticker, "defensive floor exit")
                     alpaca_throttle.acquire()
                     requests.post(
                         f"{ALPACA_BASE_URL}/v2/orders",
@@ -6882,8 +6931,16 @@ def _manage_defensive_floor(macro: dict, floor_regime: dict = None) -> dict:
             return result
 
         _limit_price = str(round(last_px, 2))
+        if not _is_regular_hours():
+            # BROKER CLOCK ORDER GATE 2026-11-05: deferred, not skipped — the
+            # state is not persisted, so the next scan re-decides on live
+            # positions and the rebalance happens once the market is open.
+            result["actions"].append({"type": "defensive_rebalance_deferred", "shares_diff": shares_diff,
+                                      "ticker": defensive_ticker, "reason": "market_closed"})
+            return result
         if shares_diff > 0:
             try:
+                broker_clock.check_order_allowed(defensive_ticker, "defensive floor buy")
                 alpaca_throttle.acquire()
                 requests.post(
                     f"{ALPACA_BASE_URL}/v2/orders",
@@ -6907,6 +6964,7 @@ def _manage_defensive_floor(macro: dict, floor_regime: dict = None) -> dict:
             sell_qty = min(abs(shares_diff), current_shares)
             if sell_qty > 0:
                 try:
+                    broker_clock.check_order_allowed(defensive_ticker, "defensive floor sell")
                     alpaca_throttle.acquire()
                     requests.post(
                         f"{ALPACA_BASE_URL}/v2/orders",

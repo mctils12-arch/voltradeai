@@ -192,6 +192,13 @@ BASE_CONFIG = {
     # NEUTRAL floor + GLD held ~89%), leaving room under the 95% invested cap
     # for options and satellites.
     "FLOOR_VM_CAPITAL_PCT": 0.85,
+    # BROKER CLOCK ORDER GATE 2026-11-05 (human-directed; broker_clock.py):
+    # every Python order POST first asks Alpaca's /v2/clock whether the market
+    # is open. One cached reading serves every order path; it is re-read after
+    # this many seconds, or at the reading's own next open/close if sooner (so
+    # a 13:00 half-day close takes effect at 13:00). Expected effect: at most
+    # 2 clock reads a minute per process; no order is sent while closed.
+    "BROKER_CLOCK_TTL_SECONDS": 30,
     # FLOOR REGIME DWELL 2026-10-13: consecutive DISTINCT macro readings
     # (macro_data snapshot "timestamp"; the snapshot is cached 300s, so a
     # reading repeated on later 60-120s scans counts once) a non-risk-off
