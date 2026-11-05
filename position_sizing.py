@@ -513,7 +513,24 @@ try:
     from system_config import BASE_CONFIG as _HEAT_CFG
     _FLOOR_TICKER = _HEAT_CFG.get("FLOOR_TICKER", "QQQ")
 except ImportError:
+    _HEAT_CFG = {}
     _FLOOR_TICKER = "QQQ"
+
+
+def _passive_floor_tickers() -> set:
+    """The tickers the configured floor holds, excluded from heat and from
+    deployed capital (passive allocation, not active risk). Read at call time.
+
+    2026-11-05 [REPAIR]: this exempted FLOOR_TICKER (QQQ) only. Under
+    FLOOR_MODE "vol_managed_spy" the floor is SPY + SSO, about 85% of equity,
+    so every new stock/ETF/option trade was sized as if 85% were already at
+    risk: two extra positions in the count scalar, the 0.70x/0.50x deployed
+    scalars, and almost no deploy budget left. Under "basket" (the rollback)
+    the set is FLOOR_TICKER alone, exactly as before."""
+    if _HEAT_CFG.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+        return {t for t in (_HEAT_CFG.get("FLOOR_VM_TICKER", "SPY"),
+                            _HEAT_CFG.get("FLOOR_VM_LEVERED_TICKER", "SSO")) if t}
+    return {_HEAT_CFG.get("FLOOR_TICKER", _FLOOR_TICKER)}
 
 def _portfolio_heat_scalar(current_positions: list, equity: float, 
                             new_ticker_sector: str = None) -> float:
@@ -526,14 +543,16 @@ def _portfolio_heat_scalar(current_positions: list, equity: float,
     - 6+ positions: 0.5x
     
     Extra penalty if new trade is in same sector as existing positions.
-    NOTE: QQQ floor is excluded — it's passive allocation, not active risk.
+    NOTE: the floor is excluded — it's passive allocation, not active risk
+    (_passive_floor_tickers: QQQ under "basket", SPY + SSO under "vol_managed_spy").
     """
     if not current_positions or not isinstance(current_positions, list):
         return 1.0
     
-    # Exclude the passive floor ticker (QQQ) from heat calculation
-    active_positions = [p for p in current_positions 
-                        if p.get("symbol", "") != _FLOOR_TICKER]
+    # Exclude the passive floor's tickers from heat calculation
+    _floor = _passive_floor_tickers()
+    active_positions = [p for p in current_positions
+                        if p.get("symbol", "") not in _floor]
     
     num_pos = len(active_positions)
     total_deployed = sum(abs(float(p.get("market_value", 0))) for p in active_positions)
@@ -1382,10 +1401,11 @@ def size_portfolio(trades: list, equity: float, current_positions: list = None,
     total_deployed = 0
     max_deploy = equity * ABSOLUTE_MAX_PORTFOLIO_HEAT
 
-    # Account for already-deployed capital (exclude passive QQQ floor)
+    # Account for already-deployed capital (exclude the passive floor's tickers)
     if current_positions and isinstance(current_positions, list):
+        _floor = _passive_floor_tickers()
         active_pos = [p for p in current_positions
-                      if p.get("symbol", "") != _FLOOR_TICKER]
+                      if p.get("symbol", "") not in _floor]
         total_deployed = sum(abs(float(p.get("market_value", 0))) for p in active_pos)
     else:
         active_pos = []
