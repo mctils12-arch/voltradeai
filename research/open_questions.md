@@ -23420,3 +23420,9 @@ Every earnings gate was therefore blind to the next 5–7 days. Already inside #
 **[DECIDED 2026-11-05: not built] The dial.** The study's V1 (16% target, 1.5x cap) was the pre-registered design; nothing else was tuned. The human decided not to build 18% / 2x now; revisit after 3 months of live results on this floor.
 - 18% / 2x is the obvious next point. It would raise the average exposure and the drawdowns together.
 - Per REASONING STANDARD 4 it is not tried until V1 has 3+ months live and its tracking holds. Testing variants on the same 1993–2026 sample would be the fishing the pre-registration was built to avoid.
+
+## 2026-11-05 — opening-window exits: the counterfactual to log
+
+The opening window (no option exit before 09:45 ET) rests on the bleed study's fills (53 lots closed in the first 5 minutes lost $5,083, median fill 1.41x fair). Its rollback trigger needs data the system does not log yet: for each deferred exit, the bid at the moment the rule first fired (09:30–09:45) against the fill after 09:45.
+- Proposed: options_manager adds `first_fired_bid` / `first_fired_at` to the deferred action and the leg's state. The fill comes from the orders feed.
+- A 20-session read then shows, per rule, whether waiting paid. Own PR, measurement only.
