@@ -8169,6 +8169,8 @@ print(json.dumps({'files': count}))
   const streamPriceHistory: Record<string, number[]> = {};
   const streamLastSignal: Record<string, number>     = {};
   let   streamWs: WebSocket | null = null;
+  // RECONNECT CHAIN FIX 2026-11-05: the one pending reconnect (see startStreaming)
+  let   streamReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let   streamConnected = false;
 
   // ── WebSocket-Driven Position Monitor ──────────────────────────────────────
@@ -9240,7 +9242,20 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   }, 60000);
 
   function startStreaming() {
-    if (streamWs) { try { streamWs.close(); } catch (_) {} }
+    // RECONNECT CHAIN FIX 2026-11-05 (live: 200 STREAM rows in 11 minutes and
+    // Alpaca's 406 "connection limit exceeded", the feed down most of the time).
+    // Every socket's close handler scheduled a reconnect, including a socket
+    // this function had just replaced. So each extra start (an owner toggle,
+    // boot) began a chain: the replaced socket's close restarted the stream 10 s
+    // later, closing the healthy socket, whose close restarted it again, forever,
+    // while Alpaca refused the overlapping second connection. Now a replaced or
+    // stopped socket is detached BEFORE it is closed, its handlers ignore it,
+    // and there is at most one pending reconnect.
+    if (streamReconnectTimer) { clearTimeout(streamReconnectTimer); streamReconnectTimer = null; }
+    const prevWs = streamWs;
+    streamWs = null;
+    streamConnected = false;
+    if (prevWs) { try { prevWs.close(); } catch (_) {} }
 
     // REPAIR 2026-07-09 (R19): this was hardcoded to /v2/sip — the same
     // paid-entitlement tier whose 2026-07-06 rejection (wishlist.md #9)
@@ -9263,6 +9278,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     });
 
     ws.on("message", async (raw: Buffer) => {
+      if (streamWs !== ws) return; // a replaced socket's late frames are ignored
       try {
         const msgs = JSON.parse(raw.toString());
         const items = Array.isArray(msgs) ? msgs : [msgs];
@@ -9349,10 +9365,15 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     });
 
     ws.on("error", (err: Error) => {
+      // the listener always stays attached (an unhandled 'error' event would
+      // exit the process); only the current socket's errors are audited
+      if (streamWs !== ws) return;
       audit("STREAM-ERROR", err.message.slice(0, 100));
     });
 
     ws.on("close", () => {
+      // replaced or stopped on purpose: no reconnect, no DISCONNECT row
+      if (streamWs !== ws) return;
       // REPAIR 2026-07-09 (R19): this reconnect loop was completely silent —
       // no audit trail distinguished "briefly blipped" from "has never once
       // subscribed successfully." Logging the wasConnected flag makes a
@@ -9366,13 +9387,17 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
         : "Feed closed before ever reaching subscribed state — reconnecting in 10s");
       // Auto-reconnect after 10 seconds unless the owner stopped the bot — the
       // feed drives the WS stops, which keep running through a halt (N15)
-      setTimeout(() => { if (haltAllows(currentHaltState(), "exit")) startStreaming(); }, 10000);
+      if (streamReconnectTimer) clearTimeout(streamReconnectTimer);
+      streamReconnectTimer = setTimeout(() => { if (haltAllows(currentHaltState(), "exit")) startStreaming(); }, 10000);
     });
   }
 
   function stopStreaming() {
-    if (streamWs) { try { streamWs.close(); } catch (_) {} streamWs = null; }
+    if (streamReconnectTimer) { clearTimeout(streamReconnectTimer); streamReconnectTimer = null; }
+    const prevWs = streamWs;
+    streamWs = null; // detached first, so its close handler does not reconnect
     streamConnected = false;
+    if (prevWs) { try { prevWs.close(); } catch (_) {} }
   }
 
   // PYTHON DAEMON LIVENESS (JOB HEARTBEAT, Phase 3 "no silent failures",
