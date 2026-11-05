@@ -22,6 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { transformSync } from "esbuild";
 import { OPTIONS_DEFINED_RISK_STRATEGIES, OPTIONS_MULTI_LEG_STRATEGIES } from "../shared/positionLevels";
+import { runLadder, LADDER_DEFAULTS } from "./limitLadder";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -60,6 +61,10 @@ const HELPERS = [
   "function posKillHasValidMark(currentPriceRaw: unknown, plpcRaw: unknown): boolean",
   "function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: string,",
 ].map(functionSourceIfPresent).join("\n");
+// BACKSTOP LADDER 2026-11-05: a confirmed option kill runs the REAL ladder
+// starter (see posKillMarkGuard.test.ts); the injected sleep never resolves,
+// so each kill sends exactly its step-0 limit order.
+const LADDER_STARTER = functionSourceIfPresent("async function posKillStartOptionLadder(");
 
 type Row = { symbol: string; asset_class?: string; side: string; qty: string; avg_entry_price?: string; current_price?: string; unrealized_plpc?: string; created_at?: string };
 function makeHarness(structures: Map<string, string>, startIso = "2026-10-29T13:30:09Z") {
@@ -84,6 +89,9 @@ function makeHarness(structures: Map<string, string>, startIso = "2026-10-29T13:
     pkgVersion: "test",
     posKillPendingBreach: new Map<string, { firstSeenMs: number; pnlPct: number }>(),
     posKillNoMarkAuditDay: new Map<string, string>(),
+    posKillLadderInFlight: new Map<string, number>(),
+    runLadder,
+    ladderConfig: LADDER_DEFAULTS,
   };
   const js = transpile(`
 ${HELPERS}
@@ -91,8 +99,13 @@ let posKillStructuresCurrent = new Map();
 const posKillStructureHoldDay = new Map();
 async function runTick(positions, env) {
   const { FLOOR_AND_LEG_TICKERS, LEGACY_DEFENSIVE_CANDIDATE_TICKERS, audit, alpaca, state, openOrders,
-          getOrderParams, notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay } = env;
+          getOrderParams, notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay,
+          posKillLadderInFlight, runLadder } = env;
   posKillStructuresCurrent = env.structures;
+  const BACKSTOP_LADDER_CONFIG = env.ladderConfig;
+  const posKillOptionQuote = async () => null;
+  const posKillLadderSleep = () => new Promise(() => undefined);
+  ${LADDER_STARTER}
   const activeTickers = new Set();
   ${loopBody}
 }

@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { transformSync } from "esbuild";
+import { runLadder, LADDER_DEFAULTS } from "./limitLadder";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -70,6 +71,10 @@ const HELPERS = [
   "function posKillHasValidMark(currentPriceRaw: unknown, plpcRaw: unknown): boolean",
   "function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: string,",
 ].map(functionSourceIfPresent).join("\n");
+// BACKSTOP LADDER 2026-11-05: a confirmed option kill runs the REAL ladder
+// starter (see posKillMarkGuard.test.ts); the injected sleep never resolves,
+// so each kill sends exactly its step-0 limit order.
+const LADDER_STARTER = functionSourceIfPresent("async function posKillStartOptionLadder(");
 
 type Row = {
   symbol: string; asset_class?: string; side: string; qty: string; avg_entry_price?: string;
@@ -118,14 +123,23 @@ function makeHarness(startIso = "2026-10-29T13:30:09Z") {
     posKillNoMarkAuditDay: new Map<string, string>(),
     marketOpen: null as boolean | null,
     openingWindow: false,
+    posKillLadderInFlight: new Map<string, number>(),
+    quotes: new Map<string, { bid: number; ask: number }>(),
+    runLadder,
+    ladderConfig: LADDER_DEFAULTS,
   };
   const js = transpile(`
 ${HELPERS}
 async function runTick(positions, env) {
   const { FLOOR_AND_LEG_TICKERS, LEGACY_DEFENSIVE_CANDIDATE_TICKERS, audit, alpaca, state, openOrders,
-          getOrderParams, notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay } = env;
+          getOrderParams, notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay,
+          posKillLadderInFlight, runLadder } = env;
   const posKillMarketOpenCurrent = env.marketOpen;
   const posKillOptionOpeningWindowCurrent = env.openingWindow;
+  const BACKSTOP_LADDER_CONFIG = env.ladderConfig;
+  const posKillOptionQuote = async (symbol) => env.quotes.get(symbol) ?? null;
+  const posKillLadderSleep = () => new Promise(() => undefined);
+  ${LADDER_STARTER}
   const activeTickers = new Set();
   ${loopBody}
 }

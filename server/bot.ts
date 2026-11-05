@@ -69,6 +69,7 @@ import { recordHealthSnapshot } from "./pipelineHealthHistory";
 import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
+import { runLadder, ladderConfigFromEnv, ladderQuoteFromAlpaca, BACKSTOP_LADDER_QUOTE_TIMEOUT_MS, type LadderQuote, type LadderSubmit } from "./limitLadder";
 import { peakEquityFromRpc } from "./peakEquityRpc";
 import { AUDIT_PRUNE_EVERY_INSERTS, ensureAuditSchema, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
@@ -830,6 +831,56 @@ function isOptionOpeningWindowET(now: Date): boolean {
   } catch {
     return false;
   }
+}
+
+// BACKSTOP LADDER 2026-11-05 ([RULE-REVIEW]; human-approved change to the
+// frozen order path: "Option backstop/emergency exit: I approve changing this
+// protected path. Replace market orders with a marketable-limit ladder ...").
+// POS-KILL's option exit no longer posts one market order. It runs
+// server/limitLadder.ts: a limit at the bid (sell) / ask (buy), re-priced
+// every stepSeconds one tickStep further through the market, and ONE market
+// order for any remainder only after hardTimeoutSeconds. Stocks keep
+// getOrderParams(current, 'stop_loss'). The tunables and their
+// VOLTRADE_BACKSTOP_LADDER_* env overrides live in limitLadder.ts; an invalid
+// override keeps the default and is logged once here.
+const { config: BACKSTOP_LADDER_CONFIG, rejected: backstopLadderEnvRejected } = ladderConfigFromEnv(process.env);
+if (backstopLadderEnvRejected.length > 0) {
+  console.warn(`[pos-kill] backstop ladder env override(s) ignored, defaults kept: ${backstopLadderEnvRejected.join(", ")}`);
+}
+
+/**
+ * The option's latest bid/ask for the backstop ladder, or null (the ladder then
+ * uses its last quote, else the position's mark). Same Alpaca options quote
+ * endpoint and fields as bot_engine.py's convexity overlay (GET
+ * /v1beta1/options/quotes/latest, bp/ap). Feed: ALPACA_OPTIONS_FEED when set
+ * (the Python resolver's override), else "indicative", the feed this paper
+ * account gets (OPRA is 403, KNOWN BROKEN #25). Indicative quotes are not
+ * NBBO: a sell limit above the real bid rests and walks down; one at or below
+ * it is marketable.
+ */
+async function posKillOptionQuote(occ: string): Promise<LadderQuote | null> {
+  const feed = (process.env.ALPACA_OPTIONS_FEED || "").trim() || "indicative";
+  const url = `https://data.alpaca.markets/v1beta1/options/quotes/latest?symbols=${encodeURIComponent(occ)}&feed=${encodeURIComponent(feed)}`;
+  try {
+    const r = await fetch(url, {
+      headers: { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET },
+      signal: AbortSignal.timeout(BACKSTOP_LADDER_QUOTE_TIMEOUT_MS),
+    });
+    if (!r.ok) {
+      console.warn(`[pos-kill] option quote ${occ}: HTTP ${r.status} — the ladder uses its last quote or the mark`);
+      return null;
+    }
+    const body = (await r.json()) as { quotes?: Record<string, unknown> } | null;
+    return ladderQuoteFromAlpaca(body?.quotes?.[occ]);
+  } catch (err) {
+    console.warn(`[pos-kill] option quote ${occ} failed: ${err instanceof Error ? err.message : String(err)} — the ladder uses its last quote or the mark`);
+    return null;
+  }
+}
+
+/** The ladder's wait between steps and order reads (named so the POS-KILL harnesses can run it on a fake clock). */
+function posKillLadderSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // POS-KILL STRUCTURE HOLD 2026-11-02 ([RULE-REVIEW], human-directed "fix the
@@ -8272,6 +8323,108 @@ print(json.dumps({'files': count}))
   // of a held long stock (an extended-hours exit inside a real extended session)
   let posKillOrdersClosedCurrent = false;
   let posKillLongStockExitOpenCurrent = true;
+  // BACKSTOP LADDER 2026-11-05: options whose kill ladder is still running ->
+  // its start time (ms). Between one step's cancel and the next step's order
+  // neither openOrders nor the broker shows an open order, so the kill branch
+  // checks this map by name. In-memory: a restart forgets it, and the broker
+  // open-order guard covers any order a ladder left working.
+  const posKillLadderInFlight: Map<string, number> = new Map();
+
+  /**
+   * POS-KILL's option exit (BACKSTOP LADDER 2026-11-05): runLadder for one
+   * option position, through the unchanged alpaca() transport. Every order the
+   * ladder sends is registered in openOrders the way the single kill order
+   * was: isExit, plus the pendingExitFill the sweeper records once Alpaca
+   * reports that order filled (KNOWN BROKEN #34/#35). Every step and the
+   * outcome are audited (POS-KILL-LADDER; POS-KILL-ERROR when it stops early).
+   * Resolves once the first step has an outcome (its order is out, rejected
+   * or skipped) or the ladder has ended; the rest runs detached, so the sync
+   * loop waits for one quote read and one POST, as it waited for one POST
+   * before. Never rejects.
+   */
+  async function posKillStartOptionLadder(ticker: string, closeSide: "buy" | "sell", qty: number,
+                                          mark: number, pnlPct: number): Promise<void> {
+    if (posKillLadderInFlight.has(ticker)) {
+      audit("POS-KILL-SKIP", `${ticker}: its backstop limit ladder is already running — not starting another`);
+      return;
+    }
+    posKillLadderInFlight.set(ticker, Date.now());
+    let firstOrderOut: () => void = () => undefined;
+    const firstOrder = new Promise<void>((resolve) => { firstOrderOut = resolve; });
+    const send = async (order: Record<string, string>): Promise<LadderSubmit> => {
+      try {
+        const placed = await alpaca("/v2/orders", {
+          method: "POST",
+          body: JSON.stringify({ symbol: ticker, side: closeSide, time_in_force: "day", ...order }),
+        });
+        return { ok: true, order: placed };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        // alpaca() throws "Alpaca <status>: <body>" on a non-2xx. A 4xx means
+        // the order was refused; anything else (a timeout, a 5xx) is an
+        // unknown outcome, and the ladder stops rather than risk a second order.
+        return { ok: false, rejected: /^Alpaca 4\d\d\b/.test(error), error };
+      }
+    };
+    notify("alert", `POSITION KILL: ${ticker} at ${pnlPct.toFixed(1)}% — closing with a limit ladder (market order after ${BACKSTOP_LADDER_CONFIG.hardTimeoutSeconds}s unfilled)`);
+    void runLadder({
+      submitLimit: (q, price) => send({ qty: String(q), type: "limit", limit_price: price.toFixed(2) }),
+      submitMarket: (q) => send({ qty: String(q), type: "market" }),
+      cancel: (id) => alpaca(`/v2/orders/${id}`, { method: "DELETE" }),
+      getOrder: (id) => alpaca(`/v2/orders/${id}`),
+      getQuote: () => posKillOptionQuote(ticker),
+      // The live position, read before every order after the first: a sell
+      // for a long that someone else already closed could OPEN a short option.
+      getPositionQty: async () => {
+        try {
+          const live = await alpaca(`/v2/positions/${ticker}`);
+          const q = Number((live as { qty?: unknown } | null)?.qty);
+          if (!Number.isFinite(q)) return null;
+          return closeSide === "sell" ? Math.max(0, q) : Math.max(0, -q);
+        } catch (err) {
+          // Alpaca answers 404 once the position no longer exists; any other failure is unknown.
+          return /^Alpaca 404\b/.test(err instanceof Error ? err.message : String(err)) ? 0 : null;
+        }
+      },
+      now: () => Date.now(),
+      sleep: posKillLadderSleep,
+      onEvent: (e) => {
+        audit("POS-KILL-LADDER", `${ticker}: ${e.line}`);
+        if (e.type === "submitted") {
+          openOrders.push({
+            orderId: e.order.id,
+            ticker,
+            score: 0,
+            placedAt: Date.now(),
+            side: closeSide,
+            qty: e.order.qty,
+            limitPrice: e.order.price ?? 0,
+            isExit: true,
+            pendingExitFill: { ticker, exitSide: closeSide, pnlPct, exitReason: "position_kill", codeVersion: pkgVersion },
+          });
+        }
+        // The first step has an outcome (an order out, a rejection, a skipped
+        // step): the kill tick moves on, the ladder continues detached.
+        firstOrderOut();
+      },
+    }, { side: closeSide, qty, fallbackPrice: mark }, BACKSTOP_LADDER_CONFIG)
+      .then((result) => {
+        if (result.status === "error") {
+          audit("POS-KILL-ERROR", `${ticker}: backstop ladder stopped — ${result.summary}`);
+          notify("alert", `POSITION KILL: ${ticker} backstop ladder stopped — ${result.reason}`);
+        } else {
+          audit("POS-KILL-LADDER", `${ticker}: ${result.summary}`);
+        }
+      })
+      .catch((err) => {
+        audit("POS-KILL-ERROR", `${ticker}: backstop ladder failed — ${err instanceof Error ? err.message : String(err)}`);
+      })
+      .finally(() => {
+        posKillLadderInFlight.delete(ticker);
+        firstOrderOut();
+      });
+    await firstOrder;
+  }
 
   /**
    * Load positions + stop state from Alpaca + disk, build the monitoredPositions map.
@@ -8539,6 +8692,15 @@ except: print('{}')
             audit("POS-KILL-SKIP", `${ticker}: down ${pnlPct.toFixed(1)}% but a ${closeSide} order is already in flight (id=${trackedExit.orderId}) — not resubmitting`);
             continue;
           }
+          // BACKSTOP LADDER 2026-11-05: between a ladder step's cancel and its
+          // next order neither the list above nor the broker shows an open
+          // order, so a ladder still working this option is checked by name.
+          // (typeof guard: this loop body runs standalone in the test harnesses)
+          const ladderSince = typeof posKillLadderInFlight !== "undefined" ? posKillLadderInFlight.get(ticker) : undefined;
+          if (ladderSince !== undefined) {
+            audit("POS-KILL-SKIP", `${ticker}: down ${pnlPct.toFixed(1)}% but its backstop limit ladder is still working (started ${Math.round((Date.now() - ladderSince) / 1000)}s ago) — not resubmitting`);
+            continue;
+          }
           let brokerExitOpen = 0;
           try {
             const existingResp = await alpaca(`/v2/orders?status=open&symbols=${ticker}&side=${closeSide}`);
@@ -8554,6 +8716,18 @@ except: print('{}')
           }
 
           audit("POS-KILL", `${ticker}: position down ${pnlPct.toFixed(1)}% — forcing liquidation (threshold: ${POSITION_KILL_LOSS_PCT}%)`);
+          // ── BACKSTOP LADDER (2026-11-05, human-approved frozen-path change) ──
+          // An option is not sent a market order here. posKillStartOptionLadder
+          // works a marketable limit (the bid for a sell, the ask for a buy),
+          // concedes one tick per step, and only after the hard timeout sends
+          // one market order for the remainder. It returns once the first step
+          // has an outcome; the rest runs detached, so this loop is not held for
+          // minutes. `current` (the mark the guard above validated) is its price
+          // when no quote is available. Stocks keep the single order below.
+          if (isOptionPos) {
+            await posKillStartOptionLadder(ticker, closeSide, qty, current, pnlPct);
+            continue;
+          }
           try {
             const orderParams = getOrderParams(current, 'stop_loss');
             const killOrderResult = await alpaca("/v2/orders", {
