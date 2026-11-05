@@ -84,3 +84,23 @@ def _hermetic_regime_files(tmp_path_factory):
         for attr, fname in names.items():
             stack.enter_context(patch.object(storage_config, attr, os.path.join(d, fname)))
         yield
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_broker_clock():
+    """BROKER CLOCK ORDER GATE 2026-11-05 (broker_clock.py): every order POST
+    now first asks Alpaca's clock whether the market is open. By default the
+    suite has NO clock reading — the gate's "clock unknown" branch, which
+    allows the order — so every existing test sees exactly the order path it
+    saw before, makes no extra requests.get call (call counts unchanged) and
+    never reaches the network. The cache is cold before and after every test,
+    so no reading (above all a "closed" one) leaks between tests. Tests of the
+    gate patch broker_clock._fetch_clock_body themselves, which shadows this.
+    Function-scoped: the reset must run per test. Changes reachability, not
+    behavior."""
+    import broker_clock
+
+    broker_clock.reset_cache()
+    with patch.object(broker_clock, "_fetch_clock_body", return_value=None):
+        yield
+    broker_clock.reset_cache()

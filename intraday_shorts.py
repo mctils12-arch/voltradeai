@@ -25,6 +25,8 @@ for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
            "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS"):
     _os.environ.setdefault(_v, "2")
 import os, json, time, logging, requests
+# BROKER CLOCK ORDER GATE 2026-11-05: no order while Alpaca's clock says closed
+import broker_clock
 # Alpaca rate limiter (OPT 2026-04-20)
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -411,6 +413,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
             if shares <= 0: continue
 
             try:
+                broker_clock.check_order_allowed(sym, "intraday short entry")
                 alpaca_throttle.acquire()
                 order_r = requests.post(f"{ALPACA_BASE}/v2/orders",
                     json={"symbol": sym, "qty": str(shares), "side": "sell",
@@ -510,6 +513,7 @@ def close_open_shorts():
                 headers=HEADERS, timeout=8).json()
             curr = float(snap.get(sym, {}).get("latestTrade", {}).get("p", 0) or 0)
             if curr <= 0: continue
+            broker_clock.check_order_allowed(sym, "intraday short cover")
             alpaca_throttle.acquire()
             requests.post(f"{ALPACA_BASE}/v2/orders",
                 json={"symbol": sym, "qty": str(trade["shares"]),

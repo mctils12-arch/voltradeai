@@ -32,6 +32,9 @@ import logging
 import requests
 
 import alpaca_feed
+# BROKER CLOCK ORDER GATE 2026-11-05 (human-approved frozen-path touch, the gate only):
+# no order while Alpaca's clock says closed
+import broker_clock
 # Alpaca rate limiter (OPT 2026-04-20): prevents silent 429s during busy scans
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -2385,6 +2388,9 @@ def submit_options_order(contract: dict) -> dict:
         return {"status": "error", "detail": "Invalid contract data"}
     
     try:
+        # BROKER CLOCK ORDER GATE 2026-11-05: raises OrderBlocked while the
+        # broker's clock says closed -> {"status": "error"} below, nothing sent.
+        broker_clock.check_order_allowed(occ_symbol, f"option order ({side})")
         alpaca_throttle.acquire()
         resp = requests.post(
             f"{ALPACA_BASE}/v2/orders",
@@ -2468,6 +2474,9 @@ def _submit_mleg_order(legs: list, qty: int, limit_price: float, label: str) -> 
     }
 
     try:
+        # BROKER CLOCK ORDER GATE 2026-11-05: raises OrderBlocked while the
+        # broker's clock says closed -> {"status": "error"} below, nothing sent.
+        broker_clock.check_order_allowed(legs[0]["symbol"] if legs else label, f"mleg order ({label})")
         alpaca_throttle.acquire()
         resp = requests.post(
             f"{ALPACA_BASE}/v2/orders",

@@ -33,6 +33,8 @@ import requests
 # automatically if the subscription returns. Same wiring as
 # options_execution.py (v1.0.498).
 import alpaca_feed
+# BROKER CLOCK ORDER GATE 2026-11-05: no order while Alpaca's clock says closed
+import broker_clock
 from datetime import datetime, timedelta
 
 try:
@@ -324,6 +326,7 @@ def _submit_close_order(occ_symbol: str, qty: int, side: str, limit_price: float
         return {"status": "error", "detail": "Invalid limit price"}
 
     try:
+        broker_clock.check_order_allowed(occ_symbol, f"option close ({side})")
         resp = requests.post(
             f"{ALPACA_BASE}/v2/orders",
             headers={**_alpaca_headers(), "Content-Type": "application/json"},
@@ -554,6 +557,7 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
     # Try mleg close first
     mleg_error = ""
     try:
+        broker_clock.check_order_allowed(ticker, "strategy close (mleg)")
         payload = {
             "order_class": "mleg",
             "qty": str(max(qty, 1)),
@@ -571,6 +575,12 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
             order = resp.json()
             return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg", "detail": f"mleg close: {len(mleg_legs)} legs"}
         mleg_error = f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
+    except broker_clock.OrderBlocked as blocked:
+        # BROKER CLOCK ORDER GATE 2026-11-05: while the broker's clock says
+        # closed no leg can be sent either, so the whole close is reported as
+        # deferred (the shape _request_group_close uses for a closed market)
+        # and pursued on a later tick; the per-leg fallback is not attempted.
+        return {"status": "deferred", "method": "none", "detail": str(blocked)[:200]}
     except Exception as e:
         mleg_error = str(e)[:160]
     # Fallback: close legs individually, in the order the broker accepts —
@@ -624,7 +634,22 @@ _CLOCK_TTL_SECONDS = 60
 
 def _market_is_open() -> bool:
     """Alpaca /v2/clock, cached. A failed read counts as OPEN: a close is never
-    withheld by a clock outage (the broker rejects what cannot trade)."""
+    withheld by a clock outage.
+
+    BROKER CLOCK ORDER GATE 2026-11-05: also False while the shared order
+    gate (broker_clock.orders_allowed) says closed. Every option close POST
+    now passes that gate, so a close this function let through while the gate
+    refuses it would be reported as a failed order (its state popped) instead
+    of deferred. The gate follows the broker's own close time (a reading's
+    next_close), and extrapolates from its last good reading when a read
+    fails; with no usable reading it allows, so a clock outage still never
+    withholds a close."""
+    return _own_clock_is_open() and broker_clock.orders_allowed()[0]
+
+
+def _own_clock_is_open() -> bool:
+    """This module's own cached /v2/clock read (it also keeps the broker's
+    timestamp for the opening window)."""
     now = time.time()
     if _CLOCK_CACHE["is_open"] is not None and now - _CLOCK_CACHE["at"] < _CLOCK_TTL_SECONDS:
         return bool(_CLOCK_CACHE["is_open"])
@@ -1140,7 +1165,7 @@ STANDALONE_LONG_STRATEGIES = ("buy_call", "buy_put", "convexity_hedge")
 def _in_opening_window(now_et=None) -> bool:
     """True from 09:30 to 09:45 ET (call it only when the market is open).
     The time is the BROKER's: Alpaca /v2/clock's own timestamp, cached by
-    _market_is_open() and advanced by the seconds since that read. A missing
+    _own_clock_is_open() and advanced by the seconds since that read. A missing
     or unreadable timestamp counts as outside the window: a close is never
     withheld by a broken clock."""
     try:

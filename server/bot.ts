@@ -89,6 +89,7 @@ import {
 import { PyJobQueue, PyJobWaitTimeout, serializePyJobs } from "./pyJobQueue";
 import { squeezeReport } from "./squeezeGex";
 import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
+import { createOrderGate } from "./brokerClockGate"; // BROKER CLOCK ORDER GATE 2026-11-05
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { heapDiagnostic, trackSet } from "./heapDiag"; // memory audit 2026-11-03 A0
 import { registerBuiltinHeapGauges } from "./heapGauges";
@@ -566,7 +567,24 @@ const ALPACA_KEY = process.env.ALPACA_KEY || "";
 const ALPACA_SECRET = process.env.ALPACA_SECRET || "";
 if (!ALPACA_KEY || !ALPACA_SECRET) console.warn("[WARN] ALPACA_KEY/ALPACA_SECRET not set — trading disabled");
 
+// BROKER CLOCK ORDER GATE 2026-11-05 (human-directed; the human approved
+// touching this frozen transmission path for the gate only — how orders are
+// built and sent is unchanged). Every order submission passes
+// orderGate.enforce() first (server/brokerClockGate.ts): while Alpaca's clock
+// says the market is closed it throws "ORDER-BLOCKED: market closed …", so no
+// order is queued for the next opening print; the one exception is an
+// extended-hours SELL of a held long stock position inside a real extended
+// session (default on; VOLTRADE_EXTENDED_HOURS_STOCK_EXITS=0 turns it off).
+// Every caller already treats a throw here as a rejected order. Cancels are
+// never gated; a position DELETE is, because Alpaca turns it into a market order.
+function isGatedOrderRequest(path: string, method: unknown): boolean {
+  const m = String(method || "GET").toUpperCase();
+  if (m === "POST" || m === "PATCH") return /^\/v2\/orders(?:[/?]|$)/.test(path);
+  return m === "DELETE" && /^\/v2\/positions(?:[/?]|$)/.test(path);
+}
+
 async function alpaca(path: string, opts: any = {}) {
+  if (isGatedOrderRequest(path, opts.method)) await orderGate.enforce(path, String(opts.method), opts.body);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
   try {
@@ -756,23 +774,41 @@ function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: strin
 // An unknown clock (read failed) counts as open, i.e. today's behaviour —
 // a kill is never withheld by a clock outage. Thresholds unchanged.
 const POS_KILL_CLOCK_TTL_MS = 60_000;
-let posKillClockCache: { at: number; isOpen: boolean | null } | null = null;
+// BROKER CLOCK ORDER GATE 2026-11-05: the same cached read also keeps the
+// clock body (next_open / next_close) for the order gate below — one reader
+// for POS-KILL and every order path, not two.
+let posKillClockCache: { at: number; isOpen: boolean | null; clock?: unknown } | null = null;
 /** Alpaca /v2/clock is_open, cached 60 s; null when the read fails or is malformed. */
 async function posKillReadMarketOpen(): Promise<boolean | null> {
   const now = Date.now();
   if (posKillClockCache && now - posKillClockCache.at < POS_KILL_CLOCK_TTL_MS) return posKillClockCache.isOpen;
   let isOpen: boolean | null = null;
+  let body: unknown = null;
   try {
     const clock = await alpaca("/v2/clock");
     if (clock && typeof clock === "object" && typeof (clock as { is_open?: unknown }).is_open === "boolean") {
       isOpen = (clock as { is_open: boolean }).is_open;
+      body = clock;
     }
   } catch (err) {
     console.warn(`[pos-kill] clock read failed — option kills judged as if open: ${err instanceof Error ? err.message : err}`);
   }
-  posKillClockCache = { at: now, isOpen };
+  posKillClockCache = { at: now, isOpen, clock: body };
   return isOpen;
 }
+
+// BROKER CLOCK ORDER GATE 2026-11-05: the gate alpaca() consults before every
+// order submission (rule, clock policy and the extended-hours stock-exit
+// exception documented in server/brokerClockGate.ts). It reads the clock
+// through posKillReadMarketOpen's 60 s cache and the trading calendar through
+// market_calendar.py (marketHolidays / marketHalfDays).
+const orderGate = createOrderGate({
+  readClock: async () => { await posKillReadMarketOpen(); return posKillClockCache; },
+  audit: (type: string, message: string) => audit(type, message),
+  getPosition: (symbol: string) => alpaca(`/v2/positions/${encodeURIComponent(symbol)}`),
+  calendar: () => ({ holidays: marketHolidays(), halfDays: marketHalfDays() }),
+  isOption: (symbol: string) => isOptionSymbol(symbol),
+});
 
 // OPENING WINDOW 2026-11-05: no option exit before 09:45 ET.
 // options_manager.py OPENING_WINDOW_END_ET holds the single-leg and group
@@ -8231,6 +8267,11 @@ print(json.dumps({'files': count}))
   let posKillMarketOpenCurrent: boolean | null = null;
   // OPENING WINDOW 2026-11-05: true while the market is open and it is 09:30-09:45 ET (current sync)
   let posKillOptionOpeningWindowCurrent = false;
+  // BROKER CLOCK ORDER GATE 2026-11-05 (current sync): the order gate refuses
+  // orders now (the clock says closed), and whether it would still pass a sell
+  // of a held long stock (an extended-hours exit inside a real extended session)
+  let posKillOrdersClosedCurrent = false;
+  let posKillLongStockExitOpenCurrent = true;
 
   /**
    * Load positions + stop state from Alpaca + disk, build the monitoredPositions map.
@@ -8261,6 +8302,13 @@ except: print('{}')
       // POS-KILL OPTION HOURS 2026-11-04: the clock, read once per sync (cached 60 s)
       posKillMarketOpenCurrent = await posKillReadMarketOpen();
       posKillOptionOpeningWindowCurrent = posKillMarketOpenCurrent !== false && isOptionOpeningWindowET(new Date());
+      // BROKER CLOCK ORDER GATE 2026-11-05: what alpaca()'s gate would do with an exit now (same cached clock).
+      // While closed, a stock kill passes only as the extended-hours limit getOrderParams builds
+      // outside 09:30-16:00 (on a half day at 13:00-16:00 it still builds a market stop: held).
+      const posKillGate = await orderGate.snapshot();
+      posKillOrdersClosedCurrent = posKillGate.state === "closed";
+      posKillLongStockExitOpenCurrent = posKillGate.longStockExitOpen
+        && (!posKillOrdersClosedCurrent || getOrderParams(1, "stop_loss").extended_hours === true);
 
       for (const pos of positions) {
         const ticker = pos.symbol || "";
@@ -8278,6 +8326,10 @@ except: print('{}')
         // decision below — neither may close a position on a number Alpaca
         // did not actually have.
         const hasMark = posKillHasValidMark(pos.current_price, pos.unrealized_plpc);
+        // BROKER CLOCK ORDER GATE 2026-11-05: true while the order gate refuses
+        // orders (the clock says closed). (typeof guard: the loop body runs
+        // standalone in the test harnesses.)
+        const ordersClosedNow = (typeof posKillOrdersClosedCurrent !== "undefined" ? posKillOrdersClosedCurrent : false) === true;
 
         // ══════════════════════════════════════════════════════════════
         // TIME-EXIT 2026-04-22: close positions older than 14 days with
@@ -8293,7 +8345,10 @@ except: print('{}')
           // case one is ever held again.
           if (!LEGACY_DEFENSIVE_CANDIDATE_TICKERS.has(ticker)) {
             const entryTime = pos.created_at || pos.submitted_at;
-            if (entryTime) {
+            // BROKER CLOCK ORDER GATE 2026-11-05: TIME-EXIT is a market order,
+            // which the gate refuses while the clock says closed — judged
+            // again every sync and sent once the market is open.
+            if (entryTime && !ordersClosedNow) {
               const ageDays = (Date.now() - new Date(entryTime).getTime()) / (1000 * 60 * 60 * 24);
               if (hasMark && ageDays > 14 && pnlPct >= -5.0 && pnlPct <= 2.0) {
                 audit("TIME-EXIT", `${ticker}: ${Math.round(ageDays)}d old, pnl ${pnlPct.toFixed(1)}% — closing stale`);
@@ -8425,6 +8480,26 @@ except: print('{}')
               for (const k of Object.keys(owLog)) if (owLog[k] !== owDay) delete owLog[k];
               owLog[ticker] = owDay;
               audit("POS-KILL-OPTION-OPENING", `${ticker}: option down ${pnlPct.toFixed(1)}% (threshold: ${POSITION_KILL_LOSS_PCT}%) in the opening window — no option exit before 09:45 ET (the widest spreads of the day); judged again on two ticks after 09:45`);
+            }
+            continue;
+          }
+          // BROKER CLOCK ORDER GATE 2026-11-05: while the clock says closed the
+          // order gate refuses a stock kill unless it is a sell of a held long
+          // position inside a real extended session (the extended-hours limit
+          // getOrderParams builds). Held instead of sending an order the gate
+          // would refuse: no POS-KILL line (the client shows those as exits),
+          // one POS-KILL-STOCK-CLOSED line per ticker per UTC day. The breach
+          // observation above is unchanged, so the first tick the gate allows
+          // (an extended session, or the open) sends the kill.
+          const stockKillRefused = !isOptionPos && ordersClosedNow
+            && !(side === "long" && (typeof posKillLongStockExitOpenCurrent !== "undefined" ? posKillLongStockExitOpenCurrent : true) === true);
+          if (stockKillRefused) {
+            const scDay = new Date().toISOString().split("T")[0];
+            const scLog: Record<string, string> = (state as any)._posKillStockClosedDay || ((state as any)._posKillStockClosedDay = {});
+            if (scLog[ticker] !== scDay) {
+              for (const k of Object.keys(scLog)) if (scLog[k] !== scDay) delete scLog[k];
+              scLog[ticker] = scDay;
+              audit("POS-KILL-STOCK-CLOSED", `${ticker}: ${side} stock down ${pnlPct.toFixed(1)}% (threshold: ${POSITION_KILL_LOSS_PCT}%) while the market is closed — the order gate refuses this kill now (no extended session for it); it is sent on the first tick the gate allows`);
             }
             continue;
           }
