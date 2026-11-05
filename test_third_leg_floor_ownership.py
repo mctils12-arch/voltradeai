@@ -39,8 +39,13 @@ _MACRO = {
 
 
 def _live_floor_owned():
-    """Independent derivation of floor-allocator-owned tickers."""
+    """Independent derivation of floor-allocator-owned tickers.
+
+    2026-11-05: follows FLOOR_MODE. The volatility-managed floor owns only its
+    two tickers; the basket mode's derivation below is unchanged."""
     cfg = system_config.BASE_CONFIG
+    if cfg.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+        return {cfg.get("FLOOR_VM_TICKER", "SPY"), cfg.get("FLOOR_VM_LEVERED_TICKER", "SSO")}
     owned = {cfg.get("FLOOR_TICKER", "QQQ")}
     if cfg.get("FLOOR_BASKET_ENABLED", False):
         owned |= {t for t in cfg.get("FLOOR_BASKET", {}) if t != "CASH"}
@@ -87,6 +92,14 @@ def _run(held_syms, regime="NEUTRAL"):
     return result, sells
 
 
+# 2026-11-05: GLD is floor-owned in the BASKET floor mode (the rollback
+# position). The GLD-churn regressions below run pinned to that mode; under the
+# volatility-managed floor GLD is legacy and both allocators sell it, so there
+# is nothing to fight over (TestFloorOwnershipInvariant covers both modes).
+_BASKET_MODE = {"FLOOR_MODE": "basket"}
+
+
+@patch.dict(system_config.BASE_CONFIG, _BASKET_MODE)
 class TestThirdLegDoesNotSellFloorOwnedGLD(unittest.TestCase):
     def test_gld_held_in_neutral_not_sold_svxy_still_exits(self):
         self.assertTrue(system_config.BASE_CONFIG.get("DEFENSIVE_FLOOR_ENABLED"),
@@ -108,20 +121,28 @@ class TestFloorOwnershipInvariant(unittest.TestCase):
     """Third-leg exit set and floor-owned tickers must be disjoint (live config)."""
 
     def test_exit_set_disjoint_from_floor_owned(self):
+        with patch.dict(system_config.BASE_CONFIG, _BASKET_MODE):
+            owned = _live_floor_owned()
+            self.assertIn("GLD", owned)
+            exit_set = bot_engine._third_leg_exit_tickers(system_config.BASE_CONFIG)
+            self.assertFalse(exit_set & owned,
+                             f"third-leg exit set collides with floor-owned tickers: "
+                             f"{sorted(exit_set & owned)}")
+        # and under the live config (the volatility-managed floor since 2026-11-05)
         owned = _live_floor_owned()
-        self.assertIn("GLD", owned)
         exit_set = bot_engine._third_leg_exit_tickers(system_config.BASE_CONFIG)
         self.assertFalse(exit_set & owned,
-                         f"third-leg exit set collides with floor-owned tickers: "
-                         f"{sorted(exit_set & owned)}")
+                         f"live config: third-leg exit set collides with floor-owned {sorted(exit_set & owned)}")
 
     def test_behavioral_no_floor_owned_ticker_sold(self):
-        owned = sorted(_live_floor_owned())
-        for regime in ("NEUTRAL", "BULL"):
-            _, sells = _run(owned + ["SVXY"], regime=regime)
-            self.assertFalse(set(sells) & set(owned),
-                             f"{regime}: third leg sold floor-owned {sorted(set(sells) & set(owned))}")
-            self.assertIn("SVXY", sells)
+        for mode in ({"FLOOR_MODE": "basket"}, {"FLOOR_MODE": "vol_managed_spy"}):
+            with patch.dict(system_config.BASE_CONFIG, mode):
+                owned = sorted(_live_floor_owned())
+                for regime in ("NEUTRAL", "BULL"):
+                    _, sells = _run(owned + ["SVXY"], regime=regime)
+                    self.assertFalse(set(sells) & set(owned),
+                                     f"{mode} {regime}: third leg sold floor-owned {sorted(set(sells) & set(owned))}")
+                    self.assertIn("SVXY", sells)
 
     def test_disabled_defensive_floor_releases_gld_to_exit(self):
         cfg = dict(system_config.BASE_CONFIG, DEFENSIVE_FLOOR_ENABLED=False)

@@ -125,6 +125,9 @@ FLOOR_AND_LEG_TICKERS = (
     | {t for t in BASE_CONFIG.get("FLOOR_BASKET", {}) if t != "CASH"}
     | {BASE_CONFIG.get("FLOOR_TICKER", "QQQ")}
     | {BASE_CONFIG.get("DEFENSIVE_FLOOR_TICKER", "GLD")}
+    # 2026-11-05: the volatility-managed floor (FLOOR_MODE "vol_managed_spy")
+    # holds SPY + the 2x SSO; both are floor-managed, never stopped out.
+    | {BASE_CONFIG.get("FLOOR_VM_TICKER", "SPY"), BASE_CONFIG.get("FLOOR_VM_LEVERED_TICKER", "SSO")}
 )
 
 # ── Markov regime detector ───────────────────────────────────────────
@@ -3207,6 +3210,16 @@ def _scan_market_inner():
                 _halt_options_mgmt = manage_options_positions(allow_rolls=False)
             except Exception as _hoe:
                 _halt_options_mgmt["error"] = str(_hoe)[:200]
+            # 2026-11-05: the volatility-managed floor can hold up to 1.5x SPY,
+            # so it keeps DE-LEVERING while halted (sells toward its volatility
+            # target and sells legacy floor tickers; it never buys here). The
+            # basket floors stay skipped, as above.
+            _halt_floor = {"actions": [], "status": "skipped (halted)"}
+            if BASE_CONFIG.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+                try:
+                    _halt_floor = _manage_vol_managed_floor({}, reduce_only=True)
+                except Exception as _hfe:
+                    _halt_floor = {"actions": [], "status": f"error: {str(_hfe)[:80]}", "reduce_only": True}
             return {
                 "trades": [], "new_trades": [], "top_10": [],
                 "halted": True,
@@ -3216,6 +3229,7 @@ def _scan_market_inner():
                 "dd_pct": _dd_state.get("dd_pct", 0),
                 "regime": _regime,
                 "options_management": _halt_options_mgmt,
+                "spy_floor": _halt_floor,
             }
     except Exception as _dd_e:
         # DD tracking must never break scanning — log and continue
@@ -4586,24 +4600,11 @@ def _scan_market_inner():
     except Exception as _fre:
         import logging as _frl
         _frl.getLogger("bot_engine").warning(f"[FLOOR-REGIME] resolve failed: {_fre}")
-    spy_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
-    try:
-        spy_floor_result = _manage_spy_floor(_macro, _floor_regime)
-    except Exception as _sfe:
-        spy_floor_result["status"] = f"error: {str(_sfe)[:80]}"
-
+    # FLOOR MODE 2026-11-05 (research/floor_study_2026-11-05.md): the
+    # volatility-managed SPY floor replaces the regime-gated basket + GLD
+    # pair when FLOOR_MODE == "vol_managed_spy" (rollback: "basket").
+    spy_floor_result, defensive_floor_result = _run_floor_step(_macro, _floor_regime)
     _timing_log("step10_spy_floor")
-
-    # Step 10b: Defensive Floor (P1-1, GLD bear-regime rotation) ──────────
-    # Rotate INTO GLD when regime goes bearish / death cross fires, and
-    # OUT of GLD when regime recovers. Sized by DEFENSIVE_FLOOR_* config.
-    # User ask: "switch from qqq to something in bear".
-    defensive_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
-    try:
-        defensive_floor_result = _manage_defensive_floor(_macro, _floor_regime)
-    except Exception as _dfe:
-        defensive_floor_result["status"] = f"error: {str(_dfe)[:80]}"
-
     _timing_log("step10b_defensive_floor")
 
     # ══════════════════════════════════════════════════════════════════════
@@ -4956,6 +4957,10 @@ def _floor_owned_tickers(cfg: dict) -> set:
       DEFENSIVE_FLOOR_ENABLED.
     """
     cfg = cfg or {}
+    if cfg.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+        # 2026-11-05: the volatility-managed floor owns only SPY + SSO; the old
+        # basket and GLD are legacy (sold by _manage_vol_managed_floor).
+        return {t for t in (cfg.get("FLOOR_VM_TICKER", "SPY"), cfg.get("FLOOR_VM_LEVERED_TICKER", "SSO")) if t}
     owned = {cfg.get("FLOOR_TICKER", "QQQ")}
     if cfg.get("FLOOR_BASKET_ENABLED", False):
         owned |= {t for t in (cfg.get("FLOOR_BASKET") or {}) if t != "CASH"}
@@ -5926,6 +5931,264 @@ def _resolve_floor_regime(macro: dict) -> dict:
     return {"regime": confirmed, "raw_regime": raw, "confirmed_by": how,
             "pending": pending, "pending_count": pending_count,
             "vxx_fallback": fallback}
+
+
+# ── VOLATILITY-MANAGED SPY FLOOR (2026-11-05) ───────────────────────────────
+# research/floor_study_2026-11-05.md: over 1993-2026, after financing and
+# costs, the only floor design that passed the pre-registered rule against
+# buy-and-hold SPY (Sharpe 0.573 vs 0.513, max DD -48.4% vs -55.2%, log growth
+# 10.41% vs 10.26%). The pure decision lives in floor_vol_managed.py; this
+# function only reads the account, the bars and the quotes, and trades.
+# EXPLORATORY: kill date 2027-02-05; rollback: system_config FLOOR_MODE "basket".
+FLOOR_VM_STATE_FILE = "voltrade_floor_vm_state.json"
+# Floor trades only inside 09:45-15:54 ET: never in the opening print (the
+# widest spreads of the day) nor in the closing minutes.
+FLOOR_VM_TRADE_WINDOW_ET = (9.75, 15.9)
+
+
+def _floor_vm_tickers(cfg: dict) -> tuple:
+    return (cfg.get("FLOOR_VM_TICKER", "SPY"), cfg.get("FLOOR_VM_LEVERED_TICKER", "SSO"))
+
+
+def _floor_vm_legacy_tickers(cfg: dict) -> set:
+    """Floor tickers the basket mode owns and this mode does not (the basket
+    members, the single-ticker floor and GLD): sold while this mode runs."""
+    legacy = {cfg.get("FLOOR_TICKER", "QQQ"), cfg.get("DEFENSIVE_FLOOR_TICKER", "GLD")}
+    legacy |= {t for t in (cfg.get("FLOOR_BASKET") or {}) if t != "CASH"}
+    return {t for t in legacy if t} - set(_floor_vm_tickers(cfg))
+
+
+def _daily_closes_completed(symbol: str, n: int) -> list:
+    """The last n COMPLETED-session daily closes (oldest first, split- and
+    dividend-adjusted). Today's in-progress bar is dropped: the decision is a
+    close-to-close one, as in the study."""
+    today_et = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    start = (datetime.now(ZoneInfo("America/New_York")) - timedelta(days=int(n * 1.6) + 14)).strftime("%Y-%m-%d")
+    alpaca_throttle.acquire()
+    resp = requests.get(
+        f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/bars",
+        params={"timeframe": "1Day", "start": start, "limit": 1000, "adjustment": "all", "feed": bars_feed()},
+        headers=_alpaca_headers(), timeout=10)
+    bars = (resp.json() or {}).get("bars") or []
+    closes = [float(b["c"]) for b in bars if str(b.get("t", ""))[:10] < today_et and b.get("c")]
+    return closes[-n:]
+
+
+def _latest_quote(symbol: str) -> tuple:
+    """(bid, ask) from the latest NBBO quote; (0, 0) when either side is missing."""
+    alpaca_throttle.acquire()
+    snap = requests.get(f"{ALPACA_DATA_URL}/v2/stocks/{symbol}/snapshot",
+                        headers=_alpaca_headers(), timeout=10).json() or {}
+    q = snap.get("latestQuote") or {}
+    bid, ask = float(q.get("bp") or 0), float(q.get("ap") or 0)
+    if bid <= 0 or ask <= 0 or ask < bid:
+        return 0.0, 0.0
+    return bid, ask
+
+
+def _open_order_symbols() -> set:
+    """Symbols with an order still working: never stack a second order on one."""
+    alpaca_throttle.acquire()
+    rows = requests.get(f"{ALPACA_BASE_URL}/v2/orders", params={"status": "open", "limit": 500},
+                        headers=_alpaca_headers(), timeout=10).json()
+    return {str(o.get("symbol", "")) for o in (rows if isinstance(rows, list) else [])}
+
+
+FLOOR_VM_MIN_MINUTES_TO_CLOSE = 6
+
+
+def _floor_vm_broker_clock() -> tuple:
+    """(ok, reason) from Alpaca /v2/clock. ok only while the broker says the
+    market is open with more than FLOOR_VM_MIN_MINUTES_TO_CLOSE minutes to its
+    close, so weekends, holidays and half-day afternoons are covered (the Tier 2
+    scan runs 04:00-20:00 ET every day, and _is_regular_hours reads only the
+    time of day). A failed or malformed read is not ok: a DAY order sent while
+    the market is closed is queued for the next opening print, which is
+    exactly what this floor avoids."""
+    import re as _re
+
+    def _ts(raw) -> datetime:
+        return datetime.fromisoformat(_re.sub(r"(\.\d{6})\d+", r"\1", str(raw).replace("Z", "+00:00")))
+
+    try:
+        alpaca_throttle.acquire()
+        clock = requests.get(f"{ALPACA_BASE_URL}/v2/clock", headers=_alpaca_headers(), timeout=8).json()
+        if not clock.get("is_open"):
+            return False, "broker clock: market closed"
+        minutes_left = (_ts(clock["next_close"]) - _ts(clock["timestamp"])).total_seconds() / 60.0
+    except (requests.RequestException, ValueError, KeyError, TypeError, AttributeError) as _ce:
+        return False, f"broker clock unreadable: {str(_ce)[:120]}"
+    if minutes_left <= FLOOR_VM_MIN_MINUTES_TO_CLOSE:
+        return False, f"broker clock: {minutes_left:.0f} min to the close"
+    return True, "open"
+
+
+def _floor_vm_order(symbol: str, qty: int, side: str, limit_px: float) -> dict:
+    """A marketable DAY limit at the NBBO (buy at the ask, sell at the bid):
+    fills like a market order in these index ETFs, but never through a quote
+    that moves while the order is in flight."""
+    alpaca_throttle.acquire()
+    resp = requests.post(
+        f"{ALPACA_BASE_URL}/v2/orders",
+        headers={**_alpaca_headers(), "Content-Type": "application/json"},
+        json={"symbol": symbol, "qty": str(int(qty)), "side": side, "type": "limit",
+              "limit_price": f"{limit_px:.2f}", "time_in_force": "day"},
+        timeout=10)
+    try:
+        body = resp.json() or {}
+    except Exception:
+        body = {}
+    ok = resp.status_code < 400
+    return {"ok": ok, "order_id": body.get("id"), "error": None if ok else str(body)[:200]}
+
+
+def _floor_vm_save_state(state: dict) -> None:
+    try:
+        tmp = os.path.join(DATA_DIR, FLOOR_VM_STATE_FILE + ".tmp")
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, os.path.join(DATA_DIR, FLOOR_VM_STATE_FILE))
+    except Exception as _se:
+        import logging as _vml
+        _vml.getLogger("bot_engine").warning(f"[FLOOR-VM] state not saved: {_se}")
+
+
+def _manage_vol_managed_floor(macro: dict = None, reduce_only: bool = False) -> dict:
+    """Hold SPY (and SSO above 1x) at E* = min(CAP, TARGET_VOL / sigma_20d) of
+    FLOOR_VM_CAPITAL_PCT x equity; sell the legacy floor tickers. One pass per
+    scan; trades only inside the 09:45-15:54 ET window and only when the
+    exposure is more than FLOOR_VM_BAND away from target (or a legacy ticker
+    is held). Every decision is returned and persisted for the diagnostics.
+
+    reduce_only (the drawdown-halt branch of scan_market): sells only. A
+    levered floor must be able to de-lever while entries are halted; it
+    never buys there."""
+    from system_config import BASE_CONFIG as cfg
+    from floor_vol_managed import plan as _vm_plan
+    base, lev = _floor_vm_tickers(cfg)
+    legacy = _floor_vm_legacy_tickers(cfg)
+    result = {"mode": "vol_managed_spy", "actions": [], "status": "ok", "tickers": [base, lev],
+              "reduce_only": bool(reduce_only)}
+
+    closes = _daily_closes_completed(base, int(cfg.get("FLOOR_VM_WINDOW", 20)) + 1)
+    acct = get_alpaca_account() or {}
+    equity = float(acct.get("equity") or 0)
+    positions = get_alpaca_positions()
+    positions = positions if isinstance(positions, list) else []
+    by_sym = {str(p.get("symbol", "")): p for p in positions}
+
+    def _value(sym: str) -> float:
+        return float(by_sym[sym].get("market_value") or 0) if sym in by_sym else 0.0
+
+    def _qty_available(sym: str) -> int:
+        if sym not in by_sym:
+            return 0
+        p = by_sym[sym]
+        return int(float(p.get("qty_available", p.get("qty", 0)) or 0))
+
+    legacy_held = {t: _value(t) for t in legacy if _value(t) > 0 and _qty_available(t) > 0}
+    decision = _vm_plan(closes, equity, _value(base), _value(lev), sum(legacy_held.values()), cfg)
+    result.update(decision)
+    result["legacy_held"] = {t: round(v, 2) for t, v in legacy_held.items()}
+    _floor_vm_save_state({"at": datetime.now().isoformat(), "equity": equity, **decision,
+                          "legacy_held": result["legacy_held"]})
+    if not decision.get("ok") or not decision.get("rebalance"):
+        return result
+
+    hour = _et_now_hour()
+    if not _is_regular_hours() or not (FLOOR_VM_TRADE_WINDOW_ET[0] <= hour < FLOOR_VM_TRADE_WINDOW_ET[1]):
+        result["status"] = "deferred"
+        result["actions"].append({"type": "floor_vm_deferred", "reason": "outside 09:45-15:54 ET"})
+        return result
+    clock_ok, clock_why = _floor_vm_broker_clock()
+    if not clock_ok:
+        result["status"] = "deferred"
+        result["actions"].append({"type": "floor_vm_deferred", "reason": clock_why})
+        return result
+
+    working = _open_order_symbols()
+    # 1) legacy floor tickers: sell every share (covered calls bought back first)
+    for sym in sorted(legacy_held):
+        if sym in working:
+            result["actions"].append({"type": "floor_vm_wait", "ticker": sym, "reason": "order working"})
+            continue
+        qty = _qty_available(sym)
+        try:
+            result["actions"].extend(_unwind_covered_calls(sym))
+        except RuntimeError as _uw:
+            result["actions"].append({"type": "cc_unwind_blocked", "ticker": sym, "reason": str(_uw)[:200]})
+            continue
+        bid, _ask = _latest_quote(sym)
+        if bid <= 0:
+            result["actions"].append({"type": "floor_vm_no_quote", "ticker": sym})
+            continue
+        result["actions"].append({"type": "floor_vm_legacy_sell", "ticker": sym, "qty": qty, "limit": bid,
+                                  **_floor_vm_order(sym, qty, "sell", bid)})
+
+    # 2) SPY and SSO toward their dollar targets
+    for sym, target in ((base, decision["target_base_dollars"]), (lev, decision["target_levered_dollars"])):
+        if sym in working:
+            result["actions"].append({"type": "floor_vm_wait", "ticker": sym, "reason": "order working"})
+            continue
+        bid, ask = _latest_quote(sym)
+        if bid <= 0 or ask <= 0:
+            result["actions"].append({"type": "floor_vm_no_quote", "ticker": sym})
+            continue
+        delta = target - _value(sym)
+        if delta > 0 and reduce_only:
+            continue
+        if delta > 0:
+            qty = int(delta // ask)
+            if qty > 0:
+                result["actions"].append({"type": "floor_vm_buy", "ticker": sym, "qty": qty, "limit": ask,
+                                          **_floor_vm_order(sym, qty, "buy", ask)})
+        elif delta < 0:
+            qty = min(_qty_available(sym), int((-delta) // bid))
+            if qty <= 0:
+                continue
+            if _qty_available(sym) - qty < 100:
+                # same rule as the basket path: a short call on the shares must go first
+                try:
+                    result["actions"].extend(_unwind_covered_calls(sym))
+                except RuntimeError as _uw:
+                    result["actions"].append({"type": "cc_unwind_blocked", "ticker": sym, "reason": str(_uw)[:200]})
+                    continue
+            result["actions"].append({"type": "floor_vm_sell", "ticker": sym, "qty": qty, "limit": bid,
+                                      **_floor_vm_order(sym, qty, "sell", bid)})
+    return result
+
+
+def _run_floor_step(macro: dict, floor_regime: dict) -> tuple:
+    """Step 10 / 10b of the scan: the floor that FLOOR_MODE names.
+
+    "vol_managed_spy" (2026-11-05): _manage_vol_managed_floor owns the core;
+    the basket floor and the GLD defensive floor do not run.
+    "basket" (the rollback, one setting): the regime-gated basket floor and the
+    GLD defensive floor run exactly as before; the volatility-managed floor
+    does not. Returns (spy_floor_result, defensive_floor_result); an exception
+    in either manager becomes its status, never the scan's."""
+    spy_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
+    defensive_floor_result = {"actions": [], "status": "ok", "target_pct": 0}
+    if BASE_CONFIG.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+        try:
+            spy_floor_result = _manage_vol_managed_floor(macro)
+        except Exception as _vme:
+            spy_floor_result = {"mode": "vol_managed_spy", "actions": [], "status": f"error: {str(_vme)[:80]}"}
+        defensive_floor_result["status"] = "off: the vol-managed floor owns the core (GLD is sold as legacy)"
+        return spy_floor_result, defensive_floor_result
+    try:
+        spy_floor_result = _manage_spy_floor(macro, floor_regime)
+    except Exception as _sfe:
+        spy_floor_result["status"] = f"error: {str(_sfe)[:80]}"
+    # Step 10b: Defensive Floor (P1-1, GLD bear-regime rotation) ──────────
+    # Rotate INTO GLD when regime goes bearish / death cross fires, and
+    # OUT of GLD when regime recovers. Sized by DEFENSIVE_FLOOR_* config.
+    # User ask: "switch from qqq to something in bear".
+    try:
+        defensive_floor_result = _manage_defensive_floor(macro, floor_regime)
+    except Exception as _dfe:
+        defensive_floor_result["status"] = f"error: {str(_dfe)[:80]}"
+    return spy_floor_result, defensive_floor_result
 
 
 def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
