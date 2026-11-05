@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-05 (scheduled routine, [PRODUCT] slot, Thu 08:00 ET / 13:00Z, PRE-MARKET) [PIPELINE] — T-DATACORE (new module + test only) — Lazy Prices join widened: all-form issuer pairs lift 10-K CIK->ticker coverage from 55% to 68-72% (v1.0.1289)
+HEALTH: research_state_check: thrash 4/10 (< 7), STARVED 0, only WARN the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical (#44/#48 advisory). Product work proceeds.
+PRIOR (open_questions 2026-11-04): 60% that all-code issuer pairs over 2014q1+ lift per-quarter 10-K join coverage to >= 70%.
+CHANGE: `sec_issuer_pairs.py` (+ `test_sec_issuer_pairs.py`, 3 tests): reads SUBMISSION.tsv of the same SEC insider bulk zips for EVERY Form 3/4/5 filing (no transaction/officer filter), keeps distinct (ticker, issuer CIK, filing date), own cache dir (Edge P2's cache and inputs untouched). Same ticker-validity filter as sec_form4_bulk (dual-class rejected); every dropped row counted by reason. Feeds the existing `sec_cik_symbol_map.build_map` unchanged. Measurement definitions untouched; gate 2 untouched.
+RESULT (real SEC data, 51 quarters 2014q1-2026q3, 12,620 CIKs mapped, cache 4.4 MB) vs ALL 10-K rows in EDGAR form.idx, Q1 of each year: joined 2017 70.6% | 2019 70.2% | 2021 71.2% | 2023 72.2% | 2025 69.0% | 2026 68.0%. Exact-span share 63-70%, ambiguous 1-3%, unmapped 26-31%. Prior is a coin-flip hit: >=70% in 4 of 6 sampled years, ~68-72% overall; I call it 'about 70%', not a pass of a precise bar. KILL (<50%) cleared by a wide margin: Lazy Prices is testable on free data.
+HONEST LIMITS: unmapped is NOT random and part of it is unmappable by construction (ABS trusts, shells, private filers have no ticker), so the ceiling is below 100%; the skew toward small/quiet/no-insider-filer names must be carried into any gate-2 read ('insider-visible names only'). Coverage of the join is not coverage of the panel (panel symbols live on the Railway volume); the 25-pair cover-page spot check (gate 1 clause) is still NOT done. Only Q1 of six years sampled (not every quarter). 2025-26 are lower because recent filers' spans are shorter-padded at the right edge.
+SECOND-ORDER: nothing on a trade path, no surface, no new variant counted on any ledger.
+NEXT: (1) gate-1 spot check: 25 random resolved (cik, ticker, date) vs the filing cover page; (2) panel adapter (CIK-keyed, memory-bounded) then the scheduled `distribution --pit --rows-json` run; (3) optionally add EDGAR company-name matching for the unmapped 26-31% only if (1) passes and gate 2 needs the coverage.
+ROLLBACK TRIGGER: none needed (unreferenced module). MERGE: new files + version bump + log only; safe any time.
+STARVED: no.
+
 ## 2026-11-05 (scheduled routine, [PRODUCT] slot, Wed 19:10 ET / Thu 00:10Z, market closed) [PIPELINE] — T-DATACORE (result file only) — Edge P3 gate-1 real-quote clause, day 3 of 3: pooled Spearman 0.3025 => PASSES_GATE_1_CLAUSE (knife-edge; supersedes the 11-04 provisional KILL)
 HEALTH: research_state_check: thrash 6/10 (< 7), STARVED 0, only WARN the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical (#44/#48 advisory). Site reachable, chain_vs probe 200 (87 days, 10,218 rows). Product work proceeds.
 PRIOR (carried from 11-04): after days 0.168 and 0.261 I expected day 3 to land 0.15-0.30, i.e. the kill to stand. WRONG: day 3 = 0.441.
