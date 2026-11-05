@@ -114135,3 +114135,21 @@ Rollback trigger: an account drawdown deeper than −15% while SPY's own drawdow
 Tests: new server/killThreshold.test.ts (4): the line is −20% and the re-baseline message reads the configured value; −10% no longer trips, −20% does; the live latch clears through RECOVERED after the 3-evaluation debounce with the peak kept; under −10% the same latch would not have cleared. killSwitchAutoResumeWiring.test.ts's exact pin moves −10 → −20 (same assertion, new value; it existed to stop the auto-resume PR changing the threshold). Visual harness run on bot/botidle/botpane for the two client text changes.
 
 STARVED: no.
+
+## 2026-11-05 [REPAIR] — T-BOT (position_sizing.py _passive_floor_tickers) — sizing exempts the configured floor (SPY + SSO under the volatility-managed floor), not QQQ alone
+VERSION: v1.0.1295 (shipped 2026-11-05 by the parent session; main was v1.0.1294)
+
+Found by the 2026-11-05 trading-feature inventory, an interaction with the volatility-managed floor (shipped the same night). position_sizing excluded FLOOR_TICKER (QQQ) only, from portfolio heat (_portfolio_heat_scalar) and from size_portfolio's deployed-capital budget. Under FLOOR_MODE "vol_managed_spy" the floor is SPY + SSO, about 85% of equity. Every new stock, ETF or option trade would have been sized as if 85% were already at risk:
+- two extra positions in the count scalar;
+- the 0.70x / 0.50x deployed scalars;
+- almost no deploy budget left.
+
+Pinned case: 0.49x instead of 0.9x for a single satellite.
+
+Fix: _passive_floor_tickers() reads FLOOR_MODE at call time. Under vol_managed_spy it returns {SPY, SSO}; under "basket" (the rollback) it returns FLOOR_TICKER alone, exactly the old behaviour (the basket's SMH/KWEB/VXUS and GLD were and stay counted there).
+
+Not changed (a risk limit, filed instead): tiered_strategy's master exposure cap (0.95 BULL/NEUTRAL … 0.30 PANIC) counts the floor, as it always did. With the floor near 85% of equity, tier actions get about 10% headroom in BULL/NEUTRAL and none in CAUTION/BEAR/PANIC. Node exempts the floor from its own heat cap.
+
+Tests: test_sizing_floor_tickers.py (4): the VM floor is exempt from heat; the basket rollback keeps QQQ-only; the defect measured (0.49x → 0.9x); size_portfolio's budget uses the configured set. The existing sizing and floor suites pass unchanged.
+
+STARVED: no.
