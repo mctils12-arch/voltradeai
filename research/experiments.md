@@ -113976,3 +113976,31 @@ doing its job. Changing risk thresholds mid-drawdown on one day's evidence viola
 unblocked and fits without churn. Human notified via push (alarm is the deliverable).
 MERGE NOTE: docs-only; merge after 4:00 PM ET by routine.
 STARVED: no.
+
+## 2026-11-05 [RESEARCH] — T-BOT (new scripts/floor_study.py, research/floor_study_2026-11-05.{md,json}, test_floor_study.py) — pre-registered floor study: volatility-managed SPY is the only design that beats SPY risk-adjusted; leverage alone does not
+VERSION: v1.0.1290 (shipped 2026-11-05 by the parent session; main was v1.0.1289)
+
+Human 2026-11-05: "why have a floor like the QQQ could we not build our own floor for the system with leverage like the qqq that is better? ... beat the S&P".
+
+Pre-registration was written before any long-history result (§ in the study .md). Data: Yahoo adjusted closes, SPY 1993→2026-11-04, plus ^IRX T-bills. Financing is the T-bill rate + 1% above 1x; trading costs 2 bp per unit of exposure traded.
+
+**Results** (log growth / Sharpe / max DD):
+
+| design | log growth | Sharpe | max DD |
+|---|---|---|---|
+| SPY | 10.26% | 0.513 | −55.2% |
+| V1 vol-managed SPY (16% target, ≤1.5x, 20-day vol, 0.10 band) | 10.41% | 0.573 | −48.4% (2008 −22.6% vs −36.8%) |
+| V2 2x above 200-day SMA, else T-bills | 11.64% | 0.503 | −52.1% |
+| V3 constant 1.25x | 11.41% | 0.502 | −64.8% |
+
+**Pre-registered ship rule:** only V1 passes. V2 and V3 fail Sharpe ≥ SPY.
+
+- The current basket, static on its 2013+ window, beat SPY (CAGR 15.2% vs 13.9%, Sharpe 0.80 vs 0.75). The live floor's 2026 shortfall is the regime gate's re-trading (2,916 floor fills since May) and the tech tilt, not the basket.
+- QQQ since 1999: +1.9 pp/yr at −83% max DD, with the same Sharpe as SPY.
+- Robustness (post-hoc, reported, not used to choose): all 15 target × cap points beat SPY's Sharpe (0.547–0.575). The 18% target with a 2x cap matches SPY's realised volatility at +1.05 pp/yr; that is a follow-up candidate.
+
+REASONING STANDARD #4: four designs, one fixed parameter set each, no tuning. The grid is disclosed as post-hoc.
+
+Next: the floor-mode change (own PR) that runs V1 live as an exploratory experiment. Kill date 2027-02-05.
+
+STARVED: no.
