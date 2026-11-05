@@ -113731,3 +113731,35 @@ Residual, filed under KNOWN BROKEN #47: about 12 archive readers use `fs.createR
 Expected live: no FATAL-EXCEPTION `terminated`. A failed DTCC download logs `[datacore] dtccswaps refresh: TypeError: terminated` and retries on its 6 h cadence. Rollback trigger: any new FATAL-EXCEPTION, or DTCC staying `warming_up` for more than 7 h after a boot with no cooldown in force.
 
 STARVED: no.
+
+## 2026-11-05 [REPAIR] — T-DATACORE (server/gnssIntegrityFold.ts, server/foldShadow.ts; routes.ts comment only) — memory A2 switch 1 of 4: the GNSS-integrity fold serves its incremental path by default
+VERSION: v1.0.1285 (shipped 2026-11-05 by the parent session; main was v1.0.1284)
+
+The Wave 1 plan said: switch a fold to `incremental` only after 24 h in shadow with zero mismatches, one fold at a time. GNSS is first.
+
+**Evidence (read 2026-11-05 ~07:00Z).**
+- Shadow has run since #1601 (v1.0.1262, live ~2026-11-04 04:47Z). The fold's code has not changed since.
+- `/api/diag/audit?type=FOLD-MISMATCH` since 11-03 has 17 rows, all `portdwell` (before #1614), and zero `gnss`.
+- The 01:17Z container alone: `fold.gnss` mismatches 0 over 33 cycles.
+- Cost per 10-minute cycle: full fold 145 s, peak 387,416 rows; incremental 48 s.
+- Shadow mode pays for both on every cycle. Incremental re-reads only days whose file manifest changed, in practice the open day.
+
+**Change.**
+- `parseFoldMode(raw, unsetDefault = "shadow")`:
+  - An unset or empty value takes the fold's own default.
+  - An unrecognised value is still `shadow`, never the promoted path.
+  - `shadow` spelled out is honoured, so it is the rollback.
+- `GNSS_FOLD_DEFAULT = "incremental"`. Every other fold keeps `shadow`: graph is eligible next; port-dwell and shadow-fleet are eligible from ~19:00Z, 24 h after #1614.
+- The API payload is byte-identical across modes (one packaging function). This is what shadow verified on live data.
+
+Downstream: the per-cycle GNSS read drops from the 21-day window to the open day. That cuts about 97 s of event-loop work every 10 minutes (EVENTLOOP-LAG spikes of 0.5–3 s show up beside these folds), and the full fold's ~387k-row transient allocation is gone. `/api/health` reports `fold.gnss.mode: "incremental"`. With no comparison, mismatches stay 0 by construction.
+
+Rollback: set `VOLTRADE_GNSS_FOLD=shadow` (compare again, serve full) or `=full`. Rollback trigger: GNSS signal cells on `/api/data/gnss-integrity-signal` diverging from a `shadow` re-run, or `fold.gnss` erroring.
+
+Tests:
+- `foldShadow.test.ts`, new test: a promoted fold's default applies to unset or empty values only; typos stay `shadow`; `shadow` spelled out is honoured; unpromoted folds keep `shadow`. Existing assertions are unchanged.
+- `gnssIntegrityFold.test.ts`: the mode-flag test's one expectation for an UNSET value moves from `shadow` to `incremental`. That promotion is the change itself. The unknown-value → `shadow` assertion is kept, and assertions are added for `shadow` spelled out and for `GNSS_FOLD_DEFAULT`.
+
+Full server suite 3,124/3,124; counters 28/28; tsc 6 ≤ 6.
+
+STARVED: no.
