@@ -25,6 +25,7 @@ import { jodiOilStocksView } from "./jodiOil";
 import { unComtradeView } from "./unComtrade";
 import { railTrafficView } from "./railTraffic";
 import { guardedRefresh } from "./crashSafeRefresh";
+import { pipeWebBody } from "./streamSafety";
 import { saveSnapshot, loadSnapshot } from "./derivedSnapshot";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
 import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
@@ -828,8 +829,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       res.setHeader("cache-control", "public, max-age=86400, immutable");
       if (!up.body) { res.end(); return; }
-      const { Readable } = await import("node:stream");
-      Readable.fromWeb(up.body as any).pipe(res);
+      // 2026-11-05 REPAIR: pipeWebBody (stream.pipeline), never a bare .pipe()
+      // of the fetch body — .pipe() leaves the upstream body with no error
+      // listener, so a connection dying mid-tile (undici's TypeError:
+      // terminated) was an uncaught exception that restarted the container;
+      // a visitor leaving mid-tile now cancels the upstream fetch too.
+      pipeWebBody(up.body as any, res);
     } catch {
       res.status(502).end();
     }

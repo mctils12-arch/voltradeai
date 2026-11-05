@@ -54,7 +54,7 @@
  * Decomposing baskets into their component legs is a v2 candidate if a
  * thesis ever needs it.
  */
-import { Readable } from "stream";
+import { Readable, pipeline } from "stream";
 import zlib from "zlib";
 import readline from "readline";
 import fs from "fs";
@@ -265,64 +265,89 @@ export async function streamDtccZip(
     ? (Readable.fromWeb(resp.body as any) as any)[Symbol.asyncIterator]()
     : (resp.body as any)[Symbol.asyncIterator]());
 
-  let leftover = Buffer.alloc(0);
-  const pull = async (): Promise<Buffer | null> => {
-    const { value, done } = await source.next();
-    if (done) return null;
-    return Buffer.from(value);
-  };
-  const readAtLeast = async (n: number): Promise<void> => {
-    while (leftover.length < n) {
-      const chunk = await pull();
-      if (!chunk) break;
-      leftover = Buffer.concat([leftover, chunk]);
-    }
-  };
-
-  await readAtLeast(30);
-  const fixed = tryParseLocalHeader(leftover);
-  if (!fixed) return { ok: false, status: 0, lines: 0 };
-  await readAtLeast(fixed.headerLen);
-  leftover = leftover.subarray(fixed.headerLen);
-  if (fixed.method !== 8 && fixed.method !== 0) {
-    throw new Error(`dtccSwaps zip: unsupported compression method ${fixed.method}`);
-  }
-
-  let remaining = fixed.compressedSize;
-  const bounded = new Readable({
-    async read() {
-      try {
-        if (leftover.length > 0) {
-          const take = Math.min(leftover.length, remaining);
-          const chunk = leftover.subarray(0, take);
-          leftover = leftover.subarray(take);
-          remaining -= take;
-          this.push(chunk);
-          if (remaining <= 0) this.push(null);
-          return;
-        }
-        if (remaining <= 0) { this.push(null); return; }
+  // 2026-11-05 REPAIR: every exit (done, parse error, network failure) releases
+  // the HTTP body. The zip's central directory after the member is never read,
+  // so without this the body stayed open until undici's 300 s timeout.
+  let bounded: Readable | null = null;
+  let rl: readline.Interface | null = null;
+  try {
+    let leftover = Buffer.alloc(0);
+    const pull = async (): Promise<Buffer | null> => {
+      const { value, done } = await source.next();
+      if (done) return null;
+      return Buffer.from(value);
+    };
+    const readAtLeast = async (n: number): Promise<void> => {
+      while (leftover.length < n) {
         const chunk = await pull();
-        if (!chunk) { this.push(null); return; }
-        const take = Math.min(chunk.length, remaining);
-        remaining -= take;
-        this.push(chunk.subarray(0, take));
-        if (remaining <= 0) this.push(null);
-      } catch (e) { this.destroy(e as Error); }
-    },
-  });
+        if (!chunk) break;
+        leftover = Buffer.concat([leftover, chunk]);
+      }
+    };
 
-  const decompressed = fixed.method === 8 ? bounded.pipe(zlib.createInflateRaw()) : bounded;
-  const rl = readline.createInterface({ input: decompressed, crlfDelay: Infinity });
-  let lines = 0;
-  let first = true;
-  for await (const line of rl) {
-    if (!line) continue;
-    onLine(line, first);
-    first = false;
-    lines++;
+    await readAtLeast(30);
+    const fixed = tryParseLocalHeader(leftover);
+    if (!fixed) return { ok: false, status: 0, lines: 0 };
+    await readAtLeast(fixed.headerLen);
+    leftover = leftover.subarray(fixed.headerLen);
+    if (fixed.method !== 8 && fixed.method !== 0) {
+      throw new Error(`dtccSwaps zip: unsupported compression method ${fixed.method}`);
+    }
+
+    let remaining = fixed.compressedSize;
+    const member = new Readable({
+      async read() {
+        try {
+          if (leftover.length > 0) {
+            const take = Math.min(leftover.length, remaining);
+            const chunk = leftover.subarray(0, take);
+            leftover = leftover.subarray(take);
+            remaining -= take;
+            this.push(chunk);
+            if (remaining <= 0) this.push(null);
+            return;
+          }
+          if (remaining <= 0) { this.push(null); return; }
+          const chunk = await pull();
+          if (!chunk) { this.push(null); return; }
+          const take = Math.min(chunk.length, remaining);
+          remaining -= take;
+          this.push(chunk.subarray(0, take));
+          if (remaining <= 0) this.push(null);
+        } catch (e) { this.destroy(e as Error); }
+      },
+    });
+
+    bounded = member;
+    let decompressed: Readable = member;
+    if (fixed.method === 8) {
+      // stream.pipeline, never member.pipe(): .pipe() leaves the member with no
+      // 'error' listener, so a connection dying mid-member (undici's
+      // TypeError: terminated) was an uncaught exception that restarted the
+      // container (live 2026-11-04 05:03Z, 2026-11-05 01:17Z). pipeline hands
+      // the error to the inflater, readline re-emits it and the for-await
+      // rejects: one failed refresh, caught by refreshDtccSwaps.
+      const inflate = zlib.createInflateRaw();
+      pipeline(member, inflate, () => { /* surfaced through readline below */ });
+      decompressed = inflate;
+    }
+    rl = readline.createInterface({ input: decompressed, crlfDelay: Infinity });
+    let lines = 0;
+    let first = true;
+    for await (const line of rl) {
+      if (!line) continue;
+      onLine(line, first);
+      first = false;
+      lines++;
+    }
+    return { ok: true, status: resp.status, lines };
+  } finally {
+    rl?.close();
+    bounded?.destroy();
+    await Promise.resolve(source.return?.()).catch((e) => {
+      console.warn(`[datacore] dtccswaps: could not release the response body: ${e?.message || e}`);
+    });
   }
-  return { ok: true, status: resp.status, lines };
 }
 
 // ── Archive (append-only JSONL.gz per calendar day observed; dedup by
