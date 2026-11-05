@@ -20,6 +20,7 @@ REFERENCES:
 """
 
 import os
+import re
 import json
 import time
 import logging
@@ -617,7 +618,7 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
 # nothing is working at the broker, waits while something is, and never
 # submits outside regular hours (DAY orders die at the next restart).
 CLOSE_RETRY_SECONDS = 180      # a submitted close with nothing working at the broker is re-submitted after this
-_CLOCK_CACHE = {"at": 0.0, "is_open": None}
+_CLOCK_CACHE = {"at": 0.0, "is_open": None, "et": None, "et_at": 0.0}
 _CLOCK_TTL_SECONDS = 60
 
 
@@ -628,13 +629,16 @@ def _market_is_open() -> bool:
     if _CLOCK_CACHE["is_open"] is not None and now - _CLOCK_CACHE["at"] < _CLOCK_TTL_SECONDS:
         return bool(_CLOCK_CACHE["is_open"])
     is_open = True
+    et = None
     try:
         resp = requests.get(f"{ALPACA_BASE}/v2/clock", headers=_alpaca_headers(), timeout=8)
         if resp.status_code == 200:
-            is_open = bool(resp.json().get("is_open", True))
+            body = resp.json()
+            is_open = bool(body.get("is_open", True))
+            et = _parse_clock_timestamp(body.get("timestamp"))   # the opening window reads it
     except Exception as e:
         logger.debug(f"clock read failed, assuming open: {e}")
-    _CLOCK_CACHE.update({"at": now, "is_open": is_open})
+    _CLOCK_CACHE.update({"at": now, "is_open": is_open, "et": et, "et_at": now})
     return is_open
 
 
@@ -684,6 +688,8 @@ def _request_group_close(legs: list, ticker: str, state: dict, rule: str, reason
     occs = [pos.get("symbol", "") for pos in legs]
     if not _market_is_open():
         result = {"status": "deferred", "method": "none", "detail": "market closed — close requested, submitted on the next regular-hours tick"}
+    elif _in_opening_window():
+        result = {"status": "deferred", "method": "none", "detail": "opening window — close requested, submitted after 09:45 ET"}
     else:
         result = _close_strategy_mleg(legs, ticker)
     _stamp_group_close(state, occs, rule, reason, result)
@@ -1097,6 +1103,53 @@ def _roll_or_skip(allow_rolls: bool, occ_symbol: str, qty: int, current_side: st
 SINGLE_LEG_DEFERRED_DETAIL = ("market closed — no order; the rule is judged again on "
                               "regular-hours marks at the next regular-hours tick")
 
+# ── OPENING WINDOW (2026-11-05) ─────────────────────────────────────────────
+# No option exit is sent before 09:45 ET, single legs and groups alike.
+# research/options_bleed_2026-11-04.md: 53 lots closed in the session's first
+# 5 minutes lost $5,083. 29 of them, whose underlying moved <= 3%, lost
+# $1,378 where the price model says +$266, with a median fill of 1.41x fair
+# value (the XLF put: $1.61 against ~$0.49 fair on an up day). Option quotes
+# are widest in the opening rotation. A rule that fires in the window is
+# reported as deferred and judged again on the first tick after 09:45.
+OPENING_WINDOW_END_ET = (9, 45)
+OPENING_WINDOW_DEFERRED_DETAIL = ("opening window — no option exit before 09:45 ET (the widest spreads "
+                                  "of the day); the rule is judged again after 09:45")
+
+
+def _in_opening_window(now_et=None) -> bool:
+    """True from 09:30 to 09:45 ET (call it only when the market is open).
+    The time is the BROKER's: Alpaca /v2/clock's own timestamp, cached by
+    _market_is_open() and advanced by the seconds since that read. A missing
+    or unreadable timestamp counts as outside the window: a close is never
+    withheld by a broken clock."""
+    try:
+        if now_et is None:
+            stamp = _CLOCK_CACHE.get("et")
+            if stamp is None:
+                return False
+            now_et = stamp + timedelta(seconds=max(0.0, time.time() - float(_CLOCK_CACHE.get("et_at") or time.time())))
+        if now_et.tzinfo is not None:
+            from zoneinfo import ZoneInfo
+            now_et = now_et.astimezone(ZoneInfo("America/New_York"))
+        hm = (now_et.hour, now_et.minute)
+    except Exception as e:
+        logger.debug(f"opening-window clock read failed, treating as outside: {e}")
+        return False
+    return (9, 30) <= hm < OPENING_WINDOW_END_ET
+
+
+def _parse_clock_timestamp(raw):
+    """Alpaca's clock timestamp ('2026-11-05T09:31:02.123456789-05:00', ET
+    with its offset) as an aware datetime in that offset. Fractions beyond
+    microseconds are cut; anything unreadable is None."""
+    if not isinstance(raw, str) or not raw:
+        return None
+    cleaned = re.sub(r"(\.\d{6})\d+", r"\1", raw.replace("Z", "+00:00"))
+    try:
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
 
 def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: str,
                             reason: str, dte: int) -> bool:
@@ -1105,7 +1158,18 @@ def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: s
     (or on a failed clock read): append nothing and return False, so the rule
     rolls / submits exactly as before."""
     if _market_is_open():
-        return False
+        if not _in_opening_window():
+            return False
+        actions.append({
+            "action": "CLOSE",
+            "ticker": ticker,
+            "occ_symbol": occ_symbol,
+            "reason": f"{reason} — deferred: opening window (before 09:45 ET)",
+            "type": rule,
+            "dte": dte,
+            "order": {"status": "deferred", "method": "none", "detail": OPENING_WINDOW_DEFERRED_DETAIL},
+        })
+        return True
     actions.append({
         "action": "CLOSE",
         "ticker": ticker,
