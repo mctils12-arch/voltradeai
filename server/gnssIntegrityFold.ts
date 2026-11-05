@@ -24,12 +24,13 @@
  * after its read, so a file that moved mid-read is never trusted as stable.
  *
  * MODES (env VOLTRADE_GNSS_FOLD, parsed by foldShadow.ts): `full` =
- * computeGnssIntegritySignal, as before; `shadow` (DEFAULT) = read every day
+ * computeGnssIntegritySignal, as before; `shadow` (the default until
+ * 2026-11-05) = read every day
  * once, fold the SAME rows both ways (pooled = today's algorithm, combined =
  * cached/fresh partials), deep-compare with the timing field excluded, log
  * any difference as FOLD-MISMATCH gnss (console.error + audit row), SERVE
- * THE FULL RESULT; `incremental` = combine only, re-reading only days whose
- * manifest changed. Sharing the bytes between both sides in shadow mode is
+ * THE FULL RESULT; `incremental` (DEFAULT since 2026-11-05) = combine
+ * only, re-reading only days whose manifest changed. Sharing the bytes between both sides in shadow mode is
  * what makes the comparison exact on a LIVE archive: the open hour file
  * grows between any two separate reads, so two independent reads of it
  * would differ for reasons that are not bugs — and would then either drown
@@ -39,7 +40,9 @@
  * SWITCH ORDER. shadow accumulates cycles with mismatches == 0
  * (gnssFoldStats feeds the health diagnostic); then VOLTRADE_GNSS_FOLD=
  * incremental drops the per-cycle read to the open day. Rollback at any
- * point: VOLTRADE_GNSS_FOLD=full. The API payload is byte-identical across
+ * point: VOLTRADE_GNSS_FOLD=full. 2026-11-05: done — the unset default is
+ * now incremental (GNSS_FOLD_DEFAULT below); =shadow restores the
+ * comparison. The API payload is byte-identical across
  * modes (one packaging function, one cell comparator); nothing here writes
  * to the archive or any snapshot file — the cache is process memory only,
  * bounded to the window (<= 21 days x 2 regions), rebuilt one day at a time
@@ -65,8 +68,16 @@ export const GNSS_FOLD_ENV = "VOLTRADE_GNSS_FOLD";
  *  the managed entry's default so a test can lower it. */
 const DEFAULT_PER_DAY_LIMIT = 20_000;
 
+/** PROMOTED 2026-11-05: `incremental` when VOLTRADE_GNSS_FOLD is unset.
+ *  Evidence: shadow since #1601 (live ~2026-11-04 04:47Z), 26 h and every
+ *  cycle with zero FOLD-MISMATCH gnss rows in /api/diag/audit (33 cycles,
+ *  0 mismatches in the 01:17Z container alone); full fold 145 s vs
+ *  incremental 48 s per 10-min cycle. Rollback: VOLTRADE_GNSS_FOLD=shadow
+ *  (compare again, serve full) or =full. */
+export const GNSS_FOLD_DEFAULT: GnssFoldMode = "incremental";
+
 export function gnssFoldMode(): GnssFoldMode {
-  return parseFoldMode(process.env[GNSS_FOLD_ENV]);
+  return parseFoldMode(process.env[GNSS_FOLD_ENV], GNSS_FOLD_DEFAULT);
 }
 
 // ── per-day partials ────────────────────────────────────────────────────────

@@ -4630,10 +4630,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // portdwell above — the computation reads archive JSONL, so it must
   // never run synchronously per-request.
   // Memory fix A2b (2026-11-03): the refresh goes through gnssIntegrityFold.ts's
-  // managed entry — VOLTRADE_GNSS_FOLD=full | shadow (default: both folds run,
-  // the full result is served, any difference is a FOLD-MISMATCH row below) |
-  // incremental (only the open day is re-read each cycle). Same payload in
-  // every mode; gnssFoldStats() carries the comparison tally for /api/health.
+  // managed entry — VOLTRADE_GNSS_FOLD=full | shadow (both folds run, the
+  // full result is served, any difference is a FOLD-MISMATCH row below) |
+  // incremental (only the open day is re-read each cycle; the unset default
+  // since 2026-11-05, after 24 h+ of zero mismatches). Same payload in every
+  // mode; gnssFoldStats() carries the comparison tally for /api/health.
   // A2 observability (2026-11-04): the shadow-fleet and port-dwell folds share
   // vesselArchiveFold's orchestrator, whose FOLD-MISMATCH lines went only to
   // console.error (Railway logs no session can read). Same audit_log row the

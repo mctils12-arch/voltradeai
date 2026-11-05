@@ -15,6 +15,19 @@ test("parseFoldMode: unset, empty and unknown values all resolve to shadow (neve
   assert.equal(parseFoldMode("shadow"), "shadow");
 });
 
+test("parseFoldMode: a promoted fold's unsetDefault applies to unset/empty only; unknown stays shadow; shadow spelled out is honoured (2026-11-05)", () => {
+  assert.equal(parseFoldMode(undefined, "incremental"), "incremental");
+  assert.equal(parseFoldMode(null, "incremental"), "incremental");
+  assert.equal(parseFoldMode("", "incremental"), "incremental");
+  assert.equal(parseFoldMode("   ", "incremental"), "incremental");
+  assert.equal(parseFoldMode("incrementl", "incremental"), "shadow", "a typo is never the promoted path either");
+  assert.equal(parseFoldMode("on", "incremental"), "shadow");
+  assert.equal(parseFoldMode("shadow", "incremental"), "shadow", "the rollback for a promoted fold");
+  assert.equal(parseFoldMode(" Shadow ", "incremental"), "shadow");
+  assert.equal(parseFoldMode("full", "incremental"), "full");
+  assert.equal(parseFoldMode(undefined), "shadow", "every fold not promoted keeps the safe default");
+});
+
 test("parseFoldMode: full and incremental are recognised case- and whitespace-insensitively", () => {
   assert.equal(parseFoldMode("full"), "full");
   assert.equal(parseFoldMode(" FULL "), "full");

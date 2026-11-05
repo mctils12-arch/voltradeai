@@ -14,7 +14,10 @@
  *
  * An unrecognised or unset flag resolves to `shadow`, never to the new path:
  * a typo in an env var must not switch production onto unproven code, and
- * must not silently disable the comparison either.
+ * must not silently disable the comparison either. Once a fold's
+ * incremental path has run mismatch-free in shadow for 24 h, its module may
+ * PROMOTE its own unset default to `incremental` (parseFoldMode's
+ * unsetDefault); an unrecognised value still resolves to `shadow`.
  *
  * firstDifference exists because a bare "deep-equal returned false" is not
  * actionable from a log line — the mismatch row names the first differing
@@ -29,11 +32,17 @@ export type FoldMode = "full" | "shadow" | "incremental";
 export type AuditWriter = (type: string, message: string) => void;
 
 /** Parse a VOLTRADE_*_FOLD / _POLL env value. Case- and whitespace-
- *  insensitive; anything that is not exactly `full` or `incremental` is
- *  `shadow` (see the module header for why the default is the safe one). */
-export function parseFoldMode(raw: string | undefined | null): FoldMode {
+ *  insensitive. An UNSET (or empty) value is the fold's own default:
+ *  `shadow` until its incremental path has run mismatch-free for 24 h in
+ *  shadow, then that fold's module may promote its default to
+ *  `incremental` (2026-11-05, gnss first). An UNRECOGNISED value is always
+ *  `shadow`, never the new path: a typo must not switch production onto a
+ *  path it did not choose, nor silently disable the comparison. `shadow`
+ *  spelled out is honoured, so it is a rollback for a promoted fold. */
+export function parseFoldMode(raw: string | undefined | null, unsetDefault: FoldMode = "shadow"): FoldMode {
   const v = (raw ?? "").trim().toLowerCase();
-  return v === "full" || v === "incremental" ? v : "shadow";
+  if (!v) return unsetDefault;
+  return v === "full" || v === "incremental" || v === "shadow" ? v : "shadow";
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
