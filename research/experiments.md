@@ -113658,3 +113658,33 @@ Tests:
 Expected live (first boot after this deploy): observations are pending for one full count (minutes, once), then persisted. Every later boot answers in well under a second with the last total. Rollback trigger: the endpoint still slower than 2 s on a warm box, or `platformStats.fileCounts` above 20k entries.
 
 STARVED: no.
+
+## 2026-11-05 [REPAIR] — T-CLIENT (client/src/pages/landing.tsx, landingStats.ts, _landing_body.html.txt, _landing_styles.css.txt) — the landing hero's counters always resolve to a number or a designed status word, never an accent-blue dash
+VERSION: v1.0.1283 (shipped 2026-11-05 by the parent session; main was v1.0.1282)
+
+Second half of the human's "Can we fix this the metric" report (screenshot: three counters showing only "—" placeholders). #1623 fixed the cause server-side: the stats request hung on a full archive count after every boot.
+
+The client had its own defect. The placeholder was the accent-blue "—" at number size, so it read as a decorative bar rather than "no number". The hero also had no timeout, no retry and no designed status, against DESIGN.md's loading-state rule.
+
+Change:
+- **`landingStats.ts` (new, pure): `statViews(answer, canRetry)`.**
+  - A number, formatted with `toLocaleString`.
+  - "counting…" while the server's first count runs (`observations_pending`). It stays true after the last attempt and schedules nothing more.
+  - "retrying…" when the request failed and attempts remain.
+  - "unavailable" after the last failed attempt.
+  - A zero, negative, NaN or missing count is never shown as a number.
+- **`landing.tsx`.** The request is aborted after 8 s, with at most 3 attempts 10 s apart, so the ladder resolves inside DESIGN.md's 30 s. Leaving the page cancels both the scheduled retry and the request in flight.
+- **Markup and CSS.**
+  - The counters start as `data-state="loading"`: a muted, pulsing "—" that lasts at most 8 s.
+  - The status words use `--muted` at 22 px (20 px on phones), set in the number's own line box (64 px / 51.2 px), so the row neither wraps at 1440 nor jumps when the number lands.
+  - `prefers-reduced-motion` already neutralises the pulse.
+
+Tests: new `client/src/pages/landingStats.test.ts` (7). It covers every state and the bounded ladder. Wiring checks pin the abortable fetch, the unmount cleanup, the initial loading markup and the status styles. `server/platformStats.test.ts`'s wiring test passes unchanged: the hero still reads `/api/data/platform/stats` and never `kinds[k]?.samples`. tsc ratchet 6 ≤ 6.
+
+Visual (promotion rule 6):
+- `node scripts/visual_check.mjs --page landing`: PASS at 390, 768 and 1440, 0 hard failures. The three touch-target warnings (Log in, Sign up, Read past issues) predate this change and are outside it.
+- A one-off Playwright capture of the counters in every state, at 390 and 1440, was reviewed against DESIGN.md:
+  - States: ready, counting…, retrying…, unavailable, loading, and loading → retrying after the 8 s abort.
+  - Muted tokens, Geist, no wrap, identical block heights across states.
+
+STARVED: no.
