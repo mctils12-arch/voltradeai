@@ -51,9 +51,12 @@ class TestFloorAndLegTickersMembership(unittest.TestCase):
         # Direct pin on top of the derived-membership tests above — fails loudly
         # (rather than silently) if FLOOR_BASKET/DEFENSIVE_FLOOR_TICKER ever change,
         # prompting a human/session to re-verify the Node-side mirror in server/bot.ts.
+        # 2026-11-05: + SSO, the volatility-managed floor's 2x leg (FLOOR_MODE
+        # "vol_managed_spy"); the Node mirror in server/bot.ts was re-verified
+        # and updated in the same change, as this pin exists to force.
         self.assertEqual(
             bot_engine.FLOOR_AND_LEG_TICKERS,
-            {"QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD"},
+            {"QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD", "SSO"},
         )
 
 

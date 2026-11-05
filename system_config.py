@@ -158,6 +158,40 @@ BASE_CONFIG = {
     "FLOOR_BASKET_ENABLED": True,  # Set False to revert to single-QQQ
     # Rebalance drift threshold — only rebalance when drift > this pct
     "FLOOR_BASKET_DRIFT_THRESHOLD": 0.03,  # 3% drift triggers rebalance
+
+    # ── FLOOR MODE 2026-11-05 ───────────────────────────────────────────
+    # Human 2026-11-05: "why have a floor like the QQQ could we not build our
+    # own floor for the system with leverage like the qqq that is better?"
+    # research/floor_study_2026-11-05.md (pre-registered, 1993-2026, after
+    # financing and costs).
+    # - "vol_managed_spy" is the study's V1, the ONLY design that passed:
+    #   log growth 10.41% vs SPY 10.26%, Sharpe 0.573 vs 0.513, max DD -48.4%
+    #   vs -55.2%; 2013+: max DD -19.5% vs -33.7%.
+    # - Leverage alone (2x above the 200d SMA, or constant 1.25x) added return
+    #   but not Sharpe.
+    # - "basket" is the regime-gated QQQ/SMH/KWEB/VXUS basket + GLD floor
+    #   above, unchanged. ROLLBACK = set "basket".
+    # - EXPLORATORY (promotion rule 3): kill date 2027-02-05.
+    # - Rollback trigger: live floor tracking vs its own rule > 3 pp over any
+    #   20 sessions, or an account drawdown beyond the study's 95th-percentile
+    #   3-month drawdown.
+    # - Expected effect: the core moves from 65% tech/semis to SPY. Exposure is
+    #   E* = min(1.5, 0.16 / sigma_20d) of FLOOR_VM_CAPITAL_PCT x equity (mean
+    #   1.13x in the study, cut when markets turn volatile).
+    # - Above 1x the extra exposure is held in SSO (2x), never on margin.
+    # - The regime gate, trend caps and GLD floor no longer trade the core
+    #   (they caused 2,916 floor fills since May).
+    "FLOOR_MODE": "vol_managed_spy",
+    "FLOOR_VM_TICKER": "SPY",
+    "FLOOR_VM_LEVERED_TICKER": "SSO",
+    "FLOOR_VM_TARGET_VOL": 0.16,   # pre-registered; the study's V1
+    "FLOOR_VM_CAP": 1.5,           # pre-registered; max SPY-equivalent exposure
+    "FLOOR_VM_BAND": 0.10,         # pre-registered; trade only on > 0.10 drift
+    "FLOOR_VM_WINDOW": 20,         # pre-registered; 20 completed sessions
+    # 85% of equity: E* x 85% averages ~0.96x equity in SPY terms (the old
+    # NEUTRAL floor + GLD held ~89%), leaving room under the 95% invested cap
+    # for options and satellites.
+    "FLOOR_VM_CAPITAL_PCT": 0.85,
     # FLOOR REGIME DWELL 2026-10-13: consecutive DISTINCT macro readings
     # (macro_data snapshot "timestamp"; the snapshot is cached 300s, so a
     # reading repeated on later 60-120s scans counts once) a non-risk-off

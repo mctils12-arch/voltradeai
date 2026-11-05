@@ -23405,3 +23405,18 @@ Every earnings gate was therefore blind to the next 5–7 days. Already inside #
 `archiveOffload.ts:313` and `secMidas.ts:339` should be checked the same way.
 
 **Next step.** In its own PR, add one helper (e.g. `openArchiveLines(fp)`) that pipelines file → gunzip → readline with a listener on every stage, and extend the streamCrash ratchet to ban `createReadStream(...).pipe(` in server modules.
+
+## 2026-11-05 — the volatility-managed floor: what to watch, and what it does not cover yet
+
+**Watch (first two weeks).**
+- First regular-hours pass after 09:45 ET on 11-06: legacy QQQ/SMH/KWEB/VXUS/GLD sold, SPY + SSO bought to E*·C. Read it in the scan result's `spy_floor` block and in voltrade_floor_vm_state.json.
+- Tracking: the floor sleeve's daily return against E* × SPY's daily return (SSO's daily 2x reset makes this exact only day by day). The rollback trigger is 3 pp over any 20 sessions.
+- Turnover: trades should happen only when |E* − E_now| > 0.10. In the study that was 800 rebalances in 33 years, about 24 a year (research/floor_study_2026-11-05.md). Rebalances on many consecutive days would mean the band is too tight for live marks.
+
+**[DECIDED 2026-11-05] The Node −20% kill switch.** The human decided: while it is tripped, the floor may only reduce exposure (SSO, then SPY, then cash), with every action logged. That ships in its own PR the same night (tier2HaltedExits → floor_reduce_only).
+
+**[DECIDED 2026-11-05] Dividends in paper.** Alpaca paper credits no dividends, while /api/diag/benchmark compared the account against total-return SPY (`adjustment: all`). The human chose a like-for-like basis; the benchmark moves to SPY price-only return in its own PR (MEASUREMENT INTEGRITY), with the since-May-6 and 30-day comparisons restated both ways once. The study's SPY is total return on both sides, so the study itself was like for like.
+
+**[DECIDED 2026-11-05: not built] The dial.** The study's V1 (16% target, 1.5x cap) was the pre-registered design; nothing else was tuned. The human decided not to build 18% / 2x now; revisit after 3 months of live results on this floor.
+- 18% / 2x is the obvious next point. It would raise the average exposure and the drawdowns together.
+- Per REASONING STANDARD 4 it is not tried until V1 has 3+ months live and its tracking holds. Testing variants on the same 1993–2026 sample would be the fishing the pre-registration was built to avoid.

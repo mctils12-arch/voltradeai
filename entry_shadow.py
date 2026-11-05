@@ -121,7 +121,9 @@ def floor_ledger_tickers(config=None) -> set:
     return ({"SVXY", "SPY"}
             | {t for t in (cfg.get("FLOOR_BASKET") or {}) if t != "CASH"}
             | {cfg.get("FLOOR_TICKER", "QQQ")}
-            | {cfg.get("DEFENSIVE_FLOOR_TICKER", "GLD")})
+            | {cfg.get("DEFENSIVE_FLOOR_TICKER", "GLD")}
+            # 2026-11-05: the volatility-managed floor's SPY + 2x SSO
+            | {cfg.get("FLOOR_VM_TICKER", "SPY"), cfg.get("FLOOR_VM_LEVERED_TICKER", "SSO")})
 
 
 def ledger_sleeve(symbol: str, option=None, config=None) -> str:

@@ -637,7 +637,9 @@ const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_confi
 // 1x SMH in one live session). executeTrades' totalDeployed heat-cap also
 // over-counted floor market value as active capital. See
 // research/experiments.md 2026-07-17.
-const FLOOR_AND_LEG_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD"]);
+// 2026-11-05: + SSO, the 2x leg of the volatility-managed SPY floor
+// (system_config FLOOR_MODE "vol_managed_spy", FLOOR_VM_LEVERED_TICKER).
+const FLOOR_AND_LEG_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD", "SSO"]);
 
 // Defensive-floor candidates that were evaluated and rejected in favor of GLD
 // (see system_config.py DEFENSIVE_FLOOR_TICKER comment: "TLT/VIXY/SH/SQQQ all

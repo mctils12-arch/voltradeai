@@ -952,6 +952,14 @@ def tier3_trend_capture(ctx: TierContext) -> List[TierAction]:
     if not TIERS_ENABLED.get(3, False):
         return []
 
+    # 2026-11-05: the volatility-managed floor (system_config FLOOR_MODE
+    # "vol_managed_spy") owns SPY and sells QQQ as legacy. T3 buying either
+    # would fight it (T3 buys, the floor trims or sells, T3 buys again), and
+    # levered SPY in calm uptrends is what that floor already holds.
+    from system_config import BASE_CONFIG as _t3_cfg
+    if _t3_cfg.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+        return []
+
     if regime_kill_for_tier(ctx, 3):
         return []
 
