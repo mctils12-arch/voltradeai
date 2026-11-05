@@ -16,6 +16,15 @@ export const FORECAST_JOB_TIMEOUT_MS = 90_000;
 /** Python-side wall budget: below the 90 s kill, leaving room for the fit + write. */
 export const FORECAST_TIME_BUDGET_S = 60;
 export const FORECAST_GENERATE_EVERY_MS = 60 * 60_000;
+/** Heavy-job queue (A6, server/pyJobQueue.ts), 2026-11-05: the forecast
+ *  subprocesses import numpy/pandas like the retrain and the overnight
+ *  phases, so they take the same queue and never run beside the ML retrain.
+ *  A generate that cannot start within this wait is retried at the next
+ *  15-minute poll (no attempt is recorded); a score, on the next poll. */
+export const FORECAST_QUEUE_MAX_WAIT_MS = 5 * 60_000;
+/** Stale-release budget for one queued forecast run: weekly + daily
+ *  subprocesses (each its own 90 s kill) plus Python-mutex waits. */
+export const FORECAST_QUEUE_BUDGET_MS = 6 * FORECAST_JOB_TIMEOUT_MS;
 /** Score once per UTC day from this hour (after the US close in EDT and EST). */
 export const FORECAST_SCORE_UTC_HOUR = 22;
 export const FORECAST_MAX_CANDIDATES = 10;

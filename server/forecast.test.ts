@@ -12,7 +12,7 @@ import { isTrivialPython, planPythonExec } from "./pythonExec";
 import {
   occUnderlying, forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd,
   shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_GENERATE_EVERY_MS, FORECAST_TIME_BUDGET_S,
-  FORECAST_JOB_TIMEOUT_MS, TRIVIAL_PYTHON_MAX_CHARS,
+  FORECAST_JOB_TIMEOUT_MS, TRIVIAL_PYTHON_MAX_CHARS, FORECAST_QUEUE_MAX_WAIT_MS, FORECAST_QUEUE_BUDGET_MS,
   vixFromCboe, forecastDailyPayloadPath, forecastGenerateDailyCmd, dailyAuditKind, dailyWantsVixRefresh,
 } from "./forecast";
 
@@ -149,4 +149,17 @@ test("wiring: the daily job shares the hourly slot, reuses the weekly payload, a
   assert.ok(fn.includes("if (dailyWantsVixRefresh(parsed)) refreshCboeVix()"));
   assert.ok(!/\/v2\/orders|submit_options_order/.test(fn));
   assert.match(bot, /import \{ latestCboeVix, refreshCboeVix \} from "\.\/cboeVix";/);
+});
+
+test("wiring: the forecast subprocesses take the A6 heavy-job queue (never beside the ML retrain); a wait that runs out defers to the next poll", () => {
+  const fn = bot.slice(bot.indexOf("async function checkForecasts()"), bot.indexOf("// ── Tier 2: Intelligence"));
+  assert.ok(fn.includes('heavyPyJobs.run("forecast-generate", FORECAST_QUEUE_BUDGET_MS, () => generateForecasts(now), { maxWaitMs: FORECAST_QUEUE_MAX_WAIT_MS })'));
+  assert.ok(fn.includes('heavyPyJobs.run("forecast-score", FORECAST_QUEUE_BUDGET_MS,'));
+  assert.equal((fn.match(/maxWaitMs: FORECAST_QUEUE_MAX_WAIT_MS/g) || []).length, 2, "both runs bound their wait");
+  assert.ok(fn.includes("_forecastLastGenAttempt = priorAttempt;"), "a generate that never started is retried, not counted as this hour's attempt");
+  assert.ok(fn.indexOf("_forecastLastScoredDay = scoreDay;") > fn.indexOf('heavyPyJobs.run("forecast-score"'), "the score day is recorded only once the job actually runs");
+  assert.equal((fn.match(/e instanceof PyJobWaitTimeout/g) || []).length, 2);
+  assert.equal((fn.match(/PY-JOB-SKIPPED/g) || []).length, 2, "every deferral is audited");
+  assert.ok(FORECAST_QUEUE_MAX_WAIT_MS <= 15 * 60_000, "never longer than the 15-minute poll");
+  assert.ok(FORECAST_QUEUE_BUDGET_MS >= 2 * FORECAST_JOB_TIMEOUT_MS, "the budget covers both subprocesses' own kills");
 });
