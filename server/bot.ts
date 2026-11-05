@@ -894,7 +894,12 @@ const state = {
   alpacaFailCount: 0,       // consecutive Alpaca ping failures
   morningQueueExecuted: false, // Track if we ran the morning queue today
   equityPeak: 0,              // High water mark for max drawdown kill switch
-  maxDrawdownPct: -10,        // Kill switch triggers at -10% from peak
+  // Kill switch triggers at -20% from peak. [RULE-REVIEW] 2026-11-05: was -10%
+  // (prior value). Over the floor study's 1993-2026 sample, a -10% kill froze the
+  // volatility-managed floor 37 times (15 since 2013) and cost growth; at -20% it
+  // fires 5 times, only in real crashes. It now sits behind bot_engine's 18% DD
+  // halt (entries stop, floor reduce-only), its layer order. Rollback: -10.
+  maxDrawdownPct: -20,
 };
 
 // ─── SSE Clients ────────────────────────────────────────────────────────────
@@ -9454,7 +9459,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // R16's "only the owner toggle clears it"). While the drawdown kill is
   // latched, each tier-1 tick evaluates server/killSwitchAutoResume.ts INSTEAD
   // of tier1Reflex (which never runs while killed). UNCHANGED: the trip
-  // (evaluateDrawdown, -10%), the order cancel, the -25% liquidate-on-kill
+  // (evaluateDrawdown at state.maxDrawdownPct: -10% until 2026-11-05, -20% since), the order cancel, the -25% liquidate-on-kill
   // mercy rule, the owner toggle. An owner-set (or unknown-reason) latch is
   // never auto-cleared; a non-paper process never auto-resumes.
   let autoResumeRunning = false;
@@ -9600,7 +9605,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     let peakLine: string;
     if (d.rebaselinePeakTo !== null) {
       state.equityPeak = d.rebaselinePeakTo; saveEquityPeak();
-      peakLine = `equityPeak RE-BASELINED $${priorPeak.toFixed(2)} -> $${state.equityPeak.toFixed(2)} (prior peak logged here; the -10% kill stays armed from the new baseline)`;
+      peakLine = `equityPeak RE-BASELINED $${priorPeak.toFixed(2)} -> $${state.equityPeak.toFixed(2)} (prior peak logged here; the ${state.maxDrawdownPct}% kill stays armed from the new baseline)`;
     } else {
       peakLine = `equityPeak kept at $${priorPeak.toFixed(2)} (real peak — account is back above the resume line)`;
     }

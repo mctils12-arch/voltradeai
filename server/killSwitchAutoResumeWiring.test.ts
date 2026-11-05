@@ -44,12 +44,13 @@ test("every latch reason bot.ts writes is classified the way the auto-resume rel
   assert.notEqual(classifyLatchReason("auto-resume: DATA_ANOMALY"), "DRAWDOWN_KILL");
 });
 
-test("the kill trip itself is unchanged: validated read, -10% latch, order cancel, -25% mercy rule", () => {
+test("the kill trip itself is unchanged: validated read, the configured latch (-20% since the 2026-11-05 [RULE-REVIEW]), order cancel, -25% mercy rule", () => {
   assert.ok(/evaluateDrawdown\(acct\.equity, state\.equityPeak, state\.maxDrawdownPct\)/.test(drawdownFn));
   assert.ok(/if \(t1dd\.valid && t1dd\.kill && !state\.killSwitch\) \{\s*state\.killSwitch = true;\s*saveKillSwitch\("drawdown-kill \(tier1\)"\);/.test(drawdownFn));
   assert.ok(drawdownFn.includes('await alpaca("/v2/orders", { method: "DELETE" })'));
   assert.ok(/VOLTRADE_LIQUIDATE_ON_KILL/.test(drawdownFn) && /t1Drawdown <= -25\.0/.test(drawdownFn));
-  assert.ok(/maxDrawdownPct: -10,/.test(bot), "the -10% threshold is not touched by this change");
+  // [RULE-REVIEW] 2026-11-05: the threshold moved -10% -> -20% on its own PR (prior value in the commit)
+  assert.ok(/maxDrawdownPct: -20,/.test(bot), "the kill threshold is -20% (was -10% until 2026-11-05)");
 });
 
 test("the owner toggle remains and is not routed through the auto-resume", () => {

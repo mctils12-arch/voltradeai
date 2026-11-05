@@ -346,7 +346,7 @@ export type ActionKind = "resume" | "stop" | "kill";
 export function IssuesBody({ issues, nowMs, onFocus, onAct, busy }: { issues: Issue[]; nowMs: number; onFocus: (p: PanelId) => void; onAct: (k: ActionKind) => Promise<void>; busy: boolean }) {
   const [confirm, setConfirm] = useState<ActionKind | null>(null);
   const consequence: Record<ActionKind, string> = {
-    resume: "clears the kill latch and re-activates the loop; the −10% rule re-latches at the same line",
+    resume: "clears the kill latch and re-activates the loop; the −20% rule re-latches at the same line",
     stop: "pauses scans and entries; stops keep firing; cleared by the next deploy",
     kill: "cancels every open order and stops all exits until resumed",
   };

@@ -45,7 +45,7 @@
  *     peak date, so gains a position already carried at the peak are not
  *     counted as lost. That UNDERSTATES since-peak losses on long-held
  *     winners and biases toward DATA_ANOMALY. Accepted for PAPER only: the
- *     fast path re-baselines the peak, so the kill stays armed at -10% from
+ *     fast path re-baselines the peak, so the kill stays armed at the threshold from
  *     the new baseline — the bias moves resume timing, never removes the halt.
  *   - Incomplete reconciliation (truncated fill history, a closing fill whose
  *     cost basis predates the window, an unpriced position) can never prove
@@ -80,7 +80,7 @@ export const AUTO_RESUME = Object.freeze({
   // 3.4% explained).
   ANOMALY_EXPLAINED_RATIO: 0.25,
   // RECOVERED needs drawdown ABOVE the kill threshold by this many percentage
-  // points (-10% kill -> resume above -8%) so the latch cannot flap at the line.
+  // points (-20% kill since 2026-11-05 -> resume above -18%) so the latch cannot flap at the line.
   RECOVERY_HYSTERESIS_PP: 2,
   // A real (explained) loss stays halted this many market days, then the
   // paper peak re-baselines to current equity and trading resumes.
