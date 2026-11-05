@@ -1,0 +1,1076 @@
+{
+ "base": {
+  "SPY_y": {
+   "brier_base": 0.247674,
+   "brier_coinflip": 0.25,
+   "days": 1970,
+   "n": 1970,
+   "skill_vs_coinflip": 0.009305,
+   "up_rate": 0.550761
+  },
+  "SPY_y_rod": {
+   "brier_base": 0.248524,
+   "brier_coinflip": 0.25,
+   "days": 1970,
+   "n": 1970,
+   "skill_vs_coinflip": 0.005905,
+   "up_rate": 0.542132
+  },
+  "panel_y": {
+   "brier_base": 0.249498,
+   "brier_coinflip": 0.25,
+   "days": 1970,
+   "n": 68950,
+   "skill_vs_coinflip": 0.002009,
+   "up_rate": 0.52599
+  },
+  "panel_y_rod": {
+   "brier_base": 0.249957,
+   "brier_coinflip": 0.25,
+   "days": 1970,
+   "n": 68950,
+   "skill_vs_coinflip": 0.000173,
+   "up_rate": 0.51446
+  }
+ },
+ "elapsed_s": 81.0,
+ "inputs": {
+  "cboe": "2780591fe481d60b",
+  "daily": "d6cc0cc6e939fc80",
+  "h1": "f6ff0090c18cef84"
+ },
+ "shipped_features": [],
+ "spec": {
+  "block": 20,
+  "embargo": 5,
+  "holdout": [
+   "2019-01-02",
+   "2026-11-02"
+  ],
+  "m_tests": 14,
+  "min_train": 504,
+  "n_boot": 10000,
+  "p_bar": 0.003571,
+  "refit_every": 21,
+  "seed": 20261104,
+  "selection_end": "2018-12-31"
+ },
+ "tests": {
+  "T1": {
+   "d_brier_ci95": [
+    -8e-05,
+    0.000164
+   ],
+   "feature": "F1",
+   "first_fit_at": "2001-03-05",
+   "holdout": {
+    "brier_base": 0.24767,
+    "brier_model": 0.247715,
+    "d_brier": 4.5e-05,
+    "days": 1970,
+    "hit_rate": 0.550761,
+    "n": 1970,
+    "up_rate": 0.550761
+   },
+   "last_fit": {
+    "base": 0.5386,
+    "coef": [
+     0.155211,
+     -0.013834
+    ],
+    "n_train": 6968
+   },
+   "p_one_sided": 0.7398,
+   "selection": {
+    "brier_base": 0.248822,
+    "brier_model": 0.248955,
+    "d_brier": 0.000133,
+    "days": 4485,
+    "hit_rate": 0.533333,
+    "n": 4485,
+    "up_rate": 0.538685
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.248369,
+     "d_brier": -4.1e-05,
+     "n": 489
+    },
+    "BULL": {
+     "brier_base": 0.245681,
+     "d_brier": 0.00011,
+     "n": 700
+    },
+    "CAUTION": {
+     "brier_base": 0.247673,
+     "d_brier": -4.5e-05,
+     "n": 246
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249884,
+     "d_brier": 7e-05,
+     "n": 471
+    },
+    "PANIC": {
+     "brier_base": 0.247794,
+     "d_brier": 0.000153,
+     "n": 64
+    },
+    "VIX high": {
+     "brier_base": 0.247387,
+     "d_brier": -8.7e-05,
+     "n": 565
+    },
+    "VIX low": {
+     "brier_base": 0.246721,
+     "d_brier": 0.000123,
+     "n": 428
+    },
+    "VIX mid": {
+     "brier_base": 0.24825,
+     "d_brier": 8.8e-05,
+     "n": 977
+    }
+   },
+   "target": "y",
+   "universe": "SPY",
+   "verdict": "FAIL"
+  },
+  "T10": {
+   "d_brier_ci95": [
+    -0.000361,
+    0.000247
+   ],
+   "feature": "F5",
+   "first_fit_at": "2014-05-14",
+   "holdout": {
+    "brier_base": 0.249361,
+    "brier_model": 0.249284,
+    "d_brier": -7.7e-05,
+    "days": 1970,
+    "hit_rate": 0.52599,
+    "n": 68950,
+    "up_rate": 0.52599
+   },
+   "last_fit": {
+    "base": 0.5236,
+    "coef": [
+     0.100904,
+     -0.080038
+    ],
+    "n_train": 124850
+   },
+   "p_one_sided": 0.3316,
+   "selection": {
+    "brier_base": 0.249652,
+    "brier_model": 0.249745,
+    "d_brier": 9.3e-05,
+    "days": 1167,
+    "hit_rate": 0.511797,
+    "n": 39459,
+    "up_rate": 0.520464
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.248854,
+     "d_brier": -0.00013,
+     "n": 17115
+    },
+    "BULL": {
+     "brier_base": 0.249283,
+     "d_brier": 6.7e-05,
+     "n": 24500
+    },
+    "CAUTION": {
+     "brier_base": 0.249361,
+     "d_brier": -0.000311,
+     "n": 8610
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249974,
+     "d_brier": -0.000233,
+     "n": 16485
+    },
+    "PANIC": {
+     "brier_base": 0.24956,
+     "d_brier": 0.00081,
+     "n": 2240
+    },
+    "VIX high": {
+     "brier_base": 0.249041,
+     "d_brier": 8.6e-05,
+     "n": 19775
+    },
+    "VIX low": {
+     "brier_base": 0.249624,
+     "d_brier": 0.000243,
+     "n": 14980
+    },
+    "VIX mid": {
+     "brier_base": 0.24943,
+     "d_brier": -0.000311,
+     "n": 34195
+    }
+   },
+   "target": "y",
+   "universe": "panel",
+   "verdict": "FAIL"
+  },
+  "T11": {
+   "feature": "combination of passes",
+   "verdict": "NOT RUN (fewer than 2 individual passes)"
+  },
+  "T12": {
+   "d_brier_ci95": [
+    -0.000696,
+    0.00045
+   ],
+   "feature": "G1",
+   "first_fit_at": "2001-03-05",
+   "holdout": {
+    "brier_base": 0.248527,
+    "brier_model": 0.248398,
+    "d_brier": -0.000129,
+    "days": 1970,
+    "hit_rate": 0.54264,
+    "n": 1970,
+    "up_rate": 0.542132
+   },
+   "last_fit": {
+    "base": 0.5281,
+    "coef": [
+     0.110472,
+     0.069279
+    ],
+    "n_train": 6968
+   },
+   "p_one_sided": 0.3395,
+   "selection": {
+    "brier_base": 0.249681,
+    "brier_model": 0.249869,
+    "d_brier": 0.000188,
+    "days": 4485,
+    "hit_rate": 0.513712,
+    "n": 4485,
+    "up_rate": 0.529543
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.248323,
+     "d_brier": -0.001387,
+     "n": 489
+    },
+    "BULL": {
+     "brier_base": 0.247708,
+     "d_brier": 0.000456,
+     "n": 700
+    },
+    "CAUTION": {
+     "brier_base": 0.249085,
+     "d_brier": -0.000145,
+     "n": 246
+    },
+    "NEUTRAL": {
+     "brier_base": 0.250169,
+     "d_brier": -0.00012,
+     "n": 471
+    },
+    "PANIC": {
+     "brier_base": 0.244795,
+     "d_brier": 0.003078,
+     "n": 64
+    },
+    "VIX high": {
+     "brier_base": 0.248246,
+     "d_brier": -0.000795,
+     "n": 565
+    },
+    "VIX low": {
+     "brier_base": 0.248443,
+     "d_brier": 0.000995,
+     "n": 428
+    },
+    "VIX mid": {
+     "brier_base": 0.248725,
+     "d_brier": -0.000236,
+     "n": 977
+    }
+   },
+   "target": "y_rod",
+   "universe": "SPY",
+   "verdict": "FAIL"
+  },
+  "T13": {
+   "d_brier_ci95": [
+    -2e-06,
+    0.000214
+   ],
+   "feature": "G1",
+   "first_fit_at": "2001-03-05",
+   "holdout": {
+    "brier_base": 0.249954,
+    "brier_model": 0.250056,
+    "d_brier": 0.000103,
+    "days": 1970,
+    "hit_rate": 0.504075,
+    "n": 68950,
+    "up_rate": 0.51446
+   },
+   "last_fit": {
+    "base": 0.5041,
+    "coef": [
+     0.017146,
+     -0.021895
+    ],
+    "n_train": 229119
+   },
+   "p_one_sided": 0.9723,
+   "selection": {
+    "brier_base": 0.250154,
+    "brier_model": 0.250193,
+    "d_brier": 3.9e-05,
+    "days": 4485,
+    "hit_rate": 0.502587,
+    "n": 145338,
+    "up_rate": 0.503227
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.2499,
+     "d_brier": 0.000341,
+     "n": 17115
+    },
+    "BULL": {
+     "brier_base": 0.249945,
+     "d_brier": 1.7e-05,
+     "n": 24500
+    },
+    "CAUTION": {
+     "brier_base": 0.250043,
+     "d_brier": 7.9e-05,
+     "n": 8610
+    },
+    "NEUTRAL": {
+     "brier_base": 0.250002,
+     "d_brier": -2.3e-05,
+     "n": 16485
+    },
+    "PANIC": {
+     "brier_base": 0.249757,
+     "d_brier": 0.000244,
+     "n": 2240
+    },
+    "VIX high": {
+     "brier_base": 0.249945,
+     "d_brier": 0.000229,
+     "n": 19775
+    },
+    "VIX low": {
+     "brier_base": 0.249961,
+     "d_brier": -7.5e-05,
+     "n": 14980
+    },
+    "VIX mid": {
+     "brier_base": 0.249955,
+     "d_brier": 0.000107,
+     "n": 34195
+    }
+   },
+   "target": "y_rod",
+   "universe": "panel",
+   "verdict": "FAIL"
+  },
+  "T14": {
+   "d_brier_ci95": [
+    -1.4e-05,
+    9.5e-05
+   ],
+   "feature": "G2",
+   "first": "2023-12-06",
+   "holdout": {
+    "brier_base": 0.249895,
+    "brier_model": 0.24993,
+    "d_brier": 3.5e-05,
+    "days": 361,
+    "hit_rate": 0.51362,
+    "n": 8664,
+    "up_rate": 0.51362
+   },
+   "last": "2026-11-03",
+   "last_fit": {
+    "coef": [
+     0.074687,
+     -0.004306
+    ]
+   },
+   "p_one_sided": 0.9091,
+   "selection": {
+    "brier_base": 0.249685,
+    "brier_model": 0.249825,
+    "d_brier": 0.00014,
+    "days": 181,
+    "hit_rate": 0.521179,
+    "n": 4344,
+    "up_rate": 0.521409
+   },
+   "sessions": 722,
+   "split_date": "2025-05-21",
+   "spy_only_holdout": {
+    "brier_base": 0.247958,
+    "brier_model": 0.247944,
+    "d_brier": -1.4e-05,
+    "days": 361,
+    "hit_rate": 0.554017,
+    "n": 361,
+    "up_rate": 0.554017
+   },
+   "target": "y_from_1030",
+   "universe": "SPY+QQQ+IWM+DIA+20 names (60m)",
+   "verdict": "FAIL"
+  },
+  "T2": {
+   "d_brier_ci95": [
+    -0.000277,
+    0.000773
+   ],
+   "feature": "F2",
+   "first_fit_at": "2001-03-05",
+   "holdout": {
+    "brier_base": 0.24767,
+    "brier_model": 0.247903,
+    "d_brier": 0.000232,
+    "days": 1970,
+    "hit_rate": 0.552284,
+    "n": 1970,
+    "up_rate": 0.550761
+   },
+   "last_fit": {
+    "base": 0.5386,
+    "coef": [
+     0.15528,
+     -0.058523
+    ],
+    "n_train": 6968
+   },
+   "p_one_sided": 0.8102,
+   "selection": {
+    "brier_base": 0.248822,
+    "brier_model": 0.248612,
+    "d_brier": -0.00021,
+    "days": 4485,
+    "hit_rate": 0.534671,
+    "n": 4485,
+    "up_rate": 0.538685
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.248369,
+     "d_brier": 0.000154,
+     "n": 489
+    },
+    "BULL": {
+     "brier_base": 0.245681,
+     "d_brier": 0.000187,
+     "n": 700
+    },
+    "CAUTION": {
+     "brier_base": 0.247673,
+     "d_brier": 0.001185,
+     "n": 246
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249884,
+     "d_brier": 0.000338,
+     "n": 471
+    },
+    "PANIC": {
+     "brier_base": 0.247794,
+     "d_brier": -0.003112,
+     "n": 64
+    },
+    "VIX high": {
+     "brier_base": 0.247387,
+     "d_brier": -0.000137,
+     "n": 565
+    },
+    "VIX low": {
+     "brier_base": 0.246721,
+     "d_brier": -0.000168,
+     "n": 428
+    },
+    "VIX mid": {
+     "brier_base": 0.24825,
+     "d_brier": 0.000621,
+     "n": 977
+    }
+   },
+   "target": "y",
+   "universe": "SPY",
+   "verdict": "FAIL"
+  },
+  "T3": {
+   "d_brier_ci95": [
+    -6.3e-05,
+    0.000335
+   ],
+   "feature": "F3",
+   "first_fit_at": "2002-02-07",
+   "holdout": {
+    "brier_base": 0.247634,
+    "brier_model": 0.247773,
+    "d_brier": 0.00014,
+    "days": 1970,
+    "hit_rate": 0.550761,
+    "n": 1970,
+    "up_rate": 0.550761
+   },
+   "last_fit": {
+    "base": 0.5399,
+    "coef": [
+     0.159836,
+     0.009442
+    ],
+    "n_train": 6735
+   },
+   "p_one_sided": 0.9127,
+   "selection": {
+    "brier_base": 0.248704,
+    "brier_model": 0.248746,
+    "d_brier": 4.3e-05,
+    "days": 4254,
+    "hit_rate": 0.536906,
+    "n": 4254,
+    "up_rate": 0.540903
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.248359,
+     "d_brier": -6.1e-05,
+     "n": 489
+    },
+    "BULL": {
+     "brier_base": 0.245567,
+     "d_brier": 0.000342,
+     "n": 700
+    },
+    "CAUTION": {
+     "brier_base": 0.247632,
+     "d_brier": 0.000486,
+     "n": 246
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249931,
+     "d_brier": 0.000193,
+     "n": 471
+    },
+    "PANIC": {
+     "brier_base": 0.247786,
+     "d_brier": -0.002266,
+     "n": 64
+    },
+    "VIX high": {
+     "brier_base": 0.24734,
+     "d_brier": -0.000151,
+     "n": 565
+    },
+    "VIX low": {
+     "brier_base": 0.246639,
+     "d_brier": 0.00027,
+     "n": 428
+    },
+    "VIX mid": {
+     "brier_base": 0.248239,
+     "d_brier": 0.00025,
+     "n": 977
+    }
+   },
+   "target": "y",
+   "universe": "SPY",
+   "verdict": "FAIL"
+  },
+  "T4": {
+   "d_brier_ci95": [
+    -0.000216,
+    0.000202
+   ],
+   "feature": "F4",
+   "first_fit_at": "2001-11-06",
+   "holdout": {
+    "brier_base": 0.247616,
+    "brier_model": 0.247636,
+    "d_brier": 2e-05,
+    "days": 1970,
+    "hit_rate": 0.550761,
+    "n": 1970,
+    "up_rate": 0.550761
+   },
+   "last_fit": {
+    "base": 0.5404,
+    "coef": [
+     0.148324,
+     0.036922
+    ],
+    "n_train": 6789
+   },
+   "p_one_sided": 0.4856,
+   "selection": {
+    "brier_base": 0.248628,
+    "brier_model": 0.248904,
+    "d_brier": 0.000275,
+    "days": 4317,
+    "hit_rate": 0.536947,
+    "n": 4317,
+    "up_rate": 0.539958
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.248352,
+     "d_brier": -3e-06,
+     "n": 489
+    },
+    "BULL": {
+     "brier_base": 0.245514,
+     "d_brier": -6e-06,
+     "n": 700
+    },
+    "CAUTION": {
+     "brier_base": 0.247616,
+     "d_brier": 0.00014,
+     "n": 246
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249951,
+     "d_brier": -1.5e-05,
+     "n": 471
+    },
+    "PANIC": {
+     "brier_base": 0.247786,
+     "d_brier": 0.000279,
+     "n": 64
+    },
+    "VIX high": {
+     "brier_base": 0.247319,
+     "d_brier": -3.7e-05,
+     "n": 565
+    },
+    "VIX low": {
+     "brier_base": 0.246595,
+     "d_brier": 1.2e-05,
+     "n": 428
+    },
+    "VIX mid": {
+     "brier_base": 0.248234,
+     "d_brier": 5.7e-05,
+     "n": 977
+    }
+   },
+   "target": "y",
+   "universe": "SPY",
+   "verdict": "FAIL"
+  },
+  "T5": {
+   "d_brier_ci95": [
+    -0.000218,
+    0.00068
+   ],
+   "feature": "F5",
+   "first_fit_at": "2014-05-14",
+   "holdout": {
+    "brier_base": 0.247541,
+    "brier_model": 0.24772,
+    "d_brier": 0.000179,
+    "days": 1970,
+    "hit_rate": 0.550761,
+    "n": 1970,
+    "up_rate": 0.550761
+   },
+   "last_fit": {
+    "base": 0.5476,
+    "coef": [
+     0.195309,
+     -0.056496
+    ],
+    "n_train": 3636
+   },
+   "p_one_sided": 0.8292,
+   "selection": {
+    "brier_base": 0.249354,
+    "brier_model": 0.249439,
+    "d_brier": 8.5e-05,
+    "days": 1167,
+    "hit_rate": 0.533847,
+    "n": 1167,
+    "up_rate": 0.533847
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.248488,
+     "d_brier": 8.3e-05,
+     "n": 489
+    },
+    "BULL": {
+     "brier_base": 0.244945,
+     "d_brier": 0.000578,
+     "n": 700
+    },
+    "CAUTION": {
+     "brier_base": 0.247316,
+     "d_brier": -0.000195,
+     "n": 246
+    },
+    "NEUTRAL": {
+     "brier_base": 0.250473,
+     "d_brier": -0.000295,
+     "n": 471
+    },
+    "PANIC": {
+     "brier_base": 0.247992,
+     "d_brier": 0.001462,
+     "n": 64
+    },
+    "VIX high": {
+     "brier_base": 0.247148,
+     "d_brier": 0.000659,
+     "n": 565
+    },
+    "VIX low": {
+     "brier_base": 0.2463,
+     "d_brier": 0.000642,
+     "n": 428
+    },
+    "VIX mid": {
+     "brier_base": 0.248312,
+     "d_brier": -0.000302,
+     "n": 977
+    }
+   },
+   "target": "y",
+   "universe": "SPY",
+   "verdict": "FAIL"
+  },
+  "T6": {
+   "d_brier_ci95": [
+    -6e-06,
+    5.3e-05
+   ],
+   "feature": "F1",
+   "first_fit_at": "2001-03-05",
+   "holdout": {
+    "brier_base": 0.249495,
+    "brier_model": 0.249515,
+    "d_brier": 1.9e-05,
+    "days": 1970,
+    "hit_rate": 0.526091,
+    "n": 68950,
+    "up_rate": 0.52599
+   },
+   "last_fit": {
+    "base": 0.5154,
+    "coef": [
+     0.06137,
+     0.012212
+    ],
+    "n_train": 229119
+   },
+   "p_one_sided": 0.9351,
+   "selection": {
+    "brier_base": 0.249929,
+    "brier_model": 0.249954,
+    "d_brier": 2.5e-05,
+    "days": 4485,
+    "hit_rate": 0.510087,
+    "n": 145338,
+    "up_rate": 0.513555
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.249195,
+     "d_brier": 4.3e-05,
+     "n": 17115
+    },
+    "BULL": {
+     "brier_base": 0.249461,
+     "d_brier": -2e-06,
+     "n": 24500
+    },
+    "CAUTION": {
+     "brier_base": 0.249532,
+     "d_brier": -2.3e-05,
+     "n": 8610
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249841,
+     "d_brier": 5e-06,
+     "n": 16485
+    },
+    "PANIC": {
+     "brier_base": 0.249485,
+     "d_brier": 0.000334,
+     "n": 2240
+    },
+    "VIX high": {
+     "brier_base": 0.249295,
+     "d_brier": 2.9e-05,
+     "n": 19775
+    },
+    "VIX low": {
+     "brier_base": 0.24967,
+     "d_brier": 1.3e-05,
+     "n": 14980
+    },
+    "VIX mid": {
+     "brier_base": 0.249535,
+     "d_brier": 1.6e-05,
+     "n": 34195
+    }
+   },
+   "target": "y",
+   "universe": "panel",
+   "verdict": "FAIL"
+  },
+  "T7": {
+   "d_brier_ci95": [
+    -0.00014,
+    0.000277
+   ],
+   "feature": "F2",
+   "first_fit_at": "2001-03-05",
+   "holdout": {
+    "brier_base": 0.249495,
+    "brier_model": 0.249553,
+    "d_brier": 5.7e-05,
+    "days": 1970,
+    "hit_rate": 0.520899,
+    "n": 68950,
+    "up_rate": 0.52599
+   },
+   "last_fit": {
+    "base": 0.5154,
+    "coef": [
+     0.061877,
+     -0.049873
+    ],
+    "n_train": 229119
+   },
+   "p_one_sided": 0.7401,
+   "selection": {
+    "brier_base": 0.249929,
+    "brier_model": 0.249767,
+    "d_brier": -0.000162,
+    "days": 4485,
+    "hit_rate": 0.51449,
+    "n": 145338,
+    "up_rate": 0.513555
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.249195,
+     "d_brier": 1.6e-05,
+     "n": 17115
+    },
+    "BULL": {
+     "brier_base": 0.249461,
+     "d_brier": 7.9e-05,
+     "n": 24500
+    },
+    "CAUTION": {
+     "brier_base": 0.249532,
+     "d_brier": 0.00022,
+     "n": 8610
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249841,
+     "d_brier": 0.000282,
+     "n": 16485
+    },
+    "PANIC": {
+     "brier_base": 0.249485,
+     "d_brier": -0.002148,
+     "n": 2240
+    },
+    "VIX high": {
+     "brier_base": 0.249295,
+     "d_brier": -0.000349,
+     "n": 19775
+    },
+    "VIX low": {
+     "brier_base": 0.24967,
+     "d_brier": 0.00011,
+     "n": 14980
+    },
+    "VIX mid": {
+     "brier_base": 0.249535,
+     "d_brier": 0.000269,
+     "n": 34195
+    }
+   },
+   "target": "y",
+   "universe": "panel",
+   "verdict": "FAIL"
+  },
+  "T8": {
+   "d_brier_ci95": [
+    -0.000107,
+    0.000227
+   ],
+   "feature": "F3",
+   "first_fit_at": "2002-02-07",
+   "holdout": {
+    "brier_base": 0.249474,
+    "brier_model": 0.249538,
+    "d_brier": 6.4e-05,
+    "days": 1970,
+    "hit_rate": 0.52686,
+    "n": 68950,
+    "up_rate": 0.52599
+   },
+   "last_fit": {
+    "base": 0.5162,
+    "coef": [
+     0.064979,
+     0.020146
+    ],
+    "n_train": 222623
+   },
+   "p_one_sided": 0.7845,
+   "selection": {
+    "brier_base": 0.249908,
+    "brier_model": 0.249887,
+    "d_brier": -2.1e-05,
+    "days": 4254,
+    "hit_rate": 0.504758,
+    "n": 138508,
+    "up_rate": 0.514902
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.249154,
+     "d_brier": -0.00011,
+     "n": 17115
+    },
+    "BULL": {
+     "brier_base": 0.249436,
+     "d_brier": 0.000182,
+     "n": 24500
+    },
+    "CAUTION": {
+     "brier_base": 0.249512,
+     "d_brier": 0.000407,
+     "n": 8610
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249844,
+     "d_brier": 0.000199,
+     "n": 16485
+    },
+    "PANIC": {
+     "brier_base": 0.249476,
+     "d_brier": -0.002213,
+     "n": 2240
+    },
+    "VIX high": {
+     "brier_base": 0.249262,
+     "d_brier": -0.000216,
+     "n": 19775
+    },
+    "VIX low": {
+     "brier_base": 0.249657,
+     "d_brier": 0.000219,
+     "n": 14980
+    },
+    "VIX mid": {
+     "brier_base": 0.249517,
+     "d_brier": 0.000158,
+     "n": 34195
+    }
+   },
+   "target": "y",
+   "universe": "panel",
+   "verdict": "FAIL"
+  },
+  "T9": {
+   "d_brier_ci95": [
+    1e-06,
+    2.4e-05
+   ],
+   "feature": "F4",
+   "first_fit_at": "2001-11-06",
+   "holdout": {
+    "brier_base": 0.249472,
+    "brier_model": 0.249486,
+    "d_brier": 1.4e-05,
+    "days": 1970,
+    "hit_rate": 0.52599,
+    "n": 68950,
+    "up_rate": 0.52599
+   },
+   "last_fit": {
+    "base": 0.5163,
+    "coef": [
+     0.067646,
+     -0.006675
+    ],
+    "n_train": 224189
+   },
+   "p_one_sided": 0.9847,
+   "selection": {
+    "brier_base": 0.249896,
+    "brier_model": 0.250018,
+    "d_brier": 0.000122,
+    "days": 4317,
+    "hit_rate": 0.506766,
+    "n": 140398,
+    "up_rate": 0.514601
+   },
+   "splits_holdout": {
+    "BEAR": {
+     "brier_base": 0.24915,
+     "d_brier": 4.9e-05,
+     "n": 17115
+    },
+    "BULL": {
+     "brier_base": 0.249434,
+     "d_brier": 4e-06,
+     "n": 24500
+    },
+    "CAUTION": {
+     "brier_base": 0.24951,
+     "d_brier": -5e-06,
+     "n": 8610
+    },
+    "NEUTRAL": {
+     "brier_base": 0.249844,
+     "d_brier": 2e-06,
+     "n": 16485
+    },
+    "PANIC": {
+     "brier_base": 0.249475,
+     "d_brier": 1.2e-05,
+     "n": 2240
+    },
+    "VIX high": {
+     "brier_base": 0.249259,
+     "d_brier": 2e-05,
+     "n": 19775
+    },
+    "VIX low": {
+     "brier_base": 0.249655,
+     "d_brier": 0.0,
+     "n": 14980
+    },
+    "VIX mid": {
+     "brier_base": 0.249515,
+     "d_brier": 1.6e-05,
+     "n": 34195
+    }
+   },
+   "target": "y",
+   "universe": "panel",
+   "verdict": "FAIL"
+  }
+ },
+ "vix_tercile_cuts": [
+  14.99,
+  21.71
+ ]
+}
