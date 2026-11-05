@@ -117,6 +117,7 @@ function makeHarness(startIso = "2026-10-29T13:30:09Z") {
     posKillPendingBreach: new Map<string, { firstSeenMs: number; pnlPct: number }>(),
     posKillNoMarkAuditDay: new Map<string, string>(),
     marketOpen: null as boolean | null,
+    openingWindow: false,
   };
   const js = transpile(`
 ${HELPERS}
@@ -124,6 +125,7 @@ async function runTick(positions, env) {
   const { FLOOR_AND_LEG_TICKERS, LEGACY_DEFENSIVE_CANDIDATE_TICKERS, audit, alpaca, state, openOrders,
           getOrderParams, notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay } = env;
   const posKillMarketOpenCurrent = env.marketOpen;
+  const posKillOptionOpeningWindowCurrent = env.openingWindow;
   const activeTickers = new Set();
   ${loopBody}
 }
@@ -267,4 +269,65 @@ test("wiring: the clock is read once per sync before the loop, and the off-hours
   assert.ok(/continue;/.test(gate), "the off-hours gate leaves the branch");
   assert.ok(!/alpaca\(/.test(gate) && !/openOrders\.push/.test(gate), "the off-hours gate never calls Alpaca or registers an order");
   assert.ok(loop.includes('typeof posKillMarketOpenCurrent !== "undefined"'), "the loop body stays runnable in harnesses that do not define the reading");
+});
+
+// ── OPENING WINDOW (2026-11-05): no option exit before 09:45 ET ─────────────
+// research/options_bleed_2026-11-04.md: 53 lots closed in the first 5 minutes
+// lost $5,083 at a median fill of 1.41x fair value. POS-KILL's option backstop
+// now waits with options_manager's closes; stocks are unchanged.
+
+test("an option breach in the opening window is held: no order, one POS-KILL-OPTION-OPENING row, then two ticks after 09:45 kill", async () => {
+  const h = makeHarness("2026-11-05T14:31:00Z");
+  h.env.marketOpen = true;
+  h.env.openingWindow = true;
+  await h.tick([longOptionAt(-80)]);
+  await h.tick([longOptionAt(-80)]);
+  await h.tick([longOptionAt(-80)]);
+  assert.equal(h.posts.length, 0, "no option exit inside the window, however many breach ticks");
+  assert.equal(h.audited("POS-KILL-OPTION-OPENING").length, 1, "one line per ticker per day");
+  assert.equal(h.env.posKillPendingBreach.size, 0, "a breach seen in the window is never carried out of it");
+  h.env.openingWindow = false;
+  await h.tick([longOptionAt(-80)]);
+  assert.equal(h.posts.length, 0, "the first tick after the window only starts the confirmation");
+  await h.tick([longOptionAt(-80)]);
+  assert.equal(h.posts.length, 1, "the second valid-mark tick after 09:45 kills");
+  assert.equal(h.audited("POS-KILL-OPTION-OFFHOURS").length, 0);
+});
+
+test("stocks are unchanged by the opening window", async () => {
+  const h = makeHarness("2026-11-05T14:31:00Z");
+  h.env.marketOpen = true;
+  h.env.openingWindow = true;
+  await h.tick([stockAt(-30)]);
+  await h.tick([stockAt(-30)]);
+  assert.equal(h.posts.length, 1);
+  assert.equal(h.audited("POS-KILL-OPTION-OPENING").length, 0);
+});
+
+test("isOptionOpeningWindowET: 09:30-09:45 New York time, in EST and EDT; outside is false", () => {
+  const src = functionSourceIfPresent("function isOptionOpeningWindowET(now: Date): boolean");
+  assert.ok(src, "isOptionOpeningWindowET must exist in bot.ts");
+  const f = new Function(`${transpile(src)}\nreturn isOptionOpeningWindowET;`)() as (d: Date) => boolean;
+  assert.equal(f(new Date("2026-11-05T14:29:00Z")), false, "09:29 EST");
+  assert.equal(f(new Date("2026-11-05T14:30:00Z")), true, "09:30 EST");
+  assert.equal(f(new Date("2026-11-05T14:44:59Z")), true, "09:44 EST");
+  assert.equal(f(new Date("2026-11-05T14:45:00Z")), false, "09:45 EST");
+  assert.equal(f(new Date("2026-07-15T13:30:00Z")), true, "09:30 EDT");
+  assert.equal(f(new Date("2026-07-15T14:30:00Z")), false, "10:30 EDT");
+});
+
+test("wiring: the window is read once per sync after the clock; its gate leaves the kill branch before the no-mark gate and every order path", () => {
+  const sync = bot.slice(syncStart, loopStart);
+  const clockAt = sync.indexOf("posKillMarketOpenCurrent = await posKillReadMarketOpen();");
+  const owAt = sync.indexOf("posKillOptionOpeningWindowCurrent = posKillMarketOpenCurrent !== false && isOptionOpeningWindowET(new Date());");
+  assert.ok(clockAt > 0 && owAt > clockAt, "read after the clock, once per sync");
+  const loop = bot.slice(loopStart, loopEnd);
+  const kill = loop.slice(loop.indexOf("if (pnlPct <= POSITION_KILL_LOSS_PCT) {"));
+  const owGate = kill.indexOf("if (optionOpeningWindow) {");
+  const nomarkAt = kill.indexOf('if (breach === "nomark") {');
+  const postAt = kill.indexOf("const killOrderResult = await alpaca(");
+  assert.ok(owGate > 0 && nomarkAt > owGate && postAt > nomarkAt);
+  const gate = kill.slice(owGate, nomarkAt);
+  assert.ok(/continue;/.test(gate) && !/alpaca\(/.test(gate) && !/openOrders\.push/.test(gate));
+  assert.ok(loop.includes('typeof posKillOptionOpeningWindowCurrent !== "undefined"'), "harness-safe read");
 });

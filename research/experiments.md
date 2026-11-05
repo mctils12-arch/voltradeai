@@ -114056,3 +114056,25 @@ Updated tests:
 - test_third_leg_floor_ownership.py: the independent ownership derivation follows FLOOR_MODE. The GLD-churn regressions run pinned to "basket" (the rollback mode, where GLD is floor-owned), and the disjointness and behavioural invariants run under both modes. No assertion was removed.
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (options_manager.py single-leg + group close timing; server/bot.ts POS-KILL option backstop timing, outside the order POST) — no option exit before 09:45 ET, EXPLORATORY, kill date 2027-02-05
+VERSION: v1.0.1292 (shipped 2026-11-05 by the parent session; main was v1.0.1291)
+
+Evidence: research/options_bleed_2026-11-04.md.
+- 53 lots closed in the session's first 5 minutes lost $5,083.
+- The 29 of them whose underlying moved ≤ 3% lost $1,378 where the price model says +$266. Their median fill was 1.41x fair value (the XLF put: $1.61 against ~$0.49 fair, on an up day).
+- Option quotes are widest in the opening rotation; the exits were rules that had fired overnight or at the open (21 DTE, loss limits, POS-KILL).
+
+The rule (decision timing only; no threshold, order type or POST changed):
+- options_manager: every single-leg close and every group close requested between 09:30 and 09:45 ET is reported as deferred ("opening window") and judged again on the first tick after 09:45. A group close request is stamped, so it is pursued after the window.
+- The window is read from the BROKER's clock (Alpaca /v2/clock timestamp, cached with the open/closed reading), converted to New York time. A missing or unreadable timestamp counts as outside the window: a close is never withheld by a broken clock.
+- server/bot.ts POS-KILL: an option breach seen in the window is cleared, like an off-hours breach (2026-11-04), so a kill needs two valid-mark ticks after 09:45. One POS-KILL-OPTION-OPENING audit line per ticker per day.
+- Market-closed behaviour and stocks are unchanged. CRITICAL DTE (≤ 5 DTE) waits too: 15 minutes is small against a 5-day horizon, and the widest spreads are exactly where a forced close loses most.
+
+Downstream: exits that fired at the open now fill 15+ minutes later. Exposure is held up to 15 minutes longer on a gap day, in either direction. The loss limits and POS-KILL thresholds are unchanged, so a position that keeps falling still exits after 09:45.
+
+Rollback trigger (counterfactual, from the audit log + option bars): over the first 20 sessions, the deferred exits' fills after 09:45 average worse than the bid quoted for the same contracts at 09:30.
+
+Tests: test_option_opening_window.py (7): the window bounds, the broker clock (and a UTC-stamped clock), a broken clock, single-leg deferral in and after the window, market-closed unchanged, group close stamped but not sent in the window. server/posKillOptionHours.test.ts +4: a breach in the window is cleared and audited once, a kill confirms after the window, stocks are unaffected. Existing POS-KILL harnesses unchanged.
+
+STARVED: no.

@@ -771,6 +771,28 @@ async function posKillReadMarketOpen(): Promise<boolean | null> {
   return isOpen;
 }
 
+// OPENING WINDOW 2026-11-05: no option exit before 09:45 ET.
+// options_manager.py OPENING_WINDOW_END_ET holds the single-leg and group
+// closes; POS-KILL's option backstop waits with them.
+// research/options_bleed_2026-11-04.md: 53 lots closed in the session's
+// first 5 minutes lost $5,083, at a median fill of 1.41x fair value.
+// True from 09:30 to 09:45 America/New_York. A formatting failure counts as
+// outside the window, so a kill is never withheld by a broken clock.
+function isOptionOpeningWindowET(now: Date): boolean {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(now);
+    const h = Number(parts.find((p) => p.type === "hour")?.value);
+    const m = Number(parts.find((p) => p.type === "minute")?.value);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
+    const mins = h * 60 + m;
+    return mins >= 9 * 60 + 30 && mins < 9 * 60 + 45;
+  } catch {
+    return false;
+  }
+}
+
 // POS-KILL STRUCTURE HOLD 2026-11-02 ([RULE-REVIEW], human-directed "fix the
 // condor close … make sure we don't have this issue again"). Live 10-28/29
 // (research/experiments.md 2026-11-02): this per-leg kill read the two LONG
@@ -8194,6 +8216,8 @@ print(json.dumps({'files': count}))
   let posKillStructuresCurrent: Map<string, string> = new Map();
   // POS-KILL OPTION HOURS 2026-11-04: the market-open reading for the current sync (null = unknown)
   let posKillMarketOpenCurrent: boolean | null = null;
+  // OPENING WINDOW 2026-11-05: true while the market is open and it is 09:30-09:45 ET (current sync)
+  let posKillOptionOpeningWindowCurrent = false;
 
   /**
    * Load positions + stop state from Alpaca + disk, build the monitoredPositions map.
@@ -8223,6 +8247,7 @@ except: print('{}')
       posKillStructuresCurrent = posKillOptionsStructures();
       // POS-KILL OPTION HOURS 2026-11-04: the clock, read once per sync (cached 60 s)
       posKillMarketOpenCurrent = await posKillReadMarketOpen();
+      posKillOptionOpeningWindowCurrent = posKillMarketOpenCurrent !== false && isOptionOpeningWindowET(new Date());
 
       for (const pos of positions) {
         const ticker = pos.symbol || "";
@@ -8325,11 +8350,14 @@ except: print('{}')
         // standalone in the test harnesses.)
         const optionOffHours = isOptionPos
           && (typeof posKillMarketOpenCurrent !== "undefined" ? posKillMarketOpenCurrent : null) === false;
-        if (optionOffHours) posKillPendingBreach.delete(ticker);
+        // OPENING WINDOW 2026-11-05: same treatment as off-hours, 09:30-09:45 ET
+        const optionOpeningWindow = isOptionPos && !optionOffHours
+          && (typeof posKillOptionOpeningWindowCurrent !== "undefined" ? posKillOptionOpeningWindowCurrent : false) === true;
+        if (optionOffHours || optionOpeningWindow) posKillPendingBreach.delete(ticker);
         const breach: "nomark" | "clear" | "pending" | "confirmed" = hasMark
           ? posKillObserveBreach(posKillPendingBreach, ticker, pnlPct <= POSITION_KILL_LOSS_PCT, pnlPct, Date.now())
           : "nomark";
-        if (optionOffHours) posKillPendingBreach.delete(ticker);
+        if (optionOffHours || optionOpeningWindow) posKillPendingBreach.delete(ticker);
         if (isOptionPos && pnlPct <= STOCK_KILL_LOSS_PCT && pnlPct > POSITION_KILL_LOSS_PCT) {
           const skipDay = new Date().toISOString().split("T")[0];
           const skipLog: Record<string, string> = (state as any)._posKillOptionSkipDay || ((state as any)._posKillOptionSkipDay = {});
@@ -8374,6 +8402,16 @@ except: print('{}')
               for (const k of Object.keys(offLog)) if (offLog[k] !== offDay) delete offLog[k];
               offLog[ticker] = offDay;
               audit("POS-KILL-OPTION-OFFHOURS", `${ticker}: option down ${pnlPct.toFixed(1)}% (threshold: ${POSITION_KILL_LOSS_PCT}%) while the market is closed — options do not trade now; the breach is judged only on regular-hours ticks`);
+            }
+            continue;
+          }
+          if (optionOpeningWindow) {
+            const owDay = new Date().toISOString().split("T")[0];
+            const owLog: Record<string, string> = (state as any)._posKillOpeningWindowDay || ((state as any)._posKillOpeningWindowDay = {});
+            if (owLog[ticker] !== owDay) {
+              for (const k of Object.keys(owLog)) if (owLog[k] !== owDay) delete owLog[k];
+              owLog[ticker] = owDay;
+              audit("POS-KILL-OPTION-OPENING", `${ticker}: option down ${pnlPct.toFixed(1)}% (threshold: ${POSITION_KILL_LOSS_PCT}%) in the opening window — no option exit before 09:45 ET (the widest spreads of the day); judged again on two ticks after 09:45`);
             }
             continue;
           }
