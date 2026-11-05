@@ -1115,6 +1115,27 @@ OPENING_WINDOW_END_ET = (9, 45)
 OPENING_WINDOW_DEFERRED_DETAIL = ("opening window — no option exit before 09:45 ET (the widest spreads "
                                   "of the day); the rule is judged again after 09:45")
 
+# ── LEFTOVER LONG LEG (2026-11-05) ─────────────────────────────────────────
+# A bought option whose structure is gone is closed. Live:
+# GOOGL261127P00300000 was the long put wing of an earnings iron condor whose
+# other three legs were closed on 10-29. It sat alone for a week with no
+# rule that could exit it: $4.70 -> $22.49 -> sold at $10.65 by the 21-DTE
+# rule on 11-05.
+# Evidence (research review, 2026-11-05):
+# - Long options carry a negative expected return, the variance risk premium
+#   (Coval & Shumway 2001; Bakshi & Kapadia 2003; Carr & Wu 2009).
+# - That return is worst for short-dated out-of-the-money contracts. A
+#   leftover 30-day put wing 10% OTM at 24% IV decays about 7% of its value
+#   per day.
+# - No peer-reviewed test supports profit targets or trailing stops on option
+#   PREMIUM. Closing leftover wings is the defensible rule.
+# A leftover here is a LONG single leg that is the only option position on its
+# underlying (so a spread's long leg is never closed while its short partner
+# is still open: that would leave the short naked), whose recorded strategy is
+# not a deliberate standalone long. A lone wing whose state still records its
+# multi-leg strategy is kept out of the group code so this rule reaches it.
+STANDALONE_LONG_STRATEGIES = ("buy_call", "buy_put", "convexity_hedge")
+
 
 def _in_opening_window(now_et=None) -> bool:
     """True from 09:30 to 09:45 ET (call it only when the market is open).
@@ -1286,17 +1307,30 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     strategy_groups = {}  # {"KMI_buy_straddle": [pos1, pos2], ...}
     standalone_positions = []  # Positions without a multi-leg group
 
+    # LEFTOVER LONG LEG (2026-11-05): how many option legs are open per
+    # underlying. A bought leg that is the only one left on its underlying is
+    # a leftover (Check 1b in Phase 2), even when its state still records the
+    # multi-leg strategy it came from: as a one-leg "group" no group rule can
+    # exit it (a long wing has no net credit to take profit on).
+    legs_per_underlying: dict = {}
+    for _p in options_positions:
+        _parsed = _parse_occ_symbol(_p.get("symbol", ""))
+        if _parsed:
+            legs_per_underlying[_parsed["ticker"]] = legs_per_underlying.get(_parsed["ticker"], 0) + 1
+
     for pos in options_positions:
         occ = pos.get("symbol", "")
         meta = options_meta.get(occ, {})
         strategy = meta.get("strategy", "")
         ticker = meta.get("ticker", "")
+        _root = (_parse_occ_symbol(occ) or {}).get("ticker")
+        lone_long = pos.get("side", "long") == "long" and legs_per_underlying.get(_root, 0) == 1
 
         # P0-7/M4 FIX: added bull_put_credit_spread and qqq_iron_condor so
         # they get group-level profit target / max-loss / coordinated exit
         # management. Previously their 4 (or 2) legs were managed as
         # standalone positions which can't coordinate exits.
-        if strategy in MULTI_LEG_STRATEGIES:
+        if strategy in MULTI_LEG_STRATEGIES and not lone_long:
             key = f"{ticker}_{strategy}"
             if key not in strategy_groups:
                 strategy_groups[key] = {"legs": [], "strategy": strategy, "ticker": ticker, "setup": meta.get("setup", "")}
@@ -1472,6 +1506,45 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
         # ── MINIMUM HOLD TIME GATE ──────────────────────────────────────
         # Skip all non-critical exit checks if position held < 1 hour
         if _held_minutes < MIN_HOLD_MINUTES:
+            continue
+
+        # ── Check 1b: LEFTOVER LONG LEG (2026-11-05) ─────────────────────
+        # A bought option alone on its underlying, not a deliberate standalone
+        # long: the structure it belonged to is gone, so close it (see
+        # STANDALONE_LONG_STRATEGIES). Sold at the bid: a paper limit fills only
+        # once marketable, and a leftover bleeds every day it is held.
+        if (side == "long"
+                and legs_per_underlying.get(parsed["ticker"], 0) == 1
+                and pos_state.get("strategy") not in STANDALONE_LONG_STRATEGIES):
+            _leftover_reason = (f"LEFTOVER LONG LEG: {occ_symbol} is the only option left on {parsed['ticker']} "
+                              f"(recorded strategy {pos_state.get('strategy') or 'unknown'}) — its structure is gone")
+            if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "leftover_long_close", _leftover_reason, dte):
+                continue
+            limit_px = snap.get("bid", 0) if snap else 0
+            if not limit_px or limit_px <= 0:
+                actions.append({"action": "HOLD", "ticker": parsed["ticker"], "occ_symbol": occ_symbol,
+                                "reason": f"{_leftover_reason} — no bid quoted, judged again next tick",
+                                "type": "leftover_long_no_bid", "dte": dte})
+                continue
+            result = _submit_close_order(occ_symbol, qty, "sell", limit_px)
+            # A wing still recording its multi-leg strategy is not attributed
+            # (KNOWN BROKEN #12(c), the same as a group close); an unknown-
+            # strategy leg is, like every other single-leg exit.
+            if pos_state.get("strategy") not in MULTI_LEG_STRATEGIES:
+                _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                               unrealized_pnl, "leftover_long_close", pos_state.get("entry_timestamp"),
+                                               order_result=result)
+            actions.append({
+                "action": "CLOSE",
+                "ticker": parsed["ticker"],
+                "occ_symbol": occ_symbol,
+                "reason": _leftover_reason,
+                "type": "leftover_long_close",
+                "dte": dte,
+                "pnl": round(unrealized_pnl, 2),
+                "order": result,
+            })
+            state.pop(occ_symbol, None)
             continue
 
         # ── Check 2: Assignment Risk ─────────────────────────────────────

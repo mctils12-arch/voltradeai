@@ -114078,3 +114078,31 @@ Rollback trigger (counterfactual, from the audit log + option bars): over the fi
 Tests: test_option_opening_window.py (7): the window bounds, the broker clock (and a UTC-stamped clock), a broken clock, single-leg deferral in and after the window, market-closed unchanged, group close stamped but not sent in the window. server/posKillOptionHours.test.ts +4: a breach in the window is cleared and audited once, a kill confirms after the window, stocks are unaffected. Existing POS-KILL harnesses unchanged.
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (options_manager.py grouping + Phase 2 Check 1b; ml_model_v2.OPTIONS_EXIT_REASONS) — LEFTOVER LONG LEG: a bought option whose structure is gone is closed, EXPLORATORY, kill date 2027-02-05
+VERSION: v1.0.1293 (shipped 2026-11-05 by the parent session; main was v1.0.1292)
+
+Live case: GOOGL261127P00300000 was the long put wing of an earnings iron condor whose other three legs were closed on 10-29. It sat alone for a week with no rule that could exit it.
+- Bought at $4.70, peaked at $22.49 (+378%), sold at $10.65 (+127%) on 11-05 by the 21-DTE rule, at the open.
+- No exit rule covers a bought option's GAIN: the single-leg profit target is for sold premium only, and the group profit target needs a net credit.
+
+What the research says (review 2026-11-05):
+- Bought options carry a negative expected return, the variance risk premium (Coval & Shumway 2001; Bakshi & Kapadia 2003; Carr & Wu 2009). It is worst for short-dated out-of-the-money contracts; a 30-day put wing 10% OTM at 24% IV decays about 7% of its value per day.
+- No peer-reviewed test supports profit targets or trailing stops on option PREMIUM. A premium target would be curve-fitting with nothing behind it.
+- What is defensible: a wing exists to cap the short side's risk. Once the short side is gone, the wing is an unhedged, decaying bet nobody chose. Close it.
+
+The rule:
+- A leftover is a LONG single leg that is the only option position on its underlying, whose recorded strategy is not a deliberate standalone long (buy_call, buy_put, convexity_hedge).
+- Checked right after the 60-minute hold gate, before every other single-leg rule. Sold at the bid: a paper limit fills only once marketable, and a leftover bleeds every day it is held. No bid: HOLD, judged again next tick.
+- Market closed or the opening window (09:30–09:45 ET): deferred like every single-leg close.
+- A lone wing whose state still records its multi-leg strategy ("iron_condor") is kept out of the group code: as a one-leg group no group rule could exit it (a long wing has no net credit to take profit on).
+- Never closes a long leg while any other option on its underlying is open, so a spread's wing is never sold out from under its short (the broker would refuse it anyway: "uncovered option contracts").
+- trade_feedback: an unknown-strategy leftover records its exit like every single-leg rule (exit_reason leftover_long_close, added to OPTIONS_EXIT_REASONS). A wing still recording its multi-leg strategy is not attributed, the same as a group close (KNOWN BROKEN #12(c)).
+
+Downstream: leftover wings now close within an hour of becoming leftovers (or after 09:45 the next session). Fewer days of theta on unhedged long premium; the occasional big winner like GOOGL is banked earlier instead of ridden. Short legs and complete structures are untouched.
+
+Rollback trigger (counterfactual, from option bars): over the first 10 leftover closes, the price each leg would have had at its old exit (21 DTE, or the expiry if earlier) averages above our fill, net of the bid/ask paid.
+
+Tests: test_leftover_long_leg.py (10): the GOOGL case sold at the bid with its exit recorded; a lone wing still recording "iron_condor" closed and not attributed; a wing with its short partner open never closed (both strategies); standalone longs and a straddle's two legs exempt; market closed defers; no bid holds; the hold gate applies; a lone short leg untouched; the reason is an options exit reason. Updated: test_options_outcome_breakdown's exact-set pin gains leftover_long_close (its drift test requires it). Existing options suites unchanged.
+
+STARVED: no.

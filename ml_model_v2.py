@@ -2627,9 +2627,9 @@ def track_fill(order_data: dict) -> None:
 # on its own: the probe's HARD WHITELIST (server/diag.ts) deliberately never
 # exposes ticker, so classifying by ticker format is off the table. Every
 # standalone single-leg options CLOSE this repo records
-# (options_manager.py's 8 `_record_options_exit_feedback` call sites, wired
-# 2026-08-22 per KNOWN BROKEN #12(c)) stamps one of these 8 exit_reason
-# strings; exitFill.ts's equity/ETF exit path (the only other live writer of
+# (options_manager.py's `_record_options_exit_feedback` call sites, wired
+# 2026-08-22 per KNOWN BROKEN #12(c); a 9th reason added 2026-11-05) stamps one
+# of these exit_reason strings; exitFill.ts's equity/ETF exit path (the only other live writer of
 # a non-orphan record) uses a disjoint 5-value vocabulary (stop_loss,
 # trailing_stop, take_profit, time_stop, position_kill) — confirmed by
 # reading both call-site sets this session, not assumed. A record whose
@@ -2637,11 +2637,13 @@ def track_fill(order_data: dict) -> None:
 # exit path, so it is a safe options-attribution proxy that needs no new
 # field and works retroactively on records already recorded before this
 # function existed. test_options_manager_exit_reason_drift.py statically
-# scans options_manager.py's call sites and fails if a 9th reason string
+# scans options_manager.py's call sites and fails if a new reason string
 # is ever added here without a matching update to this constant.
 OPTIONS_EXIT_REASONS = frozenset({
     "dte_critical", "assignment_close", "dte_close", "dte_close_bought",
     "profit_target", "loss_limit", "bought_loss_limit", "gamma_risk",
+    # 2026-11-05: the LEFTOVER LONG LEG rule (options_manager.py Check 1b)
+    "leftover_long_close",
 })
 
 
