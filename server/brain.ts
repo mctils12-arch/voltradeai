@@ -215,10 +215,14 @@ export function deriveStatus(rule: StatusRule, sw: Switches): StatusResult {
         detail: `LEG3_VRP_PCT=${pct}; its SVXY buy is a "stocks" entry (entry_shadow.py)${sw.entries.stocks ? " — logged, not ordered; existing SVXY exits stay live" : ""}` };
     }
     case "convexity":
-      // bot_engine._run_convexity_overlay has NO reader of CONVEXITY_OVERLAY.enabled (verified 2026-10-29):
-      // it runs every scan; only the options entry-shadow gate decides whether the put is ordered.
+      // 2026-11-05: bot_engine._run_convexity_overlay honours CONVEXITY_OVERLAY.enabled (until then it
+      // had no reader and ran every scan). Off in config means off; when on, the options entry-shadow
+      // gate decides whether the put is ordered.
+      if (sw.config.CONVEXITY_OVERLAY_enabled !== true) {
+        return { status: "off", status_source: "config", detail: `CONVEXITY_OVERLAY.enabled=${String(sw.config.CONVEXITY_OVERLAY_enabled)}: the overlay does not run (honoured since 2026-11-05)` };
+      }
       return { status: sw.entries.options ? "shadow" : "live", status_source: entSrc,
-        detail: `runs every scan (CONVEXITY_OVERLAY.enabled=${String(sw.config.CONVEXITY_OVERLAY_enabled)} is never read); ${sw.entries.options ? "buy-to-open is logged, not ordered (options sleeve shadowed); rolls' closes stay live" : "puts are ordered"}` };
+        detail: `CONVEXITY_OVERLAY.enabled=true; ${sw.entries.options ? "buy-to-open is logged, not ordered (options sleeve shadowed); rolls' closes stay live" : "puts are ordered"}` };
     case "tier": {
       const tiers = sw.config.TIERS_ENABLED as Record<string, boolean> | null | undefined;
       const on = tiers && typeof tiers === "object" ? tiers[rule.tier] === true : null;

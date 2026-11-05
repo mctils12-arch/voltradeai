@@ -356,8 +356,12 @@ class TestConvexityOverlay(_TempShadowLog):
 
         post = MagicMock(return_value=_resp({"id": "o"}))
         import storage_config
+        import system_config
+        # 2026-11-05: the overlay honours CONVEXITY_OVERLAY.enabled (False in config);
+        # these tests are about what it does when it RUNS, so they switch it on
         with patch("requests.get", side_effect=fake_get), patch("requests.post", post), \
              patch.object(storage_config, "DATA_DIR", self.tmp), \
+             patch.dict(system_config.BASE_CONFIG["CONVEXITY_OVERLAY"], {"enabled": True}), \
              patch.object(bot_engine, "should_escalate_hedge", return_value=False), \
              patch.object(bot_engine, "data_feed", return_value="iex"):
             res = bot_engine._run_convexity_overlay({"vxx_ratio": 1.0, "spy_vs_ma50": 1.0})

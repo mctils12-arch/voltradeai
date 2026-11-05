@@ -93,10 +93,17 @@ test("status: the 2026-10-28 config (both entry sleeves shadowed) — score inpu
   assert.match(status("sel_knife", env, cfg).detail, /would-be entries only/);
   // the stress multiplier is replaced by the regime engine's sizing on the stock sleeve
   assert.equal(status("stress_index", env, cfg).status, "off");
-  // convexity: CONVEXITY_OVERLAY.enabled is never read; the options shadow decides
-  assert.equal(status("convexity", env, cfg).status, "shadow");
-  assert.match(status("convexity", env, cfg).detail, /never read/);
+  // convexity: CONVEXITY_OVERLAY.enabled is honoured since 2026-11-05 (it was never read before)
+  assert.equal(status("convexity", env, cfg).status, "off");
+  assert.match(status("convexity", env, cfg).detail, /enabled=false: the overlay does not run/);
   assert.equal(status("third_leg", env, cfg).status, "shadow");
+});
+
+test("status: the convexity overlay is off unless its config switch is on (honoured since 2026-11-05)", () => {
+  const on = { ...BRAIN_CONFIG_MIRROR, CONVEXITY_OVERLAY_enabled: true };
+  assert.equal(status("convexity", {}, on).status, "live");
+  assert.equal(status("convexity", { VOLTRADE_SHADOW_ENTRIES: "options" }, on).status, "shadow");
+  assert.equal(status("convexity", {}, { ...BRAIN_CONFIG_MIRROR, CONVEXITY_OVERLAY_enabled: false }).status, "off");
 });
 
 test("status: defaults since the 2026-11-04 directive (entries live) — entry sleeves and score inputs LIVE from config", () => {
@@ -108,7 +115,7 @@ test("status: defaults since the 2026-11-04 directive (entries live) — entry s
   assert.equal(status("news", env).status, "live");
   assert.equal(status("sel_knife", env).status, "live");
   assert.equal(status("csp_block_guards", env).status, "live");
-  assert.equal(status("convexity", env).status, "live");
+  assert.equal(status("convexity", env).status, "off", "CONVEXITY_OVERLAY.enabled=false is honoured (2026-11-05)");
   assert.equal(status("third_leg", env).status, "live");
   assert.equal(status("floor_basket", env).status, "live");
   assert.equal(status("live_exits", env).status, "live");
@@ -123,7 +130,7 @@ test("status: env flips — entries live, regime flags off, an explicit empty en
   assert.equal(status("news", live).status, "live");
   assert.equal(status("sel_knife", live).status, "live");
   assert.equal(status("csp_block_guards", live).status, "live");
-  assert.equal(status("convexity", live).status, "live");
+  assert.equal(status("convexity", live).status, "off", "the env flip does not switch on an overlay the config turned off");
   assert.equal(status("third_leg", live).status, "live");
   const selOff = { VOLTRADE_SHADOW_ENTRIES: "off", VOLTRADE_REGIME_SELECTION: "" };
   assert.equal(status("sel_knife", selOff).status, "shadow");
