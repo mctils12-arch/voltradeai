@@ -114331,3 +114331,77 @@ Fix: the function returns status "off" before touching the broker unless the swi
 Tests: test_convexity_overlay_gate.py (3): off means no reads and no orders; a missing switch is off; on runs the steps again. test_entry_shadow's overlay tests switch it on explicitly, since their premise is an overlay that runs. brain.test.ts: the three expectations that encoded "never read" now expect "off"; a new test covers the on case (live, or shadow under options entry shadow).
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (server/limitLadder.ts new; server/bot.ts POS-KILL option exit, a FROZEN order path edited with the human's explicit approval) — POS-KILL closes an option with a marketable-limit ladder; one market order only after a 120 s hard timeout. EXPLORATORY, kill date 2027-02-05
+VERSION: v1.0.1301 (shipped 2026-11-05 by the parent session; main was v1.0.1300)
+
+Why: research/wishlist.md "POS-KILL option order type (frozen path) — 2026-11-04" asked the human to decide. In regular hours, POS-KILL's confirmed kill posted getOrderParams(current, 'stop_loss') for every position, which for an option is a MARKET order. In that entry's words, a market order on a wide option spread is the worst case of the fills research/options_bleed_2026-11-04.md measured (opening-rotation fills at a median 1.41x fair value). The human decided on 2026-11-05: "Option backstop/emergency exit: I approve changing this protected path. Replace market orders with a marketable-limit ladder: start at the bid (for sells) or ask (for buys), widen by a set tick step every N seconds, and fall back to a market order only after a hard timeout. Keep it configurable and unit-test the timeout fallback." The edit to the frozen path is that approval. alpaca() (auth, headers, timeout) is unchanged, and so is the stock POST.
+
+The rule (option positions only; stocks keep the single order):
+- Step 0 is a limit at the bid (closing a long) or the ask (closing a short), from Alpaca's latest option quote: GET /v1beta1/options/quotes/latest, the endpoint bot_engine.py's convexity overlay uses. The feed is ALPACA_OPTIONS_FEED when set, else "indicative" (the paper feed; OPRA is 403 here).
+- Every 15 s the unfilled remainder is cancelled and offered again $0.05 further through the market per step, from a fresh quote. Prices round to $0.01 below $3.00 and $0.05 at or above, sells down and buys up. A sell never goes below $0.01.
+- At 120 s, ONE market order is sent for whatever is still unfilled. It is the only market order the ladder sends.
+- Tunables are named constants in limitLadder.ts. They can be overridden with VOLTRADE_BACKSTOP_LADDER_STEP_S, _TICK, _TIMEOUT_S, _POLL_S and _MIN_PRICE. An invalid or out-of-bounds value keeps the default and is logged once at startup.
+- Safety:
+  - The next order goes out only after an order read shows the previous one terminal. A cancel that fails because the order just filled is settled by that read, and the ladder stops.
+  - Each order is for the unfilled remainder, and every order after the first is capped at the live position (GET /v2/positions). A flat position stops the ladder: a sell for a long that someone else already closed could open a short option.
+  - A definite rejection (alpaca() threw "Alpaca 4xx") sends nothing that step; the walk continues and the timeout still applies.
+  - An unknown outcome (a timeout, a 5xx, no order id) stops the ladder rather than risk a second live order. So does an order cancelled or expired by someone else.
+  - With no usable quote, the ladder uses the last quote, else the position's mark (already validated by the mark guard).
+- bot.ts:
+  - The kill tick waits for the first step only (one quote read and one POST; it waited for one POST before). The rest runs detached, with a .catch that audits.
+  - An in-memory in-flight map keyed by ticker stops a later sync from starting a second ladder. Between a step's cancel and the next order, neither openOrders nor the broker shows an open order. It is checked in the kill branch after the tracked-order guard, and again atomically in the starter.
+  - Every ladder order is registered in openOrders like the old kill order: isExit, plus pendingExitFill with exitReason position_kill. So the sweeper records the order that finally fills, at Alpaca's confirmed price and qty. The recording code is untouched (MEASUREMENT INTEGRITY): the contract records only "filled" orders, so a step that partly filled and was then cancelled is not in the ML record.
+  - Every step and the outcome are audited as POS-KILL-LADDER. A ladder that stops early is a POS-KILL-ERROR line plus an alert.
+- Unchanged: the thresholds, the two-tick confirmation, the off-hours and opening-window gates, the structure hold, the duplicate guards and the stock path.
+- No backtest: the archive has no intraday option quotes (options_bleed study, Data gaps), so this ships as an exploratory execution change and is judged on live fills.
+
+Downstream:
+- Step 1: an option kill now exits at or inside the quote it saw, unless the limits fail to fill for 120 s. In a fast market the exit can take up to about 2 minutes longer, plus up to 15 s for the market order's fill check. Exposure is held that much longer, in either direction.
+- Step 2: realized P&L on kill exits (the sleeve ledger and the ML exit records) moves by the spread no longer paid, and by any drift during the ladder. An exit split across several orders records only the final order's qty and price in the ML record.
+- Alpaca load for a worst-case ladder, over about 2.25 minutes, on an account limit of 200 requests per minute:
+  - 8 limit POSTs and 8 cancels
+  - about 35 order reads (3 polls per step, 1 after each cancel, 3 on the market order)
+  - 8 position reads and 8 quote reads
+  - 1 market POST
+- Audit volume is about 2 lines per step.
+- options_manager closing the same contract between steps either has its order rejected (the qty is held by ours), or caps or stops ours through the position read.
+
+Rollback trigger (from the audit log POS-KILL-LADDER/POS-KILL-ERROR lines and /api/diag/orders):
+- Immediately: any ladder order larger than the live position, or any position opened by a ladder order.
+- Over the first 20 option ladders: more than 2 end in POS-KILL-ERROR, or the median time from the POS-KILL line to the final fill exceeds 180 s.
+- If the market fallback fires on more than half of them, the step and tick need review before the kill date.
+
+Tests:
+- server/limitLadder.test.ts (25):
+  - the price walk on both sides, $0.01/$0.05 rounding and minPrice
+  - config and env parsing
+  - quote parsing
+  - a fill at step 0
+  - the TIMEOUT FALLBACK on a fake clock (default and custom config, and after a partial fill): 8 limit steps, then exactly one market order for the remainder at or after 120 s, none before
+  - a partial-fill remainder
+  - the cancel race
+  - an unconfirmed cancel
+  - fresh, last and mark quote references, and no price at all
+  - the buy side
+  - definite rejections
+  - unknown outcomes and no order id
+  - external cancels
+  - asynchronous rejections
+  - a stalled clock
+  - a throwing observer
+  - the live-position cap (partly closed, closed, unknown)
+- server/posKillBackstopLadder.test.ts (10): the REAL loop body and starter from bot.ts against a simulated broker on a fake clock:
+  - an option kill's first order is a limit at the bid (at the ask for a short), never a market order, registered with the ML exit-fill contract
+  - the end-to-end timeout fallback
+  - a sync during the ladder starts no second ladder or order, even between a cancel and the next step
+  - fill-and-release
+  - the adapter's 4xx vs unknown-outcome classification
+  - the position cap
+  - stocks unchanged
+  - static wiring
+  - posKillOptionQuote
+- Existing harnesses: posKillMarkGuard/OptionHours/StructureHold now inject the real ladder starter, with a never-resolving sleep. One exact pin changed: posKillMarkGuard (b) expected the option kill's {type: "market"}. It now expects {type: "limit", limit_price: "0.78", time_in_force: "day"} at the injected bid, and asserts that the stock kill is still "market". No assertion was removed.
+- Results: all 96 server test files that read bot.ts pass (811). Counter ratchet OK. tsc 6 (baseline 6).
+
+STARVED: no.
