@@ -114004,3 +114004,55 @@ REASONING STANDARD #4: four designs, one fixed parameter set each, no tuning. Th
 Next: the floor-mode change (own PR) that runs V1 live as an exploratory experiment. Kill date 2027-02-05.
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (new floor_vol_managed.py; bot_engine.py floor route + _manage_vol_managed_floor; system_config.py FLOOR_MODE + FLOOR_VM_*; server/bot.ts FLOOR_AND_LEG_TICKERS + SSO) — the floor becomes volatility-managed SPY (floor study V1), EXPLORATORY, kill date 2027-02-05
+VERSION: v1.0.1291 (shipped 2026-11-05 by the parent session; main was v1.0.1290)
+
+Evidence: research/floor_study_2026-11-05.md (its own PR, shipped just before this one). Pre-registered, 1993–2026, after financing and costs. V1 was the only design that passed the ship rule:
+
+| | log growth | Sharpe | max DD | 2008 |
+|---|---|---|---|---|
+| V1 | 10.41% | 0.573 | −48.4% | −22.6% |
+| SPY | 10.26% | 0.513 | −55.2% | −36.8% |
+
+2013+: V1 CAGR 14.19%, Sharpe 0.80, max DD −19.5%. The current basket over the same window, as a static approximation (its live regime gating is not simulated): 15.20%, 0.80, −31.3%. Leverage on its own added return but no Sharpe.
+
+Live problem being fixed (2026-11-05 attribution): the account beat SPY on 3 of the last 22 sessions (a −16.9 pp gap).
+- The floor is 65% tech and semis, so it falls about twice as far as SPY on tech-led down days (11-05: QQQ −2.8%, SMH −5.8%, SPY −1.1%).
+- Its regime gate (90/70/35/0% plus trend caps plus GLD) produced 2,916 floor fills since May. The floor sleeve ran −$1.5k while SPY rose 5%.
+
+The rule (floor_vol_managed.py, pure; parameters are the pre-registered V1):
+- E* = min(1.5, 0.16 / sigma), where sigma is the 20-session realised volatility of SPY from completed sessions.
+- Floor capital C = 0.85 × equity. E* ≤ 1 holds E*·C in SPY. E* > 1 holds (2 − E*)·C in SPY plus (E* − 1)·C in SSO. Never margin.
+- Trade only when |E* − E_now| > 0.10, or while a legacy floor ticker (QQQ/SMH/KWEB/VXUS/GLD) is held; those are sold in full, covered calls first.
+- Orders are marketable DAY limits at the NBBO, inside 09:45–15:54 ET, and never on top of a working order.
+- The floor also reads Alpaca's clock before trading: it trades only while the broker says the market is open with more than 6 minutes to the close. The Tier 2 scan runs 04:00–20:00 ET every day and `_is_regular_hours` reads only the time of day, so without this a weekend, holiday or half-day afternoon pass could queue DAY orders for the next opening print. A failed clock read defers.
+- During the 18% drawdown halt (scan_market's early return), the floor runs REDUCE-ONLY. It sells toward its volatility target and sells legacy tickers, but never buys. A levered floor must be able to de-lever while entries are halted. The basket floors stay skipped there, as before.
+- Tier 3 ("trend capture", buying SPY/QQQ with leftover headroom) stands down in this mode. Otherwise it would fight the floor: T3 buys, the floor trims SPY or sells QQQ, T3 buys again. Levered SPY in calm trends is what this floor already holds.
+- The regime-gated basket, its trend caps and the GLD defensive floor stop trading the core.
+- Rollback: FLOOR_MODE "basket".
+
+Downstream:
+- On the first regular-hours pass after 09:45 ET, every legacy QQQ/SMH/KWEB/VXUS/GLD share is sold (about $42k at 11-05 10:45 ET, about 47% of equity), and SPY/SSO is bought up to E*·C. E* comes from the 20-session vol through 11-05's close. Through 11-04 it was 12.85% (E* = 1.245). If 11-05 closes −2.5% (its 10:45 ET level), sigma ≈ 15.5% and E* ≈ 1.04: about $74k of SPY and $3k of SSO on $90k of equity. At −1.5%: E* ≈ 1.16 ($64k + $12k). At −3.5%: E* ≈ 0.90 ($69k SPY, no SSO). Either way the core goes from ~47% of equity to roughly 0.8–1.0x equity of SPY exposure.
+- Invested ≈ min(E*, 1)·C + satellites + options. That stays under the 95% invested cap in BULL/NEUTRAL; volatile regimes hold less.
+- SPY/SSO are in FLOOR_AND_LEG_TICKERS in both Python and bot.ts, so websocket stops, POS-KILL, the heat cap and the sleeve ledger treat them as floor.
+- Correlation cap: SPY ~$75k against ~$328k of buying-power capacity is about 23%, under 60%.
+- If Node's −20% kill switch trips (exits-only mode), the scan stops. The human decided (2026-11-05) that the floor may then only reduce exposure; that ships as its own PR right after this one.
+
+Rollback trigger: live floor tracking versus its own rule beyond 3 pp over any 20 sessions, or an account drawdown beyond the study's 95th-percentile 3-month drawdown. Kill date 2027-02-05.
+
+Tests: new test_floor_vol_managed.py (21).
+- The study's estimator, the cap, the band, and no-margin holdings at every exposure level.
+- The engine pass with broker I/O mocked: the first pass sells every legacy share at the bid and buys 42.5k SPY plus 42.5k SSO at the ask in a calm market; a volatile market holds less and no SSO; nothing trades before 09:45, after 15:54, outside regular hours, or on a working order; an on-target floor does nothing.
+- Reduce-only: sells down (all SSO, the legacy QQQ, and SPY trimmed to target) and never buys, even when under target. The halt branch runs it, and the basket floors stay skipped there.
+- Tier 3 returns no SPY/QQQ buys under this mode (and still does under "basket").
+- The broker's clock gates every trade (closed, under 6 minutes to a half-day close, unreadable), and its reading handles nanosecond stamps and malformed bodies.
+- Rollback is one setting (human-requested check, 2026-11-05): the scan's floor step is now `_run_floor_step`, and a behavioural test runs it under both modes. "basket" calls the old basket floor and the GLD floor exactly as before and never the new one; "vol_managed_spy" the reverse; floor ownership follows the same setting; a failing floor manager becomes its status, never the scan's.
+- Wiring: the mode route skips both old floors, the manager sends only limit orders, SPY/SSO are exempt in Python and bot.ts, and ownership follows the mode.
+
+Updated tests:
+- test_floor_basket_stops.py's exact-set pin gains SSO. That pin exists to force the bot.ts mirror check, which was done in this change.
+- test_entry_shadow's ledger mirror gains SSO in entry_shadow.floor_ledger_tickers.
+- test_third_leg_floor_ownership.py: the independent ownership derivation follows FLOOR_MODE. The GLD-churn regressions run pinned to "basket" (the rollback mode, where GLD is floor-owned), and the disjointness and behavioural invariants run under both modes. No assertion was removed.
+
+STARVED: no.
