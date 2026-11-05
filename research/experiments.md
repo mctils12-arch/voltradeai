@@ -114153,3 +114153,18 @@ Not changed (a risk limit, filed instead): tiered_strategy's master exposure cap
 Tests: test_sizing_floor_tickers.py (4): the VM floor is exempt from heat; the basket rollback keeps QQQ-only; the defect measured (0.49x → 0.9x); size_portfolio's budget uses the configured set. The existing sizing and floor suites pass unchanged.
 
 STARVED: no.
+
+## 2026-11-05 [REPAIR] — T-BOT (server/bot.ts startStreaming/stopStreaming) — KEEP ALIVE: a replaced or stopped market-data socket never reconnects (the reconnect chain behind the 2026-11-05 406 storm)
+VERSION: v1.0.1296 (shipped 2026-11-05 by the parent session; main was v1.0.1295)
+
+What broke (live 2026-11-05, from ~17:30Z): the position-monitor stream logged 200 STREAM rows in 11 minutes (STREAM-DISCONNECT "Feed disconnected — reconnecting in 10s", "Feed closed before ever reaching subscribed state", STREAM-ERROR "WebSocket was closed before the connection was established", and Alpaca's 406 "connection limit exceeded"). The feed that drives real-time stock stops (checkPositionOnTick on 1-minute bars) was down most of the time, and the audit log was flooded.
+
+Root cause: every socket's close handler scheduled a reconnect, including a socket that startStreaming() had just replaced on purpose. Each extra start (an owner toggle via startBotActivity, or boot) therefore began a chain: the replaced socket's close restarted the stream 10 s later, closing the healthy socket, whose close restarted it again, forever. Meanwhile Alpaca refused the overlapping second connection (one data connection per account). The storm began minutes after the kill switch was toggled at 17:26Z and 17:32Z.
+
+Fix: startStreaming/stopStreaming detach the old socket (streamWs = null) before closing it. Its message, error and close handlers ignore it (the error listener stays attached, since an unhandled 'error' event would exit the process). At most one reconnect is pending (one timer, cleared by any start or stop). A real drop still reconnects once after 10 s; stopStreaming now stops for good (its close used to reconnect too).
+
+Regression test: server/wsReconnectChain.test.ts slices the two functions out of bot.ts, transpiles them and runs them against a fake WebSocket and clock (5 tests). Against the pre-fix bot.ts, 4 of 5 fail: 14 sockets opened in two minutes after one toggle, which is the live storm. Existing wsPositionFeed / haltScope / entryShadow slices pass unchanged.
+
+Rollback trigger: a STREAM-DISCONNECT row not followed by a "Real-time feed live" row within 30 s, more than twice in a session.
+
+STARVED: no.
