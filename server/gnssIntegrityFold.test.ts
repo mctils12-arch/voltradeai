@@ -18,7 +18,7 @@ import zlib from "zlib";
 import { computeGnssIntegritySignal, CANDIDATE_BBOX, CONTROL_BBOX, type GnssIntegritySignalSummary } from "./gnssIntegritySignal";
 import { readGnssIntegrityDay } from "./gnssIntegrityQuery";
 import {
-  computeGnssIntegritySignalManaged, combineGnssDayPartials, airframeKey, gnssFoldMode, gnssFoldStats, setGnssFoldAuditWriter,
+  computeGnssIntegritySignalManaged, combineGnssDayPartials, airframeKey, gnssFoldMode, gnssFoldStats, setGnssFoldAuditWriter, GNSS_FOLD_DEFAULT,
   GNSS_FOLD_ENV, _resetGnssFoldForTests, _gnssFoldCacheForTests, _gnssFoldCacheKeyForTests,
   type GnssDayPartial,
 } from "./gnssIntegrityFold";
@@ -265,13 +265,18 @@ test("full mode IS computeGnssIntegritySignal and leaves the partial cache untou
   cleanup(base);
 });
 
-test("mode flag: unset or unknown VOLTRADE_GNSS_FOLD is shadow; full/incremental are honoured", () => {
+test("mode flag: unknown VOLTRADE_GNSS_FOLD is shadow; unset is the promoted default (incremental, 2026-11-05); full/incremental/shadow are honoured", () => {
   const prior = process.env[GNSS_FOLD_ENV];
   try {
+    // 2026-11-05: the one changed expectation — unset was `shadow` until the
+    // fold ran 24 h+ in shadow with zero mismatches; the promotion IS the change.
     delete process.env[GNSS_FOLD_ENV];
-    assert.equal(gnssFoldMode(), "shadow");
+    assert.equal(gnssFoldMode(), "incremental");
+    assert.equal(GNSS_FOLD_DEFAULT, "incremental");
     process.env[GNSS_FOLD_ENV] = "garbage";
-    assert.equal(gnssFoldMode(), "shadow");
+    assert.equal(gnssFoldMode(), "shadow", "a typo never lands on a path nobody chose");
+    process.env[GNSS_FOLD_ENV] = "shadow";
+    assert.equal(gnssFoldMode(), "shadow", "spelled out, shadow is the rollback that restores the comparison");
     process.env[GNSS_FOLD_ENV] = "incremental";
     assert.equal(gnssFoldMode(), "incremental");
     process.env[GNSS_FOLD_ENV] = "FULL";
