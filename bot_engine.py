@@ -5398,8 +5398,27 @@ def _run_convexity_overlay(macro: dict) -> dict:
     Why puts instead of SQQQ: real convexity (capped downside = premium paid,
     unlimited upside in a crash), no leverage decay drag, defined risk.
     Backtest: Sharpe 3.80, max drawdown 6.8% vs SQQQ's 23.7%.
+
+    [REPAIR] 2026-11-05: CONVEXITY_OVERLAY.enabled is honoured. It has been
+    False since 2026-04-17 (the 10-year backtest bled $307K-$508K a year in
+    premium) but nothing read it, so this ran every scan: account, positions,
+    orders and chain reads, and put orders posted with side "buy_to_open" /
+    "sell_to_close", which Alpaca's order API does not accept. Bought puts
+    carry a negative expected return (the variance risk premium), and the
+    volatility-managed floor already cuts exposure as volatility rises. Off
+    means off: nothing is read, nothing is posted.
     """
     actions = []
+    try:
+        from system_config import BASE_CONFIG as _cvx_cfg
+        _cvx_on = bool((_cvx_cfg.get("CONVEXITY_OVERLAY") or {}).get("enabled", False))
+    except ImportError as _cvx_err:
+        _cvx_on = False
+        import logging as _cvx_log
+        _cvx_log.getLogger("bot_engine").warning(f"[CONVEXITY] config unreadable, overlay off: {_cvx_err}")
+    if not _cvx_on:
+        return {"actions": [], "status": "off",
+                "detail": "CONVEXITY_OVERLAY.enabled is False (2026-04-17: the 10-year backtest bled $307K-$508K/yr)"}
     import logging as _logging
     _log = _logging.getLogger("voltrade.convexity")
 

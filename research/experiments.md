@@ -114314,3 +114314,20 @@ Tests:
 - **Existing suites:** 422 passed across 29 related Python files (the 33 new included); test_ts_code_only 11 passed. The server suites positionLevels, chainCspEntry, haltScope and posKillOptionHours: 63/63. tsc 6 ≤ 6; counters OK.
 
 STARVED: no.
+
+## 2026-11-05 [REPAIR] — T-BOT (bot_engine._run_convexity_overlay; server/brain.ts status) — the QQQ-put convexity overlay honours its off switch
+VERSION: v1.0.1300 (shipped 2026-11-05 by the parent session; main was v1.0.1299)
+
+Found by the 2026-11-05 trading-feature inventory (and filed 11-05 in open_questions as a KNOWN BROKEN candidate). CONVEXITY_OVERLAY.enabled has been False since 2026-04-17: the 10-year backtest bled $307K–$508K a year in premium, and the human's words were "we are not looking to lose money anywhere that's just giving away CAGR". But _run_convexity_overlay never read the switch. It ran every scan: account, positions, orders and chain reads, plus put orders posted with side "buy_to_open" / "sell_to_close", which Alpaca's order API does not accept (it takes buy/sell).
+
+Decision (logic and research, per the human's 2026-11-05 "use logic and research to determine what's best"): keep it off.
+- Bought index puts carry a negative expected return (the variance risk premium; Coval & Shumway 2001, Bakshi & Kapadia 2003).
+- The repo's own 10-year backtest agrees.
+- The volatility-managed floor already cuts exposure as realized volatility rises.
+- The 18% halt and the −20% kill remain.
+
+Fix: the function returns status "off" before touching the broker unless the switch is True (a missing switch is off). The Brain page reports it off from config. Switching it on would run it exactly as before, including its order-side bug (filed separately; fix before ever switching it on).
+
+Tests: test_convexity_overlay_gate.py (3): off means no reads and no orders; a missing switch is off; on runs the steps again. test_entry_shadow's overlay tests switch it on explicitly, since their premise is an overlay that runs. brain.test.ts: the three expectations that encoded "never read" now expect "off"; a new test covers the on case (live, or shadow under options entry shadow).
+
+STARVED: no.
