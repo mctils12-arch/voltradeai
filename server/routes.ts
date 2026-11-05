@@ -1808,8 +1808,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // (10-min cached). Never hardcoded — grows as the system grows.
   app.get("/api/data/platform/stats", async (_req, res) => {
     try {
-      res.set("Cache-Control", "public, max-age=300");
-      res.json(await platformStats((datacoreLayers as any).layers || []));
+      const s = await platformStats((datacoreLayers as any).layers || []);
+      // 2026-11-05: an answer without a count (the first count still running)
+      // is never cached — the hero retries within seconds.
+      res.set("Cache-Control", s.observations === null ? "no-store" : "public, max-age=300");
+      res.json(s);
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
 

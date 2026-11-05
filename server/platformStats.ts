@@ -8,7 +8,9 @@
  *
  * Counting 80+ MB of JSONL(.gz) per request would be rude; the count runs
  * at most once per TTL window and is cached (stale value served while a
- * refresh runs — stale beats spinner, per the house rule).
+ * refresh runs — stale beats spinner, per the house rule). Since
+ * 2026-11-05 it is also incremental (per-file size+mtime cache, persisted
+ * beside the archive) and never holds a request: see the REPAIR block below.
  */
 import fs from "fs";
 import path from "path";
@@ -16,6 +18,7 @@ import zlib from "zlib";
 import readline from "readline";
 import { archiveBaseDir, PRIVATE_ARCHIVE_DIRS } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
+import { registerHeapGauge } from "./heapDiag";
 
 /** Archive dir -> registry layer id, where the names differ. */
 export const DIR_LAYER_MAP: Record<string, string> = {
@@ -75,23 +78,119 @@ export function countFileLines(fp: string): Promise<number> {
   });
 }
 
-/** Real total archived records across all non-operational streams. */
+// ── [REPAIR 2026-11-05] incremental, persisted counting ─────────────────────
+// Live (human screenshot 2026-11-05): the landing hero showed only its "—"
+// placeholders. The FIRST call after every boot awaited a full recount —
+// every line of every archive file, gunzipped (hundreds of MB by now, far
+// past the 80 MB this module was sized for) — and the request outlived the
+// edge proxy (HTTP 000 after 123 s, measured 2026-11-05 00:31Z), so the
+// numbers never arrived on a freshly deployed box, i.e. most of a busy
+// deploy day. Two changes: (1) a per-file line count is cached against the
+// file's size + mtime (closed hour/day files never change, so only new or
+// growing files are counted again) and persisted beside the archive, so a
+// boot re-counts what changed, not the whole history; (2) platformStats
+// never holds a response longer than FIRST_COUNT_WAIT_MS — it serves the
+// persisted total with its own as_of, or null + observations_pending while
+// the very first count ever runs.
+type FileCount = { size: number; mtimeMs: number; lines: number };
+const fileCounts = new Map<string, FileCount>();
+let fileCountsBase: string | null = null;
+let lineCounter: (fp: string) => Promise<number> = countFileLines;
+/** Persisted per-file counts + the last total, a dotfile at the archive root
+ *  (every archive reader enumerates directories only). */
+export const PLATFORM_STATS_CACHE_FILE = ".platform_stats_cache.json";
+/** The longest a request waits for a count when nothing is cached yet. */
+export const FIRST_COUNT_WAIT_MS = 2_000;
+
+function useBase(base: string): void {
+  if (fileCountsBase !== base) { fileCounts.clear(); fileCountsBase = base; }
+}
+
+/** Real total archived records across all non-operational streams. A file
+ *  whose size and mtime are unchanged since it was last counted is not read
+ *  again; files that disappeared (offloaded, pruned) leave the total. */
 export async function countObservations(base = archiveBaseDir()): Promise<number> {
+  useBase(base);
   let total = 0;
+  const seen = new Set<string>();
   for (const dir of listArchiveDirs(base)) {
     if (OPERATIONAL_DIRS.has(dir) || dir.endsWith("_tracks")) continue;
     const dp = path.join(base, dir);
     let files: string[] = [];
-    try { files = fs.readdirSync(dp).filter((f) => f.endsWith(".jsonl") || f.endsWith(".jsonl.gz")); } catch {}
-    for (const f of files) total += await countFileLines(path.join(dp, f));
+    try { files = fs.readdirSync(dp).filter((f) => f.endsWith(".jsonl") || f.endsWith(".jsonl.gz")); } catch { continue; }
+    for (const f of files) {
+      const key = `${dir}/${f}`;
+      const fp = path.join(dp, f);
+      let st: fs.Stats;
+      try { st = fs.statSync(fp); } catch { continue; } // vanished between the listing and now: counts 0, as before
+      seen.add(key);
+      const hit = fileCounts.get(key);
+      if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) { total += hit.lines; continue; }
+      const lines = await lineCounter(fp);
+      fileCounts.set(key, { size: st.size, mtimeMs: st.mtimeMs, lines });
+      total += lines;
+    }
   }
+  for (const k of Array.from(fileCounts.keys())) if (!seen.has(k)) fileCounts.delete(k);
   return total;
 }
 
+function cacheFilePath(base: string): string { return path.join(base, PLATFORM_STATS_CACHE_FILE); }
+
+/** Seeds the per-file counts from disk; returns the persisted total, or null. Never throws. */
+function loadPersistedCounts(base: string): { at: number; observations: number } | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(cacheFilePath(base), "utf8"));
+    if (raw?.v !== 1 || typeof raw.at !== "number" || typeof raw.observations !== "number"
+        || !raw.files || typeof raw.files !== "object") return null;
+    useBase(base);
+    for (const [k, v] of Object.entries(raw.files as Record<string, unknown>)) {
+      if (Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === "number" && Number.isFinite(x))) {
+        fileCounts.set(k, { size: v[0], mtimeMs: v[1], lines: v[2] });
+      }
+    }
+    return { at: raw.at, observations: raw.observations };
+  } catch {
+    return null; // absent (first boot ever) or unreadable: counted from scratch
+  }
+}
+
+/** Atomic write (tmp + rename) of the per-file counts and the total. Never throws. */
+function persistCounts(base: string, at: number, observations: number): void {
+  try {
+    const files: Record<string, [number, number, number]> = {};
+    fileCounts.forEach((c, k) => { files[k] = [c.size, c.mtimeMs, c.lines]; });
+    const fp = cacheFilePath(base);
+    const tmp = `${fp}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, at, observations, files }));
+    fs.renameSync(tmp, fp);
+  } catch (err) {
+    console.warn(`[platform-stats] count cache not saved: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+/** Heap gauge: one entry per archive file counted (registered beside the state, the A0 convention). */
+export function platformStatsCacheStats(): { entries: number } { return { entries: fileCounts.size }; }
+registerHeapGauge("platformStats.fileCounts", platformStatsCacheStats);
+
 // ── cached assembly ─────────────────────────────────────────────────────────
 const TTL_MS = 10 * 60_000;
-let cache: { at: number; observations: number } | null = null;
-let inflight: Promise<number> | null = null;
+let cache: { base: string; at: number; observations: number } | null = null;
+let inflight: { base: string; done: Promise<number> } | null = null;
+
+function startCount(base: string): Promise<number> {
+  if (inflight && inflight.base === base) return inflight.done;
+  const done = countObservations(base).then((n) => {
+    const at = Date.now();
+    cache = { base, at, observations: n };
+    persistCounts(base, at, n);
+    return n;
+  }).finally(() => {
+    if (inflight && inflight.done === done) inflight = null;
+  });
+  inflight = { base, done };
+  return done;
+}
 
 /** [REPAIR 2026-07-05, audit defect #9] Sentinel-2 readings are git-side
  *  (session-run pipeline; Railway never runs it) — a stall was invisible.
@@ -124,30 +223,40 @@ export async function platformStats(
   layers: Array<{ id: string; status: string }>,
   base = archiveBaseDir(),
   nowMs = Date.now(),
-): Promise<{ layers_live: number; layers_total: number; streams_recording: number; observations: number; observations_as_of: string | null; sentinel2_last_reading: string | null; sentinel2_reading_age_days: number | null }> {
+  opts: { firstWaitMs?: number } = {},
+): Promise<{ layers_live: number; layers_total: number; streams_recording: number; observations: number | null; observations_as_of: string | null; observations_pending: boolean; sentinel2_last_reading: string | null; sentinel2_reading_age_days: number | null }> {
   const live = layers.filter((l) => l.status === "live").map((l) => l.id);
   const dirs = listArchiveDirs(base);
+  if (!cache || cache.base !== base) {
+    const persisted = loadPersistedCounts(base);       // a restart serves the last total at once
+    cache = persisted ? { base, ...persisted } : null;
+  }
   if (!cache || nowMs - cache.at > TTL_MS) {
-    if (!inflight) {
-      inflight = countObservations(base).then((n) => {
-        cache = { at: Date.now(), observations: n };
-        inflight = null;
-        return n;
-      });
+    const done = startCount(base);
+    if (!cache) {
+      // Nothing counted yet, ever: a small archive answers inside the wait;
+      // a big one is never allowed to hold the response (the old await did).
+      const waitMs = opts.firstWaitMs ?? FIRST_COUNT_WAIT_MS;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([done, new Promise<void>((resolve) => { timer = setTimeout(resolve, waitMs); })]);
+      if (timer) clearTimeout(timer);
     }
-    if (!cache) await inflight; // first call: wait; later calls: serve stale
   }
   const s2 = sentinel2Freshness(nowMs);
+  const counted = cache && cache.base === base ? cache : null;
   return {
     layers_live: live.length,
     layers_total: layers.length,
     streams_recording: streamsRecording(live, dirs),
-    observations: cache?.observations ?? 0,
-    observations_as_of: cache ? new Date(cache.at).toISOString() : null,
+    observations: counted ? counted.observations : null,
+    observations_as_of: counted ? new Date(counted.at).toISOString() : null,
+    observations_pending: !!inflight && inflight.base === base,
     sentinel2_last_reading: s2.last,
     sentinel2_reading_age_days: s2.age_days,
   };
 }
 
-/** test hook */
-export function _resetPlatformStatsCache() { cache = null; inflight = null; }
+/** test hook: forget the in-memory state (the persisted file stays, as across a restart) */
+export function _resetPlatformStatsCache() { cache = null; inflight = null; fileCounts.clear(); fileCountsBase = null; }
+/** test hook: substitute the per-file line counter (null restores countFileLines) */
+export function _setLineCounterForTests(fn: ((fp: string) => Promise<number>) | null) { lineCounter = fn ?? countFileLines; }

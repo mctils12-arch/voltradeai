@@ -113618,3 +113618,43 @@ Filed:
 Next judge date: 2026-12-04, with the entries-live review. Read the options sleeve's live expectancy on post-fix lots only (opened on v1.0.1272+) against the −17.1% history, using the replay's ~0 as the base rate.
 
 STARVED: no.
+
+## 2026-11-05 [REPAIR] — T-DATACORE (server/platformStats.ts) + shared server/routes.ts (stats route header only) — the landing hero's three counters never arrived: /api/data/platform/stats awaited a full recount of the whole archive after every boot
+VERSION: v1.0.1282 (shipped 2026-11-05 by the parent session; main was v1.0.1281)
+
+Human report 2026-11-05 ("Can we fix this the metric", mobile screenshot): LIVE MAP LAYERS, DATA STREAMS RECORDING and ARCHIVED OBSERVATIONS showed only their "—" placeholders, drawn in the accent blue at number size, so they read as blue bars.
+
+Live measurement (2026-11-05 00:31Z, v1.0.1280, uptime 886 s): GET /api/data/platform/stats → HTTP 000 after 123 s. /api/data/archive/stats: 63 kinds, 9,750 files, 2.88 GB.
+
+Cause: the first request after every boot awaited `countObservations`, which reads every line of every archive file, gunzipping as it goes. The module was sized for 80 MB in July; the archive is now 36× that. The edge proxy gave up before the count finished, so after each deploy (12+ on 11-04) the hero showed placeholders until a count happened to complete. The old code also re-read all 2.88 GB every 10 minutes whenever the page was requested.
+
+Fix (`server/platformStats.ts`):
+- **Incremental count.** Each file's line count is cached against its size + mtime. Closed hour/day files are never re-read; only new or growing files are. Files that vanish (offloaded or pruned) leave the total.
+- **Persisted.** Counts are saved at the archive root as `.platform_stats_cache.json` (v1, atomic tmp+rename). It is a dotfile, and every archive reader enumerates directories only (checked: `listArchiveDirs`, `archiveStats`, `archiveOffload`). A corrupt or unknown-version file is ignored.
+- **Never holds a request more than 2 s.**
+  - After a restart, the persisted total is served at once with its own `observations_as_of`, plus `observations_pending: true` while the refresh runs.
+  - On the very first count ever, the answer is `observations: null` with `observations_pending: true`, never a fabricated 0.
+- **Route (`server/routes.ts`, header only).** An answer without a count is sent `no-store`. Before, every answer was `public, max-age=300`, which would have kept a pending answer in the browser for 5 minutes through the hero's retries.
+- **Heap gauge.** `platformStats.fileCounts` is registered beside the state (A0 convention), at most about 9,750 entries.
+
+Contract: `observations` is now `number | null` (it was 0 when unknown), and `observations_pending` is new. The only consumer is `client/src/pages/landing.tsx`, which shows a number only when `d.observations > 0`, so null keeps the placeholder. The server PR is therefore safe ahead of the client PR (designed loading/pending/unavailable states), which ships next.
+
+Downstream: the 10-minute refresh now reads only the open hour's files (tens of MB) instead of 2.88 GB, so event-loop CPU drops on every refresh. Memory: the per-file map is ≤ 9,750 small entries, about 1 MB, reported on the heap gauge.
+
+Tests:
+- New `server/platformStatsIncremental.test.ts` (7):
+  - The first count never holds the response; it is null + pending, never 0.
+  - A restart serves the persisted total with its as_of while the recount hangs.
+  - Only grown and new files are read; vanished files leave the total.
+  - Persisted per-file counts survive a restart.
+  - A corrupt or foreign cache is ignored.
+  - The dotfile is invisible to `listArchiveDirs`.
+  - The route header is chosen from the answer.
+- On the old code, the six behaviour tests fail (only the test hook grafted on), and so does the route test.
+- `server/platformStats.test.ts` (4) and `heapDiag.test.ts` pass unchanged.
+- `empty_ts_catch` 487 → 486 in `ci/counter_baseline.txt` and `test_ts_code_only.py`: one empty catch removed, so the pin is stricter.
+- Full server suite: 3,122 passed. tsc ratchet 6 ≤ 6.
+
+Expected live (first boot after this deploy): observations are pending for one full count (minutes, once), then persisted. Every later boot answers in well under a second with the last total. Rollback trigger: the endpoint still slower than 2 s on a warm box, or `platformStats.fileCounts` above 20k entries.
+
+STARVED: no.
