@@ -113688,3 +113688,46 @@ Visual (promotion rule 6):
   - Muted tokens, Geist, no wrap, identical block heights across states.
 
 STARVED: no.
+
+## 2026-11-05 [REPAIR] — T-DATACORE (server/dtccSwaps.ts streamDtccZip; new server/streamSafety.ts) + shared server/routes.ts (/tiles-r2 proxy, 1 call) — a fetch body dying mid-stream crashed the whole process (KNOWN BROKEN #47)
+VERSION: v1.0.1284 (shipped 2026-11-05 by the parent session; main was v1.0.1283)
+
+Found by the scheduled 06:41Z check-in. The audit log had two identical FATAL-EXCEPTION exits:
+
+- 2026-11-04 05:03:27Z, 5m14s after a boot.
+- 2026-11-05 01:17:05Z, 5m54s after a boot.
+
+Both read `uncaughtException: TypeError: terminated @ Fetch.onAborted (undici)`. The FATAL handler exits so Railway restarts a clean process, so each one cost a container (a restart nobody deployed).
+
+**Cause.** undici errors a response-body stream with `TypeError("terminated")` when the connection dies mid-body (socket reset, its 300 s body timeout). Two server paths fed a fetch body through `.pipe()`. Node's `.pipe()` never listens for errors on its SOURCE (probed on Node 20 and 22), so an error there has no listener and becomes an uncaught exception:
+
+1. **`dtccSwaps.streamDtccZip`.** The zip member Readable was `.pipe()`d into the inflater. This is the boot-eager stream of the 130–167 MB S3 zip (Content-Length 167,167,846 for 2026_11_04).
+   - It was in flight at the 01:17 crash. Its crash-guard marker was left unresolved, so `/api/data/dtcc-swaps` still answered `warming_up` at 06:43Z (6 h cooldown).
+   - Reproduced locally: a body dripping 8 KB chunks that dies mid-member gives an uncaught `terminated`, and the promise never settles.
+   - An error during the header read was always an ordinary rejection; only mid-member failures crashed.
+2. **`/tiles-r2/:name` proxy.** It ran `Readable.fromWeb(up.body).pipe(res)`, the same defect. In addition, a visitor leaving mid-tile left the upstream body unread until undici's 300 s timeout errored it.
+
+The logs cannot say which path fired each time. The DTCC path was in flight at 01:17 and fits the boot+5–6 min timing; the fix covers both.
+
+**Fix.**
+- **`server/streamSafety.ts` (new): `pipeWebBody(body, dest, onDone)`.** Built on `stream.pipeline`: every stage has a listener, and all stages are torn down when one fails or the destination closes early, so a departed client cancels the upstream fetch at once.
+- **`/tiles-r2`** uses `pipeWebBody`.
+- **`streamDtccZip`.**
+  - The member is joined to the inflater with `stream.pipeline`, so the error reaches readline and the for-await rejects. That is one failed refresh, caught by `refreshDtccSwaps`, with its crash marker resolved.
+  - A `finally` closes readline, destroys the member and returns the source iterator on every exit. This cancels the HTTP body, whose trailing central directory is never read and used to sit open.
+- Behaviour on success is unchanged (the 35 existing dtccSwaps tests pass).
+
+**Tests.** New `server/streamCrash.test.ts` (5):
+- DTCC mid-member death rejects the refresh with no uncaught exception. On the old code it fails as `failureType: 'uncaughtException'`, the live crash.
+- A member read to its end cancels the HTTP body. Fails on the old code.
+- The proxy, with an upstream that dies mid-response, ends that response and calls `onDone(err)` with no uncaught exception.
+- The proxy cancels the upstream body when the client leaves.
+- Ratchet: no `Readable.fromWeb(...).pipe(` in any server module; `/tiles-r2` uses `pipeWebBody` and never `.pipe(res)`; dtccSwaps has no `.pipe(` on the member. Fails on the old code.
+
+Verified on Node 22 and 20 (production is node:20-slim). On Node 20, five dtccSwaps id-store tests fail identically on unmodified main: the local better-sqlite3 is built for Node 22's ABI, so this is environmental. Full server suite 3,128/3,128. Counter ratchet 28/28 at or better than baseline. tsc 6 ≤ 6.
+
+Residual, filed under KNOWN BROKEN #47: about 12 archive readers use `fs.createReadStream(fp).pipe(zlib.createGunzip())` with the error listener on the gunzip only. An ENOENT or EIO on the file stream (a file offloaded between listing and opening) would be uncaught the same way. There has been no live occurrence; it should get one shared helper in its own PR.
+
+Expected live: no FATAL-EXCEPTION `terminated`. A failed DTCC download logs `[datacore] dtccswaps refresh: TypeError: terminated` and retries on its 6 h cadence. Rollback trigger: any new FATAL-EXCEPTION, or DTCC staying `warming_up` for more than 7 h after a boot with no cooldown in force.
+
+STARVED: no.

@@ -23373,3 +23373,33 @@ Live recurrence: the tier engine sold IREN261211P00018000 at 18:41:56Z, the day 
 | 47-day | 1,500 | 11-11 | 11-04 |
 
 Every earnings gate was therefore blind to the next 5–7 days. Already inside #1615's per-symbol path, T1 confirmed 1 candidate and found it reporting inside the window. The structural chunked fetch shipped as #1616 (another session, v1.0.1276, 20:31Z): a cut page's missing near end is re-fetched in 3-day chunks for every consumer. This session's parallel branch claude/earnings-calendar-chunked was dropped (first-merged wins; its only extra was a shared per-day cache). Remaining exposure: issuers Finnhub omits entirely; a second source would close that.
+
+## KNOWN BROKEN #47 (2026-11-05) — a stream error with no listener exits the whole process
+
+**Status:** FIXED for fetch bodies; open for archive file reads.
+
+**Live.** Two FATAL-EXCEPTION exits, 2026-11-04 05:03:27Z and 2026-11-05 01:17:05Z. Both were `uncaughtException: TypeError: terminated @ Fetch.onAborted (undici)`, each 5–6 min after a boot.
+
+**Mechanism.** Node's `.pipe()` never listens for errors on its source, so a source that errors has no listener, and the FATAL handler restarts the container.
+
+**Fixed (fetch bodies).**
+- `dtccSwaps.streamDtccZip` uses `stream.pipeline` and releases the body on every exit.
+- `/tiles-r2` uses `server/streamSafety.ts`'s `pipeWebBody`.
+- `server/streamCrash.test.ts` ratchets both: no `Readable.fromWeb(...).pipe(` in server code.
+
+**Open (same class, no live occurrence yet).** These archive readers open `fs.createReadStream(fp).pipe(zlib.createGunzip())` and listen for errors on the gunzip only, so an ENOENT or EIO on the file stream is uncaught. The trigger is a `.gz` offloaded or pruned between the directory listing and the open:
+- aircraftEntities.ts:89
+- datacoreArchive.ts:826
+- dtccIdsStore.ts:140 and :182
+- fleetUtilization.ts:82
+- gnssIntegrityDaily.ts:119
+- gridStress.ts:86
+- platformStats.ts:66
+- queryEngine.ts:190
+- shadowFleet.ts:368
+- siteTimeline.ts:127
+- vesselArchiveFold.ts:144
+
+`archiveOffload.ts:313` and `secMidas.ts:339` should be checked the same way.
+
+**Next step.** In its own PR, add one helper (e.g. `openArchiveLines(fp)`) that pipelines file → gunzip → readline with a listener on every stage, and extend the streamCrash ratchet to ban `createReadStream(...).pipe(` in server modules.
