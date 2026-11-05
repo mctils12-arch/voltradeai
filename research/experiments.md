@@ -113812,3 +113812,39 @@ MEASUREMENT NOTE: forecast_range.interval_score is a NEW metric, the standard Gn
 Runtime cost: none in this PR (no import from bot.ts, the daemon or forecast.py yet).
 
 STARVED: no.
+
+## 2026-11-05 [RESEARCH] — T-BOT (scripts/forecast_direction_study.py, research/forecast_direction_study_2026-11-04.*) — daily forecast DIRECTION: pre-registered feature study, no feature beats the base rate (Part C item 3, Wave 2 PR 2 of 3)
+VERSION: v1.0.1287 (shipped 2026-11-05 by the parent session; main was v1.0.1286)
+
+Built 2026-11-04 under the human-approved forecast batch. Priors, features, targets and the PASS rule were written before any result (§ Pre-registration in the study .md). Shipped 2026-11-05 as the second of three stacked PRs. It is a study only, with no runtime change: the shipped verdict (no direction features) is pinned by its test, and PR 3 consumes it as forecast.DAILY_DIRECTION_FEATURES = ().
+
+Part C item 3 of the human-approved forecast batch. Shadow only; nothing
+trades. Stacked on claude/fc-range-har (reuses its data loader and the
+day-block bootstrap).
+
+scripts/forecast_direction_study.py + research/forecast_direction_study_
+2026-11-04.{md,json}. Pre-registered before any result: targets (next close
+from the base close; rest of day from the open / from 10:30), features
+(overnight gap, intraday momentum, VIX change, breadth = regime_engine's
+basket above its 200-day SMA, dealer gamma = P1's GEX rank, first-hour
+momentum), ridge logistic vs the intercept-only base rate, purged
+walk-forward (refit every 21 sessions, 5-session embargo), holdout
+2019-01-02 -> 2026-11-02, m = 14 tests, PASS = holdout dBrier < 0 AND
+one-sided day-block-bootstrap p < 0.05/14 AND dBrier < 0 on selection too.
+
+Result: 13 tests run, 13 FAIL; the combination test never qualified. Best
+one-sided p = 0.33 against a bar of 0.0036; the only negative holdout
+dBriers (GEX panel, today's gap -> rest of day) had positive selection
+dBriers. The base rate's own skill vs a coin flip on the holdout: SPY Brier
+0.24767 vs 0.25 (+0.93%, the drift), 35-name panel 0.24950 (+0.20%).
+So the daily direction ships as the shrunk base rate; the committed verdict
+is pinned to forecast.DAILY_DIRECTION_FEATURES (empty) by
+test_forecast_direction_study.py, which also covers the features' point-in-
+time construction, the embargo, the verdict rule and the bootstrap.
+
+GEX (SqueezeMetrics DIX.csv) is research-only, licence unverified, never
+committed — same posture as P1.
+
+REASONING STANDARD #4: 14 pre-registered tests at a Bonferroni bar of 0.05/14. Nothing passed, so nothing ships and nothing is "almost significant".
+
+STARVED: no.
