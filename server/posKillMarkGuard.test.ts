@@ -35,6 +35,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { transformSync } from "esbuild";
+import { runLadder, LADDER_DEFAULTS } from "./limitLadder";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -83,6 +84,12 @@ const HELPERS = [
   "function posKillHasValidMark(currentPriceRaw: unknown, plpcRaw: unknown): boolean",
   "function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: string,",
 ].map(functionSourceIfPresent).join("\n");
+// BACKSTOP LADDER 2026-11-05: a confirmed option kill runs the REAL ladder
+// starter (bot.ts posKillStartOptionLadder + limitLadder.runLadder). Its quote,
+// sleep and in-flight map are injected below; the sleep never resolves, so a
+// kill sends exactly its step-0 limit order and the ladder then waits.
+// posKillBackstopLadder.test.ts drives whole ladders on a fake clock.
+const LADDER_STARTER = functionSourceIfPresent("async function posKillStartOptionLadder(");
 
 type Row = {
   symbol: string; asset_class?: string; side: string; qty: string; avg_entry_price?: string;
@@ -129,12 +136,21 @@ function makeHarness(startIso = "2026-10-29T13:30:09Z") {
     pkgVersion: "test",
     posKillPendingBreach: new Map<string, { firstSeenMs: number; pnlPct: number }>(),
     posKillNoMarkAuditDay: new Map<string, string>(),
+    posKillLadderInFlight: new Map<string, number>(),
+    quotes: new Map<string, { bid: number; ask: number }>(),
+    runLadder,
+    ladderConfig: LADDER_DEFAULTS,
   };
   const js = transpile(`
 ${HELPERS}
 async function runTick(positions, env) {
   const { FLOOR_AND_LEG_TICKERS, LEGACY_DEFENSIVE_CANDIDATE_TICKERS, audit, alpaca, state, openOrders,
-          getOrderParams, notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay } = env;
+          getOrderParams, notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay,
+          posKillLadderInFlight, runLadder } = env;
+  const BACKSTOP_LADDER_CONFIG = env.ladderConfig;
+  const posKillOptionQuote = async (symbol) => env.quotes.get(symbol) ?? null;
+  const posKillLadderSleep = () => new Promise(() => undefined);
+  ${LADDER_STARTER}
   const activeTickers = new Set();
   ${loopBody}
 }
@@ -225,8 +241,9 @@ test("(a) the near-miss row: -100.0% on current_price 0 never submits, audits PO
   assert.equal(h.posts.length, 0);
 });
 
-test("(b) a valid -80% breach: PENDING on the first tick, liquidated through the unchanged submit path on the next", async () => {
+test("(b) a valid -80% breach: PENDING on the first tick, liquidated on the next (an option: the backstop ladder's limit at the bid)", async () => {
   const h = makeHarness();
+  h.env.quotes.set("XLK261219P00100000", { bid: 0.78, ask: 0.86 });
   await h.tick([longOptionAt(-80)]);
   assert.equal(h.posts.length, 0, "the first observation of a breach must not submit");
   const pending = h.audited("POS-KILL-PENDING");
@@ -240,9 +257,10 @@ test("(b) a valid -80% breach: PENDING on the first tick, liquidated through the
   assert.equal(h.posts.length, 1, "the second consecutive valid-mark breach liquidates");
   assert.equal(h.posts[0].path, "/v2/orders");
   assert.deepEqual(
-    { symbol: h.posts[0].body.symbol, qty: h.posts[0].body.qty, side: h.posts[0].body.side, type: h.posts[0].body.type },
-    { symbol: "XLK261219P00100000", qty: "2", side: "sell", type: "market" },
-    "the existing getOrderParams(current, 'stop_loss') market SELL, unchanged",
+    { symbol: h.posts[0].body.symbol, qty: h.posts[0].body.qty, side: h.posts[0].body.side, type: h.posts[0].body.type,
+      limit_price: h.posts[0].body.limit_price, time_in_force: h.posts[0].body.time_in_force },
+    { symbol: "XLK261219P00100000", qty: "2", side: "sell", type: "limit", limit_price: "0.78", time_in_force: "day" },
+    "BACKSTOP LADDER 2026-11-05: an option kill's first order is a limit SELL at the bid (was the getOrderParams(current, 'stop_loss') market SELL)",
   );
   const kill = h.audited("POS-KILL");
   assert.equal(kill.length, 1);
@@ -264,6 +282,7 @@ test("(b) a valid -80% breach: PENDING on the first tick, liquidated through the
   await s.tick([stockAt(-30)]);
   assert.equal(s.posts.length, 1);
   assert.equal(s.posts[0].body.symbol, "AXTI");
+  assert.equal(s.posts[0].body.type, "market", "a stock kill keeps the getOrderParams(current, 'stop_loss') market order");
   assert.ok(s.audited("POS-KILL")[0].msg.includes("(threshold: -25%)"));
 });
 
