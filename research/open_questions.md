@@ -23426,3 +23426,34 @@ Every earnings gate was therefore blind to the next 5–7 days. Already inside #
 The opening window (no option exit before 09:45 ET) rests on the bleed study's fills (53 lots closed in the first 5 minutes lost $5,083, median fill 1.41x fair). Its rollback trigger needs data the system does not log yet: for each deferred exit, the bid at the moment the rule first fired (09:30–09:45) against the fill after 09:45.
 - Proposed: options_manager adds `first_fired_bid` / `first_fired_at` to the deferred action and the leg's state. The fill comes from the orders feed.
 - A 20-session read then shows, per rule, whether waiting paid. Own PR, measurement only.
+
+## 2026-11-05 — option exits: what the research supports, what shipped, what is still open (from the human's "rules that make sense based on research on all positions … and good fill prices")
+
+**UPDATE to "RULE-REVIEW CANDIDATE 2026-11-02 — bought options have no profit-taking exit".**
+- The GOOGL position behind that question (GOOGL261127P00300000: $4.70 → $22.49 → sold at $10.65 by the 21-DTE rule on 11-05) was not a deliberate long. It was the leftover put wing of an earnings iron condor whose other three legs closed on 10-29.
+- Research review (2026-11-05): bought options carry a negative expected return, the variance risk premium (Coval & Shumway 2001; Bakshi & Kapadia 2003; Carr & Wu 2009). No peer-reviewed test supports profit targets or trailing stops on option premium.
+- Shipped this session: the LEFTOVER LONG LEG rule (options_manager.py Check 1b) closes a long leg that is the only option on its underlying and is not a deliberate standalone long.
+- The scale-out / trailing candidate stays open for deliberate longs (buy_call, buy_put) only, tested by replay exactly as filed. Prior lowered from "positive but small" to 20%: the published evidence gives no reason to expect it to help.
+
+**[RULE-REVIEW candidate] Event trades exit after the event.** An earnings condor or straddle is a bet on the announcement. Held after the report, it is an ordinary short-vol (or long-vol) position nobody chose.
+- Testable form: close an earnings-tagged structure on the first regular-hours tick after 09:45 on the session after the report, versus the current rules. Replay on the options chain archive, per structure, per regime.
+- Prior: 40% that it improves expectancy per structure. The thesis is captured at the open after the report; what follows is the base-rate short-vol bleed or carry.
+- Ladder: gate 3 (LOGIC) by ablation.
+
+**[FILL QUALITY] Option exit pricing — what paper trading can and cannot show.**
+- Alpaca paper fills a limit only once it is marketable at the NBBO, with no price improvement. A mid-priced limit never fills unless the quote moves through it.
+- So a mid-first ladder (mid → mid + ⅓ spread → ask, a few minutes apart) would only delay paper fills to the same far-side price. Its benefit, price improvement such as Cboe's complex order book gives multi-leg orders, exists only in live routing.
+- Shipped instead: no option exit before 09:45 ET, out of the widest spreads of the day.
+- Human decision 2026-11-05: build the midpoint-first ladder for live trading behind a config flag that defaults OFF on paper, with no fill-improvement claim until live. The option backstop's market order is replaced by a marketable-limit ladder (bid/ask first, widening, market only after a hard timeout); both ship as their own PRs.
+
+**[REPAIR candidate] `_unwind_covered_calls` buys back short calls with MARKET orders** (bot_engine.py). It runs before every floor or satellite sale of shares with a call written on them. The vol-managed floor trades 09:45–15:54 ET, so these are no longer opening-print fills, but a market order on an option is still the widest fill available. Proposed: a marketable limit at the ask. bot_engine.py is not a frozen path.
+
+**[KNOWN BROKEN candidate] The convexity overlay runs although it is disabled** (bot_engine.py `_run_convexity_overlay`, called every scan from Step 9b).
+- `CONVEXITY_OVERLAY["enabled"]` has been False since 2026-04-17 (system_config), and the function never reads it.
+- Its order payloads use `"side": "buy_to_open"` and `"sell_to_close"` (the roll close also as a MARKET order). Alpaca's order API takes `buy`/`sell`, so these would be rejected.
+- Its "existing put" search matches any QQQ put, including a sold one.
+- Next: confirm in /api/diag/orders and the audit log whether these orders reach the broker. Then gate the function on `enabled` in its own PR, with a test.
+
+**[UI follow-up] The Book's exit line does not know the LEFTOVER rule.** `shared/positionLevels.ts optionExitPlan` mirrors the manager's rules; for a long leg alone on its underlying it still prints "no profit target" and the loss rules. The window is short (the rule acts on the next manage tick after the hold gate), but the mirror should name it. Needs the count of option legs on the underlying in the Book's input, plus a client label, with the visual harness.
+
+**[REPAIR candidate] Verify every multi-leg opener records its strategy.** A spread whose legs carry "unknown" is managed leg by leg. Its long leg is then never a leftover while the short is open (correct), but no group rule judges the pair either. List which openers (tier dispatcher verticals, calendars, diagonals) register `register_options_entry(..., strategy=…)` for both legs.
