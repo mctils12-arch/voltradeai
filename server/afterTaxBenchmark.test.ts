@@ -86,3 +86,11 @@ test("the notes state the bias in both directions and the liquidation framing", 
   assert.ok(r!.notes.some((n) => /flatters the account/.test(n)));
   assert.ok(r!.notes.some((n) => /short-term \(the conservative term\)/.test(n)));
 });
+
+test("SPY is price return since 2026-11-05: the note says the dividends are left out and which way that leans", () => {
+  const r = afterTaxBenchmark(win(), ledger([]), { equityStart: 100_000, openPnl: 0 });
+  assert.equal(r!.notes[1], "SPY: its price return, without dividends like the paper account, taxed once at the short-term rate; a real holder would also collect the dividends, taxed each year at the qualified rate, so leaving them out flatters the account by about yield × (1 − qualified rate)");
+  const long = afterTaxBenchmark(win({ days: 400, to: "2027-06-10" }), ledger([]), { equityStart: 100_000, openPnl: 0 });
+  assert.match(long!.notes[1], /taxed once at the long-term rate/);
+  assert.ok(r!.notes.every((n) => !/total return/.test(n)), "no note claims a total return any more");
+});

@@ -64,7 +64,8 @@ export function todayView(t: TodayTile | null | undefined, nowMs: number, loaded
   const pathValue = `${fmtMoney(t.equity_prev_close)} → ${fmtMoney(t.equity_now)}`;
   const title = [
     `Today (${t.day} ET): equity ${fmtMoney(t.equity_now, true)} now vs ${fmtMoney(t.equity_prev_close, true)} at the prior close — ${changeLong} (Alpaca paper account equity − last_equity, the prior session's 16:00 ET value; read ${fmtClockET(t.asof)} ET)`,
-    spyOk ? `SPY ${fmtPct(spy)} today: its daily bar against the prior close, dividend-adjusted (Alpaca bars, feed iex; fetched ${hhmm(t.spy_asof)} ET${spyStale ? ", older than the 30 min cache — stale" : ""})` : `SPY — ${spyLong} (dividend-adjusted daily bars; SPY's side stays empty until today's bar exists, never an older day's move)`,
+    // SPY is price only since 2026-11-05 (server/spyBenchmark.ts SPY_BENCH_ADJUSTMENT): the paper account is credited no dividends
+    spyOk ? `SPY ${fmtPct(spy)} today: its daily bar against the prior close, price only, no dividends (Alpaca bars, feed iex; fetched ${hhmm(t.spy_asof)} ET${spyStale ? ", older than the 30 min cache — stale" : ""})` : `SPY — ${spyLong} (daily bars, price only, no dividends; SPY's side stays empty until today's bar exists, never an older day's move)`,
     exOk ? `headline ${fmtSigned(ex, 2, " pp")} = account − SPY in percentage points` : "headline — needs both sides",
   ].join(" · ");
   return {

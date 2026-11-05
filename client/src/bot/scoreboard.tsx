@@ -90,7 +90,7 @@ export function ScoreBody({ q, nowMs }: { q: UseQueryResult<Scoreboard>; nowMs: 
         </button>
       ) : null}
       <div className="vt-score-src">
-        <span>Bot: daily after-close equity snapshot of the Alpaca paper account · SPY: dividend-adjusted daily closes (Alpaca) through {fmtDay(data.barsThrough, year)} · fetched {asOf}<Help k="scoreboard" /></span>
+        <span>Bot: daily after-close equity snapshot of the Alpaca paper account · SPY: price-only daily closes, no dividends (Alpaca) through {fmtDay(data.barsThrough, year)} · fetched {asOf}<Help k="scoreboard" /></span>
         <span className={cf.tone === "warn" ? "vt-bot-o" : undefined}>{cf.text}</span>
         {s.gapRows ? <span>{s.gapRows} row{s.gapRows === 1 ? "" : "s"} span a missed snapshot (marked ·Nd) — both returns cover the same sessions</span> : null}
       </div>

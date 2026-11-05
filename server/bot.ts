@@ -57,7 +57,7 @@ import { foldVesselArchiveAsync, ShadowAggregator, type ShadowZone } from "./sha
 import { evaluateEnrichment } from "./shadowFleetGate1";
 import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
-import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, type DailyClose, type Benchmark } from "./spyBenchmark";
+import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, SPY_BENCH_ADJUSTMENT, SPY_BENCH_BASIS, type DailyClose, type Benchmark } from "./spyBenchmark";
 import { todayTile, type TodayTile } from "./todayTile";
 import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
@@ -2543,14 +2543,17 @@ print(json.dumps({
   });
 
   // The account vs buy-and-hold SPY — the GOAL's own yardstick
-  // (server/spyBenchmark.ts; [RULE-REVIEW] 2026-10-20). SPY bars are
-  // dividend-adjusted (total return) and cached: the series moves once a day.
+  // (server/spyBenchmark.ts; [RULE-REVIEW] 2026-10-20). SPY bars are PRICE
+  // RETURN since 2026-11-05 ([RULE-REVIEW], human-ordered): split-adjusted, no
+  // dividends, because the paper account is credited none (total return
+  // before). Cached: the series moves once a day.
   let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
-  // the SPY series both the benchmark and the daily scoreboard read (one fetch, one cache)
+  // the SPY series every benchmark reader shares (one fetch, one cache): the
+  // benchmark + its after-tax leg, the daily scoreboard, the TODAY tile
   async function spyBenchBars(oldest: string): Promise<NonNullable<typeof spyBenchCache>> {
     if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
       const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
-      spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), "all") };
+      spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), SPY_BENCH_ADJUSTMENT) };
     }
     return spyBenchCache;
   }
@@ -2583,7 +2586,7 @@ print(json.dumps({
       if (!oldest) return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null };
       const spy = await spyBenchBars(oldest);
       const bench = benchmarkVsSpy(equityCurve, spy.bars);
-      return { ...bench, fetchedAt: new Date(spy.at).toISOString(), adjustment: "all", afterTax: afterTaxFor(bench, rates) };
+      return { ...bench, fetchedAt: new Date(spy.at).toISOString(), adjustment: SPY_BENCH_ADJUSTMENT, basis: SPY_BENCH_BASIS, afterTax: afterTaxFor(bench, rates) };
     } catch (err) {
       return { ...benchmarkVsSpy([], []), fetchedAt: null, afterTax: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
     }
@@ -2624,7 +2627,7 @@ print(json.dumps({
     if (scoreCache && Date.now() - scoreCache.at < SCOREBOARD_CACHE_MS) return scoreCache.body;
     const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : null;
     const today = new Date().toISOString().slice(0, 10);
-    const sources = { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, dividend-adjusted (Alpaca bars, adjustment=all, feed=iex)" };
+    const sources = { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: `SPY daily closes, ${SPY_BENCH_BASIS} (Alpaca bars, adjustment=${SPY_BENCH_ADJUSTMENT}, feed=iex)` };
     try {
       if (!oldest) return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null };
       const spy = await spyBenchBars(oldest);
@@ -3415,7 +3418,9 @@ print(json.dumps(result, default=str))
   // years of KRE history for the event study. Same host/feed/adjustment
   // choice as /api/bars (data.alpaca.markets, feed=iex — bars reject
   // delayed_sip, see that route's own 2026-07-20/27 comment).
-  // `adjustment` "all" adds dividends (total return) — the SPY benchmark.
+  // `adjustment` "all" adds dividends (total return). The SPY benchmark passes
+  // "split" since 2026-11-05 (SPY_BENCH_ADJUSTMENT): price return, like the
+  // paper account, which is credited no dividends.
   async function fetchDailyBarsRange(symbol: string, startISO: string, endISO: string, adjustment: "split" | "all" = "split"): Promise<Gate2Bar[]> {
     const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=1Day&start=${startISO}&end=${endISO}&limit=10000&adjustment=${adjustment}&feed=iex`;
     const r = await fetch(url, {
