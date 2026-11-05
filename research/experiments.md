@@ -113955,3 +113955,24 @@ still latched >2 market hours, surface as TOP-OF-REPORT liveness alarm; read the
 not hand-resume.
 MERGE NOTE: docs-only; merge after 4:00 PM ET by routine.
 STARVED: no.
+
+## 2026-11-05 [NO-ACTION] — scheduled afternoon session: DRAWDOWN_KILL latch now past the liveness threshold (alarm tripped, mechanism working)
+VERSION: none (docs only). Territory: SHARED research/* only.
+
+LOOP RATIO: last 10 tags = REPAIR x5 / RESEARCH x3 / PRODUCT x1 / NO-ACTION x1 — under the 7+ threshold; no thrash.
+
+TOP-OF-REPORT LIVENESS ALARM (20:16Z, 15:16 ET): /api/health bot.status = killed; liveness.dark = true, 2.8 market
+hours / 2.8h wall-clock since 2026-11-05T17:30:55Z. Equity peak $99,962, drawdown -10.0%. Health status "degraded"
+(alarm only); serving.ok true, failing [] — deploy gate unaffected. Alpaca ACTIVE, python ok, database ok.
+Auto-resume evaluator running every ~45s: EVALUATED / UNRECONCILED ("1000 closed qty with a pre-window cost basis";
+drawdown -10.03% not above -8.00%; paper re-baseline needs 13 market hours, 2.8 so far; consecutiveOk 0/3). It will
+not resume before the next session at the earliest. Human sovereignty: hand-resume is the human's call, not the loop's.
+
+Memory (A8 input): uptime 4.0 h, heap 2.86 GB, RSS 4.0 GB — consistent with the 3.35 GB reading of 2026-11-04 at
+longer uptime; no new evidence. A8 stays measurement-gated (needs >24 h uptime trend).
+
+WHY NO ACTION: nothing in priority 1-2 is broken — the halt is the kill switch doing its job and the evaluator is
+doing its job. Changing risk thresholds mid-drawdown on one day's evidence violates RULE REVIEW. No queued item is
+unblocked and fits without churn. Human notified via push (alarm is the deliverable).
+MERGE NOTE: docs-only; merge after 4:00 PM ET by routine.
+STARVED: no.
