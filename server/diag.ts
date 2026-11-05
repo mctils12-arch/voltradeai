@@ -412,6 +412,15 @@ export const DIAG_PROBES = [
   // 10 OCC contracts (market data only — no account, order or key fields),
   // so a session can replay an exit rule over a closed lot's price path.
   "book", "lots", "option_bars",
+  // ADDED 2026-11-05 (human-directed: "Add a daily line to the logs/report"):
+  // the stored DAILY LINES (server/dailyLine.ts) — account vs SPY on the same
+  // price-only basis, floor exposure in SPY terms, option P&L split into
+  // fills/slippage vs direction (with the option fills priced), and the
+  // option exits the 09:30–09:45 window held — plus the job's last attempt.
+  // Read-only (one JSON file on the volume, no broker call); optional `days`
+  // (1..60, default 10). Account values and option symbols per the 2026-07-07
+  // widening; no keys.
+  "daily_line",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
