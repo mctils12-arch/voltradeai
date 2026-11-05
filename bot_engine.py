@@ -6107,55 +6107,85 @@ def _manage_vol_managed_floor(macro: dict = None, reduce_only: bool = False) -> 
         return result
 
     working = _open_order_symbols()
-    # 1) legacy floor tickers: sell every share (covered calls bought back first)
-    for sym in sorted(legacy_held):
-        if sym in working:
-            result["actions"].append({"type": "floor_vm_wait", "ticker": sym, "reason": "order working"})
-            continue
-        qty = _qty_available(sym)
-        try:
-            result["actions"].extend(_unwind_covered_calls(sym))
-        except RuntimeError as _uw:
-            result["actions"].append({"type": "cc_unwind_blocked", "ticker": sym, "reason": str(_uw)[:200]})
-            continue
-        bid, _ask = _latest_quote(sym)
-        if bid <= 0:
-            result["actions"].append({"type": "floor_vm_no_quote", "ticker": sym})
-            continue
-        result["actions"].append({"type": "floor_vm_legacy_sell", "ticker": sym, "qty": qty, "limit": bid,
-                                  **_floor_vm_order(sym, qty, "sell", bid)})
 
-    # 2) SPY and SSO toward their dollar targets
-    for sym, target in ((base, decision["target_base_dollars"]), (lev, decision["target_levered_dollars"])):
-        if sym in working:
-            result["actions"].append({"type": "floor_vm_wait", "ticker": sym, "reason": "order working"})
-            continue
-        bid, ask = _latest_quote(sym)
-        if bid <= 0 or ask <= 0:
-            result["actions"].append({"type": "floor_vm_no_quote", "ticker": sym})
-            continue
-        delta = target - _value(sym)
-        if delta > 0 and reduce_only:
-            continue
-        if delta > 0:
-            qty = int(delta // ask)
-            if qty > 0:
-                result["actions"].append({"type": "floor_vm_buy", "ticker": sym, "qty": qty, "limit": ask,
-                                          **_floor_vm_order(sym, qty, "buy", ask)})
-        elif delta < 0:
-            qty = min(_qty_available(sym), int((-delta) // bid))
-            if qty <= 0:
+    def _sell_legacy() -> None:
+        # legacy floor tickers: sell every share (covered calls bought back first)
+        for sym in sorted(legacy_held):
+            if sym in working:
+                result["actions"].append({"type": "floor_vm_wait", "ticker": sym, "reason": "order working"})
                 continue
-            if _qty_available(sym) - qty < 100:
-                # same rule as the basket path: a short call on the shares must go first
-                try:
-                    result["actions"].extend(_unwind_covered_calls(sym))
-                except RuntimeError as _uw:
-                    result["actions"].append({"type": "cc_unwind_blocked", "ticker": sym, "reason": str(_uw)[:200]})
-                    continue
-            result["actions"].append({"type": "floor_vm_sell", "ticker": sym, "qty": qty, "limit": bid,
+            qty = _qty_available(sym)
+            try:
+                result["actions"].extend(_unwind_covered_calls(sym))
+            except RuntimeError as _uw:
+                result["actions"].append({"type": "cc_unwind_blocked", "ticker": sym, "reason": str(_uw)[:200]})
+                continue
+            bid, _ask = _latest_quote(sym)
+            if bid <= 0:
+                result["actions"].append({"type": "floor_vm_no_quote", "ticker": sym})
+                continue
+            result["actions"].append({"type": "floor_vm_legacy_sell", "ticker": sym, "qty": qty, "limit": bid,
                                       **_floor_vm_order(sym, qty, "sell", bid)})
+
+    def _trade_core(legs) -> None:
+        # SPY and SSO toward their dollar targets
+        for sym, target in legs:
+            if sym in working:
+                result["actions"].append({"type": "floor_vm_wait", "ticker": sym, "reason": "order working"})
+                continue
+            bid, ask = _latest_quote(sym)
+            if bid <= 0 or ask <= 0:
+                result["actions"].append({"type": "floor_vm_no_quote", "ticker": sym})
+                continue
+            delta = target - _value(sym)
+            if delta > 0 and reduce_only:
+                continue
+            if delta > 0:
+                qty = int(delta // ask)
+                if qty > 0:
+                    result["actions"].append({"type": "floor_vm_buy", "ticker": sym, "qty": qty, "limit": ask,
+                                              **_floor_vm_order(sym, qty, "buy", ask)})
+            elif delta < 0:
+                qty = min(_qty_available(sym), int((-delta) // bid))
+                if qty <= 0:
+                    continue
+                if _qty_available(sym) - qty < 100:
+                    # same rule as the basket path: a short call on the shares must go first
+                    try:
+                        result["actions"].extend(_unwind_covered_calls(sym))
+                    except RuntimeError as _uw:
+                        result["actions"].append({"type": "cc_unwind_blocked", "ticker": sym, "reason": str(_uw)[:200]})
+                        continue
+                result["actions"].append({"type": "floor_vm_sell", "ticker": sym, "qty": qty, "limit": bid,
+                                          **_floor_vm_order(sym, qty, "sell", bid)})
+
+    legs = ((base, decision["target_base_dollars"]), (lev, decision["target_levered_dollars"]))
+    if reduce_only:
+        # De-lever first (human decision 2026-11-05): SSO, then SPY, then the
+        # legacy floor tickers. Sells only; the result is cash.
+        _trade_core(tuple(reversed(legs)))
+        _sell_legacy()
+    else:
+        _sell_legacy()
+        _trade_core(legs)
     return result
+
+
+def floor_reduce_only_pass() -> dict:
+    """The floor while Node's -20% kill switch is tripped (human decision
+    2026-11-05). bot.ts tier2HaltedExits calls this through the daemon
+    ("floor_reduce_only") on every halted pass while the kill latch is set.
+
+    It may only REDUCE exposure: SSO first, then SPY, toward the volatility
+    target, then any legacy floor ticker; the result is cash. Never a buy,
+    never added leverage (the reduce-only mode of _manage_vol_managed_floor:
+    the same 09:45-15:54 ET window and broker-clock check, marketable limits,
+    no order on top of a working one). Under FLOOR_MODE "basket" there is no
+    reduce-only pass: the old floor holds, as it always did while killed."""
+    if BASE_CONFIG.get("FLOOR_MODE", "basket") != "vol_managed_spy":
+        return {"mode": BASE_CONFIG.get("FLOOR_MODE", "basket"), "actions": [], "reduce_only": True,
+                "status": "skipped: the basket floor has no reduce-only pass (it holds while killed)"}
+    return _manage_vol_managed_floor({}, reduce_only=True)
 
 
 def _run_floor_step(macro: dict, floor_regime: dict) -> tuple:

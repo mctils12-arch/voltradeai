@@ -23,6 +23,7 @@ import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS } from "./dailyMainte
 import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonExec";
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
+import { floorAuditRows } from "./floorAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
@@ -214,6 +215,8 @@ async function pythonCall(
   // path OOMs at ~300MB cold-start on Railway's tight container cap.
   const HEAVY_DAEMON_ONLY = new Set([
     "run_full_scan", "scan_market", "manage_positions",
+    // 2026-11-05: the kill-switch floor pass imports bot_engine too
+    "floor_reduce_only",
   ]);
   if (DAEMON_ENABLED) {
     try {
@@ -6106,6 +6109,9 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       // here and never read — every options exit was invisible
       // (server/optionsMgmtAudit.ts).
       for (const row of formatOptionsMgmt(result.options_management)) audit(row.type, row.message);
+      // 2026-11-05: the floor's trades (scan_market's spy_floor) were never
+      // audited either (server/floorAudit.ts).
+      for (const row of floorAuditRows(result.spy_floor, "scan")) audit(row.type, row.message);
 
       // REPAIR 2026-09-09: bot_engine.py's scan_market() has its own
       // portfolio-level DD halt (update_equity_peak/is_trading_halted,
@@ -9779,14 +9785,39 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
       );
       if (!r.success) {
         audit("OPTIONS-MGMT-ERROR", `halted exits-only pass failed (via ${r.via}): ${String(r.result?.error || "unknown").slice(0, 200)}`);
-        return;
+      } else {
+        for (const row of formatOptionsMgmt(r.result)) audit(row.type, row.message);
       }
-      for (const row of formatOptionsMgmt(r.result)) audit(row.type, row.message);
+      // KILL-SWITCH FLOOR (human decision 2026-11-05): while the -20% kill
+      // switch is tripped the floor may only REDUCE exposure (SSO, then SPY,
+      // then legacy floor tickers; never a buy, never added leverage), and
+      // every action is audited. Other exits-only states (circuit breaker,
+      // paused) leave the floor where it is, as before.
+      if (state.killSwitch) await killSwitchFloorReduce();
     } catch (err) {
       console.error("[tier2-halted]", err instanceof Error ? err.message : err);
     } finally {
       tier2Running = false;
     }
+  }
+
+  let killFloorIdleDay = "";
+  async function killSwitchFloorReduce(): Promise<void> {
+    const r = await pythonCall(
+      "floor_reduce_only",
+      {},
+      `python3 -c "import json; from bot_engine import floor_reduce_only_pass; print(json.dumps(floor_reduce_only_pass(), default=str))"`,
+      { timeout: 90000 },
+      90000,
+    );
+    if (!r.success) {
+      audit("FLOOR-KILL-REDUCE-ERROR", `kill-switch floor pass failed (via ${r.via}): ${String(r.result?.error || "unknown").slice(0, 200)}`);
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = floorAuditRows(r.result, "kill", killFloorIdleDay === today);
+    for (const row of rows) audit(row.type, row.message);
+    if (rows.length) killFloorIdleDay = today;
   }
 
   async function scheduleTier2() {

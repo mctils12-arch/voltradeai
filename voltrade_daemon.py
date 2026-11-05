@@ -307,6 +307,12 @@ class RPCDispatcher:
             # roll's sell-to-open half is an entry); python3 -c fallback in
             # bot.ts tier2HaltedExits.
             "manage_options_exits": ("options_manager", "manage_options_positions"),
+            # KILL-SWITCH FLOOR (2026-11-05, human decision): while Node's -20%
+            # kill switch is tripped, tier2HaltedExits runs the floor's
+            # reduce-only pass (sells only: SSO, then SPY, then legacy floor
+            # tickers; never a buy). bot.ts lists it in HEAVY_DAEMON_ONLY: a
+            # bot_engine import in a fresh interpreter is the ~300 MB cold start.
+            "floor_reduce_only": ("bot_engine", "floor_reduce_only_pass"),
 
             # Regime / macro
             "macro_snapshot": ("macro_data", "get_macro_snapshot"),

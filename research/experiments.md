@@ -114168,3 +114168,25 @@ Regression test: server/wsReconnectChain.test.ts slices the two functions out of
 Rollback trigger: a STREAM-DISCONNECT row not followed by a "Real-time feed live" row within 30 s, more than twice in a session.
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (bot_engine.py floor_reduce_only_pass + reduce-only order; voltrade_daemon.py floor_reduce_only; server/bot.ts tier2HaltedExits + HEAVY_DAEMON_ONLY + scan audit; new server/floorAudit.ts) — kill switch: the floor may only reduce exposure while tripped, every action audited
+VERSION: v1.0.1297 (shipped 2026-11-05 by the parent session; main was v1.0.1296)
+
+Human decision (2026-11-05): "-20% kill switch: while it's tripped, the floor may only reduce exposure (sell or de-lever SSO→SPY→cash). It may not make any buys or add leverage. Log every action taken while tripped."
+
+Before: the kill switch put Tier 2 in exits-only mode, which runs only the options exits (tier2HaltedExits). The floor held wherever it was, up to 1.5x SPY under the volatility-managed floor, until the owner resumed.
+
+The change:
+- While `state.killSwitch` is set, tier2HaltedExits runs bot_engine.floor_reduce_only_pass after the options exits (daemon method `floor_reduce_only`; HEAVY_DAEMON_ONLY, so never a fresh-interpreter bot_engine import). A failed options pass no longer skips it.
+- It is the volatility-managed floor's reduce-only mode: sells toward the volatility target, never a buy, never added leverage, with the same 09:45–15:54 ET window, broker-clock check and marketable limits. In reduce-only mode the sells now go SSO first, then SPY, then any legacy floor ticker; the normal pass keeps its order.
+- Under FLOOR_MODE "basket" (the rollback) it does nothing: the old floor has no reduce-only path and holds while killed, as before.
+- Other exits-only states (the daily-loss circuit breaker, paused) leave the floor alone, as before.
+- Logging: new server/floorAudit.ts. The kill pass writes FLOOR-KILL-REDUCE rows (a summary with sigma, target and current exposure, then one row per order, covered-call unwind or blocked sell) and, once per day, a line saying it ran without acting and why. The regular scan's floor trades, never audited before (scan_market's spy_floor was not read), now write FLOOR-VM rows (deferred/no-op passes write nothing, since they repeat every scan).
+
+Downstream: after a −20% drawdown, 20-session volatility is high, so E* is low (e.g. sigma 40% gives E* 0.4). The pass then sells all SSO and trims SPY to E*·C; the proceeds sit in cash until the owner resumes and the floor rebuys on its normal pass. Exposure can only fall while killed: a recovery while still killed is missed until resume.
+
+Rollback trigger: any buy order from the floor while the kill latch is set (would be a bug), or a FLOOR-KILL-REDUCE-ERROR on every pass for a session.
+
+Tests: test_floor_kill_switch.py (5): SSO → SPY → QQQ sells and no buys in a crash market; no buys under target; nothing under the basket floor; the normal pass keeps legacy-first; daemon/bot.ts wiring. server/floorAudit.test.ts (6): scan rows with limits, order ids and rejections; deferred/no-op scan passes write nothing; failures; every kill action logged; the once-a-day idle line; bot.ts wiring. Existing floor, halt-scope and daemon-routing suites pass unchanged.
+
+STARVED: no.
