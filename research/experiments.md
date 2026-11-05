@@ -114106,3 +114106,32 @@ Rollback trigger (counterfactual, from option bars): over the first 10 leftover 
 Tests: test_leftover_long_leg.py (10): the GOOGL case sold at the bid with its exit recorded; a lone wing still recording "iron_condor" closed and not attributed; a wing with its short partner open never closed (both strategies); standalone longs and a straddle's two legs exempt; market closed defers; no bid holds; the hold gate applies; a lone short leg untouched; the reason is an options exit reason. Updated: test_options_outcome_breakdown's exact-set pin gains leftover_long_close (its drift test requires it). Existing options suites unchanged.
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (server/bot.ts state.maxDrawdownPct; killSwitchAutoResume.ts comments; server/brain.ts text; client glossary/panels text) — the Node max-drawdown kill moves from −10% to −20% from peak (prior value −10%)
+VERSION: v1.0.1294 (shipped 2026-11-05 by the parent session; main was v1.0.1293)
+
+Live: the −10% line latched at 15:46:34Z on 2026-11-05 (equity $89,937 vs peak $99,962, a real, explained loss). Tier 2 went exits-only: no entries, no floor management. The paper auto-resume needs a recovery above −8% or 2 trading days (≈10:45 ET 11-09). The volatility-managed floor (shipping the same night) could not have made its first pass on 11-06.
+
+Evidence (one threshold, counterfactual on the floor study's data, $S/killsim/killsim.py): V1 (the new floor) 1993–2026 with a kill that freezes the floor for 2 sessions and re-baselines the peak:
+
+| kill | trips | trips since 2013 | log growth (frozen to cash) | max DD |
+|---|---|---|---|---|
+| none | 0 | 0 | 10.41% | −48.4% |
+| −10% | 37 | 15 | 10.15% | −50.1% |
+| −15% | 14 | — | 10.47% | −48.2% |
+| −20% | 5 | 0 | 10.54% | −46.3% |
+| −25% | 3 | — | 10.35% | −48.8% |
+
+- At −10% the kill fires about once a year on ordinary corrections, costs growth and does not reduce the drawdown: the classic stop-loss whipsaw (stop-loss rules add value only with strong return persistence, Kaminski & Lo 2014). The floor already cuts exposure as volatility rises.
+- Differences among −15% to −25% are within noise (4 thresholds tried; discount accordingly). −20% was chosen for layer order, not for its backtest number: bot_engine's 18% DD halt (entries stop, the floor goes reduce-only) fires first, then this kill stops everything, then the −25% liquidate-on-kill rule.
+- −20% is also the level the human was told and decided on today ("−20% kill switch: while it's tripped, the floor may only reduce exposure"); the session's earlier report misstated the line as −20%.
+
+Effect on the live latch: with −20%, the auto-resume's RECOVERED basis (drawdown above −18%) holds. After the 30-minute cooldown (passed) and 3 consecutive OK tier-1 evaluations at the 11-06 open, trading resumes with the real peak kept. A further fall to −20% from $99,962 (equity $79,970) re-trips it.
+
+Downstream: the bot trades through drawdowns between −10% and −18%; the 18% Python halt and the −20% kill remain. The daily −3% circuit breaker is unchanged (next candidate, one threshold at a time).
+
+Rollback trigger: an account drawdown deeper than −15% while SPY's own drawdown over the same window is shallower than −7% (a system loss, not a market one: the case a tighter kill exists to catch). Rollback: maxDrawdownPct −10.
+
+Tests: new server/killThreshold.test.ts (4): the line is −20% and the re-baseline message reads the configured value; −10% no longer trips, −20% does; the live latch clears through RECOVERED after the 3-evaluation debounce with the peak kept; under −10% the same latch would not have cleared. killSwitchAutoResumeWiring.test.ts's exact pin moves −10 → −20 (same assertion, new value; it existed to stop the auto-resume PR changing the threshold). Visual harness run on bot/botidle/botpane for the two client text changes.
+
+STARVED: no.
