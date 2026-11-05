@@ -467,6 +467,22 @@ BASE_CONFIG = {
     "SLIPPAGE_PCT":      0.0005,  # 0.05% per side (liquid large caps)
     "SLIPPAGE_ILLIQUID": 0.002,   # 0.2% for names under 1M daily volume
     "OPTIONS_SLIPPAGE":  0.01,    # 1% on options mid price (wide spreads)
+    # MID-FIRST EXIT LADDER (2026-11-05, human-directed; order_ladder.py). A
+    # single-leg option exit whose price crosses the spread (a sell at the bid,
+    # a buy at the ask) starts at the mid and steps to the touch: `steps`
+    # prices, the last one the touch itself (a limit, never a market order),
+    # at least `step_seconds` apart and at most one step per options-manager
+    # tick (so 1-7 min apart at the Tier 2 cadence). Mid-priced exits, rolls
+    # and multi-leg group closes are unchanged. mode: "on" | "off" | "auto"
+    # (auto = on only against the live endpoint api.alpaca.markets); env
+    # VOLTRADE_OPTIONS_EXIT_LADDER=on|off|auto wins when set. Prior behaviour:
+    # one limit at the touch (no key). Human 2026-11-05: "as much on as
+    # possible ... we have a paper account so use it" -> on in paper. Paper
+    # fills a limit only once it is marketable at the NBBO, so there it tests
+    # the mechanics and a laddered exit fills at the touch ~2 ticks later than
+    # before; no fill-improvement claim until live. Rollback: env
+    # VOLTRADE_OPTIONS_EXIT_LADDER=off (working ladders still finish).
+    "OPTIONS_EXIT_LADDER": {"mode": "on", "steps": 3, "step_seconds": 60},
 
     # ── CACHE TTLs ────────────────────────────────────────────────────────────
     "CACHE_YF_SECONDS":     300,    # yfinance data: 5 min cache

@@ -35,6 +35,7 @@ import requests
 import alpaca_feed
 # BROKER CLOCK ORDER GATE 2026-11-05: no order while Alpaca's clock says closed
 import broker_clock
+import order_ladder
 from datetime import datetime, timedelta
 
 try:
@@ -322,6 +323,16 @@ def _submit_close_order(occ_symbol: str, qty: int, side: str, limit_price: float
     Side should be the CLOSING side (opposite of the opening side).
     Uses mid-price optimization: starts at mid, with fallback walk.
     """
+    # MID-FIRST EXIT LADDER (2026-11-05, order_ladder.py): a close whose price
+    # crosses the spread starts at the mid and steps to the touch over ticks.
+    # Rolls, group legs and the ladder's own orders run order_ladder.paused().
+    if limit_price > 0 and not order_ladder.is_paused():
+        ladder_cfg = order_ladder.settings(ALPACA_BASE)
+        if ladder_cfg["on"]:
+            try:
+                return order_ladder.start(_exit_ladder_io(), ladder_cfg, occ_symbol, qty, side, limit_price)
+            except Exception as e:
+                logger.error(f"exit ladder failed for {occ_symbol}; one order at ${limit_price:.2f} instead: {e}")
     if limit_price <= 0:
         return {"status": "error", "detail": "Invalid limit price"}
 
@@ -365,6 +376,79 @@ def _cancel_order(order_id: str) -> bool:
         return resp.status_code in (200, 204)
     except Exception:
         return False
+
+
+# ── MID-FIRST EXIT LADDER (2026-11-05): the broker side of order_ladder.py ──
+# State: DATA_DIR/voltrade_options_exit_ladder.json (one entry per contract
+# being worked); log: DATA_DIR/voltrade_options_exit_ladder_log.jsonl (one line
+# per finished ladder, with the step it filled at).
+
+def _post_close_unladdered(occ_symbol: str, qty: int, side: str, limit_price: float) -> dict:
+    """One plain close at this price: the order path as it was before the ladder."""
+    with order_ladder.paused():
+        return _submit_close_order(occ_symbol, qty, side, limit_price)
+
+
+def _get_order(order_id: str):
+    """One order by id. None when the read failed (judged again next tick);
+    a 404 is a definitive answer: the broker has no such order."""
+    try:
+        resp = requests.get(f"{ALPACA_BASE}/v2/orders/{order_id}", headers=_alpaca_headers(), timeout=8)
+        if resp.status_code == 404:
+            return {"id": order_id, "status": "not_found"}
+        if resp.status_code == 200:
+            body = resp.json()
+            if isinstance(body, dict):
+                return body
+        logger.debug(f"order read for {order_id}: HTTP {resp.status_code}")
+    except Exception as e:
+        logger.debug(f"order read failed for {order_id}: {e}")
+    return None
+
+
+def _replace_order_price(order_id: str, limit_price: float):
+    """Alpaca replace: the broker swaps in a new order at this limit and returns
+    it. A 200 is not a guarantee: if the old order fills first the new one is
+    rejected, which the next tick's order read sees. Returns (order or None, detail)."""
+    try:
+        resp = requests.patch(
+            f"{ALPACA_BASE}/v2/orders/{order_id}",
+            headers={**_alpaca_headers(), "Content-Type": "application/json"},
+            json={"limit_price": str(round(limit_price, 2))},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            body = resp.json()
+            return (body if isinstance(body, dict) else None), "replaced"
+        return None, f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
+    except Exception as e:
+        logger.warning(f"exit ladder replace of {order_id} failed: {e}")
+        return None, str(e)[:160]
+
+
+def _exit_ladder_io() -> "order_ladder.LadderIO":
+    return order_ladder.LadderIO(
+        quote=_get_option_snapshot, post=_post_close_unladdered, replace=_replace_order_price,
+        get_order=_get_order, cancel=_cancel_order,
+        market_ok=lambda: _market_is_open() and not _in_opening_window(),
+        state_path=os.path.join(DATA_DIR, order_ladder.STATE_FILE),
+        log_path=os.path.join(DATA_DIR, order_ladder.LOG_FILE),
+    )
+
+
+def _pursue_exit_ladders(options_positions: list) -> list:
+    """Each tick, before any rule: step or finish every working exit ladder.
+    The rule that started one does not fire again for an hour (it pops the
+    leg's state, so the hold gate restarts), so the ladder cannot wait for it.
+    Runs with the ladder switched off too, so orders already placed finish.
+    Nothing working: one file read, no broker call. Never raises."""
+    try:
+        cfg = order_ladder.settings(ALPACA_BASE)
+        held = {p.get("symbol", ""): p for p in options_positions if p.get("symbol")}
+        return order_ladder.pursue(_exit_ladder_io(), cfg, held)
+    except Exception as e:
+        logger.error(f"exit ladder pursuit failed this tick: {e}")
+        return []
 
 
 def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
@@ -472,9 +556,10 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
             }
 
         # Execute the roll: close old, open new
-        # Step 1: Close
+        # Step 1: Close (never laddered: the new leg opens in the same tick)
         close_side = "buy" if current_side == "sell" else "sell"
-        close_result = _submit_close_order(occ_symbol, qty, close_side, close_price)
+        with order_ladder.paused():
+            close_result = _submit_close_order(occ_symbol, qty, close_side, close_price)
         if close_result["status"] == "error":
             return {"rolled": False, "detail": f"Close leg failed: {close_result['detail']}"}
 
@@ -486,7 +571,8 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
             new_limit = best_new["ask"]
             new_side = "buy"
 
-        open_result = _submit_close_order(best_new["occ_symbol"], qty, new_side, new_limit)
+        with order_ladder.paused():   # an opening order: never laddered
+            open_result = _submit_close_order(best_new["occ_symbol"], qty, new_side, new_limit)
 
         if open_result["status"] == "error":
             return {
@@ -605,7 +691,8 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
             deferred.append(occ)
             results.append({"symbol": occ, "status": "deferred", "detail": "no usable quote this tick"})
             continue
-        result = _submit_close_order(occ, pos_qty, close_side, px)
+        with order_ladder.paused():   # a group closes as a unit: its legs are never laddered
+            result = _submit_close_order(occ, pos_qty, close_side, px)
         result["symbol"] = occ
         results.append(result)
     submitted = sum(1 for r in results if r.get("status") == "submitted")
@@ -1609,6 +1696,9 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
         if p.get("symbol", "") not in convexity_symbols
     ]
 
+    # MID-FIRST EXIT LADDER (2026-11-05): step or finish working ladders before any rule runs.
+    actions.extend(_pursue_exit_ladders(options_positions))
+
     if not options_positions:
         # Clean stale state entries — but NEVER the convexity overlay's
         # markers (repair 2026-08-06, full-code-review finding, adversarially
@@ -1622,7 +1712,7 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
         preserved = {k: v for k, v in state.items() if k in convexity_symbols}
         if state != preserved:
             _save_options_state(preserved)
-        return {"actions": [], "positions_checked": 0, "options_state": preserved}
+        return {"actions": actions, "positions_checked": 0, "options_state": preserved}
 
     positions_checked = 0
 
