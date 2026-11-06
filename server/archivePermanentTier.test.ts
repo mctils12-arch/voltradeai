@@ -11,7 +11,9 @@ import {
 } from "./archivePermanentTier";
 import { createArchiveOffloadService } from "./archiveOffload";
 import { createR2Client, r2ConfigFromEnv } from "./r2Client";
-import { readArchiveDay, setColdDayFileSource } from "./datacoreArchive";
+import { readArchiveDay, setColdDayFileSource, RAW_RETENTION_DAYS } from "./datacoreArchive";
+import { DAYS_CAP, snapshotWindow } from "./queryEngine";
+import { WINDOW_DAYS as SITE_TIMELINE_DAYS } from "./siteTimeline";
 
 const NOW = Date.parse("2026-11-06T15:00:00Z");
 const DAY = 86_400_000;
@@ -116,8 +118,9 @@ test("flag: default ON; a present env value of 0/off/false/no/empty turns it off
 });
 
 test("keys and scope: permanent/<stream>/<file>; the three _tracks streams + occvolume, only <date>.jsonl.gz", () => {
-  // pin updated 2026-11-06 (volume-space-4): occvolume joined with a 30-day local window
-  assert.deepEqual([...PERMANENT_STREAMS], ["vessels_tracks", "aircraft_tracks", "trains_tracks", "occvolume"]);
+  // pin updated 2026-11-06 (volume-space-4): occvolume joined with a 30-day local window;
+  // (volume-space-5): fires + buoys with 31 days
+  assert.deepEqual([...PERMANENT_STREAMS], ["vessels_tracks", "aircraft_tracks", "trains_tracks", "occvolume", "fires", "buoys"]);
   assert.equal(permanentLocalDays("vessels_tracks"), PERMANENT_LOCAL_DAYS);
   assert.equal(permanentLocalDays("occvolume"), 30);
   assert.equal(permanentKey("vessels_tracks", "2026-07-03.jsonl.gz"), "permanent/vessels_tracks/2026-07-03.jsonl.gz");
@@ -544,4 +547,34 @@ test("occvolume keeps 30 days local (its readers need the newest 5 trading days)
   assert.equal(r2.store.has("permanent/occvolume/backfill_done.json"), false);
   assert.deepEqual(tier.coldSource.heldOnlyInR2(), [{ stream: "occvolume", file: `${dateAgo(31)}.jsonl.gz`, bytes: r2.store.get(key("occvolume", dateAgo(31)))!.length, lines: 1 }]);
   assert.equal(tier.status().byStream.occvolume.localDays, 30);
+});
+
+test("fires and buoys keep 31 days local; older days go after a read-back", async () => {
+  const base = tmp();
+  const r2 = fakeR2();
+  const fKeep = writeDay(base, "fires", dateAgo(31), ['{"id":"a"}']);
+  const fGo = writeDay(base, "fires", dateAgo(32), ['{"id":"b"}']);
+  const bKeep = writeDay(base, "buoys", dateAgo(31), ['{"station":"41001"}']);
+  const bGo = writeDay(base, "buoys", dateAgo(40), ['{"station":"41002"}']);
+  fs.writeFileSync(path.join(base, "buoys", `${dateAgo(0)}.jsonl`), '{"station":"x"}\n'); // today's plain file: never this tier's
+  const s = await tierFor(base, r2).tick();
+  assert.equal(s.uploaded, 4);
+  assert.equal(s.evicted, 2);
+  assert.ok(fs.existsSync(fKeep) && fs.existsSync(bKeep), "day 31 kept");
+  assert.ok(!fs.existsSync(fGo) && !fs.existsSync(bGo), "older evicted");
+  assert.ok(fs.existsSync(path.join(base, "buoys", `${dateAgo(0)}.jsonl`)));
+});
+
+test("RATCHET: every stream's local window covers the longest in-process look-back of its readers", () => {
+  // queryEngine (analyst console: fires/nwsalerts/usgswater event layers and snapshots)
+  // reads at most RAW_RETENTION_DAYS back; widening it past fires' window must fail here
+  assert.ok(DAYS_CAP <= RAW_RETENTION_DAYS);
+  const snap = snapshotWindow(NOW);
+  const oldestSnapshotAge = Math.ceil((NOW - snap.minMs) / DAY);
+  assert.ok(permanentLocalDays("fires") > Math.max(DAYS_CAP, oldestSnapshotAge), "fires: queryEngine's reach stays local");
+  assert.ok(permanentLocalDays("fires") > SITE_TIMELINE_DAYS, "fires: siteTimeline's 7-day window stays local");
+  assert.ok(permanentLocalDays("fires") > 7, "fires: readFireHistory default (7 d) stays local");
+  assert.ok(permanentLocalDays("buoys") > 2, "buoys: readBuoyHistory / seedSeen (2 d) stay local");
+  assert.ok(permanentLocalDays("occvolume") > 7, "occvolume: refreshOcc's 5 trading days stay local");
+  for (const st of ["vessels_tracks", "aircraft_tracks", "trains_tracks"]) assert.ok(permanentLocalDays(st) >= 1);
 });

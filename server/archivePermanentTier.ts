@@ -27,6 +27,16 @@
 // the in-memory latest day. Its files stay local for 30 days. Its counts stay
 // whole: platformStats and the streams inventory count R2-held files.
 //
+// FIRES + BUOYS (same day; 194 MiB + 133 MiB, daily files since July): the
+// live routes (/api/data/fires, fires-near-facilities, /api/data/buoys) serve
+// in-memory caches; the in-process history readers look back at most 30 days
+// (queryEngine: DAYS_CAP and snapshotWindow = RAW_RETENTION_DAYS; siteTimeline
+// 7 days; nasaFirms 7/2 days; ndbcBuoys 2 days) and both writers append only to
+// today's file (gzipped after 2 days). Research scripts (gasflare_gate1,
+// gdelt_fires_gate2) read through /api/diag/archive. Their files stay local
+// for 31 days (the 30-day reach + 1); archivePermanentTier.test.ts pins those
+// reader constants against these windows, so widening a reader fails a test.
+//
 // WHAT (ARCHIVE_PERMANENT_TIER, default ON; "0"/"off"/"false"/"no"/"" = off):
 //   offload  each closed `<stream>/<YYYY-MM-DD>.jsonl.gz` (day ended >= 2 d
 //            ago, untouched >= 1 h, gzip readable end to end) is PUT byte-for-
@@ -73,6 +83,8 @@ export const PERMANENT_STREAM_CONFIG: ReadonlyArray<{ stream: string; localDays:
   { stream: "aircraft_tracks", localDays: PERMANENT_LOCAL_DAYS },
   { stream: "trains_tracks", localDays: PERMANENT_LOCAL_DAYS },
   { stream: "occvolume", localDays: 30 },
+  { stream: "fires", localDays: 31 },
+  { stream: "buoys", localDays: 31 },
 ];
 export const PERMANENT_STREAMS: readonly string[] = PERMANENT_STREAM_CONFIG.map((c) => c.stream);
 export function permanentLocalDays(stream: string): number {
