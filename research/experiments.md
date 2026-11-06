@@ -46,6 +46,13 @@ READING: two independent days agree (0.168, 0.261); the Alpaca-indicative VS is 
 HONEST LIMITS: timing mismatch (Cboe last quote vs 21:30Z capture) and differing IV models add disagreement that is not feed noise; 2 days, not 3.
 NEXT: after the 11-04 close, fetch chain_vs?day=2026-11-04, run the check, rerun `--pool` on all three files, and log the FINAL verdict. If still KILLED: P3 on the indicative feed is dead; fix candidates (own IV from bid/ask mid; archive Cboe delayed chains forward after verifying Railway reachability) are separate hypotheses.
 MERGE: result JSON + log only; no code_version change; safe any time.
+## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue ~13:10 ET / 18:10Z, MARKET OPEN) [PIPELINE] — T-DATACORE (scripts tooling only) — P3 gate-1 post-close rerun compiled to one command (v1.0.1255)
+HEALTH: not independently probed (product slot; last logged 11-03 midday: health ok, nothing critical KNOWN BROKEN). Product work proceeds.
+WHY: the 11-03 and 11-04 P3 reruns need post-close data, so they cannot run in this mid-market session; the manual fetch of chain_vs (DIAG_TOKEN header, save JSON) is labor, not judgment (EDGE DOCTRINE 3).
+CHANGE: `scripts/p3_realquote_check.py --day <d> --fetch` pulls /api/diag/chain_vs itself (DIAG_TOKEN env) and REFUSES before 16:30 ET on that day (Cboe serves the last quote; archive runs 16:30-18:30) or when chain_vs has no rows for the day. +2 tests (guard boundaries; token/URL/empty-day). Measurement definition and pooling rule untouched.
+VERIFIED: 8/8 tests; live `--day 2026-11-03 --fetch` now correctly refuses ("too early").
+NEXT: after 18:30 ET tonight and tomorrow: `python3 scripts/p3_realquote_check.py --day <d> --fetch --out research/p3_realquote_gate1_<d>.json`, then `--pool` the three files and log the verdict (kill if pooled Spearman < 0.3).
+MERGE: scripts + test only; safe any time.
 STARVED: no.
 
 ## 2026-11-03 (scheduled routine, [PRODUCT] slot, Tue ~08:05 ET / 13:05Z, pre-market) [PIPELINE] — T-DATACORE (scripts tooling only) — P3 gate-1 pooling rule compiled into code (v1.0.1254)
@@ -216,6 +223,15 @@ STARVED: no.
 HEALTH: voltradeai.com /api/health 200, status ok, serving.failing empty; live server_version 1.0.1236 == main (no deploy lag). Thrash 3/10.
 WHY NO-ACTION: the two open verifications (price_panel_build retry after the as_of repair; first options_oi_archive night, heartbeat `withOi` > 0) both run in the 20:15 ET window = 00:15Z, i.e. not yet judgeable. Next session after that: check /api/diag/price_panel progress.next_batch > 0 and the options_oi_archive heartbeat. Queue otherwise empty of unblocked items that would not duplicate filed work.
 STARVED: no.
+## 2026-10-29 (scheduled routine, [PRODUCT] session) [PIPELINE] — T-DATACORE (scripts/ only, no trading code) — Edge P1 GATE-1 CHECKER compiled ahead of its data (v1.0.1235)
+HEALTH: no trading-loop break blocks product work (see the 12:25 ET entry above); thrash ratio low.
+PRIOR: ~80% the pre-registered check passes when it can run (~2026-12-24), but the test is WEAK by construction — SqueezeMetrics GEX is positive on nearly every day, so sign agreement can pass while the series are unrelated. ~35% own SPY-only GEX changes correlate with Squeeze SPX changes at rank-corr > 0.5. ~15% a join/units defect (OI date vs chain day, gamma units) shows up on first real data.
+CHANGE: `scripts/edge_p1_gate1.py` (stdlib only, read-only). own GEX = sum(sign x gamma x OI x 100 x spot^2 x 0.01), calls +, puts -, SPY chain day file joined by OCC symbol to the `optionchains/oi/<day>` sidecar (#1547); archived Alpaca gamma, else BS gamma from iv (r=q=0); rows missing gamma/OI/spot are dropped and COUNTED, never zero-filled. Verdict exactly per edge_preregistration.md: PENDING under 40 overlapping days, KILL above 30% sign disagreement, else PASS. Rank correlation (levels and day-over-day changes) and the Squeeze positive-share are REPORTED ONLY — no threshold invented. Why now: OI history cannot be back-filled, and a checker written on the day the 40th row lands is untested code on the one day it matters (EDGE DOCTRINE #3: compile it).
+RUN (on the volume): `python3 scripts/edge_p1_gate1.py --json` (default archive dir = $DATA_DIR/datacore_archive).
+TESTS: test_edge_p1_gate1.py (8: OCC parse, call/put sign, drop-and-count, BS-gamma known value, PENDING at 39 days, PASS at exactly 30%, KILL at 32%, gz + missing-OI-day end-to-end); with test_edge_p1_dealer_gamma.py 20 pass.
+LIMITS: SPY-only vs SPX; OI date (`oid`) may lag the chain day by one session — the script pairs by file day as the pre-reg does and the first real run must print the oid distribution before the verdict is believed. Nothing served or traded.
+NEXT: (1) night 10-29/30 check heartbeat `options_oi_archive` withOi > 0; (2) ~2026-12-24 run the script; (3) only then T-BOT shadow fields. STARVED: no.
+MERGE: scripts + a test; no runtime path, safe any time.
 
 ## 2026-10-29 (scheduled routine voltrade-daily-midday, ~16:25Z Thu = 12:25 ET, MID-MARKET) [NO-ACTION] — no code_version change (1.0.1231)
 HEALTH: /api/health 200 ok; liveness not dark, drawdown -2.2%, jobs 8 ok / 0 late / 0 errored, feeds alive, scanner 0 failures, no unhandled rejections. Live server_version 1.0.1231 == main (no deploy lag). research_state_check: only WARN is the known overdue CONSTITUTIONAL AUDIT (awaiting human answers; audit never self-applies). thrash 3/10.
@@ -115932,4 +115948,26 @@ ROLLBACK TRIGGER. A page error on the overview, a number on it that disagrees wi
 
 TESTS. New: client/src/bot/perfView.test.ts (9), picks.test.ts (9), whyView.test.ts (11), zoneModel.test.ts +1 (the overview templates and modes) — 41/41 with help.test.ts and popout.test.ts; every bot page client test 140/140. The visual harness (bot / botidle / botpane at 390 / 768 / 1440, bot also 1920): new OVERVIEW block — default view, the panel set, chrome, no NaN / undefined / null, touch targets, the stack order, the desktop layout (no hole, the chart the largest panel, ≥ 60 % of the width), every fixture number (the chart's figures = the series' last point, the sentence, provenance = the server's strings, ten cards / seven explained / the spread as one card / the honest fallback, QQQ and SMH expanded, the Why lead, groups, the 7d window re-asking the route, regime / flows / tax / signals lines and details, the chart readout), the idle page's designed states, then the switch to the cockpit, where every existing check runs unchanged. Fixtures for every new route (both pages differ on purpose). Two harness corrections: the per-panel review shots run last (an element shot taller than the viewport resized it and left Chromium's (pointer: coarse) false, shrinking every touch-sized control a later check measured), and the Today headline check accepts an exact unsigned "0.00 pp" (the live fixture's equity reaches SPY's move on a longer run; its arithmetic check is unchanged). Final runs: bot 390 / 768 / 1440 / 1920, botidle and botpane 390 / 768 / 1440 — all PASS, 0 hard failures. tsc 6 (baseline); counter ratchet OK; test_ts_code_only 11 passed.
 
+STARVED: no.
+## 2026-10-26 (scheduled routine, ~evening Mon) [NO-ACTION] — no code_version change (1.0.1162)
+
+LOOP RATIO: last 10 tags = 3 REPAIR / 2 RULE-REVIEW / 1 PIPELINE / 1 PRODUCT / 3 NO-ACTION; far under the 7+ REPAIR thrash threshold.
+HEALTH: session_health_check 17/17 OK (deploy_gate 2xx, liveness alive, server_version 1.0.1162 == checkout, daemon rss 336MB under trim_mb — the 377->463MB sawtooth reset, confirming the "known cycle" read, /data p95 293 ms, archive 1.76 GiB free — human decision filed 2026-10-12).
+QUEUE: the one startable-looking item, "Expand counterfactual logging to ALL rule gates" (tier-dispatcher SELL_CSP OPTIONS-SLOT-FULL / CSP-SKIP), was read at bot.ts ~5166-5185 and deferred on purpose, not for lack of capacity: (1) tier actions carry NO entry price (cspPayload price=0, Python fetches), so a shadow record needs a price source designed first; (2) a blocked short put's counterfactual is a short-put payoff, not the long-stock +Nd return the backfill computes — logging it as-is would mix decision classes (the exact 2026-10-06 side/trade_type bug); (3) it would be a third measurement PR in a day, stacked on #1463/#1464/score-breakdown whose first reads are due 2026-11-16 — nothing to learn from yet, and the CSP gates fire rarely. Design note for the next session that takes it: log with side="sell", trade_type="options", entry_price from the quote already fetched for CSP sizing, and add a CSP-payoff outcome label in the backfill before any win-rate is read.
+OTHER: 13F/8-K gate 2 2026-11-16+, index-VRP ~2027-01-15, look-up ledger needs >= 20 admitted look-ups; price-panel/archive-volume are human decisions.
+FILED: design note above. STARVED: yes (date- and decision-gated).
+MERGE: docs-only log; safe any time.
+## 2026-11-03 [NO-ACTION] — daily-evening (Tuesday, 20:16Z) — healthy; nothing changed since the midday review
+
+HEALTH (20:16Z): /api/health status ok, serving/jobs/feeds/regime all ok, liveness not dark, drawdown -4.7%, 0 unhandled rejections, 0 errored/late jobs. Main HEAD unchanged since midday session (#1589). Loop-health ratio: 2 REPAIR in last 10, no thrash. Queue unchanged from the midday triage (items all data-/date-/human-gated; time-stop ablation is a multi-session build); no duplicate research filed. No code changed. STARVED: no.
+
+## 2026-11-06 [NO-ACTION] — docs + research scripts (research/experiments.md, scripts/p3_realquote_check.py, scripts/edge_p1_gate1.py) — re-landed four orphaned PRs (#1466, #1592, #1591, #1552)
+VERSION: v1.0.1328 (shipped 2026-11-06 by the parent session; main was v1.0.1327)
+WHY: the human's refocus directive (2026-11-05): "No orphan PRs or half-built features sitting in GitHub." Four PRs from scheduled-routine sessions never merged:
+- #1466 (2026-10-26 evening) and #1592 (2026-11-03 evening): session logs (docs only). Their entries, including the 10-26 design note for CSP counterfactual logging, were missing from research/experiments.md.
+- #1591 (2026-11-03): `scripts/p3_realquote_check.py --fetch` compiles the post-close chain_vs fetch (DIAG_TOKEN) with a guard that refuses before 16:30 ET. P3 on the indicative feed was killed at gate 1 (#1594), but this is the tool for the filed follow-up (archive Cboe delayed chains forward).
+- #1552 (2026-10-29): `scripts/edge_p1_gate1.py`, Edge P1's gate-1 (DATA) check: our own OI-GEX against SqueezeMetrics' GEX, with the pre-registered verdict (PENDING below 40 overlapping days, KILL above 30% sign disagreement). The dealer-gamma filter shipped tonight (#1651) runs on SqueezeMetrics' rank; this checker is the path to our own GEX (see wishlist: SqueezeMetrics terms).
+CHANGE: the original commits cherry-picked unchanged (research entries kept both sides; their old package.json bumps dropped). No runtime effect: research tooling and docs only. One deploy for four no-runtime-effect re-lands (attribution is not at stake).
+ALSO CLOSED: #1593 (P3 day-2 duplicate of #1594, same verdict), #1506 (superseded: bot_engine half by #1641's broker clock, the rest by this night's N17 PR).
+TESTS: test_edge_p1_gate1.py, test_p3_realquote_check.py (the originals' tests).
 STARVED: no.

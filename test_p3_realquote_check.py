@@ -57,3 +57,32 @@ def test_pool_matches_recorded_first_day():
     d = json.load(open(os.path.join(os.path.dirname(__file__), "research", "p3_realquote_gate1_2026-11-02.json")))
     r = m.pool_results([d])
     assert abs(r["pooled_spearman"] - d["spearman"]) < 1e-3 and r["datasetKill"] is True
+
+
+def test_too_early_guard_blocks_pre_close_runs():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    et = ZoneInfo("America/New_York")
+    assert m.too_early("2026-11-03", datetime(2026, 11, 3, 13, 10, tzinfo=et))
+    assert m.too_early("2026-11-03", datetime(2026, 11, 3, 16, 29, tzinfo=et))
+    assert not m.too_early("2026-11-03", datetime(2026, 11, 3, 16, 30, tzinfo=et))
+    assert not m.too_early("2026-11-03", datetime(2026, 11, 4, 8, 0, tzinfo=et))
+
+
+def test_fetch_chain_vs_sends_token_and_rejects_empty_day():
+    import io, json, pytest
+    seen = {}
+
+    class R(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def opener(req, timeout=0):
+        seen["tok"] = req.get_header("X-diag-token"); seen["url"] = req.full_url
+        return R(json.dumps({"rows": [{"day": "2026-11-03", "u": "A"}]}).encode())
+    body = m.fetch_chain_vs("2026-11-03", "tkn", opener)
+    assert seen["tok"] == "tkn" and seen["url"].endswith("chain_vs?day=2026-11-03") and body["rows"]
+    with pytest.raises(SystemExit):
+        m.fetch_chain_vs("2026-11-04", "tkn", opener)
+    with pytest.raises(SystemExit):
+        m.fetch_chain_vs("2026-11-03", "", opener)

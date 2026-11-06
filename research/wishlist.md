@@ -1,5 +1,26 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ FROZEN-PATH PROPOSAL 2026-11-06 — credit multi-leg entries are sent with an effectively unlimited price; human approval needed
+
+WHAT: `options_execution._submit_mleg_order` (a FROZEN order-transmission path)
+sends `abs(limit_price)`. Alpaca's mleg limit price is signed: a CREDIT is a
+negative limit. A positive limit on a credit order is a debit cap, which every
+credit satisfies, so the order fills wherever the market is. Evidence (live order
+history, options-exit agent 2026-11-06): all five mleg limit orders were credit
+entries, all filled at negative prices, three at a smaller credit than the
+intended limit (0.71 -> -0.70, 4.59 -> -4.55, 3.56 -> -3.53).
+
+PROPOSAL (exact): in `_submit_mleg_order`, send the signed limit — credit callers
+pass `-net_credit`, debit callers `+net_debit` — instead of `abs(limit_price)`.
+Every caller is in options_execution / options_manager. Tests pin the sign per
+caller. Until approved, credit entries stay as they are; the new mid-first mleg
+closes (#1655) already send a negative limit for credits, falling back to
+today's market order if Alpaca refuses it.
+
+PRESERVES: retries, authentication, the gated POST. DROPS: nothing.
+RESOLVES: credit condor and vertical entries getting a real price limit, which
+is what lets them be worked from the mid like the closes.
+
 ## ⚠ SQUEEZEMETRICS DATA TERMS 2026-11-06 — the dealer-gamma filter reads an archive their terms may not allow; human decision needed
 
 WHAT: the dealer-gamma short-premium filter (shipped 2026-11-06, ON in paper:

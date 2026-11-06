@@ -17,7 +17,7 @@ chain_vs.json = body of GET /api/diag/chain_vs?day=<day> (needs DIAG_TOKEN).
 Run it right after the close: Cboe serves the LAST quote, so the Cboe day must
 equal --day (the script refuses a snapshot whose ET date differs).
 """
-import argparse, json, re, sys, time, urllib.request
+import argparse, json, os, re, sys, time, urllib.request
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -121,12 +121,38 @@ def pool_results(results, boot=2000, seed=7):
             "verdict": "KILLED_AT_GATE_1" if rho < 0.3 else "PASSES_GATE_1_CLAUSE"}
 
 
+DIAG_BASE = "https://voltradeai.com/api/diag"
+ARCHIVE_READY_ET = (16, 30)  # options chain archive runs 16:30-18:30 ET; Cboe last quote is final after the close
+
+
+def too_early(day, now=None):
+    """True if `day`'s close-time data cannot exist yet (before 16:30 ET on that ET date)."""
+    now = now or datetime.now(ZoneInfo("America/New_York"))
+    ready = datetime.combine(date.fromisoformat(day), datetime.min.time(),
+                             tzinfo=ZoneInfo("America/New_York")).replace(hour=ARCHIVE_READY_ET[0], minute=ARCHIVE_READY_ET[1])
+    return now < ready
+
+
+def fetch_chain_vs(day, token, opener=urllib.request.urlopen):
+    """GET /api/diag/chain_vs?day=<day> (x-diag-token). Compiles the manual fetch step."""
+    if not token:
+        raise SystemExit("DIAG_TOKEN not set; cannot --fetch")
+    req = urllib.request.Request(f"{DIAG_BASE}/chain_vs?day={day}", headers={"x-diag-token": token})
+    with opener(req, timeout=120) as r:
+        body = json.load(r)
+    if not any(x.get("day") == day for x in body.get("rows", [])):
+        raise SystemExit(f"chain_vs has no rows for {day} (archive not run yet?)")
+    return body
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", nargs="+", metavar="RESULT_JSON",
                     help="pool per-day result files and print the pre-registered verdict")
     ap.add_argument("--day")
     ap.add_argument("--vs-json")
+    ap.add_argument("--fetch", action="store_true",
+                    help="fetch chain_vs for --day using DIAG_TOKEN instead of --vs-json; refuses before 16:30 ET on --day")
     ap.add_argument("--n", type=int, default=40)
     ap.add_argument("--min-pairs-ours", type=int, default=10)
     ap.add_argument("--out")
@@ -134,9 +160,15 @@ def main():
     if a.pool:
         print(json.dumps(pool_results([json.load(open(f)) for f in a.pool]), indent=1))
         return 0
-    if not (a.day and a.vs_json):
-        ap.error("--day and --vs-json are required unless --pool is given")
-    rows = [r for r in json.load(open(a.vs_json))["rows"]
+    if a.fetch and a.day and not a.vs_json:
+        if too_early(a.day):
+            raise SystemExit(f"too early: {a.day} close-time data is not final before 16:30 ET (Cboe serves the last quote)")
+        vs_body = fetch_chain_vs(a.day, os.environ.get("DIAG_TOKEN", ""))
+    elif a.day and a.vs_json:
+        vs_body = json.load(open(a.vs_json))
+    else:
+        ap.error("--day with --vs-json (or --fetch) is required unless --pool is given")
+    rows = [r for r in vs_body["rows"]
             if r["day"] == a.day and r["vs"] is not None and r["nPairs"] >= a.min_pairs_ours]
     rows.sort(key=lambda r: r["u"])
     # deterministic, selection-free sample: evenly spaced through the alphabetical list
