@@ -115980,3 +115980,13 @@ DOWNSTREAM: (1) a newly opened vertical is grouped by options_manager (bull_call
 ROLLBACK TRIGGER: a vertical's legs closed separately after this deploy -> revert and inspect the grouping.
 TESTS: test_vertical_legs_registered.py (5; 4 fail on the old code); 681 existing tests in the 34 test files touching options_execution / evaluate_and_execute / register_options_entry pass.
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (instrument_selector.py, options_scanner.py) — options helpers' regular-hours test asks the broker clock (N17; replaces orphan PR #1506)
+VERSION: v1.0.1330 (shipped 2026-11-06 by the parent session; main was v1.0.1329)
+WHY: orphan PR #1506 (2026-10-28, never merged) made the three `_is_regular_hours` helpers weekend/holiday/half-day aware via market_calendar. #1641 (2026-11-05) then gave bot_engine's copy the broker clock (time window + broker_clock.orders_allowed), which is stronger (Alpaca's clock knows holidays and early closes). The other two copies were still hour-only: on a Saturday or a holiday at 11:00 ET, instrument_selector would mark a 70+ score an options candidate and options_scanner would run every setup and the whole scan. Orders were already refused by the broker-clock order gate (#1641), so the cost was wasted scans and option candidates that could never be sent — and decision logs that disagreed with the order gate.
+CHANGE: both helpers keep the 09:30-16:00 ET window and, inside it, return broker_clock.orders_allowed()[0]. Outside the window the clock is never asked. An unreadable clock with no usable last reading counts as open, so a clock outage leaves the old time-of-day rule in force.
+DOWNSTREAM: (1) closed-market days inside the window: options_scanner.scan_options returns its CLOSED result (no data fetched), setups return None, instrument_selector picks stock only and records "outside regular hours" as the options-ruled-out reason; (2) the scan's options leg contributes nothing on those days, which is what the order gate already enforced at submit time. Normal trading days are unchanged (the clock says open).
+ROLLBACK TRIGGER: an options scan reports CLOSED on a normal trading day while /v2/clock says open (would mean a broker_clock reading bug) -> revert this PR.
+TESTS: test_regular_hours_broker_clock.py (6: both helpers follow the clock inside the window, never ask it outside, a closed clock stops the scan with no data fetched, an unreadable clock keeps the time-of-day rule); 533 existing tests across the 30 test files that import either module + test_broker_clock_gate.py pass.
+ORPHAN: closes #1506 as superseded (bot_engine half by #1641, the rest here).
+STARVED: no.
