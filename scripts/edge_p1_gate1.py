@@ -40,6 +40,7 @@ MIN_DAYS = 40            # pre-registered
 MAX_DISAGREE = 0.30      # pre-registered
 UNDERLYING = "SPY"
 _OCC = re.compile(r"^([A-Z.]{1,6})(\d{6})([CP])(\d{8})$")
+MALFORMED_LINES = [0]   # unparseable archive lines skipped by _read_jsonl (reported)
 
 
 def archive_base():
@@ -67,7 +68,8 @@ def _read_jsonl(path):
                     try:
                         yield json.loads(line)
                     except ValueError:
-                        continue
+                        # counted and reported in the run summary, never silently dropped
+                        MALFORMED_LINES[0] += 1
             return
 
 
@@ -197,6 +199,7 @@ def main(argv=None):
     rep = compare(own, sq)
     rep["days_with_own_gex"] = sum(1 for v in own.values() if v is not None)
     rep["days_with_oi_sidecar"] = len(own)
+    rep["malformed_archive_lines"] = MALFORMED_LINES[0]
     print(json.dumps(rep, indent=2) if a.json else "\n".join(f"{k}: {v}" for k, v in rep.items()))
     return 0
 
