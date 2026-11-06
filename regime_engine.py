@@ -53,6 +53,13 @@ WHAT THE STATE IS
                 +0.25 per 5 sessions (tranched, no calendar-day luck);
                 core_multiplier = max(0.5, exposure_continuous) for the index
                 floor sleeve — never fully out (RESEARCH §5.5).
+  risk_budget   (2026-11-06, refocus spec section 3 step 1) one continuous budget
+                in [0, 1] for NEW risk from VIX level vs its 10-year median,
+                VIX/VIX3M, the trend score and ETF-basket breadth (weighted
+                mean; falls at once, rises <= 0.10 a session), with plain-English
+                drivers in risk_budget_detail. Read by consumers through
+                risk_budget_for(); the tier engine applies it to its satellite
+                headroom (budget_exposure_cap). Flag VOLTRADE_REGIME_BUDGET.
   plus          legacy_label (BULL/NEUTRAL/CAUTION/BEAR/PANIC for consumers
                 that only know the old vocabulary), allowed_strategies,
                 confidence, days_in_regime, pending_transition, flips_12m and
@@ -71,6 +78,7 @@ regime_state_rpc / update_state return an error dict instead.
 """
 from __future__ import annotations
 
+import bisect
 import collections
 import json
 import logging
@@ -149,6 +157,7 @@ FLAG_DEFAULTS = {   # env var -> BASE_CONFIG key holding its default
     "VOLTRADE_REGIME_OPTIONS": "REGIME_OPTIONS_DEFAULT",
     "VOLTRADE_REGIME_SIZING": "REGIME_SIZING_DEFAULT",
     "VOLTRADE_REGIME_LABELS": "REGIME_LABELS_DEFAULT",
+    "VOLTRADE_REGIME_BUDGET": "REGIME_BUDGET_DEFAULT",   # 2026-11-06: risk budget consumers
 }
 
 
@@ -355,7 +364,7 @@ def signal_series(dates, gating, basket, vix=None, vix3m=None, params=None):
         panic = bool(mom is not None and mom < 0 and var_pct is not None and var_pct >= p["panic_var_pct"])
         out.append({
             "f_slow": f_slow, "f_fast": f_fast, "trend_score": trend_score,
-            "breadth": breadth, "breadth_bin": breadth_bin,
+            "breadth": breadth, "breadth_bin": breadth_bin, "breadth_up": up, "breadth_n": tot,
             "sigma": s_now, "sigma_target": sigma_target, "vol_pct": vol_pct, "m_vol": m_vol,
             "ts": ts, "rv": rv, "vrp": vrp, "vix": v, "vix_pct_1y": vix_pct_1y,
             "mom24m": mom, "var126_pct": var_pct, "panic": panic, "above_200d": above_200, "dd52": dd52,
@@ -561,14 +570,25 @@ class RegimeState:
     computed_at: str = ""
     stale: bool = False
     engine: str = "regime_engine"
+    # 2026-11-06 risk budget (see "risk budget" below): the value consumers apply, its
+    # plain-English drivers, and the version of the budget rule that produced them.
+    risk_budget: float | None = None
+    risk_budget_detail: dict | None = None
+    budget_version: str = ""
 
 
 def state_from_series(dates, signals, states, gating="SPY", sources=None, ebp=None,
-                      breadth_universe=None, params=None, quality_factor=1.0):
-    """The RegimeState for the last day of a computed series."""
+                      breadth_universe=None, params=None, quality_factor=1.0, budget=None, budget_cfg=None):
+    """The RegimeState for the last day of a computed series. `budget` is a
+    risk_budget_series() result (computed here from `signals` when None); `budget_cfg` is
+    its parameter table (None = system_config BASE_CONFIG["REGIME_BUDGET_PARAMS"])."""
     p = params_with(params)
     i = len(dates) - 1
     s, r = signals[i], states[i]
+    if budget is None:
+        budget = risk_budget_series(signals, budget_cfg)
+    last_budget = budget.get("last") if isinstance(budget, dict) else None
+    budget_detail = risk_budget_detail(last_budget, s, p, budget.get("params")) if last_budget else None
     breadth_state = breadth_state_of(s["breadth"], p)
     comp = r["composite"]
     stress = {
@@ -598,15 +618,18 @@ def state_from_series(dates, signals, states, gating="SPY", sources=None, ebp=No
                 "sources": sources or {}},
         data_quality={"quality_factor": quality_factor, "votes_agree": round(r["votes_agree"], 3)},
         computed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        risk_budget=(budget_detail or {}).get("budget"), risk_budget_detail=budget_detail,
+        budget_version=BUDGET_VERSION,
     )
 
 
 def compute_state(dates, gating_closes, basket, vix=None, vix3m=None, gating="SPY", sources=None,
-                  ebp=None, breadth_universe=None, params=None, quality_factor=1.0):
+                  ebp=None, breadth_universe=None, params=None, quality_factor=1.0, budget_cfg=None):
     """Pure: inputs in, RegimeState out (no I/O)."""
     signals = signal_series(dates, gating_closes, basket, vix, vix3m, params)
     states = run_states(signals, params)
-    return state_from_series(dates, signals, states, gating, sources, ebp, breadth_universe, params, quality_factor)
+    return state_from_series(dates, signals, states, gating, sources, ebp, breadth_universe, params, quality_factor,
+                             budget_cfg=budget_cfg)
 
 
 def exposure_paths(dates, gating_closes, basket, vix=None, vix3m=None, params=None):
@@ -615,6 +638,227 @@ def exposure_paths(dates, gating_closes, basket, vix=None, vix3m=None, params=No
     states = run_states(signals, params)
     return ([r["exposure_continuous"] for r in states], [r["exposure_multiplier"] for r in states],
             [r["core_multiplier"] for r in states], [r["composite"] for r in states])
+
+
+# ── risk budget (human refocus spec 2026-11-05, section 3 step 1) ────────────
+# "market regime: VIX level + term structure, broad trend, breadth -> overall risk
+# budget / allowed exposure". ONE continuous number in [0, 1] — how much NEW risk the
+# regime allows — computed next to the labels, which it does not change. Each driver
+# is scored 0..1 (1 = no reason to cut); the raw budget is their weighted mean
+# (weights renormalized over the drivers that have a reading); the persisted budget
+# falls at once and rises at most `rise_per_session` a session (fast out, slow in,
+# RESEARCH §4.3). Parameters: system_config BASE_CONFIG["REGIME_BUDGET_PARAMS"],
+# ex-ante (not fitted). Evidence, docs/regime/RESEARCH.md:
+#   vix_level       min(1, anchor / VIX), anchor = median VIX over the trailing 2-10
+#                   years (sessions BEFORE today). §3.3: VIX level is NOT an equity
+#                   exit signal (forward returns after high readings are higher on
+#                   average) but outcome dispersion widens with it, so it scales the
+#                   risk carried per dollar — the implied-vol twin of the floor's
+#                   realized-vol rule (floor_vol_managed.py).
+#   term_structure  VIX/VIX3M: 1 at <= ts_full (contango), 0 at >= ts_zero; > 1 is
+#                   backwardation, the "stress now" state (§3.3; the CSP guard halves
+#                   new notional there).
+#   trend           the engine's trend_score (0.5 slow ensemble + 0.25 each fast leg);
+#                   the best-supported drawdown filter (§2.1, §5).
+#   breadth         share of the 11 sector SPDRs + IWM + MDY above their 200-day:
+#                   1 at >= breadth_full, 0 at <= breadth_zero. A caution input, never
+#                   a sell trigger (§2.3). An ETF-basket proxy, not member-level
+#                   breadth (the repo fetches no S&P-member bars).
+BUDGET_VERSION = "2026-11-06.1"
+BUDGET_DRIVERS = ("trend", "term_structure", "vix_level", "breadth")
+BUDGET_DRIVER_LABELS = {"trend": "broad trend", "term_structure": "VIX term structure",
+                        "vix_level": "VIX level", "breadth": "breadth"}
+BUDGET_BANDS = ((0.80, "full"), (0.50, "reduced"), (0.25, "defensive"), (0.0, "minimal"))
+BUDGET_CONSUMERS = ("tier_exposure_cap",)   # tiered_strategy.get_regime_caps (satellite headroom)
+
+
+def budget_params(config=None):
+    """The budget's parameter table (BASE_CONFIG["REGIME_BUDGET_PARAMS"], copied), or None
+    when it is unavailable (then no budget is computed and every consumer keeps legacy)."""
+    cfg = _base_config() if config is None else config
+    base = cfg.get("REGIME_BUDGET_PARAMS") if isinstance(cfg, dict) else None
+    if not isinstance(base, dict):
+        return None
+    p = dict(base)
+    p["weights"] = dict(base.get("weights") or {})
+    return p
+
+
+def budget_band(budget):
+    """full >= 0.80 > reduced >= 0.50 > defensive >= 0.25 > minimal (a display label only)."""
+    if budget is None:
+        return None
+    for lo, name in BUDGET_BANDS:
+        if budget >= lo:
+            return name
+    return BUDGET_BANDS[-1][1]
+
+
+def _ramp(x, full, zero):
+    """1.0 at or beyond `full`, 0.0 at or beyond `zero`, linear between (either direction);
+    None without a reading or with a degenerate ramp."""
+    if x is None or full == zero:
+        return None
+    return max(0.0, min(1.0, (float(x) - zero) / (full - zero)))
+
+
+def budget_scores(signal, vix_anchor, p):
+    """(values, scores) of the four drivers for ONE day's signal dict. Pure."""
+    vix = signal.get("vix")
+    trend = signal.get("trend_score")
+    values = {"trend": trend, "term_structure": signal.get("ts"), "vix_level": vix, "breadth": signal.get("breadth")}
+    scores = {
+        "trend": max(0.0, min(1.0, float(trend))) if trend is not None else None,
+        "term_structure": _ramp(values["term_structure"], p["ts_full"], p["ts_zero"]),
+        "vix_level": min(1.0, vix_anchor / vix) if (vix_anchor and vix is not None and vix > 0) else None,
+        "breadth": _ramp(values["breadth"], p["breadth_full"], p["breadth_zero"]),
+    }
+    return values, scores
+
+
+def risk_budget_series(signals, params=None):
+    """The risk budget over a signal_series() output. Pure and causal: day i reads
+    signals[0..i] only, and the VIX anchor uses the sessions BEFORE day i.
+
+    Returns {"budget": [...], "raw": [...], "anchor": [...], "params": p, "last": <the last
+    day's row>}: budget = the value consumers apply (falls at once, rises at most
+    rise_per_session a session), raw = that day's weighted mean of the driver scores (None when
+    no driver has a reading; the budget then holds), anchor = the VIX anchor each day used. The
+    last row also carries values, scores, normalized weights, the anchor's history length and
+    the missing drivers. With no parameter table every value is None."""
+    p = budget_params() if params is None else params
+    n = len(signals)
+    if not p:
+        return {"budget": [None] * n, "raw": [None] * n, "anchor": [None] * n, "params": None, "last": None}
+    w = {k: float((p.get("weights") or {}).get(k, 0.0)) for k in BUDGET_DRIVERS}
+    win = int(p.get("vix_anchor_window", 2520))
+    min_obs = int(p.get("vix_anchor_min_obs", 504))
+    rise = float(p.get("rise_per_session", 1.0))
+    window = collections.deque()
+    ordered = []
+    prev = None
+    budgets, raws, anchors = [], [], []
+    last = None
+    for i, s in enumerate(signals):
+        anchor = None
+        if len(ordered) >= min_obs:
+            m = len(ordered)
+            anchor = ordered[m // 2] if m % 2 else 0.5 * (ordered[m // 2 - 1] + ordered[m // 2])
+        values, scores = budget_scores(s, anchor, p)
+        avail = [k for k in BUDGET_DRIVERS if scores[k] is not None and w[k] > 0]
+        wsum = sum(w[k] for k in avail)
+        raw = sum(w[k] * scores[k] for k in avail) / wsum if wsum > 0 else None
+        if raw is None:
+            budget = prev
+        elif prev is None or raw <= prev:
+            budget = raw
+        else:
+            budget = min(raw, prev + rise)
+        prev = budget
+        budgets.append(budget)
+        raws.append(raw)
+        anchors.append(anchor)
+        if i == n - 1:
+            last = {"budget": budget, "raw": raw, "values": values, "scores": scores,
+                    "weights": {k: (w[k] / wsum if (wsum > 0 and k in avail) else 0.0) for k in BUDGET_DRIVERS},
+                    "vix_anchor": anchor, "anchor_obs": len(ordered),
+                    "missing": [k for k in BUDGET_DRIVERS if scores[k] is None]}
+        v = s.get("vix")
+        if v is not None and v > 0:
+            window.append(v)
+            bisect.insort(ordered, v)
+            if len(window) > win:
+                del ordered[bisect.bisect_left(ordered, window.popleft())]
+    return {"budget": budgets, "raw": raws, "anchor": anchors, "params": p, "last": last}
+
+
+def risk_budget_paths(dates, gating_closes, basket, vix=None, vix3m=None, params=None, budget_cfg=None):
+    """For the validation study: (budget, raw) per day aligned to `dates` — the same code
+    the persisted state uses."""
+    signals = signal_series(dates, gating_closes, basket, vix, vix3m, params)
+    b = risk_budget_series(signals, budget_cfg)
+    return b["budget"], b["raw"]
+
+
+def _budget_phrases(name, value, score, signal, engine_p, bp, anchor, anchor_obs):
+    """(short phrase, full reason) for one driver of one day's budget (plain English)."""
+    label = BUDGET_DRIVER_LABELS[name]
+    if score is None:
+        return f"{label} unavailable", f"{label}: no reading today, so it is left out and the other drivers are reweighted"
+    if name == "trend":
+        slow, fast = engine_p["slow_horizons"], engine_p["fast_horizons"]
+        slow_up = int(round(float(signal.get("f_slow") or 0.0) * len(slow)))
+        fast_up = int(round(float(signal.get("f_fast") or 0.0) * len(fast)))
+        word = "up" if score >= 0.999 else ("mostly up" if score >= 0.75 else ("mixed" if score > 0.25 else "down"))
+        return (f"SPY trend {word} (score {score:.2f})",
+                f"trend score {score:.2f}: {slow_up} of {len(slow)} slow votes up (SPY vs its {min(slow)}-{max(slow)}-day "
+                f"averages) and {fast_up} of {len(fast)} fast legs up ({'/'.join(str(h) for h in fast)}-day returns)")
+    if name == "term_structure":
+        shape = "inverted" if value > 1.0 else ("flat" if value > 0.95 else "in contango")
+        meaning = {"inverted": "backwardation, the market prices more fear now than in 3 months (stress now)",
+                   "flat": "near-term fear close to longer-term fear",
+                   "in contango": "the normal upward-sloping curve"}[shape]
+        return (f"VIX term structure {shape} ({value:.2f})",
+                f"VIX/VIX3M {value:.2f}: {meaning}; scores 1 at or below {bp['ts_full']:.2f} and 0 at or above {bp['ts_zero']:.2f}")
+    if name == "vix_level":
+        yrs = max(1, int(round(anchor_obs / 252.0)))
+        if value > anchor:
+            short = f"VIX {value:.1f} ({value / anchor:.1f}x its {yrs}-year median {anchor:.1f})"
+        else:
+            short = f"VIX {value:.1f} at or below its {yrs}-year median {anchor:.1f}"
+        return (short, f"VIX {value:.1f} vs its trailing {yrs}-year median {anchor:.1f}: score = median / VIX, capped at 1; "
+                       "higher implied volatility means more risk per dollar, so the same risk buys less exposure")
+    up, tot = signal.get("breadth_up"), signal.get("breadth_n")
+    count = f"{up} of {tot} sector/size ETFs" if (up is not None and tot) else "the sector/size ETF basket"
+    return (f"breadth {value * 100:.0f}% ({count} above their 200-day)",
+            f"breadth {value * 100:.0f}%: {count} (11 sector SPDRs, IWM, MDY) above their 200-day average; scores 1 at or "
+            f"above {bp['breadth_full'] * 100:.0f}% and 0 at or below {bp['breadth_zero'] * 100:.0f}% (a proxy for "
+            f"member-level breadth)")
+
+
+def risk_budget_detail(row, signal, engine_params=None, params=None):
+    """The persisted, plain-English view of one day's budget row (risk_budget_series' `last`):
+    the budget, its band, each driver's value, score, weight and cut (weight x (1 - score), the
+    share of the budget that driver removes; the cuts sum to 1 - raw), a reason per driver and a
+    one-line summary naming the drivers that cut it. None without a budget. Pure."""
+    if not row or row.get("budget") is None:
+        return None
+    ep = params_with(engine_params)
+    bp = params or budget_params() or {}
+    budget = float(row["budget"])
+    raw = row.get("raw")
+    anchor, anchor_obs = row.get("vix_anchor"), int(row.get("anchor_obs") or 0)
+    drivers = []
+    for k in BUDGET_DRIVERS:
+        sc = row["scores"].get(k)
+        val = row["values"].get(k)
+        wt = float(row["weights"].get(k) or 0.0)
+        short, reason = _budget_phrases(k, val, sc, signal, ep, bp, anchor, anchor_obs)
+        drivers.append({"name": k, "label": BUDGET_DRIVER_LABELS[k], "value": _r4(val), "score": _r4(sc),
+                        "weight": round(wt, 4), "cut": round(wt * (1.0 - sc), 4) if sc is not None else 0.0,
+                        "short": short, "reason": reason})
+    band = budget_band(budget)
+    cutting = sorted((d for d in drivers if d["cut"] >= 0.01), key=lambda d: -d["cut"])
+    if cutting:
+        body = "; ".join(f"{d['short']} -{d['cut']:.2f}" for d in cutting)
+    else:
+        body = "no driver is cutting risk (" + ", ".join(d["short"] for d in drivers) + ")"
+    extras = []
+    glide = (float(raw) - budget) if raw is not None else 0.0
+    if raw is None:
+        extras.append("no driver had a reading today, so yesterday's budget holds")
+    elif glide > 0.005:
+        extras.append(f"held {glide:.2f} below today's reading {float(raw):.2f} while it rises "
+                      f"(at most +{float(bp.get('rise_per_session', 1.0)):.2f} a session)")
+    missing = list(row.get("missing") or [])
+    if missing and raw is not None:
+        extras.append("missing: " + ", ".join(BUDGET_DRIVER_LABELS[m] for m in missing) + " (left out, the rest reweighted)")
+    summary = f"Risk budget {budget:.2f} ({band}): {body}" + ("; " + "; ".join(extras) if extras else "") + "."
+    return {"budget": round(budget, 4), "raw": _r4(raw), "band": band, "summary": summary, "drivers": drivers,
+            "missing": missing, "glide": round(max(0.0, glide), 4), "vix_anchor": _r4(anchor),
+            "rise_per_session": bp.get("rise_per_session"), "budget_version": BUDGET_VERSION,
+            "method": "weighted mean of the driver scores (weights renormalized over drivers with a reading); "
+                      "falls at once, rises at most rise_per_session a session"}
 
 
 # ── inputs (I/O) ─────────────────────────────────────────────────────────────
@@ -1425,6 +1669,109 @@ def counterfactual_label(key, markov_label, applied, source, env=None, loader=No
         return False
 
 
+# ── consumer: risk budget (refocus spec section 3 step 1, 2026-11-06) ─────────
+def budget_enabled(env=None, config=None) -> bool:
+    """VOLTRADE_REGIME_BUDGET (1/true/on/yes): consumers APPLY the risk budget. Env var absent ->
+    BASE_CONFIG["REGIME_BUDGET_DEFAULT"] (True since 2026-11-06); an explicit value ("off" / "0" /
+    "" included) always wins. Off, the budget is still computed, persisted and logged."""
+    return flag_raw("VOLTRADE_REGIME_BUDGET", env, config)[0].strip().lower() in TRUTHY
+
+
+def risk_budget_view(state, env=None, today=None):
+    """Pure: the compact budget block (scan result, report, consumers) of a persisted state, or
+    None when the state carries no budget. `stale` = older than stale_market_days market days or
+    flagged stale/error; `enabled` = the engine and VOLTRADE_REGIME_BUDGET are on; `applied` =
+    enabled and not stale (a stale budget never cuts silently: consumers keep legacy)."""
+    if not isinstance(state, dict) or not state.get("as_of") or state.get("risk_budget") is None:
+        return None
+    det = state.get("risk_budget_detail") if isinstance(state.get("risk_budget_detail"), dict) else {}
+    budget = max(0.0, min(1.0, float(state["risk_budget"])))
+    age = state_age_market_days(state, today)
+    stale = bool(state.get("error") or state.get("stale") or (age is not None and age > SIZING_PARAMS["stale_market_days"]))
+    on = bool(engine_allowed(env) and budget_enabled(env))
+    return {"budget": round(budget, 4), "raw": det.get("raw"), "band": det.get("band") or budget_band(budget),
+            "summary": det.get("summary"), "drivers": list(det.get("drivers") or []), "missing": list(det.get("missing") or []),
+            "as_of": state.get("as_of"), "age_market_days": age, "stale": stale, "enabled": on,
+            "applied": bool(on and not stale), "consumers": list(BUDGET_CONSUMERS),
+            "budget_version": state.get("budget_version")}
+
+
+def risk_budget_for(env=None, loader=None, today=None):
+    """THE consumer function: the budget view a consumer applies NOW, or None (the caller keeps
+    its legacy behaviour) unless the engine and VOLTRADE_REGIME_BUDGET are on and the persisted
+    state is fresh and carries a budget. Never raises."""
+    try:
+        if not engine_allowed(env) or not budget_enabled(env):
+            return None
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        view = risk_budget_view(st, env, today)
+        return view if (view and view["applied"]) else None
+    except Exception as e:
+        logger.debug(f"risk_budget_for failed: {e}")
+        return None
+
+
+def passive_floor_tickers(config=None) -> set:
+    """The configured passive floor's tickers (system_config FLOOR_MODE): SPY + SSO under
+    "vol_managed_spy"; the basket (minus CASH), FLOOR_TICKER and the GLD defensive floor under
+    "basket". The budget never scales these (the floor has its own volatility rule); it scales
+    only the room ABOVE them."""
+    cfg = _base_config() if config is None else config
+    if cfg.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+        names = [cfg.get("FLOOR_VM_TICKER", "SPY"), cfg.get("FLOOR_VM_LEVERED_TICKER", "SSO")]
+    else:
+        names = [k for k in (cfg.get("FLOOR_BASKET") or {}) if k != "CASH"]
+        names += [cfg.get("FLOOR_TICKER"), cfg.get("DEFENSIVE_FLOOR_TICKER")]
+    return {str(t).upper() for t in names if t}
+
+
+def budget_exposure_cap(cap, positions, equity, env=None, loader=None, today=None, config=None,
+                        source="tiered_strategy.get_regime_caps", path=None) -> dict:
+    """The tier engine's MAX_TOTAL_EXPOSURE with the risk budget applied to the SATELLITE
+    headroom only: cap' = passive + (cap - passive) x budget, passive = the configured floor's
+    market value / equity. Bounded: passive <= cap' <= cap — never above the legacy cap and never
+    below the floor (the floor is never treated as excess); a legacy cap already at or below the
+    floor is left as it is. Acts only when risk_budget_view(...)["applied"]; otherwise the cap is
+    unchanged and the would-be cap is logged with applied=False. Logged as a counterfactual
+    sizing row (sleeve tier_exposure_cap: legacy multiplier 1.0 vs cap'/cap), one per distinct
+    value per day. Never raises."""
+    out = {"cap": cap, "cap_legacy": cap, "applied": False, "budget": None, "band": None, "passive_pct": None,
+           "headroom_legacy": None, "headroom": None, "would_cap": None, "stale": None, "summary": None}
+    try:
+        cap_f = float(cap)
+        eq = float(equity or 0.0)
+        if eq <= 0:
+            out["summary"] = "no equity reading: cap unchanged"
+            return out
+        floor = passive_floor_tickers(config)
+        passive = sum(abs(float(p.get("market_value") or 0.0)) for p in (positions or [])
+                      if str(p.get("symbol", "")).upper() in floor) / eq
+        out.update(passive_pct=round(passive, 4), headroom_legacy=round(max(0.0, cap_f - passive), 4))
+        st = cached_state(loader=loader) if loader is not None else cached_state()
+        view = risk_budget_view(st, env, today)
+        if view is None:
+            out["summary"] = "no risk budget in the regime state: cap unchanged"
+            return out
+        b = float(view["budget"])
+        would = passive + (cap_f - passive) * b if cap_f > passive else cap_f
+        acting = bool(view["applied"])
+        eff = would if acting else cap_f
+        out.update(cap=(round(eff, 4) if acting else cap), applied=acting, budget=b, band=view["band"],
+                   would_cap=round(would, 4), headroom=round(max(0.0, eff - passive), 4), stale=view["stale"])
+        state_note = "applied" if acting else ("not applied: stale state" if view["stale"] else "not applied: VOLTRADE_REGIME_BUDGET off")
+        out["summary"] = (f"risk budget {b:.2f} ({view['band']}): satellite room {max(0.0, cap_f - passive) * 100:.1f}% -> "
+                          f"{max(0.0, would - passive) * 100:.1f}% of equity above the floor's {passive * 100:.1f}% "
+                          f"(cap {cap_f * 100:.1f}% -> {would * 100:.1f}%; {state_note})")
+        log_counterfactual("sizing", "tier_exposure_cap", {"multiplier": 1.0, "cap": round(cap_f, 3)},
+                           {"multiplier": round(would / cap_f, 3) if cap_f > 0 else 1.0, "cap": round(would, 3),
+                            "budget": round(b, 3), "passive_pct": round(passive, 3), "applied": acting,
+                            "stale": bool(view["stale"])},
+                           source, state=st, sleeve="tier_exposure_cap", env=env, path=path, today=today)
+    except Exception as e:
+        logger.debug(f"budget_exposure_cap failed: {e}")
+    return out
+
+
 # ── ML-ready snapshot on shadow records (logging only; no live effect) ────────
 # 2026-10-28 human directive: ML is NOT built or enabled, but every shadow
 # record carries what a future model needs from the regime engine — the state's
@@ -1466,6 +1813,8 @@ def ml_snapshot(state, kind="selection", markov_label=None, engine_label=None, v
             "exposure": _r4(state.get("exposure_multiplier")), "exposure_c": _r4(state.get("exposure_continuous")),
             "vol_dial": _r4(state.get("vol_dial")), "confidence": _r4(state.get("confidence")),
             "days_in_regime": state.get("days_in_regime"),
+            # 2026-11-06: not derivable from the fields kept (VIX anchor + rise glide)
+            "risk_budget": _r4(state.get("risk_budget")),
             "stress": {"vix": _r4(sf.get("vix")), "vix_vix3m": _r4(sf.get("vix_vix3m")), "vrp": _r4(sf.get("vrp_points")),
                        "vix_pct_1y": _r4(sf.get("vix_pct_1y")), "vvix": _r4(sf.get("vvix")),
                        "rv21": _r4(sf.get("realized_vol_21d_pct")), "ewma_vol": _r4(sf.get("ewma_vol_pct")),
@@ -1507,7 +1856,8 @@ def update_state(gating="SPY", force=False, params=None, build=None):
         inputs = (build or build_inputs)(gating=gating)
         last_date = inputs["dates"][-1]
         if (prev and not force and prev.get("as_of") == last_date and prev.get("gating_index") == gating
-                and prev.get("params_version") == PARAMS_VERSION):
+                and prev.get("params_version") == PARAMS_VERSION
+                and prev.get("budget_version") == BUDGET_VERSION):   # 2026-11-06: a pre-budget state recomputes once
             prev["cache_hit"] = True
             return prev
         qf = quality_factor_of(inputs["sources"], inputs["dates"])

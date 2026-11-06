@@ -101,7 +101,7 @@ REGIME_KILL_VXX_RATIO = 1.40            # VXX ratio above this → T2-T4 off (ti
 
 
 def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
-                     equity: float = 100_000) -> dict:
+                     equity: float = 100_000, positions: Optional[List[Dict]] = None) -> dict:
     """
     Pull the regime-adaptive caps from system_config (authoritative source).
 
@@ -109,11 +109,18 @@ def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
         MAX_POSITION_PCT, MAX_TOTAL_EXPOSURE, MAX_POSITIONS,
         MAX_OPTIONS_PCT, regime, MIN_SCORE, etc.
 
+    positions (2026-11-06, regime risk budget): when given — the tier engine's
+    exposure-cap call sites pass ctx.positions — MAX_TOTAL_EXPOSURE becomes
+    regime_engine.budget_exposure_cap's value: the room ABOVE the passive floor
+    times the risk budget (never above the legacy cap, never below the floor).
+    The legacy value rides along as MAX_TOTAL_EXPOSURE_LEGACY and the full
+    result as RISK_BUDGET_CAP. None (every other caller): unchanged.
+
     Falls back to conservative defaults if system_config import fails.
     """
     try:
         from system_config import get_adaptive_params
-        return get_adaptive_params(
+        caps = get_adaptive_params(
             vxx_ratio=vxx_ratio,
             spy_vs_ma50=spy_vs_ma50,
             markov_state=1,
@@ -125,7 +132,7 @@ def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
         import logging
         logging.getLogger("voltrade.tiers").warning(f"get_regime_caps fallback: {_gcap_err}")
         # Conservative fallback matching system_config BASE_CONFIG defaults
-        return {
+        caps = {
             "MAX_POSITION_PCT":    0.08,
             "MAX_TOTAL_EXPOSURE":  1.00,   # USER: fully invested in BULL
             "MAX_POSITIONS":       6,
@@ -133,6 +140,39 @@ def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
             "MAX_OPTIONS_PCT":     0.08,
             "regime":              "NEUTRAL",
         }
+    if positions is not None:
+        caps = _apply_risk_budget(caps, positions, equity)
+    return caps
+
+
+def _apply_risk_budget(caps: dict, positions: List[Dict], equity: float) -> dict:
+    """REGIME RISK BUDGET 2026-11-06: MAX_TOTAL_EXPOSURE with the budget applied to the
+    satellite headroom (regime_engine.budget_exposure_cap; flag VOLTRADE_REGIME_BUDGET,
+    default on; logged there as a counterfactual sizing row). Never raises: on any failure
+    the caps come back unchanged."""
+    try:
+        import regime_engine as _re_rb
+        rb = _re_rb.budget_exposure_cap(caps.get("MAX_TOTAL_EXPOSURE", 1.00), positions, equity)
+    except Exception as e:
+        logger.debug(f"risk budget cap unavailable: {e}")
+        return caps
+    caps = dict(caps)
+    caps["RISK_BUDGET_CAP"] = rb
+    if rb.get("applied"):
+        caps["MAX_TOTAL_EXPOSURE_LEGACY"] = caps.get("MAX_TOTAL_EXPOSURE", 1.00)
+        caps["MAX_TOTAL_EXPOSURE"] = rb["cap"]
+    return caps
+
+
+def _budget_note(caps: dict) -> str:
+    """' [risk budget 0.62 cut the cap from 95% to 90.5%]' when the budget acted on the cap,
+    else ''. Appended to the cap's log/kill text so the shadow records and the TIER-KILL
+    audit can tell a budget-made kill from a legacy one."""
+    rb = caps.get("RISK_BUDGET_CAP") or {}
+    if not rb.get("applied") or rb.get("cap") == rb.get("cap_legacy"):
+        return ""
+    return (f" [risk budget {float(rb.get('budget') or 0.0):.2f} cut the cap from "
+            f"{float(rb.get('cap_legacy') or 0.0) * 100:.0f}% to {float(rb.get('cap') or 0.0) * 100:.1f}%]")
 
 # ── Tier 1: CSP core settings ────────────────────────────────────────────────
 # ── T1 Universe (DYNAMIC 2026-04-22) ────────────────────────────────────────
@@ -291,14 +331,15 @@ def master_kill_switch(ctx: TierContext) -> Tuple[bool, str]:
 
     # 3. Portfolio invested ceiling — from system_config (authoritative).
     # Regime-adaptive: PANIC=30%, BEAR=50%, CAUTION=60%, BULL/NEUTRAL=95%.
-    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity)
+    # 2026-11-06: the room above the passive floor is scaled by the regime risk budget.
+    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity, positions=ctx.positions)
     max_invested = caps.get("MAX_TOTAL_EXPOSURE", 1.00)
     current_invested = sum(abs(float(p.get("market_value", 0))) for p in ctx.positions)
     invested_pct = current_invested / max(ctx.equity, 1)
     if invested_pct >= max_invested:
         return (True,
             f"Portfolio invested {invested_pct*100:.1f}% >= {max_invested*100:.0f}% "
-            f"(regime={caps.get('regime', ctx.regime)})")
+            f"(regime={caps.get('regime', ctx.regime)}){_budget_note(caps)}")
 
     # 4. Regime kill for T2-4 (not a full kill, handled per tier)
     return (False, "ok")
@@ -897,14 +938,14 @@ def tier2_leverage_multiplier(ctx: TierContext, t1_actions: List[TierAction]) ->
     # T2 leverage must respect system_config's regime-adaptive cap.
     # Under PM, leverage lets you SIZE MORE CONTRACTS on the same equity.
     # It does NOT let you exceed MAX_TOTAL_EXPOSURE (100% in BULL).
-    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity)
+    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity, positions=ctx.positions)
     max_invested = caps.get("MAX_TOTAL_EXPOSURE", 1.00)
     current_invested = sum(abs(float(p.get("market_value", 0))) for p in ctx.positions)
     current_invested_pct = current_invested / max(ctx.equity, 1)
     equity_headroom_pct = max_invested - current_invested_pct
 
     if equity_headroom_pct <= 0:
-        logger.info(f"T2: invested cap reached {current_invested_pct*100:.1f}% >= {max_invested*100:.0f}%")
+        logger.info(f"T2: invested cap reached {current_invested_pct*100:.1f}% >= {max_invested*100:.0f}%{_budget_note(caps)}")
         return t1_actions
 
     # How much NEW equity exposure would T1 actions add (at 1x)?
@@ -976,8 +1017,8 @@ def tier3_trend_capture(ctx: TierContext) -> List[TierAction]:
     if ctx.regime not in ("BULL", "NEUTRAL_BULL", "bull"):
         return []
 
-    # Pull caps from system_config
-    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity)
+    # Pull caps from system_config (2026-11-06: satellite room x the regime risk budget)
+    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity, positions=ctx.positions)
     max_total_exposure = caps.get("MAX_TOTAL_EXPOSURE", 1.00)
     max_position_pct = caps.get("MAX_POSITION_PCT", 0.08)
 
@@ -1086,7 +1127,8 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
     if not actions:
         return actions
 
-    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity)
+    # 2026-11-06: the room above the passive floor is scaled by the regime risk budget.
+    caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity, positions=ctx.positions)
     max_invested_pct = caps.get("MAX_TOTAL_EXPOSURE", 1.00)
 
     current_invested_pct = sum(abs(float(p.get("market_value", 0))) for p in ctx.positions) / max(ctx.equity, 1)
@@ -1109,11 +1151,11 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
         logger.warning(
             f"[TIERS] Master allocator scaling down by {scale_factor:.2%} "
             f"(proposed {total_proposed*100:.1f}% > headroom {headroom*100:.1f}%, "
-            f"regime={caps.get('regime')})"
+            f"regime={caps.get('regime')}){_budget_note(caps)}"
         )
         for a in scalable:
             a.size_pct *= scale_factor
-            a.reason = f"{a.reason} [scaled {scale_factor:.0%} by cap enforcer]"
+            a.reason = f"{a.reason} [scaled {scale_factor:.0%} by cap enforcer]{_budget_note(caps)}"
 
     return protected + scalable
 
