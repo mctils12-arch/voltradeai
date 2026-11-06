@@ -4793,6 +4793,19 @@ def _scan_market_inner():
             import logging
             logging.getLogger("bot_engine").error(f"[TIERS] failed: {e}")
 
+    # TAX-LOSS HARVEST (2026-11-06, tax_filter.harvest_step): one review per
+    # scan. A loser whose loss offsets this year's realized gains is swapped
+    # into its sector ETF when every gate holds (switch, replacement, wash-sale
+    # rules, market open, kill switch known and off, stock entries live); the
+    # rest are reported with the reason. Orders go through the floor's
+    # marketable-limit helper (broker-clock gated). Never raises.
+    import tax_filter as _tf_hv
+    _tax_harvest = _tf_hv.harvest_step({
+        "positions": get_alpaca_positions, "sector_of": _get_sector, "quote": _latest_quote,
+        "order": _floor_vm_order, "clock": _floor_vm_broker_clock, "open_orders": _open_order_symbols,
+        "floor_tickers": FLOOR_AND_LEG_TICKERS,
+        "killed": kill_status is None or bool(kill_status.get("killed")),
+    })
     _timing_log("tier_engine_complete")
     _timing_log("scan_complete")
     # Mark timing file complete
@@ -4872,6 +4885,7 @@ def _scan_market_inner():
         "intraday_shorts": intraday_short_result,
         "options_management": options_mgmt_result,
         "spy_floor": spy_floor_result,
+        "tax_harvest": _tax_harvest,
         "defensive_floor": defensive_floor_result,
         "tier_actions": [
             {

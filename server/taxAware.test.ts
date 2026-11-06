@@ -13,8 +13,9 @@ import {
   TAX_DECISIONS_FILE, TAX_DECISIONS_MAX_LIMIT, TAX_DECISIONS_DEFAULT_LIMIT, TAX_LT_WINDOW_DAYS,
   taxDecisionRow, parseTaxDecisions, readTaxDecisions, taxBody, taxLimit,
   taxHoldOf, TaxDeferAudit, taxDeferLine, fifoOpenLots, lotTerm, ltApproachingRows,
+  TAX_REALIZED_FILE, TAX_HARVEST_REVIEW_FILE, taxRealizedSnapshot, writeTaxRealized, readHarvestReview, taxHarvestAuditRows,
 } from "./taxAware";
-import { DEFAULT_TAX_RATES } from "./taxLedger";
+import { DEFAULT_TAX_RATES, taxLedger } from "./taxLedger";
 import { DIAG_PROBES } from "./diag";
 import type { EdgeLedger } from "./edgeLedger";
 
@@ -235,4 +236,88 @@ test("wiring: the sync carries the stop state's hold; TIME-EXIT and the stop che
   assert.ok(fn.indexOf("const taxHold = taxHoldOf(") < fn.indexOf("// ── DUPLICATE SELL ORDER GUARD"), "the scale-out hold sits before any order");
   assert.ok(fn.indexOf("if (!shouldStop && (shouldTP || shouldTimeStop) && taxHold) {") < fn.indexOf("// ── FIRE EXIT ORDER"), "the TP / time-stop hold sits before the exit order");
   assert.ok(bot.includes("if (hasMark && ageDays > 14 && pnlPct >= -5.0 && pnlPct <= 2.0) {"), "TIME-EXIT unchanged");
+});
+
+// ── 2026-11-06: tax-loss harvesting ─────────────────────────────────────────
+
+const ev = (symbol: string, iso: string, pnl: number) => ({ symbol, t: ms(iso), pnl, openedAt: ms(iso) - 86_400_000, qty: 10, closeDir: -1 as const, basis: 1000 });
+
+test("the realized snapshot: this calendar year only, the ledger's netting, recent loss sales and buys", () => {
+  const events = [ev("OLD", "2025-12-15T15:00:00Z", 5000), ev("AMD", "2026-03-02T15:00:00Z", 900), ev("XLK", "2026-10-20T15:00:00Z", -200)];
+  const fills = [{ symbol: "AMD", dir: 1 as const, qty: 10, price: 100, t: ms("2026-10-25T15:00:00Z") },
+                 { symbol: "JPM", dir: 1 as const, qty: 10, price: 100, t: ms("2026-08-01T15:00:00Z") }];
+  const snap = taxRealizedSnapshot(events, fills, NOW);
+  const ledger = taxLedger(events, fills, { windowStartMs: Date.UTC(2026, 0, 1) });
+  assert.equal(snap.year, 2026);
+  assert.equal(snap.shortAfterNetting, ledger.netting.shortAfterNetting);
+  assert.equal(snap.shortAfterNetting, 700, "the 2025 gain is not this year's; +900 - 200");
+  assert.deepEqual(snap.recentLossSales, { XLK: "2026-10-20T15:00:00.000Z" });
+  assert.deepEqual(snap.recentBuys, { AMD: "2026-10-25T15:00:00.000Z" });
+});
+
+test("cross-language: the snapshot bot.ts writes is the one tax_filter reads; the review tax_filter writes is the one the route serves", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "taxaware-hv-"));
+  try {
+    const now = new Date();
+    assert.equal(writeTaxRealized(dir, taxRealizedSnapshot([ev("AMD", now.toISOString(), 1234)], [], now)), null);
+    assert.ok(fs.existsSync(path.join(dir, TAX_REALIZED_FILE)));
+    const program = [
+      "import json, sys, tax_filter as tf",
+      "tf._data_dir = lambda: sys.argv[1]",
+      "snap, why = tf.realized_snapshot()",
+      "assert snap is not None, why",
+      "rows = tf.harvest_candidates([{'symbol': 'AMD', 'qty': '50', 'current_price': '100', 'unrealized_pl': '-800', 'asset_class': 'us_equity', 'side': 'long'}], snap, lambda s: 'Technology', cfg=tf.config({'HARVEST_ENABLED': True}))",
+      "tf._write_review(rows, snap, '', tf.config())",
+      "print(json.dumps(snap['shortAfterNetting']))",
+    ].join("\n");
+    const out = execFileSync("python3", ["-c", program, dir], { cwd: repo }).toString().trim();
+    assert.equal(Number(out), 1234);
+    const got = readHarvestReview(dir);
+    assert.equal(got.error, null);
+    assert.equal(got.review?.harvest.length, 1);
+    const row = got.review!.harvest[0];
+    assert.deepEqual([row.ticker, row.unrealized, row.replacement, row.action], ["AMD", -800, "XLK", "harvest"]);
+    assert.ok(row.washSaleUntil && /^\d{4}-\d{2}-\d{2}$/.test(row.washSaleUntil));
+    assert.ok(row.reason.startsWith("Harvest: sell 50 AMD"));
+    assert.ok(fs.existsSync(path.join(dir, TAX_HARVEST_REVIEW_FILE)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a missing review is not an error; a corrupt one is reported", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "taxaware-hv2-"));
+  try {
+    assert.deepEqual(readHarvestReview(dir), { review: null, error: null });
+    fs.writeFileSync(path.join(dir, TAX_HARVEST_REVIEW_FILE), "{not json");
+    assert.ok(readHarvestReview(dir).error);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("harvest audit rows: one per swap, the failure kinds, the step's error", () => {
+  const rows = taxHarvestAuditRows({
+    actions: [
+      { ticker: "AMD", replacement: "XLK", sold: { ok: true }, bought: { ok: true } },
+      { ticker: "JPM", replacement: "XLF", sold: { ok: true }, bought: { ok: false, error: "rejected" } },
+      { ticker: "TSLA", replacement: "XLY", sold: { ok: false, error: "market closed" }, bought: null },
+    ],
+    error: "RuntimeError: x",
+  });
+  assert.deepEqual(rows.map((r) => r.type), ["TAX-HARVEST", "TAX-HARVEST", "TAX-HARVEST-FAIL", "TAX-HARVEST-ERROR"]);
+  assert.match(rows[0].message, /^AMD: sold for a tax-loss harvest; bought XLK with the proceeds; AMD is blocked from re-entry for 30 days/);
+  assert.match(rows[1].message, /XLF NOT bought \(rejected\), proceeds in cash/);
+  assert.match(rows[2].message, /harvest sale refused \(market closed\); nothing bought/);
+  assert.deepEqual(taxHarvestAuditRows(undefined), []);
+});
+
+test("wiring: the ledger refresh writes the snapshot, Tier 3 keeps it fresh, Tier 2 audits the swaps, the route serves the review", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const refresh = bot.slice(bot.indexOf("async function refreshSleeves()"), bot.indexOf("async function sleevesBody("));
+  assert.ok(refresh.indexOf("writeTaxRealized(regimeDataDir(process.env), taxRealizedSnapshot(walked.events, fills.rows, new Date()))") > refresh.indexOf("sleeveError = null;"));
+  const t3 = bot.slice(bot.indexOf("async function tier3Strategic()"), bot.indexOf("// 1. ML model retrain (if needed)"));
+  assert.ok(t3.includes("Date.now() - sleeveCache.at > TAX_REALIZED_REFRESH_MS"));
+  assert.ok(bot.indexOf("for (const row of taxHarvestAuditRows(result.tax_harvest)) audit(row.type, row.message);") > bot.indexOf('floorAuditRows(result.spy_floor, "scan")'));
+  assert.ok(bot.includes("harvest: hv.review?.harvest ?? []"));
 });
