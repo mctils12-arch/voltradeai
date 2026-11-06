@@ -414,6 +414,13 @@ class RPCDispatcher:
             # forecast summaries. bot.ts serves it on /api/bot/brain through
             # pythonCall (daemon first, python3 -c fallback), cached 10 min.
             "brain_evidence": ("brain_evidence", "brain_evidence"),
+            # INSTITUTIONAL FLOWS (2026-11-06, flows_model.py). bot.ts Tier 3 runs
+            # the daily refresh as a python3 -c subprocess under
+            # execPythonSerialized's hard kill (it fetches bars; a dispatch thread
+            # cannot be killed); registered so an RPC caller resolves the same
+            # entry points. flows_report: the cached estimate, no network.
+            "flows_refresh": ("flows_model", "refresh_daily"),
+            "flows_report": ("flows_model", "report"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:

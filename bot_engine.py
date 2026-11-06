@@ -4160,6 +4160,17 @@ def _scan_market_inner():
             sizing_reasoning = "Fallback: fixed 5% sizing"
             sizing_scalars = {}
 
+        # INSTITUTIONAL FLOWS (2026-11-06): the sector's estimated flow pressure
+        # tilts the size by at most +-FLOWS_SECTOR_SIZE_K (flows_model.py); logged
+        # on the trade (`flows`), its sizing reasoning and its scalars.
+        _flows_adj = _flows_sector_sizing(ticker, stock.get("sector"), shares, float(stock.get("price") or 0),
+                                          portfolio_value)
+        if _flows_adj.get("applied"):
+            shares = _flows_adj["shares"]
+            position_value = _flows_adj["position_value"]
+            sizing_reasoning = f"{sizing_reasoning} | {_flows_adj.get('reason', '')}".strip(" |")
+            sizing_scalars = {**(sizing_scalars or {}), "flows_sector": _flows_adj["multiplier"]}
+
         if shares <= 0:
             _note_gate(ticker, "rejected_zero_shares",
                        f"sizing gave {shares} shares (position ${position_value:,.0f} at ${stock['price']})")
@@ -4250,6 +4261,8 @@ def _scan_market_inner():
             "entry_features": stock.get("entry_features") or stock.get("ml_features"),
             "entry_date": time.strftime("%Y-%m-%d"),
             "regime_at_entry": stock.get("regime_label", "UNKNOWN"),
+            # INSTITUTIONAL FLOWS (2026-11-06): the sector flow tilt this size carries
+            "flows": _flows_adj,
         })
 
     # One relabel call per scan (see _gate_relabels above). Counts travel in
@@ -6112,6 +6125,67 @@ def _floor_vm_save_state(state: dict) -> None:
         _vml.getLogger("bot_engine").warning(f"[FLOOR-VM] state not saved: {_se}")
 
 
+# ── INSTITUTIONAL FLOWS (2026-11-06, flows_model.py) ─────────────────────────
+# The day's flow ESTIMATE is computed once per completed session by bot.ts
+# Tier 3 (flows_model.refresh_daily) into DATA_DIR/voltrade_flows.json. The
+# scan only READS that file (no network here); a missing, stale or unreadable
+# estimate means no adjustment. Switches: system_config FLOWS_FLOOR_ENABLED,
+# FLOWS_SECTOR_SIZING_ENABLED (FLOWS_ENABLED turns both off).
+_FLOWS_DOC_CACHE = {"mtime": None, "doc": None}
+
+
+def _flows_doc() -> dict:
+    """The cached flow estimate, re-read only when the file changes."""
+    import flows_model as _fm
+    path = os.path.join(DATA_DIR, _fm.FLOWS_FILE)
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        _FLOWS_DOC_CACHE.update(mtime=None, doc=None)
+        return None
+    if _FLOWS_DOC_CACHE["mtime"] != mtime:
+        _FLOWS_DOC_CACHE.update(mtime=mtime, doc=_fm.load_cached(DATA_DIR))
+    return _FLOWS_DOC_CACHE["doc"]
+
+
+def _floor_flows_adjustment(cfg: dict) -> dict:
+    """The floor-target multiplier from the flow estimate, in
+    [1 - FLOWS_FLOOR_MAX_CUT, 1.0] (floor_vol_managed.plan clamps it to [0, 1]
+    again). Logged on the floor result, its state file and its audit rows."""
+    try:
+        import flows_model as _fm
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        return _fm.floor_multiplier(_flows_doc(), cfg, today=today)
+    except Exception as _fe:  # never let the estimate break the floor
+        import logging as _flog
+        _flog.getLogger("bot_engine").warning(f"[FLOWS] floor adjustment skipped: {_fe}")
+        return {"multiplier": 1.0, "applied": False, "reason": f"flows unavailable: {str(_fe)[:120]}"}
+
+
+def _flows_sector_sizing(ticker: str, sector, shares: int, price: float, equity: float) -> dict:
+    """A satellite candidate's shares after its sector's flow tilt:
+    x (1 + FLOWS_SECTOR_SIZE_K x sector pressure), never above the sizer's
+    ABSOLUTE_MAX_POSITION_PCT of equity. Stops and targets are untouched."""
+    out = {"applied": False, "multiplier": 1.0, "shares": int(shares),
+           "position_value": round(int(shares) * float(price or 0), 2)}
+    try:
+        import flows_model as _fm
+        from position_sizing import ABSOLUTE_MAX_POSITION_PCT as _max_pct
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        adj = _fm.sector_size_adjustment(_flows_doc(), _get_sector(ticker, sector), ticker, BASE_CONFIG, today=today)
+        out.update({k: adj.get(k) for k in ("sector", "etf", "pressure", "reason", "label")})
+        if not adj.get("applied"):
+            return out
+        new = _fm.sized_shares(int(shares), float(price), float(equity), float(adj["multiplier"]), _max_pct)
+        out.update(applied=new != int(shares), multiplier=adj["multiplier"], shares=new,
+                   position_value=round(new * float(price), 2), shares_before=int(shares))
+    except Exception as _se:  # the estimate never blocks a candidate
+        import logging as _flog
+        _flog.getLogger("bot_engine").warning(f"[FLOWS] sector sizing skipped for {ticker}: {_se}")
+        out["reason"] = f"flows unavailable: {str(_se)[:120]}"
+    return out
+
+
 def _manage_vol_managed_floor(macro: dict = None, reduce_only: bool = False) -> dict:
     """Hold SPY (and SSO above 1x) at E* = min(CAP, TARGET_VOL / sigma_20d) of
     FLOOR_VM_CAPITAL_PCT x equity; sell the legacy floor tickers. One pass per
@@ -6146,11 +6220,14 @@ def _manage_vol_managed_floor(macro: dict = None, reduce_only: bool = False) -> 
         return int(float(p.get("qty_available", p.get("qty", 0)) or 0))
 
     legacy_held = {t: _value(t) for t in legacy if _value(t) > 0 and _qty_available(t) > 0}
-    decision = _vm_plan(closes, equity, _value(base), _value(lev), sum(legacy_held.values()), cfg)
+    flows_adj = _floor_flows_adjustment(cfg)
+    decision = _vm_plan(closes, equity, _value(base), _value(lev), sum(legacy_held.values()), cfg,
+                        exposure_multiplier=flows_adj.get("multiplier", 1.0))
     result.update(decision)
+    result["flows"] = flows_adj
     result["legacy_held"] = {t: round(v, 2) for t, v in legacy_held.items()}
     _floor_vm_save_state({"at": datetime.now().isoformat(), "equity": equity, **decision,
-                          "legacy_held": result["legacy_held"]})
+                          "legacy_held": result["legacy_held"], "flows": flows_adj})
     if not decision.get("ok") or not decision.get("rebalance"):
         return result
 

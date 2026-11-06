@@ -40,6 +40,12 @@ export const DIAG_PROBES = [
   // Index-level inputs only (SPY/IWM/sector ETFs/VIX family); no account
   // values, no symbols beyond those ETFs, no keys.
   "regime",
+  // ADDED 2026-11-06 (institutional flow model, flows_model.py): the daily
+  // flow ESTIMATE — the SAME body the owner's /api/bot/flows serves
+  // (server/flowsReport.ts): broad-equity and per-sector pressure with its
+  // drivers, the calendar window, the floor multiplier in force. SPY, IEF and
+  // sector ETFs only; no account values, no keys, no query parameters.
+  "flows",
   // ADDED 2026-10-28 (regime engine live flip, human directive; [RULE-REVIEW]
   // measurement): per day per kind (selection / options / sizing / label)
   // AGGREGATES of the legacy-vs-engine counterfactual log

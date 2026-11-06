@@ -26,6 +26,18 @@ if _ROOT not in sys.path:
 import bot_engine
 import floor_vol_managed as fvm
 import system_config
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _flows_estimate_neutral():
+    """The floor pass reads the day's flows estimate from DATA_DIR since
+    2026-11-06 (flows_model.py); held neutral here like every other input.
+    test_flows_model.py pins the reduce-only pass WITH a flows cut."""
+    with patch.object(bot_engine, "_floor_flows_adjustment",
+                      return_value={"multiplier": 1.0, "applied": False, "reason": "test: neutral"}):
+        yield
+
 
 QUOTES = {"SPY": (499.9, 500.1), "SSO": (99.95, 100.05), "QQQ": (599.9, 600.1)}
 
