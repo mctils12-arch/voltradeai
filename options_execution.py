@@ -864,6 +864,44 @@ def _optimized_limit_price(contract: dict, direction: str) -> float:
     return round(optimized, 2)
 
 
+def _vertical_leg_quotes(long_leg: dict, short_leg: dict) -> list:
+    """A debit vertical's legs on the side its opening order takes."""
+    return [{"symbol": long_leg.get("occ_symbol"), "side": "buy", "bid": long_leg.get("bid"), "ask": long_leg.get("ask")},
+            {"symbol": short_leg.get("occ_symbol"), "side": "sell", "bid": short_leg.get("bid"), "ask": short_leg.get("ask")}]
+
+
+def _mid_first_entry(contract: dict) -> dict:
+    """MID-FIRST MULTI-LEG ENTRY (2026-11-06, human: "work limits near mid";
+    mleg_ladder.py): a debit vertical opened by evaluate_and_execute goes out
+    at the combination's net mid instead of its natural (long ask - short bid)
+    and is walked to the natural over the next ticks by options_manager
+    (register_entry_ladder / _pursue_entry_ladders). Sizing, max loss and the
+    EV check stay on the natural (unchanged decisions); only the order's price
+    moves. Credit structures are left alone: _submit_mleg_order (frozen) sends
+    abs(limit), and Alpaca reads a positive mleg limit as a debit, so no
+    credit limit can be expressed through it (live evidence in mleg_ladder.py)."""
+    quotes = contract.get("leg_quotes") if isinstance(contract, dict) else None
+    if not quotes or contract.get("error"):
+        return contract
+    try:
+        import mleg_ladder
+        cfg = mleg_ladder.settings(ALPACA_BASE)
+        if not cfg["on"]:
+            return contract
+        p = mleg_ladder.plan(quotes, cfg["steps"])
+    except Exception as e:
+        logger.warning(f"mid-first entry not planned for {contract.get('strategy')}: {e}")
+        return contract
+    if "prices" not in p or p["side"] != "buy":
+        return contract
+    contract["net_debit_natural"] = contract.get("net_debit")
+    contract["net_debit"] = contract["limit_price"] = p["prices"][0]
+    contract["entry_ladder"] = {"side": "buy", "steps": len(p["prices"]), "step": 1, "price": p["prices"][0],
+                                "plan": p["prices"], "natural": p["ask"], "strategy": contract.get("strategy"),
+                                "legs": [{"symbol": q["symbol"], "order_side": q["side"]} for q in quotes]}
+    return contract
+
+
 def _cancel_order(order_id: str) -> bool:
     """Cancel an open order by ID."""
     try:
@@ -1686,6 +1724,8 @@ def _select_bull_spread(contracts: list, price: float, equity: float, ticker: st
         "strategy": "bull_call_spread",
         "long_leg": long_leg["occ_symbol"],
         "short_leg": short_leg["occ_symbol"],
+        # MID-FIRST MULTI-LEG ENTRY (2026-11-06): the legs' quotes, for evaluate_and_execute's net-mid start
+        "leg_quotes": _vertical_leg_quotes(long_leg, short_leg),
         "long_strike": long_leg["strike"],
         "short_strike": short_leg["strike"],
         "expiry": long_leg["expiry"],
@@ -1974,6 +2014,8 @@ def _select_bear_spread(contracts: list, price: float, equity: float, ticker: st
         "strategy": "bear_put_spread",
         "long_leg": long_leg["occ_symbol"],
         "short_leg": short_leg["occ_symbol"],
+        # MID-FIRST MULTI-LEG ENTRY (2026-11-06): the legs' quotes, for evaluate_and_execute's net-mid start
+        "leg_quotes": _vertical_leg_quotes(long_leg, short_leg),
         "long_strike": long_leg["strike"],
         "short_strike": short_leg["strike"],
         "expiry": long_leg["expiry"],
@@ -2701,8 +2743,15 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
             "reasoning": decision["reason"],
         }
 
-    # Step 3: Submit order
+    # Step 3: Submit order (a debit vertical at its net mid, walked by options_manager)
+    contract = _mid_first_entry(contract)
     order = submit_options_order(contract)
+    if contract.get("entry_ladder") and order.get("order_id") and order.get("status") in ("submitted", "filled", "pending_new", "accepted", "new"):
+        try:
+            from options_manager import register_entry_ladder
+            register_entry_ladder(order["order_id"], contract["entry_ladder"])
+        except Exception as _el_err:
+            logger.warning(f"entry ladder not registered for {trade.get('ticker', '?')}: {_el_err}")
 
     # Step 4: Register entry state for options manager.
     #

@@ -628,6 +628,21 @@ BASE_CONFIG = {
     # before; no fill-improvement claim until live. Rollback: env
     # VOLTRADE_OPTIONS_EXIT_LADDER=off (working ladders still finish).
     "OPTIONS_EXIT_LADDER": {"mode": "on", "steps": 3, "step_seconds": 60},
+    # MID-FIRST MULTI-LEG CLOSES (2026-11-06, human refocus spec §5: "CBOE
+    # complex order book for multi-leg fills, work limits near mid";
+    # mleg_ladder.py). A strategy group's close (and a debit group's partial
+    # scale-out) is first a LIMIT mleg at the combination's net mid, re-priced
+    # one step toward the natural per options-manager tick (no sooner than
+    # step_seconds; `steps` prices, the last the natural itself), regular hours
+    # after 09:45 only. Once the natural has rested touch_seconds unfilled the
+    # order is canceled and the next tick sends today's MARKET mleg (then the
+    # per-leg fallback, as before). Alpaca's mleg limit is signed (a credit
+    # negative). Prior behaviour: a market mleg at once. Paper fills a limit
+    # only once marketable at the NBBO, so there it fills at the natural a few
+    # ticks later; no fill-improvement claim until live. mode on | off | auto
+    # (auto = on only against api.alpaca.markets); env
+    # VOLTRADE_OPTIONS_MLEG_LADDER wins when set. Rollback: mode "off".
+    "OPTIONS_MLEG_LADDER": {"mode": "on", "steps": 3, "step_seconds": 60, "touch_seconds": 120},
 
     # ── CACHE TTLs ────────────────────────────────────────────────────────────
     "CACHE_YF_SECONDS":     300,    # yfinance data: 5 min cache
