@@ -731,7 +731,7 @@ export function BookBody({ positions, focus, onSelect, sleeves, rowFlash, nowMs 
                   one unit with its siblings; line 4 (all): WHEN the engine exits, from shared/positionLevels (the
                   manager's own thresholds for options, manage_positions' ladder for shares) — never a portion of an option */}
               {isOpt(p) ? <span className="sub sub--plan sub--what">{segs(optionWhatLine({ qty: q ?? 0, optionType: p.optionMeta?.optionType, daysToExpiry: p.optionMeta?.daysToExpiry, strategy: p.optionMeta?.strategy, legsInGroup: legCount.get(groupKey(p)) ?? 1 }))}</span> : null}
-              <span className="sub sub--plan sub--exit"><i>exit</i>{segs(isOpt(p) ? optionExitSegments(optionExitPlan({ qty: q ?? 0, entryPrice: entry, currentPrice: last, daysToExpiry: p.optionMeta?.daysToExpiry ?? null, strategy: p.optionMeta?.strategy, legsInGroup: legCount.get(groupKey(p)) ?? 1 })) : stockExitSegments(p.levels))}</span>
+              <span className="sub sub--plan sub--exit"><i>exit</i>{segs(isOpt(p) ? optionExitSegments(optionExitPlan({ qty: q ?? 0, entryPrice: entry, currentPrice: last, daysToExpiry: p.optionMeta?.daysToExpiry ?? null, strategy: p.optionMeta?.strategy, legsInGroup: legCount.get(groupKey(p)) ?? 1, peakRatio: p.optionMeta?.profitTaking?.peakRatio ?? null, scaleOut: p.optionMeta?.profitTaking?.scaleOut ?? null, profitTakingOn: p.optionMeta?.profitTaking?.on })) : stockExitSegments(p.levels))}</span>
             </div>); })}
         </div>
       ))}

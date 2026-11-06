@@ -52,7 +52,10 @@ export interface TodayTile {
  *  into this; pnlPct is already a percent). `levels` is the engine's own
  *  exit ladder for the position (shared/positionLevels.ts); stopPrice and
  *  takeProfitPrice are its headline numbers, null until recorded. */
-export interface OptionMeta { underlyingTicker: string; expiry: string; strike: number; optionType: "CALL" | "PUT"; strategy: string | null; setup: unknown; daysToExpiry: number }
+/** profitTaking (2026-11-06): the manager's bought-option profit-taking record — the peak mark ÷ premium, the
+ *  scale-out status ("blocked" when it never applies to the leg), and whether the rule is switched on */
+export interface OptionProfitTaking { on: boolean; peakRatio: number | null; scaleOut: string | null }
+export interface OptionMeta { underlyingTicker: string; expiry: string; strike: number; optionType: "CALL" | "PUT"; strategy: string | null; setup: unknown; daysToExpiry: number; profitTaking?: OptionProfitTaking | null }
 export interface BotPosition {
   ticker: string; qty: number; side: string; entryPrice: number; currentPrice: number; marketValue: number;
   pnl: number; pnlPct: number; dayPct?: number | null; stopPrice: number | null; takeProfitPrice: number | null; phase: number;

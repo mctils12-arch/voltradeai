@@ -2646,6 +2646,10 @@ OPTIONS_EXIT_REASONS = frozenset({
     "leftover_long_close",
     # 2026-11-05: the EARNINGS CLOSE rule (options_manager.py Check 1a)
     "earnings_close",
+    # 2026-11-06: BOUGHT-OPTION PROFIT TAKING (options_manager.py Check 4b):
+    # the half sold at +100% (recorded once the broker shows it filled; the
+    # remainder is re-recorded as an open entry) and the trail on the rest
+    "bought_scale_out", "bought_trail_stop",
 })
 
 

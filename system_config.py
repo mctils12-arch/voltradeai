@@ -136,6 +136,30 @@ BASE_CONFIG = {
     # short leg, an uncovered sold leg, and every other setup or strategy are
     # never exempt. () makes the rule literal: any sold option is closed.
     "OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS": ("earnings_iv_crush",),
+    # BOUGHT-OPTION PROFIT TAKING 2026-11-06 (human refocus spec §5: "hard
+    # profit-taking rules (take gains when up)"; research/open_questions.md
+    # "RULE-REVIEW CANDIDATE 2026-11-02 — bought options have no profit-taking
+    # exit", candidate (a)). options_manager, for a bought option run as a
+    # standalone leg and for a debit strategy group (judged on its combined
+    # value against the net debit):
+    #   scale-out: at +scale_out_gain (1.00: the mark at twice the premium
+    #     paid) sell floor(qty x scale_out_fraction) contracts (half); a lot of
+    #     1 cannot be halved, the trail manages it whole;
+    #   trail: once the peak mark has been +trail_arm_gain (0.50), sell the
+    #     rest when the mark is trail_giveback (0.35) below that peak.
+    # The mark is the quote mid, read in regular hours after 09:45 ET from a
+    # two-sided quote no wider than peak_max_spread of the mid. A scale-out
+    # order still working after scale_out_work_seconds is canceled and the
+    # rule re-armed. The 21-DTE exit, the -50% stop and the 5-DTE close are
+    # unchanged. Prior behaviour: no profit-taking rule for a bought option.
+    # The published evidence does not support premium targets (2026-11-05
+    # update: prior 20%); the human decided to run it ON so its results can be
+    # judged: trade_feedback exit_reason bought_scale_out / bought_trail_stop,
+    # one line per event in voltrade_options_profit_taking_log.jsonl.
+    # Rollback: "enabled": False.
+    "OPTIONS_PROFIT_TAKING": {"enabled": True, "scale_out_gain": 1.00, "scale_out_fraction": 0.5,
+                              "trail_arm_gain": 0.50, "trail_giveback": 0.35,
+                              "peak_max_spread": 0.50, "scale_out_work_seconds": 600},
 
     # ── PASSIVE SPY FLOOR (v1.0.29) ────────────────────────────────────
     # Problem: in calm bull years (2017, 2019, 2023) momentum signals don't work.

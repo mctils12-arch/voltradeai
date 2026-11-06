@@ -510,6 +510,17 @@ def _resubmit(io, cfg, occ, entry, pos, now):
         qty = abs(int(float(pos.get("qty", 0) or 0)))
     except (TypeError, ValueError):
         qty = 0
+    # PARTIAL CLOSES (2026-11-06, the bought-option scale-out sells half a
+    # position): re-send only what is left of this ladder's own order, never
+    # the whole position. A full close is unchanged (its own qty is the position's).
+    if entry.get("qty") is not None:
+        try:
+            own_left = int(entry["qty"]) - int(round(float(entry.get("filled_qty") or 0)))
+        except (TypeError, ValueError):
+            own_left = qty
+        if own_left <= 0:
+            return "drop", _finish(io, entry, "filled", None, now, "the ladder's own quantity is filled")
+        qty = min(qty, own_left)
     if qty <= 0:
         return "drop", _finish(io, entry, "position_gone", None, now, "nothing left to close")
     n = int(entry["steps"])

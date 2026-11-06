@@ -271,7 +271,7 @@ export interface OptionLegLevels {
   breakevenAtExpiry: number;
   /** where the sold leg keeps its whole premium at expiry (short legs only) */
   maxProfitZone: "above_strike" | "below_strike" | null;
-  /** options_manager.PROFIT_TARGET_PCT for a sold leg; null for a bought leg — the manager has no profit-taking rule for one (it rides to a DTE or loss rule) */
+  /** options_manager.PROFIT_TARGET_PCT for a sold leg; null for a bought leg — its profit taking is the scale-out + trail (OPTIONS_PT_*), not a share of max profit */
   profitTargetFrac: number | null;
 }
 
@@ -299,6 +299,15 @@ export const OPTIONS_GAMMA_DTE = 30;
 export const OPTIONS_ASSIGNMENT_DELTA = 0.8; // ASSIGNMENT_DELTA_THRESHOLD — a sold leg at |delta| > 0.80 and ≤ 10 DTE is rolled, else closed
 export const OPTIONS_ASSIGNMENT_DTE = 10;
 export const OPTIONS_MIN_HOLD_MINUTES = 60; // MIN_HOLD_MINUTES — no exit but the critical-DTE one inside the first hour
+/** BOUGHT-OPTION PROFIT TAKING (2026-11-06): system_config OPTIONS_PROFIT_TAKING's
+ *  defaults (server/positionLevels.test.ts reads them). A bought standalone leg
+ *  sells floor(qty × fraction) at +100% of its premium, then the rest once the
+ *  mark is 35% below its peak, armed after the peak has been +50%; a debit
+ *  strategy group the same on its combined value against the net debit. */
+export const OPTIONS_PT_SCALE_OUT_GAIN = 1.0;
+export const OPTIONS_PT_SCALE_OUT_FRACTION = 0.5;
+export const OPTIONS_PT_TRAIL_ARM_GAIN = 0.5;
+export const OPTIONS_PT_TRAIL_GIVEBACK = 0.35;
 /** MULTI_LEG_STRATEGIES — legs the manager groups by underlying + strategy
  *  and closes as ONE unit (_manage_strategy_group). Everything else is a
  *  standalone leg on the single-leg rules — including a leg whose state
@@ -343,9 +352,16 @@ export interface OptionExitInput {
   strategy: string | null | undefined; // the state's recorded strategy; null / "" / "unknown" = not recorded
   /** legs of the same underlying + strategy held right now, this one included (1 when alone) */
   legsInGroup?: number;
+  /** the manager's peak mark ÷ premium (options state profit_taking.peak_ratio); null until it has one */
+  peakRatio?: number | null;
+  /** the manager's scale-out record status ("submitted" | "filled" | "not_possible" | …), "blocked" when the
+   *  manager will not take profit on this leg (it may cover a sold option of its type); null when none */
+  scaleOut?: string | null;
+  /** system_config OPTIONS_PROFIT_TAKING.enabled as the server read it (absent = the default, on) */
+  profitTakingOn?: boolean;
 }
 
-export type OptionExitRuleKey = "dte_critical" | "assignment" | "dte_exit" | "profit_target" | "loss_limit" | "ic_max_loss" | "gamma" | "edge" | "hedge_roll" | "backstop";
+export type OptionExitRuleKey = "dte_critical" | "assignment" | "dte_exit" | "profit_target" | "scale_out" | "trail" | "loss_limit" | "ic_max_loss" | "gamma" | "edge" | "hedge_roll" | "backstop";
 
 export interface OptionExitRule {
   key: OptionExitRuleKey;
@@ -355,6 +371,8 @@ export interface OptionExitRule {
   inDays: number | null;
   /** the current reading already satisfies the trigger — the manager acts on its next tick (after the 60-minute hold, critical DTE excepted) */
   hit: boolean;
+  /** scale_out: the half is already sold ("done") or the lot cannot be split ("not_possible"); trail: "armed" (price = where it sells the rest) or "not_armed" (price = the mark that arms it); absent otherwise */
+  state?: "done" | "not_possible" | "armed" | "not_armed";
 }
 
 export interface OptionExitPlan {
@@ -364,9 +382,9 @@ export interface OptionExitPlan {
   strategy: string | null;
   /** the manager's checks in the order it runs them */
   rules: OptionExitRule[];
-  /** every option exit is the whole lot — a single leg's full qty, or the whole multi-leg strategy via one order; the manager never sells part of an option position */
-  partial: false;
-  /** the rule that takes profit, or null — a bought leg and the tail hedge have none (they ride until a DTE or loss rule) */
+  /** true when a scale-out can still sell part of the position (a bought leg or debit group of 2+); every other option exit is the whole lot */
+  partial: boolean;
+  /** the rule that takes profit, or null — a sold leg's / credit group's target; a bought leg's or debit group's scale-out (the trail when it cannot be split); the tail hedge has none */
   profitTarget: OptionExitRule | null;
   minHoldMinutes: number;
   legsInGroup: number;
@@ -388,6 +406,27 @@ export function optionExitPlan(i: OptionExitInput): OptionExitPlan {
   const priceRule = (key: OptionExitRuleKey, price: number | null, hit: boolean): OptionExitRule => ({ key, price, inDays: null, hit });
   const rules: OptionExitRule[] = [];
   let profitTarget: OptionExitRule | null = null;
+  let partial = false;
+  // BOUGHT-OPTION PROFIT TAKING (2026-11-06): the scale-out and the trail, priced
+  // for a standalone leg from its premium and the manager's peak; group rules carry no price.
+  const takeProfit = (perLeg: boolean): void => {
+    if (i.profitTakingOn === false || i.scaleOut === "blocked") return;
+    const lots = Math.floor(Math.abs(i.qty) * OPTIONS_PT_SCALE_OUT_FRACTION + 1e-9);
+    const done = i.scaleOut === "filled";
+    const canSplit = lots >= 1 && i.scaleOut !== "not_possible";
+    const soPrice = perLeg && entry !== null && entry > 0 ? entry * (1 + OPTIONS_PT_SCALE_OUT_GAIN) : null;
+    const so: OptionExitRule = priceRule("scale_out", soPrice, !done && canSplit && soPrice !== null && cur !== null && cur >= soPrice);
+    if (done) so.state = "done";
+    else if (!canSplit) so.state = "not_possible";
+    const peak = num(i.peakRatio);
+    const armed = peak !== null && peak >= 1 + OPTIONS_PT_TRAIL_ARM_GAIN;
+    const trailRatio = armed && peak !== null ? peak * (1 - OPTIONS_PT_TRAIL_GIVEBACK) : 1 + OPTIONS_PT_TRAIL_ARM_GAIN;
+    const trailPrice = perLeg && entry !== null && entry > 0 ? entry * trailRatio : null;
+    const tr: OptionExitRule = { ...priceRule("trail", trailPrice, armed && trailPrice !== null && cur !== null && cur > 0 && cur <= trailPrice), state: armed ? "armed" : "not_armed" };
+    rules.push(so, tr);
+    partial = !done && canSplit;
+    profitTarget = so.state === "not_possible" ? tr : so;
+  };
   if (management === "hedge") {
     rules.push(dteRule("hedge_roll", CONVEXITY_ROLL_DTE));
   } else if (management === "group") {
@@ -398,6 +437,7 @@ export function optionExitPlan(i: OptionExitInput): OptionExitPlan {
     if (strategy === "iron_condor" || strategy === "qqq_iron_condor") rules.push(priceRule("ic_max_loss", null, false));
     if (credit || debit) rules.push(priceRule("loss_limit", null, false));
     rules.push(dteRule("dte_exit", OPTIONS_DTE_EXIT_THRESHOLD));
+    if (debit) takeProfit(false);
     if (credit) rules.push(priceRule("edge", null, false));
   } else {
     rules.push(dteRule("dte_critical", OPTIONS_DTE_CRITICAL));
@@ -410,6 +450,7 @@ export function optionExitPlan(i: OptionExitInput): OptionExitPlan {
       const stop = entry !== null && entry > 0 ? entry * OPTIONS_LOSS_LIMIT_MULTIPLIER : null;
       rules.push(priceRule("loss_limit", stop, stop !== null && cur !== null && cur >= stop));
     } else {
+      takeProfit(true);
       const stop = entry !== null && entry > 0 ? entry * (1 - OPTIONS_BOUGHT_LOSS_LIMIT_FRAC) : null;
       rules.push(priceRule("loss_limit", stop, stop !== null && cur !== null && cur > 0 && cur <= stop));
     }
@@ -418,5 +459,5 @@ export function optionExitPlan(i: OptionExitInput): OptionExitPlan {
   const killPct = side === "short" ? OPTION_SHORT_KILL_LOSS_PCT : OPTION_LONG_KILL_LOSS_PCT;
   const kill = entry !== null && entry > 0 ? entry * (1 + (side === "short" ? -killPct : killPct) / 100) : null;
   rules.push(priceRule("backstop", kill, kill !== null && cur !== null && cur > 0 && (side === "short" ? cur >= kill : cur <= kill)));
-  return { side, management, strategy, rules, partial: false, profitTarget, minHoldMinutes: OPTIONS_MIN_HOLD_MINUTES, legsInGroup: legs };
+  return { side, management, strategy, rules, partial, profitTarget, minHoldMinutes: OPTIONS_MIN_HOLD_MINUTES, legsInGroup: legs };
 }

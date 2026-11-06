@@ -101,16 +101,26 @@ test("the entry marker is anchored at the fill time from heldMinutes; a candidat
   assert.deepEqual(c.zones, []);
 });
 
-test("a BOUGHT leg's legend never claims the manager's 50% target (2026-11-02): it names the DTE and loss rules it actually rides to", () => {
-  const call = overlayFor({ ticker: "GOOGL261219C00280000", qty: 1, entryPrice: 3.2, currentPrice: 12.8, isOption: true, optionMeta: { underlyingTicker: "GOOGL", strike: 280, optionType: "CALL", expiry: "2026-12-19", daysToExpiry: 47, strategy: null } }, T);
+test("a BOUGHT leg's legend never claims the manager's 50% target (2026-11-02): it names the rules it actually rides to", () => {
+  // 2026-11-06 (BOUGHT-OPTION PROFIT TAKING): with profit taking switched off this leg reads as before
+  // ("none — …", "no profit target"); on (the default) it names the scale-out and the trail (below).
+  const meta = { underlyingTicker: "GOOGL", strike: 280, optionType: "CALL", expiry: "2026-12-19", daysToExpiry: 47, strategy: null };
+  const call = overlayFor({ ticker: "GOOGL261219C00280000", qty: 1, entryPrice: 3.2, currentPrice: 12.8, isOption: true, optionMeta: { ...meta, profitTaking: { on: false, peakRatio: null, scaleOut: null } } }, T);
   assert.ok(call.levels.some((l) => l.label === "strike · long call" && l.price === 280));
   assert.ok(call.levels.some((l) => l.label === "breakeven at expiry" && Math.abs(l.price - 283.2) < 1e-9));
   assert.equal(call.zones.length, 0, "a long leg has no keep-the-premium zone");
   const target = call.legend.find(([k]) => k === "manager target")!;
-  assert.ok(target[1].startsWith("none — a bought option has no profit-taking rule"), target[1]);
+  assert.ok(target[1].startsWith("none — profit taking does not apply"), target[1]);
   const exits = call.legend.find(([k]) => k === "manager exits")!;
   assert.equal(exits[1], "whole lot at once · no profit target · force close ≤5 DTE in 42d · close at 21 DTE in 26d · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at $0.80");
   assert.ok(call.legend.some(([k, v]) => k === "strategy" && v === "not recorded"));
+  const on = overlayFor({ ticker: "GOOGL261219C00280000", qty: 1, entryPrice: 3.2, currentPrice: 12.8, isOption: true, optionMeta: meta }, T);
+  assert.equal(on.legend.find(([k]) => k === "manager target")![1], "all of it on a 35% trail off its peak once +50% (too small to sell half)");
+  const two = overlayFor({ ticker: "GOOGL261219C00280000", qty: 2, entryPrice: 3.2, currentPrice: 12.8, isOption: true, optionMeta: { ...meta, profitTaking: { on: true, peakRatio: 4.1, scaleOut: null } } }, T);
+  assert.equal(two.legend.find(([k]) => k === "manager target")![1], "sells half at +100%, then the rest on a 35% trail off its peak once +50%");
+  assert.ok(two.legend.find(([k]) => k === "manager exits")![1].includes("half at +100% at $6.40 · hit · trail: rest below $8.53 (35% off the peak)"));
+  const sold = overlayFor({ ticker: "GOOGL261219C00280000", qty: 1, entryPrice: 3.2, currentPrice: 12.8, isOption: true, optionMeta: { ...meta, profitTaking: { on: true, peakRatio: 4.1, scaleOut: "filled" } } }, T);
+  assert.equal(sold.legend.find(([k]) => k === "manager target")![1], "half sold at +100%; the rest on a 35% trail off its peak once +50%");
   // the long wing of a credit spread still shows the GROUP's target — the strategy, not the leg, has one
   const wing = overlayFor({ ticker: "META261120P00580000", qty: 1, entryPrice: 1.9, currentPrice: 1.3, isOption: true, optionMeta: { underlyingTicker: "META", strike: 580, optionType: "PUT", expiry: "2026-11-20", daysToExpiry: 18, strategy: "bull_put_credit_spread" } }, T);
   assert.equal(wing.legend.find(([k]) => k === "manager target")![1], "closes the whole bull put credit spread at 50% of its net credit");

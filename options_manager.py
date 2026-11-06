@@ -22,6 +22,7 @@ REFERENCES:
 import os
 import re
 import json
+import math
 import time
 import logging
 import requests
@@ -627,7 +628,7 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _close_strategy_mleg(legs: list, ticker: str) -> dict:
+def _close_strategy_mleg(legs: list, ticker: str, units: int = None) -> dict:
     """
     Close a multi-leg strategy using a single mleg order.
     Each leg is reversed: bought legs are sold_to_close, sold legs are bought_to_close.
@@ -645,6 +646,12 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
     the bid); a leg without a usable quote is deferred, never errored. The
     caller (_request_group_close) keeps the group's state so the deferred
     legs are closed on a later tick. The mleg POST itself is unchanged.
+
+    PARTIAL CLOSE (2026-11-06, the debit-group scale-out): `units` closes that
+    many units of every leg (each leg's ratio is 1) through the mleg order
+    only. A partial close is never split into per-leg orders, which could
+    leave part of a sold leg uncovered: a refused mleg returns the error and
+    the caller re-arms its rule.
     """
     mleg_legs = []
     qty = 0
@@ -665,6 +672,8 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
         })
     if not mleg_legs:
         return {"status": "error", "detail": "No legs to close"}
+    if units is not None:
+        qty = int(units)
     # Try mleg close first
     mleg_error = ""
     try:
@@ -699,6 +708,9 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
         return {"status": "deferred", "method": "none", "detail": str(blocked)[:200]}
     except Exception as e:
         mleg_error = str(e)[:160]
+    if units is not None:
+        return {"status": "error", "method": "mleg", "mleg_error": mleg_error,
+                "detail": f"partial mleg close of {qty} unit(s) refused ({mleg_error}); not split into per-leg orders"}
     # Fallback: close legs individually, in the order the broker accepts —
     # short legs first (buy_to_close at the ask); long wings only once no
     # short leg is left (sell_to_close at the bid).
@@ -911,7 +923,8 @@ def _max_loss_from_legs(legs: list, net_credit: float) -> float:
     return round(max_loss, 2) if max_loss > 0 else 0.0
 
 
-def _manage_strategy_group(group: dict, equity: float, state: dict, earnings: dict = None) -> list:
+def _manage_strategy_group(group: dict, equity: float, state: dict, earnings: dict = None,
+                           profit_cfg: dict = None) -> list:
     """
     Manage a multi-leg strategy as ONE unit.
 
@@ -919,7 +932,8 @@ def _manage_strategy_group(group: dict, equity: float, state: dict, earnings: di
     to the WHOLE strategy, not individual legs.
 
     `earnings` is manage_options_positions' _earnings_close_context() for the
-    pass (None: the earnings close is not judged).
+    pass (None: the earnings close is not judged). `profit_cfg` is the pass's
+    _profit_taking_settings() (None: read here).
 
     Returns: list of actions taken
     """
@@ -977,6 +991,14 @@ def _manage_strategy_group(group: dict, equity: float, state: dict, earnings: di
     # below is re-judged, and the legs are never handed to the single-leg path.
     if any(isinstance(state.get(occ), dict) and state[occ].get("close_requested_at") for occ in all_occ_symbols):
         return _pursue_group_close(group, state)
+
+    # ── PROFIT-TAKING SCALE-OUT IN FLIGHT (2026-11-06): while a debit group's
+    # partial close settles, no other rule stacks a full close on it.
+    if profit_cfg is None:
+        profit_cfg = _profit_taking_settings()
+    settling = _settle_group_scale_out(group, state, profit_cfg)
+    if settling:
+        return settling
 
     # ── Exit Rule 0: MINIMUM HOLD TIME (except DTE critical) ──────
     # Don't close positions within the first hour — the trade thesis
@@ -1195,6 +1217,16 @@ def _manage_strategy_group(group: dict, equity: float, state: dict, earnings: di
             "order": result,
         })
         return actions
+
+    # ── Exit Rule 4b: DEBIT-GROUP PROFIT TAKING (2026-11-06) ──────
+    # Half the units at +100% of the net debit, the rest on a 35% trail off
+    # the peak once it has been +50% (the BOUGHT-OPTION PROFIT TAKING block).
+    if is_debit_strategy and net_debit > 0:
+        profit_actions = _debit_group_profit_taking(group, state, net_debit, profit_cfg,
+                                                    live=_market_is_open() and not _in_opening_window())
+        if profit_actions:
+            actions.extend(profit_actions)
+            return actions
 
     # ── Exit Rule 5: SABR Edge Evaporation ────────────────────────
     try:
@@ -1748,6 +1780,456 @@ def _earnings_close_reason(ctx: dict, root: str, report_date, hour: str, session
             f"through the report")
 
 
+# ── BOUGHT-OPTION PROFIT TAKING (2026-11-06) ────────────────────────────────
+# Human directive (refocus spec §5, 2026-11-05): "hard profit-taking rules
+# (take gains when up), time-based exits ahead of theta decay, stop losses".
+# The 21-DTE time exit and the -50% stop already existed for bought options;
+# no rule ever took a gain. Built as filed in research/open_questions.md
+# ("RULE-REVIEW CANDIDATE 2026-11-02 — bought options have no profit-taking
+# exit", candidate (a)) and ON by the human's decision, although the published
+# evidence does not support targets on option premium (2026-11-05 update,
+# prior 20%), so every trigger is recorded to be judged:
+#   - SCALE-OUT: once the mark is at least (1 + scale_out_gain) x the premium
+#     paid (+100%: twice the premium), floor(qty x scale_out_fraction)
+#     contracts (half) are sold at the bid (the exit ladder works it from the
+#     mid). The rest stays open with its state and its peak. A lot of 1
+#     cannot be halved: the trail manages it whole.
+#   - TRAIL: once the peak mark has been at least (1 + trail_arm_gain) x the
+#     premium (+50%), the rest is sold when the mark is trail_giveback (35%)
+#     below that peak.
+# Who: a bought option run as a standalone leg (buy_call, buy_put, an
+# unrecorded long that is not a leftover wing) that covers no sold option of
+# the same type on its underlying, and a DEBIT strategy group (Exit Rule 4b,
+# judged on the group's value against its net debit, closed as one unit).
+# The mark is the quote's mid, read only in regular hours after the opening
+# window and only from a two-sided quote no wider than peak_max_spread of the
+# mid: a position mark outside regular hours is not a price (the 0 / 5.00
+# XLF quote of 2026-10-29), and one false high would arm a false trail. The
+# peak starts at the first such reading after this shipped; earlier highs
+# (highest_value, from the broker's marks at any hour) are not used.
+# Partial close: the half's exit is recorded (trade_feedback exit_reason
+# "bought_scale_out") once the broker's quantity shows it filled, and the
+# remainder is recorded as a new open entry at the same premium, so its own
+# exit later matches it (one record per closed part). An order that ends
+# unfilled re-arms the rule; one still working scale_out_work_seconds after it
+# reached its final price (the exit ladder's touch) is canceled and re-armed,
+# so a sale resting above a falling bid never holds the leg's other exits off. While a scale-out is settling, the leg's
+# other rules wait (no full close is stacked on the partial one). Every
+# event is one line in voltrade_options_profit_taking_log.jsonl.
+PROFIT_TAKING_LOG_FILE = "voltrade_options_profit_taking_log.jsonl"
+PROFIT_TAKING_DEFAULTS = {"enabled": True, "scale_out_gain": 1.00, "scale_out_fraction": 0.5,
+                          "trail_arm_gain": 0.50, "trail_giveback": 0.35,
+                          "peak_max_spread": 0.50, "scale_out_work_seconds": 600.0}
+_PROFIT_TAKING_BOUNDS = {"scale_out_gain": (0.05, 20.0), "scale_out_fraction": (0.05, 0.95),
+                         "trail_arm_gain": (0.0, 20.0), "trail_giveback": (0.05, 0.95),
+                         "peak_max_spread": (0.01, 2.0), "scale_out_work_seconds": (60.0, 23400.0)}
+
+
+def _profit_taking_settings() -> dict:
+    """system_config.BASE_CONFIG["OPTIONS_PROFIT_TAKING"] over the defaults. A
+    value outside its bounds keeps the default (logged); an unreadable config
+    runs the defaults."""
+    cfg = dict(PROFIT_TAKING_DEFAULTS)
+    try:
+        from system_config import BASE_CONFIG
+        raw = BASE_CONFIG.get("OPTIONS_PROFIT_TAKING", {})
+    except Exception as e:
+        logger.warning(f"system_config unreadable, profit taking runs on its defaults: {e}")
+        raw = {}
+    if not isinstance(raw, dict):
+        logger.warning(f"OPTIONS_PROFIT_TAKING is not a dict ({raw!r}): defaults used")
+        raw = {}
+    cfg["enabled"] = bool(raw.get("enabled", cfg["enabled"]))
+    for key, (lo, hi) in _PROFIT_TAKING_BOUNDS.items():
+        if key not in raw:
+            continue
+        try:
+            value = float(raw[key])
+        except (TypeError, ValueError):
+            value = float("nan")
+        if math.isfinite(value) and lo <= value <= hi:
+            cfg[key] = value
+        else:
+            logger.warning(f"OPTIONS_PROFIT_TAKING[{key!r}]={raw[key]!r} is outside [{lo}, {hi}]: default {cfg[key]} used")
+    return cfg
+
+
+def _quote_mid(snap: dict, max_spread: float):
+    """The quote's mid when it is two-sided and no wider than `max_spread` of
+    the mid; None otherwise (no usable mark this tick)."""
+    try:
+        bid = float((snap or {}).get("bid") or 0)
+        ask = float((snap or {}).get("ask") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(bid) and math.isfinite(ask)) or bid <= 0 or ask < bid:
+        return None
+    mid = (bid + ask) / 2.0
+    return mid if (ask - bid) / mid <= max_spread else None
+
+
+def _profit_taking_log(event: dict) -> None:
+    """One JSON line per profit-taking event (DATA_DIR/PROFIT_TAKING_LOG_FILE)."""
+    rec = {"at": datetime.now().isoformat(), **event}
+    try:
+        with open(os.path.join(DATA_DIR, PROFIT_TAKING_LOG_FILE), "a") as f:
+            f.write(json.dumps(rec, default=str) + "\n")
+    except OSError as e:
+        logger.warning(f"profit-taking log line not written: {e}")
+
+
+def _seconds_since(iso: str) -> float:
+    """Seconds since a naive ISO timestamp this module wrote; inf if unreadable."""
+    try:
+        return (datetime.now() - datetime.fromisoformat(str(iso))).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def _working_sells(occ_symbol: str) -> list:
+    """Open SELL orders at the broker for this contract."""
+    return [o for o in _open_orders_for([occ_symbol])
+            if isinstance(o, dict) and str(o.get("side", "")).lower() == "sell"]
+
+
+def _note_peak(pt: dict, ratio: float, at_iso: str) -> None:
+    if ratio > float(pt.get("peak_ratio") or 0):
+        pt["peak_ratio"] = round(ratio, 4)
+        pt["peak_at"] = at_iso
+
+
+def _recently(rec, status: str) -> bool:
+    """True while `rec` (a scale-out or trail record) has this status and is
+    younger than CLOSE_RETRY_SECONDS: a refused order is not re-sent every tick."""
+    return (isinstance(rec, dict) and rec.get("status") == status
+            and _seconds_since(rec.get("at") or rec.get("submitted_at")) < CLOSE_RETRY_SECONDS)
+
+
+def _profit_trigger(ratio: float, pt: dict, qty: int, cfg: dict):
+    """The profit-taking rule due at this mark (ratio = mark / premium, or a
+    group's value / net debit), or None. The trail is judged first: once it
+    is due, the whole rest goes, scaled or not."""
+    peak = float(pt.get("peak_ratio") or 0)
+    arm = 1.0 + cfg["trail_arm_gain"]
+    trail_at = peak * (1.0 - cfg["trail_giveback"])
+    if peak >= arm and ratio <= trail_at and not _recently(pt.get("trail"), "refused"):
+        return {"rule": "trail", "qty": qty, "trail_at": trail_at, "peak": peak}
+    so = pt.get("scale_out") if isinstance(pt.get("scale_out"), dict) else {}
+    if so.get("status") in ("submitted", "filled", "not_possible") or _recently(so, "refused"):
+        return None
+    if ratio >= 1.0 + cfg["scale_out_gain"]:
+        n = int(math.floor(qty * cfg["scale_out_fraction"] + 1e-9))
+        return {"rule": "scale_out", "qty": n, "peak": peak} if n >= 1 else {"rule": "not_possible", "qty": 0, "peak": peak}
+    return None
+
+
+def _record_scale_out_fill(pos_state: dict, so: dict, root: str, closed: int, entry_price: float) -> None:
+    """The scale-out's exit for the contracts that closed (at the decision-time
+    mark and P&L, like every option exit record), then the remainder as a new
+    open entry at the same premium so its own exit later matches it."""
+    before = max(int(so.get("qty_before") or 0), 1)
+    mark = float(so.get("mark") or 0)
+    pnl_closed = float(so.get("unrealized_pnl") or 0) * closed / before
+    _record_options_exit_feedback(root, "long", closed, entry_price, mark, pnl_closed, "bought_scale_out", pos_state.get("entry_timestamp"))
+    remaining = before - closed
+    if remaining <= 0:
+        return
+    try:
+        from ml_model_v2 import track_fill
+        now_iso = datetime.now().isoformat()
+        track_fill({"ticker": root, "side": "buy", "qty": remaining, "expected_price": entry_price,
+                    "fill_price": entry_price, "session": "regular", "entry_features": {},
+                    "time_placed": now_iso, "time_filled": now_iso, "code_version": _code_version()})
+    except Exception as e:
+        logger.warning(f"track_fill remainder entry after a scale-out failed for {root}: {e}")
+
+
+def _exit_ladder_entry(occ_symbol: str):
+    """The mid-first exit ladder's working entry for this contract (order_ladder's
+    state file), or None."""
+    try:
+        with open(os.path.join(DATA_DIR, order_ladder.STATE_FILE)) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        logger.warning(f"exit ladder state unreadable for {occ_symbol}: {e}")
+        return None
+    entry = data.get(occ_symbol) if isinstance(data, dict) else None
+    return entry if isinstance(entry, dict) else None
+
+
+def _settle_scale_out(pos_state: dict, occ_symbol: str, root: str, qty: int, entry_price: float,
+                      cfg: dict) -> dict:
+    """A pending scale-out (submitted on an earlier tick), judged from the
+    broker's quantity. Returns {"wait": action or None}: while its order is
+    still working (or was just sent) the leg's other rules wait."""
+    pt = pos_state.get("profit_taking") or {}
+    so = pt.get("scale_out") if isinstance(pt.get("scale_out"), dict) else None
+    if not so or so.get("status") != "submitted":
+        return {"wait": None}
+    before, want = int(so.get("qty_before") or 0), int(so.get("qty") or 0)
+    closed = max(0, min(before - qty, want))
+    age = _seconds_since(so.get("submitted_at"))
+    working = _working_sells(occ_symbol)
+    wait = {"action": "WAIT", "ticker": root, "occ_symbol": occ_symbol, "type": "bought_scale_out_working",
+            "reason": f"SCALE-OUT: selling {want} of {before} — {len(working)} order(s) working, {closed} filled so far"}
+
+    def filled() -> None:
+        so.update(status="filled", filled_qty=closed, filled_seen_at=datetime.now().isoformat())
+        pos_state["qty"] = qty
+        _record_scale_out_fill(pos_state, so, root, closed, entry_price)
+        _profit_taking_log({"event": "scale_out_filled", "occ_symbol": occ_symbol, "qty_closed": closed,
+                            "qty_left": qty, "mark": so.get("mark"), "premium": entry_price})
+
+    if closed >= want:
+        filled()
+        return {"wait": wait if working else None}
+    if working:
+        # The work window runs from when the sale is at its final price: while the
+        # mid-first exit ladder (order_ladder.py) still walks it toward the bid,
+        # it is left alone; once at the touch, from the time it got there.
+        lad = _exit_ladder_entry(occ_symbol)
+        if lad is not None and int(lad.get("step") or 0) < int(lad.get("steps") or 0):
+            return {"wait": wait}
+        clock = order_ladder.wall_clock() - float(lad.get("step_at") or 0) if lad is not None else age
+        if clock < cfg["scale_out_work_seconds"]:
+            return {"wait": wait}
+        # Still working after scale_out_work_seconds: cancel it. Nothing else is
+        # sent this tick (the canceled order could still fill alongside a new one).
+        canceled = sum(1 for o in working if _cancel_order(str(o.get("id") or "")))
+        _profit_taking_log({"event": "scale_out_canceled_stale", "occ_symbol": occ_symbol, "orders": len(working),
+                            "canceled": canceled, "age_seconds": round(age), "qty_closed": closed})
+        if closed > 0:
+            filled()
+        else:
+            so.update(status="unfilled", ended="canceled_stale", ended_at=datetime.now().isoformat())
+        wait["reason"] = (f"SCALE-OUT: {closed} of {want} filled in {int(age)}s — {canceled}/{len(working)} order(s) "
+                          f"canceled; nothing else is sent this tick")
+        return {"wait": wait}
+    if closed > 0:
+        filled()
+        return {"wait": None}
+    if age < CLOSE_RETRY_SECONDS:
+        return {"wait": wait}
+    so.update(status="unfilled", ended="no_order", ended_at=datetime.now().isoformat())
+    _profit_taking_log({"event": "scale_out_unfilled", "occ_symbol": occ_symbol, "age_seconds": round(age)})
+    return {"wait": None}
+
+
+def _bought_leg_profit_tick(pos_state: dict, occ_symbol: str, root: str, qty: int, entry_price: float,
+                            snap: dict, cfg: dict, live: bool, covers_short: bool) -> dict:
+    """Every tick for a bought standalone leg, before the hold gate: settle a
+    pending scale-out, keep the peak, and judge the triggers. Returns {"wait",
+    "trigger"} (the caller submits a trigger at Check 4b, behind the
+    regular-hours gate)."""
+    pt = pos_state.setdefault("profit_taking", {})
+    settled = _settle_scale_out(pos_state, occ_symbol, root, qty, entry_price, cfg)
+    if settled["wait"]:
+        return {"wait": settled["wait"], "trigger": None}
+    trail = pt.get("trail") if isinstance(pt.get("trail"), dict) else None
+    if trail and trail.get("status") == "submitted":
+        # The trail's close keeps the leg's state, so a close that ends unfilled
+        # (a DAY order canceled at a restart) is sent again: the peak is not lost.
+        age = _seconds_since(trail.get("submitted_at"))
+        working = _working_sells(occ_symbol)
+        if working or age < CLOSE_RETRY_SECONDS:
+            return {"wait": {"action": "WAIT", "ticker": root, "occ_symbol": occ_symbol, "type": "bought_trail_stop_working",
+                             "reason": f"PROFIT TRAIL: closing the remaining {qty} — {len(working)} order(s) working"},
+                    "trigger": None}
+        trail.update(status="unfilled", at=datetime.now().isoformat())
+        _profit_taking_log({"event": "trail_unfilled", "occ_symbol": occ_symbol, "age_seconds": round(age), "qty": qty})
+    if not cfg["enabled"] or entry_price <= 0:
+        return {"wait": None, "trigger": None}
+    if covers_short:
+        if not pt.get("blocked"):
+            pt["blocked"] = "covers a sold option of the same type on the underlying"
+            _profit_taking_log({"event": "not_applied", "occ_symbol": occ_symbol, "why": pt["blocked"]})
+        return {"wait": None, "trigger": None}
+    pt.pop("blocked", None)
+    mid = _quote_mid(snap, cfg["peak_max_spread"]) if live else None
+    if mid is None:
+        return {"wait": None, "trigger": None}
+    ratio = mid / entry_price
+    now_iso = datetime.now().isoformat()
+    was_armed = float(pt.get("peak_ratio") or 0) >= 1.0 + cfg["trail_arm_gain"]
+    _note_peak(pt, ratio, now_iso)
+    pt.update(last_mid=round(mid, 4), last_at=now_iso)
+    if not was_armed and float(pt["peak_ratio"]) >= 1.0 + cfg["trail_arm_gain"]:
+        _profit_taking_log({"event": "trail_armed", "occ_symbol": occ_symbol, "premium": entry_price,
+                            "peak_mid": round(mid, 4), "peak_ratio": pt["peak_ratio"]})
+    trig = _profit_trigger(ratio, pt, qty, cfg)
+    if trig and trig["rule"] == "not_possible":
+        pt["scale_out"] = {"status": "not_possible", "qty_before": qty, "at": now_iso,
+                           "why": f"a lot of {qty} cannot be split; the trail manages it whole"}
+        _profit_taking_log({"event": "scale_out_not_possible", "occ_symbol": occ_symbol, "qty": qty,
+                            "mid": round(mid, 4), "premium": entry_price})
+        trig = None
+    if trig:
+        trig.update(mid=mid, ratio=ratio)
+    return {"wait": None, "trigger": trig}
+
+
+def _bought_profit_reason(trig: dict, occ_symbol: str, entry_price: float, qty: int, cfg: dict) -> str:
+    gain = trig["ratio"] - 1.0
+    if trig["rule"] == "trail":
+        return (f"PROFIT TRAIL: {occ_symbol} mark ${trig['mid']:.2f} is {cfg['trail_giveback']:.0%} or more below its "
+                f"peak ${trig['peak'] * entry_price:.2f} (premium ${entry_price:.2f}, now {gain:+.0%}) — selling the "
+                f"remaining {qty}")
+    return (f"PROFIT SCALE-OUT: {occ_symbol} mark ${trig['mid']:.2f} is {gain:+.0%} on the ${entry_price:.2f} premium "
+            f"(target +{cfg['scale_out_gain']:.0%}) — selling {trig['qty']} of {qty}; the rest rides with a "
+            f"{cfg['trail_giveback']:.0%} trail off its peak")
+
+
+def _group_mid_value(legs: list, max_spread: float):
+    """A strategy group's value now from its legs' quote mids (long legs add,
+    short legs subtract, x qty x 100), or None when any leg has no usable
+    two-sided quote this tick."""
+    value = 0.0
+    for pos in legs:
+        mid = _quote_mid(_get_option_snapshot(pos.get("symbol", "")) or {}, max_spread)
+        if mid is None:
+            return None
+        q = abs(int(float(pos.get("qty", 0) or 0)))
+        value += (mid if pos.get("side", "long") != "short" else -mid) * q * 100
+    return value
+
+
+def _group_profit_states(group: dict, state: dict, create: bool = True) -> list:
+    """Every leg's "group_profit_taking" record (created empty when `create`),
+    or [] when a leg has no state to keep it in (or, not creating, no record)."""
+    occs = [pos.get("symbol", "") for pos in group["legs"]]
+    if not occs or not all(isinstance(state.get(o), dict) for o in occs):
+        return []
+    if not create:
+        recs = [state[o].get("group_profit_taking") for o in occs]
+        return recs if all(isinstance(r, dict) for r in recs) else []
+    return [state[o].setdefault("group_profit_taking", {}) for o in occs]
+
+
+def _settle_group_scale_out(group: dict, state: dict, cfg: dict) -> list:
+    """A debit group's pending scale-out (one partial mleg order), judged from
+    the legs' quantities before any other group rule: [WAIT action] while it
+    is settling (no full close is stacked on it), else []."""
+    pts = _group_profit_states(group, state, create=False)
+    so = next((p["scale_out"] for p in pts if isinstance(p.get("scale_out"), dict)), None)
+    if not so or so.get("status") != "submitted":
+        return []
+    legs, ticker, strategy = group["legs"], group["ticker"], group["strategy"]
+    occs = [pos.get("symbol", "") for pos in legs]
+    qtys = {pos.get("symbol", ""): abs(int(float(pos.get("qty", 0) or 0))) for pos in legs}
+    before = {k: int(v) for k, v in (so.get("qty_before") or {}).items()}
+    closed = min((max(0, before.get(o, 0) - qtys.get(o, 0)) for o in occs), default=0)
+    age = _seconds_since(so.get("submitted_at"))
+    working = _open_orders_for(occs)
+    wait = [{"action": "WAIT", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_scale_out_working",
+             "reason": f"SCALE-OUT: closing {so.get('units')} unit(s) of {strategy} — {len(working)} order(s) working, "
+                       f"{closed} unit(s) filled so far"}]
+
+    def filled() -> None:
+        so.update(status="filled", filled_units=closed, filled_seen_at=datetime.now().isoformat())
+        _profit_taking_log({"event": "group_scale_out_filled", "ticker": ticker, "strategy": strategy, "legs": occs,
+                            "units_closed": closed, "ratio": so.get("ratio")})
+
+    out = []
+    if working and age < cfg["scale_out_work_seconds"]:
+        out = wait
+    elif working:
+        # still working after scale_out_work_seconds: canceled; nothing else is sent this tick
+        canceled = sum(1 for o in working if _cancel_order(str(o.get("id") or "")))
+        _profit_taking_log({"event": "group_scale_out_canceled_stale", "ticker": ticker, "strategy": strategy,
+                            "legs": occs, "canceled": canceled, "age_seconds": round(age), "units_closed": closed})
+        if closed > 0:
+            filled()
+        else:
+            so.update(status="unfilled", ended="canceled_stale", ended_at=datetime.now().isoformat())
+        out = wait
+    elif closed > 0:
+        filled()
+    elif age < CLOSE_RETRY_SECONDS:
+        out = wait
+    else:
+        so.update(status="unfilled", ended="no_order", ended_at=datetime.now().isoformat())
+        _profit_taking_log({"event": "group_scale_out_unfilled", "ticker": ticker, "strategy": strategy,
+                            "legs": occs, "age_seconds": round(age)})
+    for p in pts:
+        p["scale_out"] = dict(so)
+    return out
+
+
+def _debit_group_profit_taking(group: dict, state: dict, net_debit: float, cfg: dict, live: bool) -> list:
+    """Exit Rule 4b for a DEBIT strategy group: the scale-out (half of every
+    leg, one partial mleg order) and the trail (the whole group, through the
+    pursued group close), judged on the group's value from its legs' quote
+    mids against its net debit. State: every leg's "group_profit_taking"."""
+    pts = _group_profit_states(group, state)
+    if not pts or net_debit <= 0 or not cfg["enabled"] or not live:
+        return []
+    legs, ticker, strategy = group["legs"], group["ticker"], group["strategy"]
+    occs = [pos.get("symbol", "") for pos in legs]
+    qtys = {pos.get("symbol", ""): abs(int(float(pos.get("qty", 0) or 0))) for pos in legs}
+    value = _group_mid_value(legs, cfg["peak_max_spread"])
+    if value is None:
+        return []
+    ratio = value / net_debit
+    now_iso = datetime.now().isoformat()
+    pt = {"peak_ratio": max(float(p.get("peak_ratio") or 0) for p in pts),
+          "peak_at": max((str(p.get("peak_at") or "") for p in pts), default="")}
+    so = next((p["scale_out"] for p in pts if isinstance(p.get("scale_out"), dict)), None)
+    if so:
+        pt["scale_out"] = so
+    was_armed = pt["peak_ratio"] >= 1.0 + cfg["trail_arm_gain"]
+    _note_peak(pt, ratio, now_iso)
+    for p in pts:
+        p.update(peak_ratio=pt["peak_ratio"], peak_at=pt["peak_at"], last_ratio=round(ratio, 4), last_at=now_iso)
+    if not was_armed and pt["peak_ratio"] >= 1.0 + cfg["trail_arm_gain"]:
+        _profit_taking_log({"event": "group_trail_armed", "ticker": ticker, "strategy": strategy, "legs": occs,
+                            "net_debit": round(net_debit, 2), "peak_ratio": pt["peak_ratio"]})
+    units = min(qtys.values()) if qtys and len(set(qtys.values())) == 1 else 0
+    trig = _profit_trigger(ratio, pt, units, cfg)
+    gain = ratio - 1.0
+    if not trig:
+        return []
+    if trig["rule"] == "trail":
+        reason = (f"PROFIT TRAIL: {strategy} value ${value:,.0f} is {cfg['trail_giveback']:.0%} or more below its peak "
+                  f"${trig['peak'] * net_debit:,.0f} (net debit ${net_debit:,.0f}, now {gain:+.0%}) — closing it")
+        result = _request_group_close(legs, ticker, state, "strategy_trail_stop", reason)
+        _profit_taking_log({"event": "group_trail_close", "ticker": ticker, "strategy": strategy, "legs": occs,
+                            "ratio": round(ratio, 4), "peak_ratio": pt["peak_ratio"], "order_status": result.get("status")})
+        return [{"action": "CLOSE_STRATEGY", "ticker": ticker, "strategy": strategy, "legs": occs, "reason": reason,
+                 "type": "strategy_trail_stop", "combined_pnl": round(value - net_debit, 2), "order": result}]
+    if trig["rule"] == "not_possible":
+        why = f"{units} unit cannot be split" if units else "its legs hold different quantities"
+        note = {"status": "not_possible", "at": now_iso, "why": f"{why}; the trail manages it whole"}
+        for p in pts:
+            p["scale_out"] = dict(note)
+        _profit_taking_log({"event": "group_scale_out_not_possible", "ticker": ticker, "strategy": strategy,
+                            "legs": occs, "why": note["why"], "ratio": round(ratio, 4)})
+        return []
+    n = trig["qty"]
+    reason = (f"PROFIT SCALE-OUT: {strategy} value ${value:,.0f} is {gain:+.0%} on its ${net_debit:,.0f} net debit "
+              f"(target +{cfg['scale_out_gain']:.0%}) — closing {n} of {units} unit(s); the rest rides with a "
+              f"{cfg['trail_giveback']:.0%} trail off its peak")
+    if not _market_is_open() or _in_opening_window():
+        return [{"action": "CLOSE_STRATEGY", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_scale_out",
+                 "reason": f"{reason} — deferred", "order": {"status": "deferred", "method": "none",
+                                                              "detail": "outside regular hours or before 09:45 ET"}}]
+    result = _close_strategy_mleg(legs, ticker, units=n)
+    accepted = result.get("status") == "submitted"
+    record = ({"status": "submitted", "units": n, "qty_before": qtys, "order_id": result.get("order_id", ""),
+               "submitted_at": now_iso, "ratio": round(ratio, 4), "value": round(value, 2), "net_debit": round(net_debit, 2)}
+              if accepted else {"status": "refused", "at": now_iso, "detail": str(result.get("detail", ""))[:200]})
+    for p in pts:
+        p["scale_out"] = dict(record)
+    _profit_taking_log({"event": "group_scale_out_submitted" if accepted else "group_scale_out_refused",
+                        "ticker": ticker, "strategy": strategy, "legs": occs, "units": n, "of_units": units,
+                        "ratio": round(ratio, 4), "order_status": result.get("status"),
+                        "detail": str(result.get("detail", ""))[:200]})
+    return [{"action": "CLOSE_STRATEGY", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_scale_out",
+             "reason": reason, "partial": True, "units": n, "of_units": units,
+             "combined_pnl": round(value - net_debit, 2), "order": result}]
+
+
 def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
                              roll_skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
     """
@@ -1863,10 +2345,17 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     # multi-leg strategy it came from: as a one-leg "group" no group rule can
     # exit it (a long wing has no net credit to take profit on).
     legs_per_underlying: dict = {}
+    # BOUGHT-OPTION PROFIT TAKING (2026-11-06): (underlying, call/put) of every
+    # sold option held. A bought leg of the same type on the same underlying
+    # may be the wing that covers it, so profit taking never sells part of it.
+    sold_types: set = set()
     for _p in options_positions:
         _parsed = _parse_occ_symbol(_p.get("symbol", ""))
         if _parsed:
             legs_per_underlying[_parsed["ticker"]] = legs_per_underlying.get(_parsed["ticker"], 0) + 1
+            if _p.get("side", "long") == "short":
+                sold_types.add((_parsed["ticker"], _parsed["option_type"]))
+    profit_cfg = _profit_taking_settings()
 
     for pos in options_positions:
         occ = pos.get("symbol", "")
@@ -1929,7 +2418,7 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
 
     # ── Phase 1: Manage multi-leg strategy groups ─────────────────────
     for group_key, group in strategy_groups.items():
-        group_actions = _manage_strategy_group(group, equity, state, earnings)
+        group_actions = _manage_strategy_group(group, equity, state, earnings, profit_cfg)
         actions.extend(group_actions)
         positions_checked += len(group["legs"])
 
@@ -2107,6 +2596,20 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
             if result.get("status") == "submitted":
                 state.pop(occ_symbol, None)
             continue
+
+        # ── BOUGHT-OPTION PROFIT TAKING (2026-11-06): every tick, before the
+        # hold gate — settle a pending scale-out, keep the peak mark, judge the
+        # triggers (submitted at Check 4b). While a scale-out is settling the
+        # leg's other rules wait, so no full close is stacked on the partial one.
+        _pt = {"wait": None, "trigger": None}
+        if side == "long":
+            _pt = _bought_leg_profit_tick(
+                pos_state, occ_symbol, parsed["ticker"], qty, entry_price, snap, profit_cfg,
+                live=_market_is_open() and not _in_opening_window(),
+                covers_short=(parsed["ticker"], parsed["option_type"]) in sold_types)
+            if _pt["wait"]:
+                actions.append(_pt["wait"])
+                continue
 
         # ── MINIMUM HOLD TIME GATE ──────────────────────────────────────
         # Skip all non-critical exit checks if position held < 1 hour
@@ -2296,6 +2799,75 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
                     })
                     state.pop(occ_symbol, None)
                     continue
+
+        # ── Check 4b: BOUGHT-OPTION PROFIT TAKING (2026-11-06) ──────────────
+        # The scale-out (half at +100%) and the trail (the rest, 35% off the
+        # peak once it has been +50%): see the block above manage_options_positions.
+        _trig = _pt["trigger"]
+        if side == "long" and _trig:
+            _rule = "bought_trail_stop" if _trig["rule"] == "trail" else "bought_scale_out"
+            _pt_reason = _bought_profit_reason(_trig, occ_symbol, entry_price, qty, profit_cfg)
+            if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, _rule, _pt_reason, dte):
+                continue
+            if _working_sells(occ_symbol):
+                actions.append({"action": "WAIT", "ticker": parsed["ticker"], "occ_symbol": occ_symbol,
+                                "reason": f"{_pt_reason} — a sell order is already working at the broker",
+                                "type": f"{_rule}_working", "dte": dte})
+                continue
+            limit_px = snap.get("bid", 0) if snap else 0
+            if not limit_px or limit_px <= 0:
+                actions.append({"action": "HOLD", "ticker": parsed["ticker"], "occ_symbol": occ_symbol,
+                                "reason": f"{_pt_reason} — no bid quoted, judged again next tick",
+                                "type": f"{_rule}_no_bid", "dte": dte})
+                continue
+            _pt_qty = _trig["qty"]
+            result = _submit_close_order(occ_symbol, _pt_qty, "sell", limit_px)
+            _pt_event = {"event": "trail_submitted" if _rule == "bought_trail_stop" else "scale_out_submitted",
+                         "occ_symbol": occ_symbol, "qty": _pt_qty, "of_qty": qty, "limit": limit_px,
+                         "mid": round(_trig["mid"], 4), "premium": entry_price, "ratio": round(_trig["ratio"], 4),
+                         "peak_ratio": _trig["peak"], "order_status": result.get("status"),
+                         "order_id": result.get("order_id", ""), "detail": str(result.get("detail", ""))[:200]}
+            _profit_taking_log(_pt_event)
+            actions.append({
+                "action": "CLOSE",
+                "ticker": parsed["ticker"],
+                "occ_symbol": occ_symbol,
+                "reason": _pt_reason,
+                "type": _rule,
+                "dte": dte,
+                "qty": _pt_qty,
+                "of_qty": qty,
+                "partial": _pt_qty < qty,
+                "pnl": round(unrealized_pnl, 2),
+                "gain_pct": round((_trig["ratio"] - 1.0) * 100, 1),
+                "peak_gain_pct": round((_trig["peak"] - 1.0) * 100, 1),
+                "order": result,
+            })
+            # Both keep the leg's state: the scale-out's rest rides with its peak,
+            # and an unfilled trail close is sent again (_bought_leg_profit_tick).
+            _pt_state = pos_state.setdefault("profit_taking", {})
+            _now_iso = datetime.now().isoformat()
+            _accepted = result.get("status") == "submitted"
+            if _rule == "bought_trail_stop":
+                if not _pt_state.get("trail_recorded"):
+                    _record_options_exit_feedback(parsed["ticker"], side, qty, entry_price, current_price,
+                                                   unrealized_pnl, "bought_trail_stop", pos_state.get("entry_timestamp"),
+                                                   order_result=result)
+                    _pt_state["trail_recorded"] = _accepted
+                _pt_state["trail"] = ({"status": "submitted", "submitted_at": _now_iso, "order_id": result.get("order_id", ""),
+                                       "qty": qty, "limit": limit_px, "ratio": round(_trig["ratio"], 4)}
+                                      if _accepted else
+                                      {"status": "refused", "at": _now_iso, "detail": str(result.get("detail", ""))[:200]})
+            elif _accepted:
+                # its exit is recorded once the broker's quantity shows the fill
+                _pt_state["scale_out"] = {
+                    "status": "submitted", "qty": _pt_qty, "qty_before": qty, "order_id": result.get("order_id", ""),
+                    "submitted_at": _now_iso, "limit": limit_px, "mid": round(_trig["mid"], 4),
+                    "mark": current_price, "unrealized_pnl": unrealized_pnl, "ratio": round(_trig["ratio"], 4)}
+            elif result.get("status") == "error":
+                _pt_state["scale_out"] = {"status": "refused", "at": _now_iso, "detail": str(result.get("detail", ""))[:200]}
+            state[occ_symbol] = pos_state
+            continue
 
         # ── Check 5: Loss Limit (2x credit for sold, 100% for bought) ──
         if side == "short":
