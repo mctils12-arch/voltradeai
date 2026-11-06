@@ -590,10 +590,32 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             result = option_fair_value.apply(result, strategy, ticker, price, surface_data, liquid)
         except Exception as _fv_err:
             logger.warning(f"fair-value check failed for {ticker} ({strategy}); entry not judged: {_error_with_frame(_fv_err)}")
+        # TAX FILTER (2026-11-06, refocus spec §6; tax_filter.py): every option
+        # OPEN is judged here, on its own premium, expiry and costs, before any
+        # caller builds an order from it (submit_options_order is untouched).
+        if result and not result.get("error"):
+            result = _tax_gate_contract(result, ticker, strategy, metadata, price, shadow=trade is None)
         return result
     
     except Exception as e:
         return {"error": f"Contract selection failed: {_error_with_frame(e)}"}
+
+
+def _tax_gate_contract(contract: dict, ticker: str, strategy: str, metadata, price: float,
+                       shadow: bool = True) -> dict:
+    """The tax filter's verdict on a selected contract: the contract (carrying a
+    `tax` summary) when allowed, else {"error": "tax filter: ..."} — the shape
+    every select_contract caller already treats as "no contract" (tier
+    dispatcher T-FAIL line, scanner OPTIONS-SKIP, evaluate_and_execute's stock
+    fallback, which scan_market already judged). `shadow`: write the
+    "rejected_tax" shadow record only for opens no scan candidate record
+    covers (evaluate_and_execute passes its trade, which has one)."""
+    import tax_filter
+    row = tax_filter.gate_option_contract(contract, ticker, strategy, metadata=metadata,
+                                          underlying_price=price, shadow=shadow)
+    if row.get("allowed", True):
+        return {**contract, "tax": tax_filter.summary(row)}
+    return {"error": tax_filter.skip_error(row), "tax": tax_filter.summary(row), "price": price}
 
 
 def _error_with_frame(e: Exception) -> str:

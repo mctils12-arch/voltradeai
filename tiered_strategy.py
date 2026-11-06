@@ -1174,6 +1174,9 @@ def tier4_tail_hedge(ctx: TierContext) -> List[TierAction]:
             "target_dte": T4_PUT_DTE_TARGET,
             "target_delta": T4_PUT_DELTA_TARGET,
             "premium_budget": per_roll_budget,
+            # 2026-11-06 (tax_filter.py): insurance — the tax filter logs it,
+            # never prices it against SPY (a hedge's expected return is negative by design)
+            "tax_role": "hedge",
         },
     )]
 

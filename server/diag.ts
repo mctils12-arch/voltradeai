@@ -33,6 +33,11 @@ export const DIAG_PROBES = [
   // underlying root (symbols, per the 2026-07-07 widening), the non-trade
   // cash ledger and the equity reconciliation; no per-fill/activity rows.
   "benchmark", "sleeves",
+  // ADDED 2026-11-06 (refocus spec §6, tax_filter.py): the tax filter's
+  // entry decisions (allowed / skipped, the after-tax estimate vs SPY, the
+  // plain-English reason) — the SAME body as the owner's /api/bot/tax
+  // (server/taxAware.ts). Paper-account symbols only; read-only.
+  "tax",
   // ADDED 2026-10-28 (regime & volatility engine program, docs/regime/
   // FINDINGS.md step 3): the regime engine's daily report — the SAME body
   // the owner's /api/bot/regime serves (server/regimeReport.ts): latest

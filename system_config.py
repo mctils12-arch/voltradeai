@@ -501,6 +501,47 @@ BASE_CONFIG = {
         "strike_range_high":   0.90,             # Strike search: 90% of QQQ price
     },
 
+    # ── TAX FILTER (2026-11-06, refocus spec §6 / pipeline step 8; tax_filter.py) ──
+    # Before every NEW entry (stock/ETF scan trades, tier BUYs, option opens at
+    # contract selection) the bot estimates the trade's after-tax expected
+    # return over its expected holding period and compares it with holding SPY
+    # for the same days after long-term tax; entries whose after-tax edge is not
+    # above MIN_EDGE_ANNUAL_PCT (scaled to the holding period) are skipped. Every
+    # decision is logged (DATA_DIR/voltrade_tax_decisions.jsonl, GET /api/bot/tax).
+    # Estimates at assumed rates — the paper account pays no tax. Prior
+    # behaviour: no tax filter. Rollback: "ENABLED": False keeps computing and
+    # logging every decision but skips nothing (rows carry enforced=false).
+    # Expected effect: marginal positive-expectancy entries (e.g. cheap-strike
+    # CSPs where the per-contract fee eats the edge) and every negative-
+    # expectancy entry the sizer would still size are skipped.
+    "TAX_FILTER": {
+        "ENABLED": True,
+        # = server/taxLedger.ts DEFAULT_TAX_RATES (federal 24 % ordinary /
+        # 15 % long-term; no state, no NIIT) — test_tax_filter.py pins parity
+        "SHORT_TERM_RATE": 0.24,
+        "LONG_TERM_RATE": 0.15,
+        # ASSUMPTION, not a forecast: the long-run average nominal total return
+        # of US large-cap stocks, ~10 %/yr 1926-2024 (Ibbotson SBBI large-cap
+        # series). The paper account credits no dividends, so its SPY earns
+        # about the dividend yield (~1.3 %/yr) less: at a ~6-day hold that is
+        # ~0.02 pp, making this filter very slightly stricter than the paper
+        # benchmark.
+        "SPY_EXPECTED_RETURN_ANNUAL_PCT": 10.0,
+        # the after-tax edge over SPY a trade must EXCEED, per year of holding,
+        # scaled to its holding period (2 %/yr = 0.035 pp over 6.4 days)
+        "MIN_EDGE_ANNUAL_PCT": 2.0,
+        # subtract the repo's modeled round-trip cost. The bucket stats are
+        # already net of the costs their own trades paid, so this counts costs
+        # about twice: conservative by design (spec: costs first)
+        "SUBTRACT_COSTS": True,
+        # mean CALENDAR days held in the sample the Kelly priors were measured
+        # on (backtest_10yr_results.json NEW_CSP_ONLY: options 1226 trades,
+        # stocks 83, etfs 242; "vrp" has no trades there, so the whole
+        # sample's mean). test_tax_filter.py recomputes them from the file.
+        "HOLD_DAYS": {"stocks": 6.36, "etf": 6.76, "csp_options": 6.39, "vrp": 6.45},
+        "LOG_MAX_BYTES": 4 * 1024 * 1024,   # rotate the decision log to .1 above this
+    },
+
     # ── AGGRESSIVE TREND EXITS (pro-level) ────────────────────────────
     # Override QQQ floor allocation when trend signals fire.
     # Death cross (50d < 200d MA AND price < 200d): cap at 20%

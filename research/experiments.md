@@ -115309,3 +115309,88 @@ Rollback trigger: over the first 10 laddered group closes, any second order on o
 Tests: test_options_mleg_ladder.py (25): the combination's quote (a condor close pays a debit, a debit spread close receives a credit, unusable quotes, a worthless wing), the signed limit, the plan (mid first, natural last, a one-tick combination skipped), next_step (waits, steps, holds, never backs off, cancels at the natural after touch_seconds, waits on a flipped or missing quote), settings (on, env wins, auto off on paper, broken entry off); _close_strategy_mleg (the limit at the net mid with its plan; a credit close sends a negative limit; a refused limit falls back to the market mleg in the same call; off / no quote / a spent ladder send the market mleg; both refused still reach the per-leg fallback); the pursuit end to end (mid, wait, step 2, the natural, the touch timeout cancel, then the market mleg; no step while closed or in the opening window; a refused replace cancels and falls back; a filled order ends the close); a debit group's partial scale-out laddered; debit-vertical entries (the net mid with the plan, sizing on the natural, off / credit / one-tick untouched, evaluate_and_execute sends the mid and registers the walk, the walk to the natural that rests and finishes on the fill with its log line, no step while closed, an old entry dropped). server/optionsMgmtAudit.test.ts (+1): a multi-leg ladder step is one OPTIONS-LADDER row in its own words. Rebased onto main 3c86c0fb (#1648), keeping its fill-ledger hook: every accepted mleg close (limit or market) still writes option_fill_ledger.record_mleg_order rows. Existing suites pass (554 options / entry / broker-clock-gate / fill-ledger tests, 1 skipped; the gate's 21-POST pin holds); TS 120 passed across the 16 test files that read the touched sources (incl. server/dailyLine). Counter ratchet OK; tsc 6 (baseline 6); test_ts_code_only 11.
 
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (tax_filter.py, system_config.py, bot_engine.py, options_execution.py, tiered_strategy.py, server/taxAware.ts, server/bot.ts, server/diag.ts, conftest.py) — Tax filter: every new entry must beat holding SPY after short-term tax
+VERSION: v1.0.1313 (shipped 2026-11-06 by the parent session; main was v1.0.1312)
+
+WHY. Refocus spec 2026-11-05 §6 and pipeline step 8 (human): "Before every
+trade estimate after-tax expected return vs holding SPY long-term; skip
+trades whose edge does not survive short-term tax." Nothing in the entry path
+looked at tax. The after-tax benchmark (server/afterTaxBenchmark.ts) and the
+tax ledger (server/taxLedger.ts) only measure afterwards. Live tax ledger
+(diag sleeves, 2026-11-06 00:01Z): 1,972 short-term closes, 0 long-term, net
+short -$15,892, $22,086 of losses disallowed as wash sales, so +$6,194 is
+taxable short-term after netting (estimated tax $1,487 at 24 %).
+
+THE CHANGE. tax_filter.py (new). For each NEW entry: expected = p·W − (1−p)·L
+from position_sizing._get_historical_stats() for the trade's bucket
+(_infer_strategy), the numbers the Kelly sizer already sizes it with; holding
+= the mean calendar hold of the sample those stats were measured on
+(backtest_10yr_results.json NEW_CSP_ONLY: stocks 6.36 d, etf 6.76, options
+6.39, all 6.45; the test recomputes them); costs = the repo's round-trip model
+(sizing's _estimate_costs for shares; for options the fee per contract and the
+30 % entry walk at MAX_SPREAD_PCT, on the strike notional); tax = 24 %
+short-term (15 % beyond a year); SPY = 10 %/yr assumed (labelled ASSUMPTION)
+× days/365 × (1 − 15 %). Allowed iff afterTax − spyAfterTax > 2 %/yr ×
+days/365. The composite score is NOT used: open_questions.md [CRITICAL
+2026-10-26] found it anti-predictive. Wiring: bot_engine.scan_market stock
+loop after sizing (a skip is a SIZE-BLOCK row and a "rejected_tax" shadow
+relabel; a skipped stock fallback makes an options-chosen trade options-only);
+tier-engine BUY actions; options_execution.select_contract judges every option
+open on its own contract (a skip returns the "no contract" error every caller
+already handles, plus a rejected_tax shadow record for tier/scanner opens);
+the T4 hedge is tagged tax_role "hedge" and never priced; long premium has no
+measured stats and is logged "not estimated", never guessed. Every decision
+goes to DATA_DIR/voltrade_tax_decisions.jsonl (one row per ticker, instrument
+and verdict per UTC day, rotated at 4 MB). GET /api/bot/tax (owner) and the
+"tax" diag probe serve them with the broker's live expectancy beside the
+sizer's estimate. Switch: TAX_FILTER.ENABLED (False = log, skip nothing).
+
+WHAT IT DOES TODAY (priors; the local stats are the defaults): stocks
+expectancy −0.11 %/trade → skipped (Kelly already blocks them); leveraged
+ETFs +0.56 % → +0.40 % after costs and tax vs SPY +0.16 % → allowed; CSPs
++0.36 % → allowed when costs are small against the notional, skipped when the
+fee and spread allowance eat the edge (CMCSA $24 put, $0.79 premium: +0.16 %
+vs SPY +0.15 %, edge +0.01 pp < 0.035 pp → skipped; a $150 strike with $2.50:
+edge +0.08 pp → allowed).
+
+DIVERGENCE FOUND (filed for the sizer, not acted on here): the live broker
+ledger (diag lots, 2026-11-06) has 316 closed short-option lots at 20.6 %
+win rate and −19.2 % of premium per lot (−$9,670), while the csp_options
+prior says 71.6 % and +0.36 % of notional. The filter prices the tax question
+on the sizer's expectancy on purpose (one logical change; attribution); the
+route shows the live number beside it.
+
+BIASES. Costs are counted about twice (the stats are already net) — strict.
+SPY's return is an assumption; the paper SPY earns no dividends (~0.02 pp over
+6 days). Defined-risk structures are measured on their notional, so their
+capital efficiency is not credited. Estimates at assumed rates; paper pays no
+tax.
+
+DOWNSTREAM (2 steps). Skipped stock-loop candidates free their slot for the
+next candidate in the same scan, so the scan may return a different, lower
+score name → executeTrades places that order instead. Skipped CSPs leave
+options slots and cash unused → CSP collateral stays in cash, so the options
+sleeve's exposure and its share of the T-FAIL lines rise. T3 BUY is dormant
+(FLOOR_MODE vol_managed_spy); the floor and every exit are untouched.
+
+ROLLBACK TRIGGER. TAX_FILTER.ENABLED = False if, after 20 trading days, the
+rejected_tax shadow bucket's +20d mean beats the taken buckets' by more than
+1 pp on ≥ 20 records, or the filter skips more than 90 % of priced entries
+for 10 trading days (then it is acting as an edge gate, not a tax filter).
+
+TESTS. test_tax_filter.py (36): math by hand, a marginal short-term trade
+skipped and a strong one allowed, negative expectancy, off switch, premium
+cap, long-term rate, the decision log (dedupe, rotation, torn lines, failing
+write), the option gate (cheap vs rich CSP, expiry cap, condor costs, long
+premium, hedge, fail-open, one shadow record), the scan/tier gates, the
+select_contract gate, source pins of the wiring, and parity of every mirrored
+constant (system_config, taxLedger.ts rates, backtest hold days, WALK_PCT,
+the sizer's csp bucket). server/taxAware.test.ts (7): row shape, newest-first
+bounded read, body shape, route + probe wiring, a Python-written row read back
+by the TS reader. test_shadow_scan_gate_relabel.py: the site list gains
+("rejected_tax", "continue"). conftest.py: session fixture _hermetic_tax_files
+points tax_filter's data dir at a temp dir (existing select_contract tests now
+pass through the gate and would otherwise append rows to the real DATA_DIR).
+
+STARVED: no.
