@@ -5,23 +5,27 @@ step 6 "options flow/positioning: dealer gamma, implied vs realized vol").
 
 SOURCE — NOT OURS. SqueezeMetrics' free DIX.csv (date, price, dix, gex), their
 model ESTIMATE of S&P 500 dealers' gamma ($ per 1% move; it assumes dealers are
-long calls and short puts). The server's existing squeeze_gex stream
-(server/squeezeGex.ts, every 6 h) caches it under
-<DATA_DIR>/datacore_archive/squeeze_gex/<year>.jsonl[.gz]. This module only
-READS that cache: it never fetches, so the bot adds no second retriever of
-their file. SqueezeMetrics' Terms of Service (squeezemetrics.com/monitor/terms,
-read 2026-11-06) grant no licence to the data and say users may not
-"systematically retrieve data or other content from the Platform to create or
-compile, directly or indirectly, a collection, compilation, database, or
-directory without written permission"; the content is "for general
-information only". No CSV-specific terms are published. So: internal use only,
-never redistributed, and no raw GEX value leaves this process (the scan field
-and the diag probe carry the rank, the date and the verdict only).
+long calls and short puts). SqueezeMetrics' Terms of Service
+(squeezemetrics.com/monitor/terms, read 2026-11-06) grant no licence to the
+data and say users may not "systematically retrieve data or other content from
+the Platform to create or compile, directly or indirectly, a collection,
+compilation, database, or directory without written permission"; the content
+is "for general information only". No CSV-specific terms are published. So
+NOTHING of it is stored (2026-11-06): the server's squeeze_gex poll
+(server/squeezeGex.ts, every 6 h) reads the file — which carries its own daily
+history — in memory and writes only a DERIVED summary, SUMMARY_FILE in the data
+dir (the latest row's date, the row count, the trailing-252 rank, the sign of
+the latest GEX, the fetch time; no SqueezeMetrics value). This module only READS
+that summary: it never fetches, so the bot adds no second retriever of their
+file, and no raw GEX value is ever in this process (the scan field and the diag
+probe carry the rank, the date and the verdict only). Until 2026-11-06 the
+server kept a daily archive of the file under datacore_archive/squeeze_gex/ and
+this module read that; the server deletes it at boot.
 
 RANK — bit-for-bit gate 2's definition (scripts/edge_p1_dealer_gamma.
-trailing_pct_rank, server/squeezeGex.trailingPctRank): R_t = (count of the 252
-rows ending at t with GEX < G_t + 0.5 x ties excluding itself) / 251, using
-rows <= t only; undefined until 252 rows exist.
+trailing_pct_rank; server/squeezeGex.trailingPctRank computes it into the
+summary): R_t = (count of the 252 rows ending at t with GEX < G_t + 0.5 x ties
+excluding itself) / 251, using rows <= t only; undefined until 252 rows exist.
 
 THE RULE (research/edge_preregistration.md § P1, gate 3): no NEW short premium
 when the last published R is below DEALER_GAMMA_LOW_RANK (0.2). Gate 3
@@ -32,9 +36,10 @@ credit spreads) are LOGGED as "would skip" unless DEALER_GAMMA_ENFORCE_SHORT_PUT
 while two-sided / call-side short premium (iron condors, strangles) is skipped.
 Bought options are never affected.
 
-FAILS OPEN. Filter disabled, archive missing, < 252 rows, a latest row older
-than DEALER_GAMMA_MAX_STALE_SESSIONS NYSE sessions, or a read error -> the
-filter is INACTIVE: it never blocks, and its state says why.
+FAILS OPEN. Filter disabled, no summary yet, < 252 rows, a latest row older
+than DEALER_GAMMA_MAX_STALE_SESSIONS NYSE sessions, or a read error (an
+unreadable or malformed summary included) -> the filter is INACTIVE: it never
+blocks, and its state says why.
 
 OUR OWN GEX. The open-interest sidecar (server/optionsOiArchive.ts, recording
 since 2026-10-29) is gate 1's input. It holds a handful of sessions, far short
@@ -49,7 +54,6 @@ and action. The latest state is written to DEALER_GAMMA_STATE_PATH for the
 """
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 import os
@@ -57,7 +61,7 @@ import re
 import threading
 import time
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("dealer_gamma")
@@ -71,7 +75,8 @@ SHADOW_WINDOW_S = 120.0
 SKIP_DECISION = "rejected_dealer_gamma"
 WOULD_SKIP_DECISION = "would_reject_dealer_gamma"
 _ET = ZoneInfo("America/New_York")
-_YEAR_FILE = re.compile(r"^(\d{4})\.jsonl(\.gz)?$")
+SUMMARY_FILE = "voltrade_squeeze_gex_summary.json"   # server/squeezeGex.ts SQUEEZE_SUMMARY_FILE
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # Strategy names as the scanner, the tier engine and options_execution spell
 # them. Anything sold that is not listed falls back on `side`.
@@ -115,9 +120,9 @@ def _paths() -> Dict[str, str]:
     return {"state": DEALER_GAMMA_STATE_PATH, "decisions": DEALER_GAMMA_DECISIONS_PATH}
 
 
-# ── the cache the server writes ─────────────────────────────────────────────
+# ── the summary the server writes ───────────────────────────────────────────
 def _data_dir() -> str:
-    """Mirror of server/datacoreArchive.ts archiveBaseDir()'s data dir: env
+    """Mirror of server/squeezeGex.ts squeezeSummaryPath()'s data dir: env
     DATA_DIR wins, else storage_config.DATA_DIR (as sec_filings_text does)."""
     data_dir = os.environ.get("DATA_DIR")
     if not data_dir:
@@ -125,69 +130,47 @@ def _data_dir() -> str:
     return data_dir
 
 
-def archive_dir(base: Optional[str] = None) -> str:
-    """<data dir>/datacore_archive/squeeze_gex, or <base>/squeeze_gex."""
-    if base:
-        return os.path.join(base, "squeeze_gex")
-    return os.path.join(_data_dir(), "datacore_archive", "squeeze_gex")
+def summary_path(base: Optional[str] = None) -> str:
+    """<data dir>/SUMMARY_FILE, or <base>/SUMMARY_FILE."""
+    return os.path.join(base or _data_dir(), SUMMARY_FILE)
 
 
-def _archive_files(d: str) -> List[str]:
+def _bad_summary(p: str, why: str) -> ValueError:
+    return ValueError(f"squeeze_gex summary {p}: {why}")
+
+
+def read_summary(base: Optional[str] = None) -> Optional[dict]:
+    """The server's derived summary ({asOf, rows, rank252, gexNegative,
+    fetchedAt}), or None while none exists (no successful read of the file
+    yet). A summary that cannot be parsed, has the wrong shape, or contradicts
+    itself (a rank without 252 rows, 252+ rows without a rank) RAISES: get_state
+    turns that into an inactive state that says so — never a guess."""
+    p = summary_path(base)
     try:
-        names = os.listdir(d)
+        with open(p, encoding="utf-8") as fh:
+            raw = json.load(fh)
     except FileNotFoundError:
-        return []
-    return sorted(n for n in names if _YEAR_FILE.match(n))
-
-
-def read_rows(base: Optional[str] = None) -> List[dict]:
-    """Every archived row, ascending by date, one per date (a plain year file
-    wins over a gz one for the same year, as the server writes them). Malformed
-    lines are skipped, never filled."""
-    d = archive_dir(base)
-    by_date: Dict[str, dict] = {}
-    bad = 0
-    files = _archive_files(d)
-    plain_years = {n[:4] for n in files if not n.endswith(".gz")}
-    for n in files:
-        if n.endswith(".gz") and n[:4] in plain_years:
-            continue
-        p = os.path.join(d, n)
-        opener = gzip.open if n.endswith(".gz") else open
-        try:
-            with opener(p, "rt", encoding="utf-8") as fh:
-                raw = fh.read()
-        except (OSError, EOFError) as e:
-            logger.warning(f"dealer_gamma: cannot read {p}: {e}")
-            continue
-        for line in raw.splitlines():
-            if not line.strip():
-                continue
-            try:
-                r = json.loads(line)
-                dt, gex = str(r["date"]), float(r["gex"])
-            except (ValueError, KeyError, TypeError):
-                bad += 1
-                continue
-            if not re.match(r"^\d{4}-\d{2}-\d{2}$", dt) or gex != gex:
-                bad += 1
-                continue
-            by_date[dt] = {"date": dt, "gex": gex, "fetched_at": r.get("fetched_at")}
-    if bad:
-        logger.debug(f"dealer_gamma: {bad} malformed archive line(s) skipped in {d}")
-    return [by_date[k] for k in sorted(by_date)]
-
-
-def last_rank(values: Sequence[float], window: int = RANK_WINDOW) -> Optional[float]:
-    """Trailing percentile rank of values[-1] within the last `window` values
-    (inclusive), gate 2's formula. None before a full window."""
-    if len(values) < window:
         return None
-    w = values[-window:]
-    v = w[-1]
-    below = sum(1 for x in w if x < v)
-    ties = sum(1 for x in w if x == v) - 1
-    return (below + 0.5 * ties) / (window - 1)
+    if not isinstance(raw, dict) or raw.get("v") != 1:
+        raise _bad_summary(p, "not a v1 summary")
+    as_of, rows, rank = raw.get("asOf"), raw.get("rows"), raw.get("rank252")
+    neg, fetched = raw.get("gexNegative"), raw.get("fetchedAt")
+    if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
+        raise _bad_summary(p, f"rows {rows!r}")
+    if as_of is not None and not (isinstance(as_of, str) and _DATE.match(as_of)):
+        raise _bad_summary(p, f"asOf {as_of!r}")
+    if rows and as_of is None:
+        raise _bad_summary(p, "rows without a date")
+    if rank is not None and (isinstance(rank, bool) or not isinstance(rank, (int, float)) or not 0.0 <= rank <= 1.0):
+        raise _bad_summary(p, f"rank252 {rank!r}")
+    if (rank is None) != (rows < RANK_WINDOW):
+        raise _bad_summary(p, f"rank252 {rank!r} with {rows} rows")
+    if neg is not None and not isinstance(neg, bool):
+        raise _bad_summary(p, f"gexNegative {neg!r}")
+    if fetched is not None and not isinstance(fetched, str):
+        raise _bad_summary(p, f"fetchedAt {fetched!r}")
+    return {"asOf": as_of, "rows": rows, "rank252": None if rank is None else float(rank),
+            "gexNegative": neg, "fetchedAt": fetched}
 
 
 def sessions_since(as_of: str, today: date, cap: int = 30) -> int:
@@ -211,35 +194,38 @@ def et_today(now: Optional[datetime] = None) -> date:
     return (now or datetime.now(_ET)).astimezone(_ET).date()
 
 
-def compute_state(rows: Sequence[dict], today: date, cfg: Optional[Dict[str, Any]] = None) -> dict:
-    """The filter's state from archived rows (pure). Keys: asOf, gex, rank252,
-    lowGamma, threshold, source, stale, ageSessions, active, enabled,
-    enforceShortPuts, rows, reason."""
+def compute_state(summary: Optional[dict], today: date, cfg: Optional[Dict[str, Any]] = None) -> dict:
+    """The filter's state from the server's summary (pure; None = no summary
+    yet). Keys: asOf, rank252, gexNegative, lowGamma, threshold, source, stale,
+    ageSessions, active, enabled, enforceShortPuts, maxStaleSessions, rows,
+    fetchedAt, reason. Same states, labels and reasons the archive path gave
+    for the same rows (test_dealer_gamma pins them)."""
     cfg = cfg or config()
-    st: Dict[str, Any] = {"asOf": None, "gex": None, "rank252": None, "lowGamma": False,
+    n = int(summary.get("rows") or 0) if summary else 0
+    st: Dict[str, Any] = {"asOf": None, "rank252": None, "gexNegative": None, "lowGamma": False,
                           "threshold": cfg["low_rank"], "source": SOURCE, "stale": True,
                           "ageSessions": None, "active": False, "enabled": cfg["enabled"],
                           "enforceShortPuts": cfg["enforce_short_puts"],
-                          "maxStaleSessions": cfg["max_stale_sessions"], "rows": len(rows),
+                          "maxStaleSessions": cfg["max_stale_sessions"], "rows": n,
                           "fetchedAt": None, "reason": ""}
-    if not rows:
+    if not n:
         st["reason"] = "no SqueezeMetrics GEX rows cached yet (server squeeze_gex stream) - filter inactive"
         return st
-    last = rows[-1]
-    st["asOf"], st["gex"], st["fetchedAt"] = last["date"], last["gex"], last.get("fetched_at")
-    st["rank252"] = last_rank([r["gex"] for r in rows])
-    st["ageSessions"] = sessions_since(last["date"], today)
+    as_of = summary["asOf"]
+    st["asOf"], st["gexNegative"], st["fetchedAt"] = as_of, summary.get("gexNegative"), summary.get("fetchedAt")
+    st["rank252"] = summary.get("rank252")
+    st["ageSessions"] = sessions_since(as_of, today)
     st["stale"] = st["ageSessions"] > cfg["max_stale_sessions"]
     if st["rank252"] is None:
-        st["reason"] = f"only {len(rows)} GEX rows cached, a 252-session rank needs 252 - filter inactive"
+        st["reason"] = f"only {n} GEX rows cached, a 252-session rank needs 252 - filter inactive"
     elif st["stale"]:
-        st["reason"] = (f"latest SqueezeMetrics GEX is {st['ageSessions']} sessions old (as of {last['date']}; "
+        st["reason"] = (f"latest SqueezeMetrics GEX is {st['ageSessions']} sessions old (as of {as_of}; "
                         f"limit {cfg['max_stale_sessions']}) - filter inactive")
     else:
         st["active"] = True
         st["lowGamma"] = st["rank252"] < cfg["low_rank"]
         st["reason"] = (f"dealer gamma {'low' if st['lowGamma'] else 'normal'} (rank {st['rank252']:.2f} "
-                        f"{'<' if st['lowGamma'] else '>='} {cfg['low_rank']:.2f}, SqueezeMetrics GEX as of {last['date']})")
+                        f"{'<' if st['lowGamma'] else '>='} {cfg['low_rank']:.2f}, SqueezeMetrics GEX as of {as_of})")
     if not cfg["enabled"]:
         st["active"] = False
         st["reason"] = "dealer gamma filter switched off (system_config DEALER_GAMMA_FILTER_ENABLED)"
@@ -259,33 +245,32 @@ def label(state: dict) -> str:
 
 
 def public_state(state: dict) -> dict:
-    """The state minus the raw GEX value (licence posture: aggregates only)."""
+    """The state for the state file, the scan field and the probe, plus its
+    label. It never holds a raw GEX value (the summary has none; the filter
+    drops a stray "gex" key all the same)."""
     out = {k: v for k, v in state.items() if k != "gex"}
-    out["gexNegative"] = (state["gex"] < 0) if isinstance(state.get("gex"), (int, float)) else None
+    out["gexNegative"] = state.get("gexNegative") if isinstance(state.get("gexNegative"), bool) else None
     out["label"] = label(state)
     return out
 
 
 # ── cached state for the live paths ─────────────────────────────────────────
 _LOCK = threading.Lock()
-_CACHE: Dict[str, Any] = {"at": 0.0, "sig": None, "rows": None, "state": None, "day": None}
+_CACHE: Dict[str, Any] = {"at": 0.0, "sig": None, "loaded": False, "summary": None, "state": None, "day": None}
 
 
-def _signature(d: str) -> tuple:
-    sig = []
-    for n in _archive_files(d):
-        try:
-            s = os.stat(os.path.join(d, n))
-        except OSError as e:
-            logger.debug(f"dealer_gamma: stat {n} failed: {e}")
-            continue
-        sig.append((n, s.st_mtime_ns, s.st_size))
-    return tuple(sig)
+def _signature(p: str) -> Optional[tuple]:
+    try:
+        s = os.stat(p)
+    except OSError as e:
+        logger.debug(f"dealer_gamma: stat {p} failed: {e}")
+        return None
+    return (s.st_mtime_ns, s.st_size)
 
 
 def get_state(force: bool = False, now: Optional[datetime] = None, base: Optional[str] = None) -> dict:
-    """The current state, cached STATE_TTL_S; the archive is re-read only when
-    its files change. Never raises: an error -> an inactive state saying so."""
+    """The current state, cached STATE_TTL_S; the summary is re-read only when
+    its file changes. Never raises: an error -> an inactive state saying so."""
     t = time.time()
     today = et_today(now)
     try:
@@ -293,13 +278,13 @@ def get_state(force: bool = False, now: Optional[datetime] = None, base: Optiona
             if (not force and _CACHE["state"] is not None and t - _CACHE["at"] < STATE_TTL_S
                     and _CACHE["day"] == today and base is None):
                 return dict(_CACHE["state"])
-            d = archive_dir(base)
-            sig = _signature(d)
-            rows = _CACHE["rows"] if (sig == _CACHE["sig"] and _CACHE["rows"] is not None and base is None) else read_rows(base)
-            state = compute_state(rows, today)
+            sig = _signature(summary_path(base))
+            cached = base is None and _CACHE["loaded"] and sig == _CACHE["sig"]
+            summary = _CACHE["summary"] if cached else read_summary(base)
+            state = compute_state(summary, today)
             state["computedAt"] = datetime.now(_ET).isoformat(timespec="seconds")
             if base is None:
-                _CACHE.update({"at": t, "sig": sig, "rows": rows, "state": state, "day": today})
+                _CACHE.update({"at": t, "sig": sig, "loaded": True, "summary": summary, "state": state, "day": today})
                 _write_state(state)
             return dict(state)
     except Exception as e:  # noqa: BLE001 — logged; the filter must fail open
@@ -451,7 +436,7 @@ def drain() -> List[dict]:
 def _reset_for_tests() -> None:
     """Clear every per-process cache (state, pending records, dedup, shadow budget)."""
     with _LOCK:
-        _CACHE.update({"at": 0.0, "sig": None, "rows": None, "state": None, "day": None})
+        _CACHE.update({"at": 0.0, "sig": None, "loaded": False, "summary": None, "state": None, "day": None})
         _PENDING.clear()
         _SEEN["day"], _SEEN["keys"] = None, set()
         _SHADOW["since"], _SHADOW["n"] = 0.0, 0

@@ -24,9 +24,12 @@ BS-recomputed GEX from Alpaca OI disagrees in sign with SqueezeMetrics on
                  share of positive Squeeze days so a pass is read honestly.
                  Own GEX is SPY-only vs Squeeze's SPX — a proxy, not a twin.
 
-Reads the Railway volume archive (default $DATA_DIR/datacore_archive, as
-server/datacoreArchive.ts archiveBaseDir()). Nothing is written. Internal
-research only; nothing here is served or traded.
+Our side reads the Railway volume archive (default $DATA_DIR/datacore_archive,
+as server/datacoreArchive.ts archiveBaseDir()): option chains + the OI sidecar.
+SqueezeMetrics' side is the LIVE DIX.csv's own daily history, fetched into
+memory (2026-11-06: their file is no longer archived — their terms bar
+compiling it; --dix PATH reads a local copy instead, for offline runs). Nothing
+is written. Internal research only; nothing here is served or traded.
 """
 import argparse
 import gzip
@@ -35,12 +38,16 @@ import math
 import os
 import re
 import sys
+import urllib.request
 
 MIN_DAYS = 40            # pre-registered
 MAX_DISAGREE = 0.30      # pre-registered
 UNDERLYING = "SPY"
+DIX_URL = "https://squeezemetrics.com/monitor/static/DIX.csv"   # server/squeezeGex.ts SQUEEZE_URL
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _OCC = re.compile(r"^([A-Z.]{1,6})(\d{6})([CP])(\d{8})$")
 MALFORMED_LINES = [0]   # unparseable archive lines skipped by _read_jsonl (reported)
+MALFORMED_DIX_ROWS = [0]   # DIX.csv data rows parse_dix_gex skipped (reported)
 
 
 def archive_base():
@@ -170,16 +177,47 @@ def compare(own, squeeze):
     }
 
 
-def load(base):
+def parse_dix_gex(text):
+    """DIX.csv text -> {date: gex}, by the server's parseSqueezeCsv rules: the
+    header must start "date,"; a row needs a YYYY-MM-DD date and finite
+    price, dix and gex (else skipped — counted in MALFORMED_DIX_ROWS, never
+    filled); a repeated date keeps the last row. Nothing is kept beyond the
+    returned dict."""
+    lines = text.splitlines()
+    if not lines or not lines[0].strip().lower().startswith("date,"):
+        return {}
+    out = {}
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        c = line.split(",")
+        try:
+            if len(c) < 4 or not _DAY.match(c[0]):
+                raise ValueError("no date")
+            vals = (float(c[1]), float(c[2]), float(c[3]))
+            if not all(math.isfinite(x) for x in vals):
+                raise ValueError("not finite")
+        except ValueError:
+            MALFORMED_DIX_ROWS[0] += 1   # counted and reported in the run summary
+            continue
+        out[c[0]] = vals[2]
+    return out
+
+
+def fetch_dix_text(url=DIX_URL, timeout=30):
+    """The live file, in memory only (the server's poll uses the same agent)."""
+    req = urllib.request.Request(url, headers={"User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8")
+
+
+def load(base, squeeze):
+    """own GEX per archived day from <base>; `squeeze` = {date: gex} from the
+    live file's history (parse_dix_gex)."""
     ch = os.path.join(base, "optionchains")
     days = sorted({m.group(1) for f in (os.listdir(ch) if os.path.isdir(ch) else [])
                    for m in [re.match(r"^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$", f)] if m})
-    sq = {}
-    sdir = os.path.join(base, "squeeze_gex")
-    for f in (sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []):
-        if re.match(r"^\d{4}\.jsonl(\.gz)?$", f):
-            for r in _read_jsonl(os.path.join(sdir, re.sub(r"\.gz$", "", f))):
-                sq[r["date"]] = float(r["gex"])
+    sq = dict(squeeze)
     own, stats = {}, {}
     for d in days:
         oi_path = os.path.join(ch, "oi", d + ".jsonl")
@@ -193,10 +231,20 @@ def load(base):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--archive-dir", default=archive_base())
+    ap.add_argument("--dix", help="read SqueezeMetrics' DIX.csv from this path instead of fetching the live file")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    own, sq, stats = load(a.archive_dir)
+    if a.dix:
+        with open(a.dix, encoding="utf-8") as fh:
+            squeeze = parse_dix_gex(fh.read())
+    else:
+        squeeze = parse_dix_gex(fetch_dix_text())
+    own, sq, stats = load(a.archive_dir, squeeze)
     rep = compare(own, sq)
+    rep["squeeze_source"] = a.dix or DIX_URL
+    rep["squeeze_rows"] = len(sq)
+    rep["squeeze_last_day"] = max(sq) if sq else None
+    rep["malformed_dix_rows"] = MALFORMED_DIX_ROWS[0]
     rep["days_with_own_gex"] = sum(1 for v in own.values() if v is not None)
     rep["days_with_oi_sidecar"] = len(own)
     rep["malformed_archive_lines"] = MALFORMED_LINES[0]

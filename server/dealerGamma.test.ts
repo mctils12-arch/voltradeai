@@ -70,27 +70,29 @@ test("readers: state file, decisions tail (partial first line and torn lines ski
   assert.ok(tail.every((x) => typeof x.ticker === "string" && x.ticker.startsWith("B")));
 });
 
-test("probe body: shape, label fallback, per-day counts, archive subset, no raw GEX", () => {
-  const archive: SqueezeReport = {
-    probe: "squeeze_gex", rows: 3903, first_date: "2011-05-02", latest_date: "2026-11-05", latest_age_days: 1,
-    latest_gex_negative: false, latest_rank: 0.0916, rank_rows: 3652, fetched_at_latest: "2026-11-05T23:00:49Z",
-    last_refresh_ok: true, note: "n",
+test("probe body: shape, label fallback, per-day counts, feed subset, no raw GEX", () => {
+  // 2026-11-06: the sub-object was `archive` (the squeeze_gex archive's freshness); there is no
+  // archive any more, so it is `feed` (the in-memory read's status) — same five keys, same values.
+  const feed: SqueezeReport = {
+    probe: "squeeze_gex", stored: false, rows: 3903, first_date: "2011-05-02", latest_date: "2026-11-05", latest_age_days: 1,
+    latest_gex_negative: false, latest_rank: 0.0916, rank_rows: 3652, fetched_at: "2026-11-06T05:00:12Z",
+    last_refresh_ok: true, last_error: null, archive_cleanup: null, note: "n",
   };
   const state = { asOf: "2026-11-05", rank252: 0.0916, lowGamma: true, active: true, stale: false, ageSessions: 1,
     threshold: 0.2, label: "dealer gamma: low (rank 0.09) — no new condors / strangles; cash-secured puts and put spreads logged only",
     computedAt: "2026-11-06T10:00:00-05:00", gexNegative: false };
   const decisions = [SKIP, { ...SKIP, ticker: "AMD", action: "would_skip" }, { ...SKIP, day: "2026-11-05" }, { ...SKIP, action: "allow" }];
-  const b = dealerGammaProbeBody(state, decisions, archive, Date.parse("2026-11-06T15:30:00Z"));
+  const b = dealerGammaProbeBody(state, decisions, feed, Date.parse("2026-11-06T15:30:00Z"));
   assert.equal(b.probe, "gamma");
   assert.equal(b.label, state.label);
   assert.equal(b.state_age_minutes, 30);
   assert.deepEqual(b.counts_by_day, { "2026-11-06": { skip: 1, would_skip: 1 }, "2026-11-05": { skip: 1, would_skip: 0 } });
-  assert.deepEqual(b.archive, { rows: 3903, latest_date: "2026-11-05", latest_rank: 0.0916, latest_age_days: 1, last_refresh_ok: true });
+  assert.deepEqual(b.feed, { rows: 3903, latest_date: "2026-11-05", latest_rank: 0.0916, latest_age_days: 1, last_refresh_ok: true });
   assert.ok(!/"gex"\s*:/.test(JSON.stringify(b)), "no raw gex value in the probe");
   const empty = dealerGammaProbeBody(null, [], null);
   assert.match(empty.label, /no state yet/);
   assert.equal(empty.state_age_minutes, null);
-  assert.equal(empty.archive, null);
+  assert.equal(empty.feed, null);
 });
 
 test("probe registration and data dir rule", () => {

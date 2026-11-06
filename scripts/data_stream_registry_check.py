@@ -201,7 +201,8 @@ CANDIDATES = [
      "manifest_keys": ["squeeze_gex"], "layer_ids": [],
      "note": "server/squeezeGex.ts, built 2026-10-29: Edge P1 shadow stream (research/edge_preregistration.md). "
              "Gate 2 PASS 2026-10-28; gate 1 OPEN (GEX is a model estimate, own BS cross-check needs OI history). "
-             "INTERNAL ONLY: licence unverified, no /data route, diag probe squeeze_gex is aggregate-only."},
+             "INTERNAL ONLY: licence unverified, no /data route, diag probe squeeze_gex is aggregate-only. "
+             "2026-11-06: nothing stored (SqueezeMetrics' terms): the file is read in memory, only a derived summary is written."},
     {"id": "dtcc_sbsdr", "name": "DTCC swap data repository",
      "edge_doctrine_named": False, "status": "built",
      "manifest_keys": ["dtccswaps"], "layer_ids": [],

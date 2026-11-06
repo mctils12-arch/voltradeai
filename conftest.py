@@ -142,13 +142,13 @@ def _dealer_gamma_dir(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _hermetic_dealer_gamma(_dealer_gamma_dir):
     """EDGE P1 DEALER GAMMA 2026-11-06 (dealer_gamma.py): Tier 1 and the options
-    scanner now read the squeeze_gex cache through dealer_gamma.get_state().
-    Point that read at an EMPTY data dir (the filter's inactive "no rows" branch,
-    exactly what a fresh CI runner sees) and its two files at a session temp
-    dir, and clear its per-process caches around every test — so no test sees a
-    cache a local server wrote under /tmp, and none appends to the real decision
-    log. Tests of the filter patch dealer_gamma themselves (they shadow this).
-    Changes reachability, not behavior."""
+    scanner now read the server's squeeze_gex summary through
+    dealer_gamma.get_state(). Point that read at an EMPTY data dir (the filter's
+    inactive "no rows" branch, exactly what a fresh CI runner sees) and its two
+    files at a session temp dir, and clear its per-process caches around every
+    test — so no test sees a summary a local server wrote under /tmp, and none
+    appends to the real decision log. Tests of the filter patch dealer_gamma
+    themselves (they shadow this). Changes reachability, not behavior."""
     import os
     import dealer_gamma
     import storage_config

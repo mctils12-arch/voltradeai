@@ -28,6 +28,7 @@ import { promisify } from "util";
 import { archiveBaseDir, newestDataFile } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
 import { snapshotStreams, type SnapshotStamp } from "./snapshotStreams";
+import { SQUEEZE_SUMMARY_FILE } from "./squeezeGex";
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -150,10 +151,16 @@ async function peekNewest(dir: string, newest: string | null): Promise<{ peek: s
  * They read "no-data" in the dir scan though data exists (2026-10-12 follow-up).
  * Age = the file's mtime = last successful pull (NOT the newest report_date,
  * which is 3-10 days old by CFTC design and would read falsely stale).
+ * squeeze_gex (2026-11-06) keeps no archive at all — SqueezeMetrics' file is
+ * read in memory — so its row ages from the derived summary each successful
+ * read writes (server/squeezeGex.ts), never "no-data / warming up".
  */
 export function defaultVolumeFiles(): Record<string, string> {
   const dataDir = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp");
-  return { cot: path.join(dataDir, "voltrade_cot_archive.json") };
+  return {
+    cot: path.join(dataDir, "voltrade_cot_archive.json"),
+    squeeze_gex: path.join(dataDir, SQUEEZE_SUMMARY_FILE),
+  };
 }
 
 export async function buildStreamsInventory(
@@ -220,9 +227,14 @@ export async function buildStreamsInventory(
         : "bundled snapshot with no embedded build time — age unknown";
       if (!snap.built) health = "no-data";
     }
-    const { peek, records, note: peekNote } = files > 0
-      ? await peekNewest(dir, newest)
-      : { peek: null, records: null, note: snapFiles ? "whole-file JSON snapshot — no record tail to peek" : volNote ? "single keyed JSON — no record tail to peek" : "no files" };
+    // A manifest with "peek": false never has a record shown (2026-11-06:
+    // squeeze_gex — this public route served SqueezeMetrics' latest raw row
+    // from the archive; their terms allow no redistribution).
+    const { peek, records, note: peekNote } = m.peek === false
+      ? { peek: null, records: null, note: `peek withheld by the manifest: ${String(m.peek_reason || "licence")}`.slice(0, 200) }
+      : files > 0
+        ? await peekNewest(dir, newest)
+        : { peek: null, records: null, note: snapFiles ? "whole-file JSON snapshot — no record tail to peek" : volNote ? "single keyed JSON — no record tail to peek" : "no files" };
     streams.push({
       stream: name,
       source: String(m.source || "").slice(0, 500),

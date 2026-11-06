@@ -4777,8 +4777,9 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           return res.json(sanitizeDiag({ probe: "heartbeats", ...hb, persistError: heartbeatStore().lastWriteError() }));
         }
         case "squeeze_gex": {
-          // ADDED 2026-10-29 (Edge P1 shadow stream): aggregates over the
-          // squeeze_gex archive — see server/squeezeGex.ts. Read-only.
+          // ADDED 2026-10-29 (Edge P1 shadow stream); since 2026-11-06 a STATUS
+          // of the in-memory read of SqueezeMetrics' file (nothing of it is
+          // stored) — see server/squeezeGex.ts. Read-only.
           return res.json(sanitizeDiag(squeezeReport()));
         }
         case "gamma": {

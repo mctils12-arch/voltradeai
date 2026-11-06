@@ -1,23 +1,25 @@
 {
  "stream": "squeeze_gex",
- "storage": "one plain JSONL per YEAR under <archive>/squeeze_gex/ (~90 bytes/row); day-level dedup; prior-year files gzipped after the calendar year rolls. First poll backfills the source's full history (2011-05-02 onward).",
- "written_by": "server/squeezeGex.ts refreshSqueezeGex (6h poll, eager boot)",
- "source": "squeezemetrics.com/monitor/static/DIX.csv \u2014 keyless CSV (date,price,dix,gex), probed live 2026-10-29 (last row 2026-10-28). GEX is a proprietary MODEL ESTIMATE (dealers assumed long calls / short puts), SPX $ gamma per 1% move.",
- "license": "UNVERIFIED. Internal research/shadow archive only; never redistributed on /data or /api/v1, raw rows never leave the server (diag probe is aggregate-only).",
+ "storage": "NONE since 2026-11-06: the file is read in memory each poll (it carries its own daily history, 2011-05-02 onward) and its rows are dropped. Only a derived summary is written, <DATA_DIR>/voltrade_squeeze_gex_summary.json (latest date, row count, trailing-252 rank, GEX sign, fetch time; no SqueezeMetrics value). The 2026-10-29..11-06 archive under <archive>/squeeze_gex/ is deleted at boot (once, audit row SQUEEZE-ARCHIVE-REMOVED).",
+ "written_by": "server/squeezeGex.ts refreshSqueezeGex (6h poll, eager boot) - the derived summary only",
+ "source": "squeezemetrics.com/monitor/static/DIX.csv — keyless CSV (date,price,dix,gex), probed live 2026-10-29 (last row 2026-10-28) and 2026-11-06 (3,903 rows, 2011-05-02..2026-11-05). GEX is a proprietary MODEL ESTIMATE (dealers assumed long calls / short puts), SPX $ gamma per 1% move.",
+ "license": "UNVERIFIED. SqueezeMetrics' Terms of Service bar compiling their data into a collection or database without written permission (research/wishlist.md 2026-11-06; permission requested), so nothing of it is stored and it is never redistributed on /data, /api/v1 or the streams inventory (peek withheld).",
  "attribution": "SqueezeMetrics",
- "schema_version": 1,
+ "schema_version": 2,
  "field_map": {
-  "date": "SPX session the values describe",
-  "price": "SPX close",
-  "dix": "dark-pool index",
-  "gex": "dealer gamma exposure, $ per 1% move (estimate)",
-  "fetched_at": "ISO time the row was first archived"
+  "asOf": "the file's latest row: the SPX session its values describe",
+  "rows": "dated rows in the file",
+  "rank252": "trailing-252 percentile rank of the latest GEX (registered Edge P1 definition); null under 252 rows",
+  "gexNegative": "sign of the latest GEX (the value itself is not kept)",
+  "fetchedAt": "ISO time the file was read"
  },
- "confidence_model": "Gate 2 PASS (research/edge_p1_dealer_gamma_result.md, b=-0.858 t=-9.61; holdout t=-7.25). Gate 1 OPEN: our own Black-Scholes GEX from Alpaca OI is not yet comparable. Not read by any trading path.",
+ "confidence_model": "Gate 2 PASS (research/edge_p1_dealer_gamma_result.md, b=-0.858 t=-9.61; holdout t=-7.25). Gate 1 OPEN: our own Black-Scholes GEX from Alpaca OI is not yet comparable (scripts/edge_p1_gate1.py, which reads the live file's history). Read by the dealer-gamma short-premium filter (dealer_gamma.py, 2026-11-06) through the derived summary.",
  "geo_fields": [],
  "entity_key": "date",
  "sentiment": null,
  "started": "2026-10-29",
  "cadence": "daily source, published after the close; 6h poll",
- "_note": "Universal archive envelope. Edge P1 shadow-logging stream registered in research/edge_preregistration.md."
+ "peek": false,
+ "peek_reason": "SqueezeMetrics' terms: their values are not redistributed",
+ "_note": "Universal archive envelope, kept for a stream that is read but not archived. Edge P1 shadow-logging stream registered in research/edge_preregistration.md. Archiving returns only with SqueezeMetrics' written permission (server/squeezeGex.ts header)."
 }

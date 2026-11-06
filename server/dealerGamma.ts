@@ -7,7 +7,8 @@
  *       repeats to once per ET day per ticker, setup and action), and
  *   (b) the read-only `gamma` diag probe body: the filter's latest state, its
  *       plain-English label, recent decisions and per-day counts, beside the
- *       squeeze_gex archive's own freshness (server/squeezeGex.ts).
+ *       squeeze_gex feed's own status (server/squeezeGex.ts: SqueezeMetrics'
+ *       file read in memory, nothing of it stored, since 2026-11-06).
  * No raw GEX value is read or served: SqueezeMetrics' DIX.csv is their
  * published ESTIMATE, licence unverified — rank, date and verdict only.
  * Pure except for the two file readers (node:test safe).
@@ -143,12 +144,12 @@ export interface DealerGammaProbe {
   state_age_minutes: number | null;
   decisions_recent: DealerGammaDecision[];
   counts_by_day: Record<string, { skip: number; would_skip: number }>;
-  archive: Pick<SqueezeReport, "rows" | "latest_date" | "latest_rank" | "latest_age_days" | "last_refresh_ok"> | null;
+  feed: Pick<SqueezeReport, "rows" | "latest_date" | "latest_rank" | "latest_age_days" | "last_refresh_ok"> | null;
   note: string;
 }
 
 export function dealerGammaProbeBody(
-  state: DealerGammaState | null, decisions: DealerGammaDecision[], archive: SqueezeReport | null, nowMs = Date.now(),
+  state: DealerGammaState | null, decisions: DealerGammaDecision[], feed: SqueezeReport | null, nowMs = Date.now(),
 ): DealerGammaProbe {
   const counts: Record<string, { skip: number; would_skip: number }> = {};
   for (const d of decisions) {
@@ -164,12 +165,12 @@ export function dealerGammaProbeBody(
     state_age_minutes: Number.isFinite(at) ? Math.round((nowMs - at) / 60_000) : null,
     decisions_recent: decisions,
     counts_by_day: counts,
-    archive: archive ? {
-      rows: archive.rows, latest_date: archive.latest_date, latest_rank: archive.latest_rank,
-      latest_age_days: archive.latest_age_days, last_refresh_ok: archive.last_refresh_ok,
+    feed: feed ? {
+      rows: feed.rows, latest_date: feed.latest_date, latest_rank: feed.latest_rank,
+      latest_age_days: feed.latest_age_days, last_refresh_ok: feed.last_refresh_ok,
     } : null,
     note: "Edge P1 short-premium filter (dealer_gamma.py). Source: SqueezeMetrics' published GEX estimate "
-      + "(not ours), rank = trailing-252 percentile. state = what the trading path last read; archive = the "
-      + "server's squeeze_gex cache. Read-only; no raw GEX value is served.",
+      + "(not ours), rank = trailing-252 percentile. state = what the trading path last read; feed = the "
+      + "server's last in-memory read of their file (nothing of it is stored). Read-only; no raw GEX value is served.",
   };
 }

@@ -14,7 +14,9 @@ import {
   getStreamsInventoryCached,
   _resetStreamsInventoryForTests,
   MANIFEST_DIR_DEFAULT,
+  defaultVolumeFiles,
 } from "./streamsInventory";
+import { SQUEEZE_SUMMARY_FILE } from "./squeezeGex";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "sinv-"));
@@ -228,4 +230,48 @@ test("rare-event source with a fast poll is not stale after a quiet stretch (fdi
   const inv = await buildStreamsInventory(base, mdir, NOW);
   assert.equal(inv.streams[0].health, "recent");
   assert.equal(inv.streams[0].age_hours, 68 * 24, "raw age still reported");
+});
+
+test("peek:false in a manifest withholds every record, even from a surviving archive dir; squeeze_gex ages from its derived summary (2026-11-06)", async () => {
+  // Before: /api/data/streams served the squeeze_gex archive's newest raw row
+  // (date, SPX price, DIX, GEX) as latest_peek — SqueezeMetrics' values on a
+  // public route. Their manifest now sets "peek": false.
+  const real = JSON.parse(fs.readFileSync(path.join(MANIFEST_DIR_DEFAULT, "squeeze_gex.json"), "utf8"));
+  assert.equal(real.peek, false, "the real squeeze_gex manifest withholds the peek");
+  const base = tmp();
+  const mdir = path.join(tmp(), "m");
+  fs.mkdirSync(mdir, { recursive: true });
+  fs.writeFileSync(path.join(mdir, "squeeze_gex.json"), JSON.stringify({
+    stream: "squeeze_gex", cadence: "daily source, published after the close; 6h poll", source: "x",
+    peek: false, peek_reason: "SqueezeMetrics' terms: no redistribution",
+  }));
+  const now = Date.parse("2026-11-06T12:00:00Z");
+  // an old archive dir that survived (say the boot cleanup failed): still no record shown
+  fs.mkdirSync(path.join(base, "squeeze_gex"));
+  fs.writeFileSync(path.join(base, "squeeze_gex", "2026.jsonl"),
+    JSON.stringify({ date: "2026-11-05", price: 7353.73, dix: 0.37856964877480676, gex: 1844749552.5200007 }) + "\n");
+  let inv = await buildStreamsInventory(base, mdir, now, {}, {});
+  let row = inv.streams.find((x) => x.stream === "squeeze_gex")!;
+  assert.equal(row.latest_peek, null);
+  assert.match(row.peek_note || "", /withheld by the manifest: SqueezeMetrics' terms/);
+  assert.ok(!JSON.stringify(inv).includes("1844749552"), "no raw value anywhere in the inventory");
+  // after the cleanup: no dir; the stream's volume file is the derived summary
+  fs.rmSync(path.join(base, "squeeze_gex"), { recursive: true });
+  const f = path.join(tmp(), SQUEEZE_SUMMARY_FILE);
+  fs.writeFileSync(f, JSON.stringify({ v: 1, asOf: "2026-11-05", rows: 3903, rank252: 0.0916 }));
+  fs.utimesSync(f, (now - 7 * 3.6e6) / 1000, (now - 7 * 3.6e6) / 1000);
+  inv = await buildStreamsInventory(base, mdir, now, {}, { squeeze_gex: f });
+  row = inv.streams.find((x) => x.stream === "squeeze_gex")!;
+  assert.equal(row.health, "live", "a stream read every 6h is live, not 'no-data / warming up'");
+  assert.equal(row.age_hours, 7);
+  assert.equal(row.newest_file, SQUEEZE_SUMMARY_FILE);
+  assert.equal(row.latest_peek, null);
+  const prev = process.env.DATA_DIR;
+  process.env.DATA_DIR = "/srv/v";
+  try {
+    assert.equal(defaultVolumeFiles().squeeze_gex, path.join("/srv/v", SQUEEZE_SUMMARY_FILE));
+    assert.equal(defaultVolumeFiles().cot, path.join("/srv/v", "voltrade_cot_archive.json"));
+  } finally {
+    if (prev === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prev;
+  }
 });
