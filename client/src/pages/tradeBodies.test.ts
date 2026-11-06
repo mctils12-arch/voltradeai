@@ -2,9 +2,8 @@
 // is a body component (no page header, no own ticker input, no page-width
 // wrapper) that the cockpit places inside a panel, while the default page
 // exports stay as thin header + input + body wrappers. Pinned so the next
-// session cannot quietly grow a second implementation (the cockpit page that
-// hosts them must use THESE bodies; home.nav.test.ts pins that side once the
-// page exists).
+// session cannot quietly grow a second implementation (home.nav.test.ts
+// pins the cockpit side: it must use THESE bodies).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -100,6 +99,7 @@ test("the host's symbol is a prop: bodies take it, they do not read the page inp
   assert.match(PAGES.news, /\}, 600\);/, "the typed filter keeps its debounce");
   assert.match(PAGES.planner, /const symbol = ticker \?\? ownTicker;/, "planner uses the prop, else its own field");
   assert.match(PAGES.planner, /\{ticker === null && \(/, "the ticker field renders only without a host symbol");
+  assert.match(PAGES.planner, /setActiveTicker\(t\);/, "a built plan writes the symbol back (the cockpit's panels follow it)");
   assert.match(PAGES.scanner, /\{!compact && \(/, "compact drops the sector heatmap block");
 });
 
@@ -107,7 +107,8 @@ test("the default page exports still exist and are header + body wrappers", () =
   assert.match(PAGES.scanner, /export default function ScannerPage\(/);
   assert.match(PAGES.scanner, /<ScannerBody onSelectTicker=\{onSelectTicker\} \/>/);
   assert.match(PAGES.news, /export default function NewsPage\(/);
-  assert.match(PAGES.news, /<NewsBody ticker=\{null\} onSelectTicker=\{onSelectTicker\} showFilter \/>/, "the page owns its typed filter");
+  assert.match(PAGES.news, /<NewsBody ticker=\{seed \|\| null\} onSelectTicker=\{onSelectTicker\} showFilter \/>/, "the page's typed filter, seeded from the active symbol");
+  assert.match(PAGES.news, /getActiveTicker\(\) \?\? ""/, "the page seeds from the active symbol");
   assert.match(PAGES.watchlist, /export default function WatchlistPage\(/);
   assert.match(PAGES.watchlist, /<WatchlistBody onSelectTicker=\{onSelectTicker\} authenticated=\{authenticated\} \/>/);
   assert.match(PAGES.research, /export default function ResearchPage\(/);

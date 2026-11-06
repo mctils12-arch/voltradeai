@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
 import { useQuery, useIsFetching } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
 import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target, Megaphone, Newspaper } from "lucide-react";
@@ -353,8 +354,10 @@ export function ResearchBody({ ticker }: { ticker: string | null }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: string) => void }) {
-  const [input, setInput] = useState("");
-  const [ticker, setTicker] = useState<string>("");
+  // One symbol across the Trade world (lib/activeTicker): open on whatever
+  // the user last searched in Options & Volatility, and write back on submit.
+  const [input, setInput] = useState(() => getActiveTicker() ?? "");
+  const [ticker, setTicker] = useState<string>(() => getActiveTicker() ?? "");
   // The body owns the query; the button only needs to know it is in flight.
   // useIsFetching observes the same key without a second fetch.
   const isFetching = useIsFetching({ queryKey: ["/api/research", ticker] }) > 0;
@@ -362,7 +365,7 @@ export default function ResearchPage({ onSelectTicker }: { onSelectTicker?: (t: 
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
     const t = input.trim().toUpperCase();
-    if (t) setTicker(t);
+    if (t) { setTicker(t); setActiveTicker(t); }
   };
 
   return (

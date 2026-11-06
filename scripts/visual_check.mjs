@@ -689,19 +689,30 @@ function brainFixture() {
 }
 
 // TRADE WORLD fixtures (2026-10-29): real public API responses captured from
-// voltradeai.com that day, trimmed, so the screenshots show loaded cards
-// rather than empty states.
+// voltradeai.com that day, trimmed, so the screenshots show the moving-map
+// backdrop with loaded cards rather than empty states.
 const tradeFx = (name) => JSON.parse(readFileSync(path.join(ROOT, "scripts", "fixtures", name), "utf8"));
+const OWNER_ME = { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } };
+const TRADE_LOADED = { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json"), "/api/research/SPY": tradeFx("trade_research_spy.json"), "/api/insights/SPY": tradeFx("trade_insights_spy.json"), "/api/market/scanner": tradeFx("trade_scanner.json"), "/api/market/news": tradeFx("trade_news.json"), "/api/watchlist": tradeFx("trade_watchlist_empty.json") };
 
 const PAGES = {
-  // TRADE WORLD (2026-10-29): every Trade screen is a body component (scanner,
-  // news, watchlist, research, planner, taxes; analyze's pieces) inside its page
-  // wrapper — the bodies own their data, the wrappers their header and input.
-  // Visitor view by default; the scanner and news bodies render real captures.
+  // TRADE WORLD (2026-10-29, human: "I want this moving map like this but
+  // more modern as well for some of the screens … it needs to look like the
+  // bot UI but have the functionality of what's there and no duplicates"):
+  // every Trade tab renders the one Trade cockpit (client/src/trade/) over the
+  // moving world map (TradeBackdrop); a tool tab (scanner, news, research,
+  // watchlist, planner, taxes) zooms its panel, and
+  // "#/analyze/<section>/<SYMBOL>" opens a symbol loaded. Visitor view by
+  // default; analyzeowner renders the owner's view (the dossier jump).
   analyze: { route: "/app#/analyze/options", map: false },
+  // the loaded cockpit: every panel's endpoint answered with a real capture, so
+  // the render shows content, not nine "loading" frames
+  analyzeloaded: { route: "/app#/analyze/options/SPY", map: false, fixtures: TRADE_LOADED },
+  analyzeowner: { route: "/app#/analyze/options/SPY", map: false, fixtures: { "/api/auth/me": OWNER_ME, ...TRADE_LOADED } },
   scanner: { route: "/app#/scanner", map: false, fixtures: { "/api/market/scanner": tradeFx("trade_scanner.json") } },
   news: { route: "/app#/news", map: false, fixtures: { "/api/market/news": tradeFx("trade_news.json") } },
-  research: { route: "/app#/research", map: false },
+  // the Research tab: the harness types SPY into the look-up box (real captures answer it)
+  research: { route: "/app#/research", map: false, fixtures: TRADE_LOADED },
   watchlist: { route: "/app#/watchlist", map: false },
   planner: { route: "/app#/planner", map: false },
   taxes: { route: "/app#/taxes", map: false },
@@ -3357,6 +3368,10 @@ async function main() {
       });
       const errors = [];
       page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
+      // every /api/* request this render makes, in order (path + query): the Trade cockpit's checks read what a
+      // look-up actually fetches (2026-11-06)
+      const apiLog = [];
+      page.on("request", (r) => { const q = new URL(r.url()); if (q.pathname.startsWith("/api/")) apiLog.push(q.pathname + q.search); });
       const t0 = Date.now();
       await page.goto(`http://127.0.0.1:${port}${route}`, { waitUntil: "load", timeout: 30000 });
       // TTI: skeleton gone = page interactive (DESIGN.md: <3s on device;
@@ -3490,6 +3505,85 @@ async function main() {
           const card = await page.evaluate(() => { const c = document.querySelector(".vt-help-card"); if (!c) return null; const r = c.getBoundingClientRect(); return { inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, text: (c.textContent || "").trim().length }; });
           if (!card) fail("the help glyph opened no card in the pane"); else if (!card.inside) fail("the pane's help card leaves its window");
           await page.keyboard.press("Escape");
+        }
+      }
+      // ── TRADE COCKPIT (2026-11-06, the port of PR #1556): a tool tab zooms
+      // its panel and keeps the one look-up box in the zoomed bar (Research's
+      // Stock panel needs a symbol; the old page had its own input). With a
+      // symbol loaded, every Trade feature is one panel on the page (no second
+      // scanner, no second look-up box), the Stock panel's Fundamentals tab
+      // opens the live price bar the old Analyze page carried, and only the
+      // owner's view offers the dossier jump.
+      // HEAVY LOADS (2026-11-06, keep the system alive): a look-up runs ONE
+      // Python-backed fetch, /api/analyze; research (python -m alphadesk),
+      // insights (insights.py) and the ETF builder each wait for their
+      // "Load … for <SYM>" press, read from the requests the render made.
+      if (name === "research") {
+        const fail = (m) => checks.failures.push("trade-cockpit: " + m);
+        const zoomed = await page.$$eval('[data-world="trade"] section.vt-bot-panel[data-panel]', (els) => els.map((e) => e.getAttribute("data-panel")));
+        if (zoomed.join(",") !== "stock") fail(`the Research tab shows [${zoomed.join(", ")}], expected the Stock panel alone`);
+        const boxes = await page.locator('[data-world="trade"] .vt-lookup-box input').count();
+        if (boxes !== 1) fail(`the zoomed Research tab has ${boxes} look-up boxes, expected 1`);
+        try {
+          const n = (p) => apiLog.filter((x) => x === p).length;
+          const box = page.locator('[data-world="trade"] .vt-lookup-box input').first();
+          await box.fill("SPY");
+          await box.press("Enter");
+          for (let i = 0; i < 40 && !n("/api/analyze/SPY"); i++) await page.waitForTimeout(100);
+          await page.waitForTimeout(400);
+          if (n("/api/analyze/SPY") !== 1) fail(`the look-up fetched /api/analyze/SPY ${n("/api/analyze/SPY")} times, expected once`);
+          for (const p of ["/api/research/", "/api/insights/", "/api/etf/"]) if (apiLog.some((x) => x.startsWith(p))) fail(`the look-up alone fetched ${p} (it must wait for its press)`);
+          const load = page.locator('section.vt-bot-panel[data-panel="stock"] [data-load="research"] button', { hasText: "Load research for SPY" }).first();
+          if (!(await load.count())) fail("no 'Load research for SPY' control after the look-up");
+          else {
+            if (vp.touch) await load.tap(); else await load.click();
+            for (let i = 0; i < 40 && !n("/api/research/SPY"); i++) await page.waitForTimeout(100);
+            if (n("/api/research/SPY") !== 1) fail(`the press fetched /api/research/SPY ${n("/api/research/SPY")} times, expected once`);
+            let report = false;
+            for (let i = 0; i < 30 && !report; i++) { report = /conviction/.test(await page.locator('section.vt-bot-panel[data-panel="stock"]').innerText()); if (!report) await page.waitForTimeout(100); }
+            if (!report) fail("the research report did not render after the press");
+            await page.screenshot({ path: path.join(OUT, `${name}-loaded-${vp.w}.png`), animations: "disabled" });
+          }
+        } catch (e) {
+          fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+        }
+      }
+      if (name === "analyzeloaded" || name === "analyzeowner") {
+        const fail = (m) => checks.failures.push("trade-cockpit: " + m);
+        try {
+          for (let i = 0; i < 40; i++) { if (await page.locator('section.vt-bot-panel[data-panel="stock"]').count()) break; await page.waitForTimeout(100); }
+          const ids = await page.$$eval('[data-world="trade"] section.vt-bot-panel[data-panel]', (els) => els.map((e) => e.getAttribute("data-panel")).sort());
+          const want = ["etf", "news", "options", "plan", "screener", "smart", "stock", "structure", "watchlist"];
+          if (ids.join(",") !== want.join(",")) fail(`panels [${ids.join(", ")}], expected [${want.join(", ")}]`);
+          if ((await page.locator('[data-world="trade"] .vt-lookup-box input').count()) !== 1) fail("expected exactly one look-up box");
+          // the page opened on SPY: ONE Python-backed fetch; the heavy panels wait for their press
+          const n = (p) => apiLog.filter((x) => x === p).length;
+          if (n("/api/analyze/SPY") !== 1) fail(`the look-up fetched /api/analyze/SPY ${n("/api/analyze/SPY")} times, expected once`);
+          for (const p of ["/api/research/", "/api/insights/", "/api/etf/"]) if (apiLog.some((x) => x.startsWith(p))) fail(`the look-up alone fetched ${p} (it must wait for its press)`);
+          // one press on Smart Money's control: insights fetched once, Smart Money and Structure both filled
+          const loadInsights = page.locator('section.vt-bot-panel[data-panel="smart"] [data-load="insights"] button').first();
+          if (!(await loadInsights.count())) fail("Smart Money has no load control");
+          else {
+            if (vp.touch) await loadInsights.tap(); else await loadInsights.click();
+            for (let i = 0; i < 40 && !n("/api/insights/SPY"); i++) await page.waitForTimeout(100);
+            if (n("/api/insights/SPY") !== 1) fail(`the press fetched /api/insights/SPY ${n("/api/insights/SPY")} times, expected once`);
+            let filled = 0;
+            for (let i = 0; i < 30 && filled < 2; i++) { filled = await page.locator('section.vt-bot-panel[data-panel="smart"] [data-testid="section-insights"], section.vt-bot-panel[data-panel="structure"] [data-testid="section-insights"]').count(); if (filled < 2) await page.waitForTimeout(100); }
+            if (filled !== 2) fail(`one press filled ${filled} of Smart Money and Structure`);
+            if (apiLog.some((x) => x.startsWith("/api/research/") || x.startsWith("/api/etf/"))) fail("the insights press loaded another heavy panel");
+          }
+          const tab = page.locator('section.vt-bot-panel[data-panel="stock"] .vt-bot-tab', { hasText: "Fundamentals" }).first();
+          if (vp.touch) await tab.tap(); else await tab.click();
+          let bar = false;
+          for (let i = 0; i < 20 && !bar; i++) { bar = (await page.locator('section.vt-bot-panel[data-panel="stock"] [data-testid="section-live-price"]').count()) > 0; if (!bar) await page.waitForTimeout(100); }
+          if (!bar) fail("Stock · Fundamentals has no live price bar");
+          if (!(await page.locator('section.vt-bot-panel[data-panel="stock"] [data-testid="section-fundamentals"]').count())) fail("Stock · Fundamentals has no fundamentals panel");
+          await page.screenshot({ path: path.join(OUT, `${name}-fundamentals-${vp.w}.png`), animations: "disabled" });
+          const dossier = await page.locator("a.vt-trade-dossier").count();
+          if (name === "analyzeowner" && dossier !== 1) fail("the owner's view has no dossier jump");
+          if (name === "analyzeloaded" && dossier !== 0) fail("a visitor sees the owner's dossier jump");
+        } catch (e) {
+          fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
         }
       }
       // ── TICKER DOSSIER (2026-10-29, human-asked): the range band is the

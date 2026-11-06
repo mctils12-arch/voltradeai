@@ -116053,3 +116053,54 @@ ROLLBACK TRIGGER. A Trade tab that renders differently from the screenshots in t
 TESTS. client/src/pages/tradeBodies.test.ts (9): the hook keeps its query key and staleTime, the exports, one useQuery left in analyze.tsx, no MarketScanner or /api/scan, every body's props, bodies own their fetch with no h1 or width cap, the default exports are header + body wrappers, and the existing data-testids survive. All client page tests plus the tests that read index.css and visual_check.mjs pass, 77/77. tsc gives 6 errors, the same set. The counter ratchet is OK (ts_any 1205, tests_run_in_ci 811, assertions 32396). test_ts_code_only.py: 11 passed. Harness: analyze, scanner, news, research, watchlist, planner and taxes are registered at 390/768/1440 (visitor view; scanner and news use captured responses).
 
 STARVED: no.
+
+## 2026-11-06 [PRODUCT] — T-CLIENT (client/src/trade/*, client/src/cockpit/PanelBoundary.tsx, client/src/components/TradeBackdrop.tsx, client/src/lib/activeTicker.ts, tradeBackdrop.ts, client/src/pages/home.tsx, analyze.tsx, news.tsx, research.tsx, planner.tsx, client/src/index.css, scripts/visual_check.mjs, scripts/fixtures/trade_*.json) — Trade cockpit: every Trade tab is one page on the bot page's engine, one panel per feature, over the moving map; a look-up runs one Python process
+VERSION: v1.0.1334 (shipped 2026-11-06 by the parent session; main was v1.0.1333)
+
+WHY. This is the third of PR #1556's four one-change PRs (cockpit-1 entry: "no orphan PRs", "simplify the UI"). The human, on the PR's first preview (2026-10-29): "it needs to look like the bot UI but have the functionality of what's there and no duplicates". Refocus spec §8: "UI: simplify". Before this, the Trade world was seven pages with four separate ticker inputs. The moving map lived inside the Analyze page only, re-created on every visit.
+
+CHANGE.
+- client/src/trade/TradePage.tsx and zones.ts: one full-bleed page on client/src/cockpit, the bot page's engine (grid per tier, panel chrome, hold / pin / float / zoom, FLIP on frameCore).
+  - A KPI strip: price, ATM IV / 20-day RV, VRP, put/call, verdict, 52-week range.
+  - One panel per feature: Options & Volatility; Stock (Research · Fundamentals · Earnings & sentiment); Smart Money; Structure; Screener; Watchlist; News; Plan (Trade plan · Taxes); ETF Builder. The panels are the previous PR's bodies, never copies.
+  - One look-up box (lib/activeTicker) feeds every panel; "/" focuses it.
+  - cockpit/PanelBoundary keeps one panel's render error inside that panel.
+- home.tsx:
+  - Every Trade tab renders TradePage. A tool tab zooms its panel; an analyze section picks one.
+  - The moving world map is mounted once for the Trade world: components/TradeBackdrop.tsx with lib/tradeBackdrop.ts, moved out of analyze.tsx together with its stale-chunk recovery.
+  - "#/analyze/<section>/<SYMBOL>" seeds the active symbol, and the hash sync writes the symbol back.
+- The old page components stay as unrouted wrappers of the bodies; they seed from the active symbol as the PR had them. The nav is unchanged; the next PR changes it.
+
+HEAVY LOADS (CLAUDE.md GOAL #1, keep the system alive; coordinator 2026-11-06: the server's Node heap is ~2.7 GB, RSS ~3.4 GB, and the container OOM-restarted once tonight). Four of the page's symbol reads run a Python process per call on the server: /api/analyze (analyze.py), /api/research (python -m alphadesk), /api/insights (insights.py) and /api/etf. The old Trade pages started one per look-up. The PR's first cut started three at once: analyze, research and insights. Its ETF panel also stayed open across later look-ups, which would have started a fourth.
+- Now a look-up runs ONE: /api/analyze, which the strip, Options & Volatility and Stock · Fundamentals / Earnings share.
+- Research, Smart Money + Structure (one insights run fills both) and the ETF builder each wait for their own "Load … for <SYM>" press (trade/heavyLoads.ts). A press is for the symbol open at the press, and a new look-up clears every press.
+- The Stock panel opens on Fundamentals (the analyze data), and on Research only from the Research tab.
+- The one other read a look-up makes is the News filter: a single Alpaca HTTP call, with no Python.
+- Smart Money and Structure no longer show the analyze query's age as their own.
+
+PORT ADAPTATIONS (tonight's tip, and what the old pages had that the PR's first cut dropped). Each is pinned in home.nav.test.ts:
+- The bot strip has had seven tiles since the Today tile (2026-11-03), with a full-width seventh tile below 1180 px. The Trade strip's six tiles get their own tracks, so they fill 3+3 on the tablet and 2+2+2 on the phone.
+- The zoomed view keeps the strip at its natural height, as the bot page now does. A fixed 76 px track clipped the 86 px tiles.
+- At the desktop tiers the left column's news cards stack in one column. .news-grid switches to two columns on viewport width, which drew two ~150 px cards that overflowed the 330 px column.
+- A zoomed tool tab keeps the one look-up box in its bar. The Research tab zooms the Stock panel, which needs a symbol and offered no way to enter one; the old Research page had its own input. The box is 176 px wide, so the 16 px touch-font prompt fits.
+- Stock · Fundamentals leads with the live price bar (day range, volume, market cap, beta).
+- When no spread is ranked, the panel says why (spreadsEmpty.ts: no live two-sided quotes, or nothing buildable), not "none cleared the bar".
+- The options disclaimer the Analyze page carried is back.
+- The sector heatmap returns whenever the screener is zoomed (the Scanner tab) or a window.
+
+DOWNSTREAM (2 steps). (1) Server: per look-up, one analyze.py, the same as the old Analyze page, plus the News filter's HTTP call. alphadesk, insights.py and the ETF script run only on a press, one run each. The insights run is shared by two panels through one query key, and a cached answer (staleTime 1–5 min) is reused for the same symbol. (2) Client: the bodies keep their own polling (scanner, news). The map mounts once per Trade visit instead of once per Analyze visit, and its state comes from the page's analyze query.
+
+ROLLBACK TRIGGER. A Trade look-up starting more than one Python process (the server's process list, or the harness's request log), a Trade tab that cannot reach a feature it had before, a body fetching in a loop, or a panel showing "this panel failed to render" on the live site: revert this commit. The routes and the old page components are untouched, so a revert restores the seven pages.
+
+TESTS.
+- New: client/src/trade/heavyLoads.test.ts (4). It covers the request model: a look-up's Python-backed reads are exactly /api/analyze/<SYM>; a press loads its one panel for the symbol at the press, and a new symbol does not inherit it. It also covers TradePage's wiring: the page fetches only through useAnalyze; ResearchBody, both InsightsViews and ETFBuilderView mount only under isRequested(...) for the open symbol; a new look-up clears every press; the heavy bodies' queries are enabled only with a ticker. The wiring test fails on the unamended page.
+- Also new: home.nav.test.ts (5), trade/zones.test.ts (2), lib/activeTicker.test.ts (2), lib/tradeBackdrop.test.ts (4).
+- tradeBodies.test.ts: the news wrapper's exact pin changes to its new exact value (seeded from the active symbol), and the planner's write-back is pinned.
+- Client pages, lib, trade and cockpit tests, plus the tests that read index.css or visual_check.mjs: 113/113.
+- tsc: 6 errors, the same set. Counter ratchet OK (tests_run_in_ci 816, assertions 32501). test_ts_code_only.py: 11 passed.
+- Harness at 390/768/1440: analyze, analyzeloaded, research, analyzeowner, scanner, news, watchlist, planner and taxes, 0 hard failures each.
+  - The harness now logs every /api/* request a render makes. The Trade cockpit checks: a look-up, whether the page opened on SPY or SPY was typed into the Research tab's box, fetches /api/analyze/SPY once and nothing heavy. One press fetches its route once: Research renders its report, and one insights press fills Smart Money and Structure.
+  - With a symbol loaded there are nine panels and one look-up box, Fundamentals renders the live price bar, and only the owner sees the dossier jump.
+  - Run against the unamended page, the check fails with 9 hard failures: research and insights were fetched on the look-up alone.
+
+STARVED: no.
