@@ -14,6 +14,7 @@ import {
   OPTIONS_GAMMA_THRESHOLD, OPTIONS_GAMMA_DTE, OPTIONS_ASSIGNMENT_DELTA, OPTIONS_ASSIGNMENT_DTE, OPTIONS_MIN_HOLD_MINUTES,
   OPTIONS_MULTI_LEG_STRATEGIES, OPTIONS_CREDIT_STRATEGIES, OPTIONS_DEBIT_STRATEGIES, CONVEXITY_HEDGE_STRATEGY, CONVEXITY_ROLL_DTE,
   OPTION_LONG_KILL_LOSS_PCT, OPTION_SHORT_KILL_LOSS_PCT,
+  OPTIONS_PT_SCALE_OUT_GAIN, OPTIONS_PT_SCALE_OUT_FRACTION, OPTIONS_PT_TRAIL_ARM_GAIN, OPTIONS_PT_TRAIL_GIVEBACK,
 } from "../shared/positionLevels";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -199,6 +200,18 @@ test("the option-exit mirrors equal the engine's own constants (options_manager.
   const be = readFileSync(path.join(REPO, "bot_engine.py"), "utf8");
   assert.equal(pyNum(be, /convexity_cfg\.get\("roll_dte", (\d+)\)/), CONVEXITY_ROLL_DTE);
   assert.ok(be.includes(`'strategy': '${CONVEXITY_HEDGE_STRATEGY}'`), "the overlay marks its puts with this strategy name");
+  // 2026-11-06 BOUGHT-OPTION PROFIT TAKING: system_config's OPTIONS_PROFIT_TAKING and the manager's defaults
+  const sc = readFileSync(path.join(REPO, "system_config.py"), "utf8");
+  const block = /"OPTIONS_PROFIT_TAKING": \{([\s\S]*?)\}/.exec(sc);
+  assert.ok(block, "system_config OPTIONS_PROFIT_TAKING");
+  const defaults = /^PROFIT_TAKING_DEFAULTS = \{([\s\S]*?)\}/m.exec(om);
+  assert.ok(defaults, "options_manager PROFIT_TAKING_DEFAULTS");
+  for (const src of [block![1], defaults![1]]) {
+    assert.equal(pyNum(src, /"scale_out_gain": ([\d.]+)/), OPTIONS_PT_SCALE_OUT_GAIN);
+    assert.equal(pyNum(src, /"scale_out_fraction": ([\d.]+)/), OPTIONS_PT_SCALE_OUT_FRACTION);
+    assert.equal(pyNum(src, /"trail_arm_gain": ([\d.]+)/), OPTIONS_PT_TRAIL_ARM_GAIN);
+    assert.equal(pyNum(src, /"trail_giveback": ([\d.]+)/), OPTIONS_PT_TRAIL_GIVEBACK);
+  }
   const bot = readFileSync(path.join(REPO, "server", "bot.ts"), "utf8");
   assert.equal(pyNum(bot, /const OPTION_LONG_KILL_LOSS_PCT = (-[\d.]+);/), OPTION_LONG_KILL_LOSS_PCT);
   assert.equal(pyNum(bot, /const OPTION_SHORT_KILL_LOSS_PCT = (-[\d.]+);/), OPTION_SHORT_KILL_LOSS_PCT);
@@ -214,8 +227,10 @@ test("management: multi-leg strategies group, the convexity hedge is the overlay
   assert.equal(optionManagement(null), "single");
 });
 
-test("a bought single leg: no profit target; close at 21 DTE, −50% of premium, 5 DTE force, gamma inside 30 DTE, the Tier-1 −75% floor; never a partial exit", () => {
-  const plan = optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: null });
+// 2026-11-06 (BOUGHT-OPTION PROFIT TAKING): this pin was "no profit target … never a partial exit". It now
+// holds with profit taking switched off (profitTakingOn: false, the rollback); on, the next test pins it.
+test("a bought single leg, profit taking off: no profit target; close at 21 DTE, −50% of premium, 5 DTE force, gamma inside 30 DTE, the Tier-1 −75% floor; never a partial exit", () => {
+  const plan = optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: null, profitTakingOn: false });
   assert.equal(plan.side, "long");
   assert.equal(plan.management, "single");
   assert.equal(plan.strategy, null);
@@ -230,13 +245,45 @@ test("a bought single leg: no profit target; close at 21 DTE, −50% of premium,
   assert.deepEqual(by.gamma, { key: "gamma", price: null, inDays: 17, hit: false });
   close(by.backstop.price, 0.8); assert.equal(by.backstop.hit, false);
   // the same leg after a collapse: the −50% stop and the floor both read hit; "unknown" reads as not recorded
-  const down = optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 0.7, daysToExpiry: 20, strategy: "unknown" });
+  const down = optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 0.7, daysToExpiry: 20, strategy: "unknown", profitTakingOn: false });
   assert.equal(down.strategy, null);
   const d = Object.fromEntries(down.rules.map((r) => [r.key, r]));
   assert.equal(d.loss_limit.hit, true);
   assert.equal(d.backstop.hit, true);
   assert.equal(d.dte_exit.hit, true); assert.equal(d.dte_exit.inDays, -1);
   assert.equal(d.dte_critical.hit, false);
+  // a leg the manager blocks (it may cover a sold option of its type) reads the same
+  assert.deepEqual(optionExitPlan({ qty: 2, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: null, scaleOut: "blocked" }).rules.map((r) => r.key),
+    ["dte_critical", "dte_exit", "loss_limit", "gamma", "backstop"]);
+});
+
+test("a bought single leg, profit taking on (2026-11-06): half at +100% of the premium, the rest on a 35% trail off the peak once +50%, both before the −50% stop", () => {
+  const two = optionExitPlan({ qty: 2, entryPrice: 3.2, currentPrice: 5.0, daysToExpiry: 47, strategy: "buy_call" });
+  assert.deepEqual(two.rules.map((r) => r.key), ["dte_critical", "dte_exit", "scale_out", "trail", "loss_limit", "gamma", "backstop"]);
+  const by = Object.fromEntries(two.rules.map((r) => [r.key, r]));
+  assert.deepEqual(by.scale_out, { key: "scale_out", price: 6.4, inDays: null, hit: false });
+  assert.deepEqual({ ...by.trail, price: null }, { key: "trail", price: null, inDays: null, hit: false, state: "not_armed" });
+  close(by.trail.price, 4.8); // no peak recorded: the trail arms at +50% ($4.80)
+  assert.equal(two.partial, true);
+  assert.ok(two.profitTarget === by.scale_out);
+  // up 300% with the manager's peak at 4.1× the premium: the half is due, the trail armed at 4.1 × 0.65 × $3.20
+  const up = optionExitPlan({ qty: 2, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: "buy_call", peakRatio: 4.1 });
+  const u = Object.fromEntries(up.rules.map((r) => [r.key, r]));
+  assert.equal(u.scale_out.hit, true);
+  assert.equal(u.trail.state, "armed"); close(u.trail.price, 3.2 * 4.1 * 0.65); assert.equal(u.trail.hit, false);
+  // fell back under the trail: due
+  const back = Object.fromEntries(optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 8.0, daysToExpiry: 47, strategy: "buy_call", peakRatio: 4.1, scaleOut: "filled" }).rules.map((r) => [r.key, r]));
+  assert.equal(back.trail.hit, true);
+  assert.deepEqual(back.scale_out, { key: "scale_out", price: 6.4, inDays: null, hit: false, state: "done" }, "the half already sold");
+  // a lot of 1 cannot be halved: the trail is its profit rule, no partial exit
+  const one = optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: null });
+  const o = Object.fromEntries(one.rules.map((r) => [r.key, r]));
+  assert.equal(o.scale_out.state, "not_possible"); assert.equal(o.scale_out.hit, false);
+  assert.equal(one.partial, false);
+  assert.ok(one.profitTarget === o.trail);
+  // sold legs and the hedge are untouched by profit taking
+  assert.ok(!optionExitPlan({ qty: -2, entryPrice: 2.47, currentPrice: 1.0, daysToExpiry: 30, strategy: "sell_cash_secured_put" }).rules.some((r) => r.key === "scale_out" || r.key === "trail"));
+  assert.ok(!optionExitPlan({ qty: 3, entryPrice: 1.5, currentPrice: 4.0, daysToExpiry: 60, strategy: "convexity_hedge" }).rules.some((r) => r.key === "scale_out" || r.key === "trail"));
 });
 
 test("a sold single leg: 50% of the credit kept is the target, 2× the credit the stop, roll-else-close at 21 DTE, deep-ITM roll inside 10 DTE, the −150% floor", () => {
@@ -269,9 +316,19 @@ test("a multi-leg strategy is judged on its combined P&L (no per-leg prices): cr
   const ic = optionExitPlan({ qty: -1, entryPrice: 1, currentPrice: 1, daysToExpiry: 4, strategy: "qqq_iron_condor", legsInGroup: 4 });
   assert.deepEqual(ic.rules.map((r) => r.key), ["dte_critical", "profit_target", "ic_max_loss", "loss_limit", "dte_exit", "edge", "backstop"]);
   assert.equal(ic.rules[0].hit, true);
+  // 2026-11-06 (BOUGHT-OPTION PROFIT TAKING): a debit group takes profit on its combined value (was: no
+  // profit target, rules ["dte_critical", "loss_limit", "dte_exit", "backstop"] — still so with it off)
   const straddle = optionExitPlan({ qty: 1, entryPrice: 5, currentPrice: 5, daysToExpiry: 40, strategy: "buy_straddle", legsInGroup: 2 });
-  assert.equal(straddle.profitTarget, null);
-  assert.deepEqual(straddle.rules.map((r) => r.key), ["dte_critical", "loss_limit", "dte_exit", "backstop"]);
+  assert.deepEqual(straddle.rules.map((r) => r.key), ["dte_critical", "loss_limit", "dte_exit", "scale_out", "trail", "backstop"]);
+  const st = Object.fromEntries(straddle.rules.map((r) => [r.key, r]));
+  assert.deepEqual(st.scale_out, { key: "scale_out", price: null, inDays: null, hit: false, state: "not_possible" }, "1 unit cannot be halved");
+  assert.ok(straddle.profitTarget === st.trail && st.trail.price === null);
+  const off = optionExitPlan({ qty: 1, entryPrice: 5, currentPrice: 5, daysToExpiry: 40, strategy: "buy_straddle", legsInGroup: 2, profitTakingOn: false });
+  assert.equal(off.profitTarget, null);
+  assert.deepEqual(off.rules.map((r) => r.key), ["dte_critical", "loss_limit", "dte_exit", "backstop"]);
+  const vertical = optionExitPlan({ qty: 2, entryPrice: 5, currentPrice: 9, daysToExpiry: 40, strategy: "bull_call_spread", legsInGroup: 2 });
+  assert.equal(vertical.partial, true);
+  assert.ok(vertical.profitTarget?.key === "scale_out" && vertical.profitTarget.price === null, "group rules carry no per-leg price");
 });
 
 test("the convexity hedge is insurance: rolled under 21 DTE, no target, no stop — only the Tier-1 floor", () => {

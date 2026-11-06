@@ -3,7 +3,7 @@
 // /api/bot/positions (the engine's own formulas), never recomputed here.
 // Pure; pinned by levels.test.ts.
 import type { PositionLevels, OptionLegLevels } from "../../../../shared/positionLevels";
-import { optionLegLevels, optionExitPlan, pricePct } from "../../../../shared/positionLevels";
+import { optionLegLevels, optionExitPlan, pricePct, OPTIONS_PT_SCALE_OUT_GAIN, OPTIONS_PT_TRAIL_ARM_GAIN, OPTIONS_PT_TRAIL_GIVEBACK } from "../../../../shared/positionLevels";
 import { optionExitSegments, joinSegments } from "../exitPlan";
 import type { DrawLevel, DrawZone, Theme } from "./draw";
 import { MINUS } from "../format";
@@ -28,7 +28,7 @@ export interface OverlaySubject {
   entryPrice: number | null;
   currentPrice: number | null;
   isOption?: boolean;
-  optionMeta?: { underlyingTicker?: string; strike?: number; optionType?: string; expiry?: string; daysToExpiry?: number; strategy?: string | null } | null;
+  optionMeta?: { underlyingTicker?: string; strike?: number; optionType?: string; expiry?: string; daysToExpiry?: number; strategy?: string | null; profitTaking?: { on?: boolean; peakRatio?: number | null; scaleOut?: string | null } | null } | null;
   levels?: PositionLevels | null;
 }
 
@@ -133,10 +133,18 @@ export function optionOverlay(p: OverlaySubject, theme: Theme): Overlay {
   // 2026-11-02: the manager's profit target exists for SOLD premium only (and for a credit strategy's
   // combined net credit); a bought leg rides to a DTE or loss rule — the legend said "closes at 50%"
   // for both before, which was wrong for every long leg. The exits line is the Book's words, one source.
-  const plan = optionExitPlan({ qty: p.qty, entryPrice: p.entryPrice, currentPrice: p.currentPrice, daysToExpiry: m.daysToExpiry ?? null, strategy: m.strategy });
+  // 2026-11-06: a bought leg (and a debit strategy) now takes profit: half at +100%, the rest on a trail.
+  const pt = m.profitTaking ?? null;
+  const plan = optionExitPlan({ qty: p.qty, entryPrice: p.entryPrice, currentPrice: p.currentPrice, daysToExpiry: m.daysToExpiry ?? null, strategy: m.strategy, peakRatio: pt?.peakRatio ?? null, scaleOut: pt?.scaleOut ?? null, profitTakingOn: pt?.on });
+  const takesProfit = plan.profitTarget && (plan.profitTarget.key === "scale_out" || plan.profitTarget.key === "trail");
+  const half = plan.rules.find((r) => r.key === "scale_out");
+  const trail = `on a ${Math.round(OPTIONS_PT_TRAIL_GIVEBACK * 100)}% trail off its peak once +${Math.round(OPTIONS_PT_TRAIL_ARM_GAIN * 100)}%`;
+  const ptWords = half?.state === "done" ? `half sold at +${Math.round(OPTIONS_PT_SCALE_OUT_GAIN * 100)}%; the rest ${trail}`
+    : half?.state === "not_possible" ? `all of it ${trail} (too small to sell half)`
+    : `sells half at +${Math.round(OPTIONS_PT_SCALE_OUT_GAIN * 100)}%${plan.management === "group" ? " of its net debit" : ""}, then the rest ${trail}`;
   legend.push(["manager target", plan.profitTarget
-    ? (plan.management === "group" ? `closes the whole ${String(m.strategy).replace(/_/g, " ")} at ${Math.round((lg.profitTargetFrac ?? 0.5) * 100)}% of its net credit` : `closes at ${Math.round((lg.profitTargetFrac ?? 0.5) * 100)}% of max profit`)
-    : plan.management === "hedge" ? "none — insurance, rolled by the overlay" : "none — a bought option has no profit-taking rule; it rides to a DTE or loss rule"]);
+    ? (takesProfit ? ptWords : plan.management === "group" ? `closes the whole ${String(m.strategy).replace(/_/g, " ")} at ${Math.round((lg.profitTargetFrac ?? 0.5) * 100)}% of its net credit` : `closes at ${Math.round((lg.profitTargetFrac ?? 0.5) * 100)}% of max profit`)
+    : plan.management === "hedge" ? "none — insurance, rolled by the overlay" : "none — profit taking does not apply (switched off, or the leg may cover a sold option); it rides to a DTE or loss rule"]);
   legend.push(["manager exits", joinSegments(optionExitSegments(plan))]);
   legend.push(["strategy", m.strategy ? String(m.strategy) : "not recorded"]);
   legend.push(["underlying", m.underlyingTicker ?? "—"]);

@@ -1856,7 +1856,7 @@ except Exception: data = {}
 cfg = {}
 try:
     from system_config import BASE_CONFIG as _bc
-    cfg = {k: v for k, v in _bc.items() if k.startswith('STOP_SCALAR_') or k in ('POSITION_HARD_STOP_PCT', 'POSITION_HARD_STOP_ENABLED')}
+    cfg = {k: v for k, v in _bc.items() if k.startswith('STOP_SCALAR_') or k in ('POSITION_HARD_STOP_PCT', 'POSITION_HARD_STOP_ENABLED', 'OPTIONS_PROFIT_TAKING')}
 except Exception as _e:
     cfg = {'error': str(_e)}
 print(json.dumps({'stop_state': data, 'config': cfg}))
@@ -1943,6 +1943,11 @@ print(json.dumps(data))
             const optType = cp === "C" ? "CALL" : "PUT";
             // Look up strategy/setup from options state
             const os = optionsState[sym] || optionsState[oTicker] || {};
+            // 2026-11-06 BOUGHT-OPTION PROFIT TAKING: the manager's peak and scale-out
+            // record (a debit group's on every leg), so the Book's exit line can price the trail
+            const ptRec = os.profit_taking || os.group_profit_taking || null;
+            const ptCfg = levelConfig.OPTIONS_PROFIT_TAKING as { enabled?: unknown } | undefined;
+            const peakRatio = Number(ptRec?.peak_ratio);
             optionMeta = {
               underlyingTicker: oTicker,
               expiry,
@@ -1951,6 +1956,11 @@ print(json.dumps(data))
               strategy: os.strategy || os.options_strategy || null,
               setup: os.setup || null,
               daysToExpiry: Math.ceil((new Date(expiry).getTime() - Date.now()) / 86400000),
+              profitTaking: {
+                on: ptCfg && typeof ptCfg === "object" ? ptCfg.enabled !== false : true,
+                peakRatio: Number.isFinite(peakRatio) && peakRatio > 0 ? peakRatio : null,
+                scaleOut: ptRec?.blocked ? "blocked" : (typeof ptRec?.scale_out?.status === "string" ? ptRec.scale_out.status : null),
+              },
             };
           }
         }

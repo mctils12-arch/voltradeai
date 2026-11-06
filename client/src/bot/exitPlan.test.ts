@@ -29,14 +29,28 @@ test("line 3: bought/sold · call/put · days left · setup · single leg or the
   assert.equal(joinSegments(optionWhatLine({ qty: 1, optionType: null, daysToExpiry: null, strategy: "unknown" })), "bought option · expiry not recorded · setup not recorded · single leg");
 });
 
-test("line 4, a bought call up 300 %: whole lot, NO profit target, the 21 DTE close and the −50 % stop at their prices, the floor", () => {
-  const plan = optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: null });
+// 2026-11-06 (BOUGHT-OPTION PROFIT TAKING): the "NO profit target" line now holds with profit taking
+// switched off (profitTakingOn: false); on, the next test pins the scale-out and the trail.
+test("line 4, a bought call up 300 %, profit taking off: whole lot, NO profit target, the 21 DTE close and the −50 % stop at their prices, the floor", () => {
+  const plan = optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: null, profitTakingOn: false });
   const segs = optionExitSegments(plan);
   assert.equal(joinSegments(segs), "whole lot at once · no profit target · force close ≤5 DTE in 42d · close at 21 DTE in 26d · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at $0.80");
   assert.ok(segs.every((s) => !s.hit), "nothing is due on a healthy leg");
-  const dying = optionExitSegments(optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 0.7, daysToExpiry: 20, strategy: "unknown" }));
+  const dying = optionExitSegments(optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 0.7, daysToExpiry: 20, strategy: "unknown", profitTakingOn: false }));
   assert.equal(joinSegments(dying), "whole lot at once · no profit target · force close ≤5 DTE in 15d · close at 21 DTE · due now · stop: −50% at $1.60 · hit · gamma >0.08 inside 30 DTE · floor −75% at $0.80 · hit");
   assert.deepEqual(dying.filter((s) => s.hit).map((s) => s.text), ["close at 21 DTE · due now", "stop: −50% at $1.60 · hit", "floor −75% at $0.80 · hit"]);
+});
+
+test("line 4, a bought call, profit taking on (2026-11-06): half at +100 %, the rest on the trail, in the manager's order", () => {
+  assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 2, entryPrice: 3.2, currentPrice: 5.0, daysToExpiry: 47, strategy: "buy_call" }))),
+    "half first, then the rest · force close ≤5 DTE in 42d · close at 21 DTE in 26d · half at +100% at $6.40 · trail 35% off the peak once +50% ($4.80) · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at $0.80");
+  const up = optionExitSegments(optionExitPlan({ qty: 2, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: "buy_call", peakRatio: 4.1 }));
+  assert.deepEqual(up.filter((s) => s.hit).map((s) => s.text), ["half at +100% at $6.40 · hit"]);
+  assert.ok(up.some((s) => s.text === "trail: rest below $8.53 (35% off the peak)"));
+  assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 8.0, daysToExpiry: 47, strategy: "buy_call", peakRatio: 4.1, scaleOut: "filled" }))),
+    "whole lot at once · force close ≤5 DTE in 42d · close at 21 DTE in 26d · half sold at +100% · trail: rest below $8.53 (35% off the peak) · hit · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at $0.80");
+  assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 1, entryPrice: 3.2, currentPrice: 12.8, daysToExpiry: 47, strategy: null }))),
+    "whole lot at once · force close ≤5 DTE in 42d · close at 21 DTE in 26d · 1 contract, no half to sell · trail 35% off the peak once +50% ($4.80) · stop: −50% at $1.60 · gamma >0.08 inside 30 DTE · floor −75% at $0.80");
 });
 
 test("line 4, a sold put: keep 50 % of the credit is the target, 2× the credit the stop, roll/close at 21 DTE, force at 5", () => {
@@ -51,7 +65,12 @@ test("line 4, a multi-leg strategy and the hedge: the unit, the group rules with
     "all 2 legs as one · force close ≤5 DTE in 13d · target: 50% of net credit · stop: loss of 2× net credit · close all at 21 DTE · due now · edge gone (VRP turns negative) · floor −150% at $10.25");
   assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: -1, entryPrice: 1, currentPrice: 1, daysToExpiry: 4, strategy: "qqq_iron_condor", legsInGroup: 4 }))),
     "all 4 legs as one · force close ≤5 DTE · due now · target: 50% of net credit · stop: 50% of max loss · stop: loss of 2× net credit · close all at 21 DTE · due now · edge gone (VRP turns negative) · floor −150% at $2.50");
+  // 2026-11-06: a debit strategy now takes profit on its combined value (with it off: "no profit target" as before)
   assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 1, entryPrice: 5, currentPrice: 5, daysToExpiry: 40, strategy: "buy_straddle", legsInGroup: 2 }))),
+    "all 2 legs as one · force close ≤5 DTE in 35d · stop: −50% of net debit · close all at 21 DTE in 19d · no half to sell (units cannot be split) · trail 35% off the peak once +50% · floor −75% at $1.25");
+  assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 2, entryPrice: 5, currentPrice: 5, daysToExpiry: 40, strategy: "bull_call_spread", legsInGroup: 2 }))),
+    "all 2 legs as one · force close ≤5 DTE in 35d · stop: −50% of net debit · close all at 21 DTE in 19d · half at +100% of net debit · trail 35% off the peak once +50% · floor −75% at $1.25");
+  assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 1, entryPrice: 5, currentPrice: 5, daysToExpiry: 40, strategy: "buy_straddle", legsInGroup: 2, profitTakingOn: false }))),
     "all 2 legs as one · no profit target · force close ≤5 DTE in 35d · stop: −50% of net debit · close all at 21 DTE in 19d · floor −75% at $1.25");
   assert.equal(joinSegments(optionExitSegments(optionExitPlan({ qty: 3, entryPrice: 1.5, currentPrice: 0.9, daysToExpiry: 60, strategy: "convexity_hedge" }))),
     "insurance, not a trade · no target, no stop · rolled under 21 DTE in 39d · floor −75% at $0.38");

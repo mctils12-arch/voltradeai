@@ -9,6 +9,7 @@ import {
   OPTIONS_PROFIT_TARGET_FRAC, OPTIONS_LOSS_LIMIT_MULTIPLIER, OPTIONS_BOUGHT_LOSS_LIMIT_FRAC, OPTIONS_DTE_EXIT_THRESHOLD, OPTIONS_DTE_CRITICAL,
   OPTIONS_IC_MAX_LOSS_EXIT_FRAC, OPTIONS_GAMMA_THRESHOLD, OPTIONS_GAMMA_DTE, OPTIONS_ASSIGNMENT_DTE, OPTIONS_CREDIT_STRATEGIES,
   OPTION_LONG_KILL_LOSS_PCT, OPTION_SHORT_KILL_LOSS_PCT, CONVEXITY_ROLL_DTE,
+  OPTIONS_PT_SCALE_OUT_GAIN, OPTIONS_PT_TRAIL_ARM_GAIN, OPTIONS_PT_TRAIL_GIVEBACK,
 } from "../../../shared/positionLevels";
 import { MINUS } from "./format";
 
@@ -74,6 +75,18 @@ function ruleWords(r: OptionExitRule, plan: OptionExitPlan): PlanSegment {
     case "assignment": return { text: `deep-ITM roll ≤${OPTIONS_ASSIGNMENT_DTE} DTE` };
     case "dte_exit": return { text: timed(plan.management === "group" ? `close all at ${OPTIONS_DTE_EXIT_THRESHOLD} DTE` : short ? `roll/close at ${OPTIONS_DTE_EXIT_THRESHOLD} DTE` : `close at ${OPTIONS_DTE_EXIT_THRESHOLD} DTE`, "due now"), hit: r.hit };
     case "profit_target": return { text: r.price === null ? `target: ${pct(OPTIONS_PROFIT_TARGET_FRAC)} of net credit` : `target: keep ${pct(OPTIONS_PROFIT_TARGET_FRAC)}${at}${hit}`, hit: r.hit };
+    // 2026-11-06 BOUGHT-OPTION PROFIT TAKING: half at +100%, the rest on a trail off the peak
+    case "scale_out": {
+      const of = plan.management === "group" ? " of net debit" : "";
+      if (r.state === "done") return { text: `half sold at +${pct(OPTIONS_PT_SCALE_OUT_GAIN)}` };
+      if (r.state === "not_possible") return { text: plan.management === "group" ? "no half to sell (units cannot be split)" : "1 contract, no half to sell" };
+      return { text: `half at +${pct(OPTIONS_PT_SCALE_OUT_GAIN)}${of}${at}${hit}`, hit: r.hit };
+    }
+    case "trail": {
+      const off = pct(OPTIONS_PT_TRAIL_GIVEBACK);
+      if (r.state === "armed") return { text: r.price === null ? `trail armed: rest ${off} off the peak` : `trail: rest below ${money(r.price)} (${off} off the peak)${hit}`, hit: r.hit };
+      return { text: `trail ${off} off the peak once +${pct(OPTIONS_PT_TRAIL_ARM_GAIN)}${r.price !== null ? ` (${money(r.price)})` : ""}` };
+    }
     case "ic_max_loss": return { text: `stop: ${pct(OPTIONS_IC_MAX_LOSS_EXIT_FRAC)} of max loss` };
     case "loss_limit":
       // options_manager measures the group stop against the NET credit / NET debit (2026-11-04)
@@ -86,14 +99,16 @@ function ruleWords(r: OptionExitRule, plan: OptionExitPlan): PlanSegment {
   }
 }
 
-/** "whole lot at once · no profit target · force close ≤5 DTE in 25d · close
- *  at 21 DTE in 9d · stop: −50% at $1.60 · gamma … · floor −75% at $0.80" —
- *  WHEN the engine sells, in the manager's own order, each price worked from
- *  the leg's entry premium; a rule the current reading already satisfies is
- *  flagged hit. The first segment answers "or a portion": never. */
+/** "half first, then the rest · force close ≤5 DTE in 25d · close at 21 DTE
+ *  in 9d · half at +100% at $6.40 · trail 35% off the peak once +50% ($4.80) ·
+ *  stop: −50% at $1.60 · gamma … · floor −75% at $0.80" — WHEN the engine
+ *  sells, in the manager's own order, each price worked from the leg's entry
+ *  premium; a rule the current reading already satisfies is flagged hit. The
+ *  first segment answers "or a portion": a bought leg of 2+ sells half at the
+ *  scale-out (2026-11-06); every other option exit is the whole lot. */
 export function optionExitSegments(plan: OptionExitPlan): PlanSegment[] {
   const segs: PlanSegment[] = [];
-  segs.push({ text: plan.management === "group" ? (plan.legsInGroup > 1 ? `all ${plan.legsInGroup} legs as one` : "strategy closed as one unit") : plan.management === "hedge" ? "insurance, not a trade" : "whole lot at once" });
+  segs.push({ text: plan.management === "group" ? (plan.legsInGroup > 1 ? `all ${plan.legsInGroup} legs as one` : "strategy closed as one unit") : plan.management === "hedge" ? "insurance, not a trade" : plan.partial ? "half first, then the rest" : "whole lot at once" });
   if (plan.management === "hedge") segs.push({ text: "no target, no stop" });
   else if (!plan.profitTarget) segs.push({ text: "no profit target" });
   for (const r of plan.rules) segs.push(ruleWords(r, plan));

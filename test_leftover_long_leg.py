@@ -25,6 +25,7 @@ Pinned:
 import os
 import sys
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import options_manager as om  # noqa: E402
@@ -90,11 +91,25 @@ class TestLeftoverLongLeg(_ManagerCase):
             self.assertEqual(self._leftover_actions(result), [])
 
     def test_deliberate_standalone_longs_are_exempt(self):
-        for strategy in om.STANDALONE_LONG_STRATEGIES:
-            self.submits.clear()
-            result = self._run([googl_wing(strategy=strategy)])
-            self.assertEqual(self.submits, [], f"{strategy} is a deliberate long, not a leftover")
-            self.assertEqual(self._leftover_actions(result), [])
+        # The wing is up 129% (4.70 -> 10.75): with BOUGHT-OPTION PROFIT TAKING
+        # (2026-11-06) on, a deliberate long that far up is scaled out by THAT
+        # rule (next test). Off here, so this test isolates the leftover rule.
+        import system_config
+        with patch.dict(system_config.BASE_CONFIG["OPTIONS_PROFIT_TAKING"], {"enabled": False}):
+            for strategy in om.STANDALONE_LONG_STRATEGIES:
+                self.submits.clear()
+                result = self._run([googl_wing(strategy=strategy)])
+                self.assertEqual(self.submits, [], f"{strategy} is a deliberate long, not a leftover")
+                self.assertEqual(self._leftover_actions(result), [])
+
+    def test_a_deliberate_long_far_up_is_scaled_out_by_profit_taking_not_closed_as_a_leftover(self):
+        """BOUGHT-OPTION PROFIT TAKING (2026-11-06, default on): the same buy_call
+        wing up 129% sells half (1 of 2) at the bid; the leftover rule stays out."""
+        wing = googl_wing(strategy="buy_call")
+        result = self._run([wing])
+        self.assertEqual(self.submits, [(wing["occ"], 1, "sell", 10.60)])
+        self.assertEqual(self._leftover_actions(result), [])
+        self.assertEqual([a["type"] for a in result["actions"] if a.get("action") == "CLOSE"], ["bought_scale_out"])
 
     def test_a_straddles_two_long_legs_are_not_leftovers(self):
         call = _held(leg("KMI", DTE, "C", 30, 1, "long", 1.00, 1.10, 1.05, 1.15, 0.50, 0.05, "buy_straddle", None))
