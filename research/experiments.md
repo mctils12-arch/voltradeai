@@ -115142,3 +115142,79 @@ TESTS.
   test_ts_code_only passes.
 
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (floor_vol_managed.py cash_plan; bot_engine.py _manage_floor_cash, _run_floor_step, without_floor_cash, FLOOR_AND_LEG_TICKERS; system_config.py FLOOR_VM_CASH_*; position_sizing.py _passive_floor_tickers; entry_shadow.py floor_ledger_tickers; server/bot.ts FLOOR_AND_LEG_TICKERS; server/floorAudit.ts) — the floor's idle cash earns the T-bill rate in BOXX, EXPLORATORY, kill date 2027-02-05
+VERSION: v1.0.1309 (shipped 2026-11-06 by the parent session; main was v1.0.1308)
+
+Refocus spec §2 review of removed features. The full table of 20 features, with verdicts and sources, is the session's removed_features_review.md, summarised in the PR body.
+
+**Why.** The floor study's V1 (research/floor_study_2026-11-05.md) credits idle cash with the 13-week T-bill rate (`scripts/floor_study.py lever_ret`). Alpaca paper cash earns 0. Re-run on the study's own data and code, 1993-02..2026-11, 8,498 sessions:
+
+| Variant | Log growth | Sharpe | Max DD |
+|---|---|---|---|
+| SPY | 10.25% | 0.512 | −55.2% |
+| V1, idle cash at T-bill (the study; it reported 10.41%) | 10.38% | 0.570 | −48.4% |
+| **V1, idle cash at 0%** | **10.16%** | 0.557 | −49.3% |
+| V1, idle cash in a fund at T-bill − 0.19% | 10.36% | 0.569 | −48.5% |
+
+- With cash at 0, V1 loses its log-growth edge over SPY.
+- Idle cash averages 9.9% of the floor's capital and exists on 35.9% of days.
+- 2017–2026: 14.68% at 0% cash vs 14.83% with the fund; SPY 14.10%.
+
+**Why BOXX, not SGOV/BIL.** The paper account credits no dividends (open_questions [DECIDED 2026-11-05]; the v1.0.1126 non-trade ledger found no DIV or INT rows). Price-only vs total return, 2024-11..2026-11 (Yahoo):
+
+| Fund | Price-only | Total return |
+|---|---|---|
+| SGOV | +0.04%/yr | 3.72%/yr |
+| BIL | −0.05%/yr | 3.64%/yr |
+| BOXX (1–3 month SPX box spreads, 0.19% fee) | +4.2%/yr | +4.2%/yr |
+
+BOXX made one distribution in its whole history ($0.291, 2024-08).
+
+**PRIOR (stated before the live run):** the live floor's log growth rises by ~0.2 pp/yr on the study's 33-year mix. In live terms, the fund holds (1 − E*) × 85% of equity on volatile days and nothing on calm days (E* ≥ 1).
+
+**Change.**
+- `floor_vol_managed.cash_plan` (pure):
+  - target = min(the floor's idle capital, held + cash − reserve);
+  - reserve = 15% of equity + every short put's strike collateral;
+  - trade only beyond max($2,000, 5% of the floor's capital);
+  - sells any time; buys only when the core did not trade this pass;
+  - the off switch sells everything.
+- `bot_engine._manage_floor_cash` runs after the core, in `_run_floor_step` only:
+  - never in the reduce-only drawdown-halt or kill-switch passes (human decision 2026-11-05, "sells only, the result is cash");
+  - same 09:45–15:54 window, broker clock and marketable DAY limits as the floor;
+  - no buy while a floor order is working;
+  - skips a quote wider than 0.2%;
+  - a rejected buy blocks buys for the ET day.
+- The fund is cash for exposure: `without_floor_cash` in the tier engine's TierContext and in the third leg's room; `position_sizing._passive_floor_tickers`.
+- The fund is a floor ticker for everything else: Python and bot.ts `FLOOR_AND_LEG_TICKERS` (no stops, no POS-KILL, floor sleeve) and `entry_shadow.floor_ledger_tickers`.
+- Floor audit rows name each cash order with its plain-English reason.
+
+**Downstream, traced two steps.**
+1. Cash parked in BOXX lowers account cash and Alpaca's options buying power.
+   - The reserve keeps at least the non-floor 15% plus all short-put collateral in cash. On E* < 1 days, T1 CSP collateral checks see the same non-floor cash they see today on E* ≥ 1 days.
+   - What they lose is the floor's own idle capital, which the 85/15 design never gave them.
+2. The tier engine's invested ceilings would have read the parked fund as invested: CAUTION 60% / BEAR 50% / PANIC 30%, against a floor footprint fixed at 85%.
+   - That would have killed every tier, CSPs included, exactly when E* < 1. A test shows the trip and the fix.
+   - Same for SVXY's room (15% → ~9% in its own post-spike regime) and satellite sizing (−10% per trade).
+   - All three now count it as cash.
+3. Other effects:
+   - BOXX takes a Node stock slot (MAX_POSITIONS 8) like SPY/SSO do; in steady state it replaces SSO (held only when E* < 1, SSO only when E* > 1).
+   - risk_kill_switch's correlation denominator (frozen, untouched) sees the same total footprint (85%) on every day, as it already does when E* ≥ 1.
+   - Tax: BOXX gains are capital gains, mostly short-term given the rebalancing; small.
+
+**Rollback trigger.**
+- The fund's realized return over 60 sessions is below the 13-week T-bill yield minus 1 pp, or
+- any fill is more than 0.3% from the mid, or
+- any T1 CSP is rejected for "insufficient options buying power" while the fund is held.
+
+Then set `FLOOR_VM_CASH_ENABLED` False. Before `FLOOR_MODE "basket"`, turn the cash parking off first (the basket floor does not trade the fund).
+
+**Tests.**
+- `test_floor_cash_parking.py`: 31 new.
+- `server/floorAudit.test.ts`: 2 new (8/8).
+- Existing: floor_vol_managed, floor_kill_switch, sizing_floor_tickers, entry_shadow, floor_basket_stops, third_leg (×2), tiered_strategy, sizing and regime suites: 95 + 95 passed. audit_critical, regime_scan_hook, scan_tiebreak, kill_switch_enforcement and risk_controls: 77 passed. The TS ledger suites (floorBasketExemption, edgeLedger, expectancyBySleeve, sleeveLedger): 25/25.
+- Two exact pins updated to their new values: `test_floor_basket_stops` FLOOR_AND_LEG_TICKERS + BOXX; `test_sizing_floor_tickers` `{SPY, SSO, BOXX}`.
+- counter_ratchet OK, tsc 6, test_ts_code_only 11/11.
+
+STARVED: no.
