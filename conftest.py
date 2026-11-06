@@ -86,6 +86,19 @@ def _hermetic_regime_files(tmp_path_factory):
         yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _hermetic_decision_journal(tmp_path_factory):
+    """2026-11-06 DECISION JOURNAL (decision_journal.py): scan_market's gates,
+    the tier engine, options_manager and the floor append decision rows. Point
+    the journal at a session temp dir so the suite never appends to the real
+    DATA_DIR's voltrade_decisions.jsonl. Tests of the journal patch DATA_DIR
+    themselves (they shadow this). Changes reachability, not behavior."""
+    import decision_journal
+
+    with patch.object(decision_journal, "DATA_DIR", str(tmp_path_factory.mktemp("decision_journal"))):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_broker_clock():
     """BROKER CLOCK ORDER GATE 2026-11-05 (broker_clock.py): every order POST

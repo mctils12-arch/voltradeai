@@ -446,6 +446,13 @@ export const DIAG_PROBES = [
   // composite comparison. Aggregate-only (no ticker, price or timestamp of a
   // record), read-only, no query parameters.
   "signals",
+  // ADDED 2026-11-06 (human refocus spec §7 "log every signal, decision, and
+  // outcome"): the decision journal (server/decisionJournal.ts) — the SAME
+  // rows the owner's /api/bot/decisions serves: each entry / exit / skip with
+  // its stages (regime, sector, selection sub-scores, options, instrument
+  // alternatives, sizing) and a plain-English summary. Symbols and sizes are
+  // within the 2026-07-07 widening; read-only; ?ticker, ?limit (1..200).
+  "decisions",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
