@@ -211,7 +211,11 @@ def test_table_verdicts_follow_the_evidence(table):
     eb = _row(table, "earnings_beats")
     assert eb["verdict"] == "untested" and eb["action"] == "not_used" and "Not used" in eb["action_text"]
     assert "no report dates, so no point-in-time history exists" in eb["reason"]
-    assert "deep_score does not fetch it" in eb["reason"] and eb["reason"].count("point-in-time history") == 1
+    # 2026-11-06 (earnings_history.py): logged on the shadow record now, but no
+    # forward source is registered for it yet, so it is not measured.
+    assert "not measured yet: source_validation has no forward source for it (earn.beats_last_3)" in eb["reason"] \
+        and eb["reason"].count("point-in-time history") == 1
+    assert eb["forward"] == {"logged": False, "verdict": None}
 
 
 def test_actions_and_review_flags(table):

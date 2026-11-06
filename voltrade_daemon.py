@@ -432,6 +432,12 @@ class RPCDispatcher:
             # entry points. flows_report: the cached estimate, no network.
             "flows_refresh": ("flows_model", "refresh_daily"),
             "flows_report": ("flows_model", "report"),
+            # EARNINGS HISTORY (2026-11-06, earnings_history.py; logging only).
+            # bot.ts Tier 3 runs the hourly Finnhub fill as a python3 -c
+            # subprocess under execPythonSerialized's hard kill (it fetches; a
+            # dispatch thread cannot be killed); registered so an RPC caller
+            # resolves the same entry point. deep_score reads the cache itself.
+            "earnings_history_refresh": ("earnings_history", "refresh_wanted"),
             # Signal attribution (2026-11-06, read-only — signal_attribution.py):
             # bot.ts serves it on /api/bot/signals and the diag probe "signals"
             # through pythonCall (daemon first, python3 -c fallback), cached 10 min.

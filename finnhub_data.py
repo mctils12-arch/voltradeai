@@ -401,6 +401,20 @@ def get_earnings_surprise(ticker: str) -> dict:
     return result
 
 
+def get_earnings_history_raw(ticker: str, limit: int = 4):
+    """
+    Finnhub /stock/earnings exactly as returned — EPS actual vs consensus
+    estimate per reported quarter (free tier: the last 4), newest first:
+    [{"actual", "estimate", "period", "quarter", "year", "surprise",
+      "surprisePercent", "symbol"}, ...] — or {"error": ...}.
+
+    Rate-limited through _finnhub_get (the token bucket above). NOT cached and
+    NOT zero-filled, unlike get_earnings_surprise: earnings_history.py
+    (2026-11-06, Tier 3) owns the cache and keeps a missing figure missing.
+    """
+    return _finnhub_get("/stock/earnings", {"symbol": str(ticker).upper(), "limit": int(limit)})
+
+
 # ── 4. Recommendation Trends ──────────────────────────────────────────────────
 
 def get_recommendation_trends(ticker: str) -> dict:

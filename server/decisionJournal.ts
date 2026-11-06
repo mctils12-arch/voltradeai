@@ -275,6 +275,54 @@ function tradeRegimeLabel(t: Obj): string | null {
   return r && r !== "OPTIONS_SCANNER" && r !== "UNKNOWN" ? r : null;
 }
 
+// EARNINGS HISTORY (2026-11-06, earnings_history.py): why a candidate's block
+// has no 3-quarter count, in plain English (decision_journal.py
+// EARNINGS_REASON_TEXT is the twin; test_earnings_history.py pins the parity).
+export const EARNINGS_REASON_TEXT: Readonly<Record<string, string>> = {
+  not_cached: "it has not been fetched yet (the hourly Finnhub refresh adds it)",
+  no_api_key: "no Finnhub key is configured",
+  fetch_error: "the last Finnhub fetch failed",
+  stale: "the cached copy is too old to use",
+  no_reports: "Finnhub has no earnings reports for it",
+  fewer_than_3: "fewer than 3 quarters are on record",
+  incomplete: "a recent quarter has no estimate or actual on record",
+  cache_unreadable: "the earnings cache could not be read",
+};
+
+/** "+12.35%" / "-0.52%" / "n/a" — Python's f"{p:+.2f}%" (2 decimals = the stored
+ *  precision, so both print the same digits; a negative zero keeps its sign). */
+function signedPct(p: number | null): string {
+  if (p === null) return "n/a";
+  return `${p < 0 || Object.is(p, -0) ? "-" : "+"}${Math.abs(p).toFixed(2)}%`;
+}
+
+/** A trade's earnings_history block as the selection stage shows it: the
+ *  numbers plus one plain-English `text` ("beat estimates 3 of the last 3
+ *  quarters ..."); logged, never scored. decision_journal.py earnings_view's twin. */
+export function earningsView(eh: unknown): Obj | null {
+  const o = rec(eh);
+  if (!Object.keys(o).length) return null;
+  const beats = num(o.beats_last_3);
+  const seen = num(o.quarters_seen);
+  const age = num(o.cache_age_h);
+  const pcts = Array.isArray(o.surprise_pct_last_3) ? o.surprise_pct_last_3.slice(0, 3).map(num) : [];
+  const reason = text(o.reason, 40) || null;
+  let line: string;
+  if (beats !== null) {
+    line = `beat estimates ${Math.trunc(beats)} of the last 3 quarters`;
+  } else {
+    let why = EARNINGS_REASON_TEXT[reason ?? ""] ?? "it is not on record";
+    if (reason === "stale" && age !== null) why = `the cached copy is ${Math.floor(age)} hours old, too old to use`;
+    line = `earnings history ${seen ? "incomplete" : "unavailable"}: ${why}`;
+  }
+  if (pcts.length) line += ` (EPS surprise ${pcts.map(signedPct).join(", ")}, newest first)`;
+  return {
+    beats_last_3: beats === null ? null : Math.trunc(beats), quarters_seen: seen === null ? null : Math.trunc(seen),
+    surprise_pct_last_3: pcts.length ? pcts : null, latest_period: text(o.latest_period, 10) || null,
+    cache_age_h: age, reason, source: text(o.source, 20) || null, text: `${line}; logged, not used in the score`,
+  };
+}
+
 export function selectionStage(t: Obj): Obj | null {
   const score = num(t.score ?? t.deep_score);
   const drivers = scoreDrivers(t.score_breakdown);
@@ -286,13 +334,17 @@ export function selectionStage(t: Obj): Obj | null {
   }
   if (score === null && !drivers.length) return null;
   const reasons = Array.isArray(t.reasons) ? t.reasons.slice(0, 6).map((r) => text(r, 160)).filter(Boolean) : [];
-  return {
+  const out: Obj = {
     score: score === null ? null : r1(score), threshold: num(t.score_threshold),
     rules_score: num(t.rules_score), ml_score: num(t.ml_score_raw),
     subscores: Object.keys(subs).length ? subs : null,
     drivers: drivers.slice(0, 5), dominant: dominantDriver(drivers), reasons,
     recommendation: text(t.recommendation, 40) || null, side: text(t.side, 12) || null,
   };
+  // EARNINGS HISTORY (2026-11-06): only on trades deep_score logged it for.
+  const ev = earningsView(t.earnings_history);
+  if (ev) out.earnings = ev;
+  return out;
 }
 
 /** What produced a trade dict, in a few words (the attribution's "signal"). */
