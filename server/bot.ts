@@ -69,7 +69,7 @@ import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, SPY_BENCH_ADJUSTMENT, SPY_BENCH_BAS
 import { todayTile, type TodayTile } from "./todayTile";
 import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
-import { readTaxDecisions, taxBody, taxLimit, type TaxBody } from "./taxAware";
+import { readTaxDecisions, taxBody, taxLimit, taxHoldOf, taxDeferLine, TaxDeferAudit, ltApproachingRows, type TaxBody, type LtApproachingRow } from "./taxAware";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
@@ -2965,12 +2965,35 @@ print(json.dumps({
   // decisions.jsonl) with the broker's live expectancy beside the sizer's
   // estimate (the sleeve cache, read — never awaited or refetched here). One
   // body for the owner route AND the "tax" diag probe.
-  function taxRouteBody(limitQ?: unknown): TaxBody {
+  // ltApproaching (2026-11-06): open long lots within 45 days of their
+  // long-term date — FIFO lots from the sleeve cache's fill history, priced by
+  // the live positions (one /v2/positions read per minute at most), each with
+  // the stop state's tax hold when the exit logic manages it.
+  let taxPositionsCache: { at: number; rows: NonNullable<ReturnType<typeof parsePositions>> } | null = null;
+  async function taxRouteBody(limitQ?: unknown): Promise<TaxBody> {
     const read = readTaxDecisions(regimeDataDir(process.env), taxLimit(limitQ));
-    return taxBody({ rows: read.rows, spyAssumption: read.spyAssumption, readError: read.error, edge: sleeveCache?.edge ?? null });
+    const extraNotes: string[] = [];
+    let ltApproaching: LtApproachingRow[] = [];
+    if (!sleeveCache) {
+      void sleevesBody().catch((warmErr) => console.warn("[tax] sleeve ledger warm-up:", warmErr instanceof Error ? warmErr.message : warmErr));
+      extraNotes.push("ltApproaching: the fill history (sleeve ledger) is not loaded yet; the next poll fills it");
+    } else {
+      try {
+        if (!taxPositionsCache || Date.now() - taxPositionsCache.at > 60_000) {
+          const rows = parsePositions(await alpaca("/v2/positions"));
+          if (rows) taxPositionsCache = { at: Date.now(), rows };
+        }
+        const now = new Date();
+        if (taxPositionsCache) ltApproaching = ltApproachingRows(sleeveCache.taxInputs.fills, taxPositionsCache.rows, now,
+          (t) => taxHoldOf({ tax_defer_until: monitoredPositions[t]?.taxDeferUntil, tax_defer_reason: monitoredPositions[t]?.taxDeferReason }, now));
+      } catch (err) {
+        extraNotes.push(`ltApproaching unavailable: ${String(err instanceof Error ? err.message : err).slice(0, 160)}`);
+      }
+    }
+    return taxBody({ rows: read.rows, spyAssumption: read.spyAssumption, readError: read.error, edge: sleeveCache?.edge ?? null, ltApproaching, extraNotes });
   }
-  app.get("/api/bot/tax", requireOwner, (req, res) => {
-    res.json(taxRouteBody(req.query.limit));
+  app.get("/api/bot/tax", requireOwner, async (req, res) => {
+    res.json(await taxRouteBody(req.query.limit));
   });
 
   // ── Trade History CSV Export ─────────────────────────────────────────────
@@ -3747,7 +3770,7 @@ print(json.dumps(s))
         case "tax": {
           // ADDED 2026-11-06 (refocus spec §6): the tax filter's decisions —
           // the SAME body as the owner's /api/bot/tax (server/taxAware.ts).
-          return res.json(sanitizeDiag({ probe: "tax", ...taxRouteBody(req.query.limit) }));
+          return res.json(sanitizeDiag({ probe: "tax", ...(await taxRouteBody(req.query.limit)) }));
         }
         case "sleeves": {
           // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the
@@ -8609,6 +8632,9 @@ print(json.dumps(out))
     maxLoss?: number;           // For defined-risk strategies
     legSymbols?: string[];      // OCC symbols of all legs
     strategyLabel?: string;     // Display label
+    // TAX HOLD (2026-11-06, server/taxAware.ts): Python's verdict from the stop state
+    taxDeferUntil?: string | null;
+    taxDeferReason?: string | null;
   }
 
   const monitoredPositions: Record<string, MonitoredPosition> = {};
@@ -8621,6 +8647,8 @@ print(json.dumps(out))
   // survives a restart, by design (a restart simply restarts the count).
   const posKillPendingBreach: Map<string, PosKillBreach> = new Map();
   const posKillNoMarkAuditDay: Map<string, string> = new Map();
+  // TAX HOLD 2026-11-06: one TAX-DEFER audit row per ticker / exit kind / day
+  const taxDeferAudit = new TaxDeferAudit();
   // POS-KILL STRUCTURE HOLD 2026-11-02: once-per-day audit bookkeeping and the current sync's structure legs
   const posKillStructureHoldDay: Map<string, string> = new Map();
   let posKillStructuresCurrent: Map<string, string> = new Map();
@@ -9179,6 +9207,7 @@ except: print('{}')
           lastCheckedPrice: current,
           originalQty, remainingQty, scalesCompleted, breakevenActive,
           regime, atrPct: atrPct, highestPrice,
+          taxDeferUntil: ps.tax_defer_until || null, taxDeferReason: ps.tax_defer_reason || null,
         };
         // Preserve pendingExit flag from in-memory state — prevents re-triggering
         // exit logic while a limit sell order is still open and unfilled
@@ -9359,6 +9388,16 @@ except: print('{}')
         shouldScaleOut = true;
         scaleOutLabel = `SCALE-OUT 2/3 at +${pnlPct.toFixed(1)}% (${rMultiple.toFixed(1)}R)`;
       }
+    }
+
+    // ── TAX HOLD (2026-11-06, server/taxAware.ts) ───────────────────────────
+    // Inside 45 days of its long-term date a winner's PROFIT-TAKING exits wait
+    // while Python's tax saving beats the expected give-back (the stop state's
+    // tax_defer_until). Stops, trailing/breakeven stops and risk exits run.
+    const taxHold = taxHoldOf({ tax_defer_until: pos.taxDeferUntil, tax_defer_reason: pos.taxDeferReason }, new Date());
+    if (shouldScaleOut && taxHold) {
+      if (taxDeferAudit.due(ticker, "scale_out")) audit("TAX-DEFER", taxDeferLine(ticker, "scale-out", taxHold));
+      shouldScaleOut = false;
     }
 
     // ── DUPLICATE SELL ORDER GUARD ──────────────────────────────────────────
@@ -9601,6 +9640,13 @@ if '${ticker}' in ss:
           shouldTimeStop = true;
         }
       } catch (_) {}
+    }
+
+    if (!shouldStop && (shouldTP || shouldTimeStop) && taxHold) {
+      const heldKind = shouldTP ? "take_profit" : "time_stop";
+      if (taxDeferAudit.due(ticker, heldKind)) audit("TAX-DEFER", taxDeferLine(ticker, shouldTP ? "take-profit" : "time stop", taxHold));
+      shouldTP = false;
+      shouldTimeStop = false;
     }
 
     // ETF max hold (audit §6.8 N6, 2026-10-27): a leveraged substitute ETF

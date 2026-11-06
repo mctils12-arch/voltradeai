@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_TAX_RATES } from "./taxLedger";
 import type { EdgeLedger, EdgeRow } from "./edgeLedger";
+import type { FillRow, PositionRow } from "./killSwitchAutoResume";
 
 export const TAX_DECISIONS_FILE = "voltrade_tax_decisions.jsonl";
 export const TAX_DECISIONS_DEFAULT_LIMIT = 100;
@@ -179,4 +180,121 @@ export function taxBody(input: TaxBodyInput): TaxBody {
     liveExpectancy: input.edge ? { options: liveRow(input.edge.options), stocks: liveRow(input.edge.stocks), basis: "per closed lot at the broker (server/edgeLedger.ts)" } : null,
     notes,
   };
+}
+
+// ── holding winners past one year (2026-11-06) ──────────────────────────────
+// Python's manage_positions decides (tax_filter.lt_deferral: inside 45 days of
+// the long-term date, a winner's tax saving vs its expected give-back) and
+// writes the verdict into voltrade_stop_state.json (tax_defer_until = the
+// first long-term day, tax_defer_reason). bot.ts reads it on every position
+// sync and holds ONLY the discretionary profit-taking exits — WS scale-out,
+// WS take-profit, WS time stop — never a stop, a trailing or breakeven stop,
+// POS-KILL, the 14-day TIME-EXIT or any risk exit. One decision, made once,
+// obeyed by both layers.
+
+export interface TaxHold { until: string; reason: string }
+
+/** The hold a stop-state entry carries, when it still applies `now` (UTC date before `until`). */
+export function taxHoldOf(ps: unknown, now: Date): TaxHold | null {
+  if (!ps || typeof ps !== "object") return null;
+  const r = ps as Record<string, unknown>;
+  const until = typeof r.tax_defer_until === "string" ? r.tax_defer_until.slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) return null;
+  if (now.toISOString().slice(0, 10) >= until) return null; // long-term from that day: nothing left to wait for
+  return { until, reason: typeof r.tax_defer_reason === "string" && r.tax_defer_reason ? r.tax_defer_reason : `tax hold until ${until}` };
+}
+
+/** One TAX-DEFER audit row per ticker and exit kind per UTC day (the WS tick and the sync both run often). */
+export class TaxDeferAudit {
+  private readonly seen = new Map<string, string>();
+  due(ticker: string, kind: string, now: Date = new Date()): boolean {
+    const day = now.toISOString().slice(0, 10);
+    const key = `${ticker.toUpperCase()}|${kind}`;
+    if (this.seen.get(key) === day) return false;
+    for (const [k, d] of Array.from(this.seen)) if (d !== day) this.seen.delete(k);
+    this.seen.set(key, day);
+    return true;
+  }
+}
+
+export function taxDeferLine(ticker: string, exit: string, hold: TaxHold): string {
+  return `${ticker.toUpperCase()}: ${exit} held for tax until ${hold.until} (stops still run) — ${hold.reason}`.slice(0, 400);
+}
+
+/** tax_filter.py TAX_FILTER.LT_DEFER_WINDOW_DAYS (system_config) — MUST mirror it; taxAware.test.ts pins the parity. */
+export const TAX_LT_WINDOW_DAYS = 45;
+const DAY_MS = 86_400_000;
+
+export interface OpenLot { qty: number; price: number; t: number }
+
+/** FIFO open long lots of one symbol from its fills (any order): buys add a
+ *  lot, sells consume the oldest first (the broker's default lot relief). A
+ *  history that does not reach back to the position's first buy leaves fewer
+ *  lot shares than the position holds; ltApproachingRows then reports only
+ *  the lots it can date, never a guessed one. */
+export function fifoOpenLots(fills: readonly FillRow[]): OpenLot[] {
+  const lots: OpenLot[] = [];
+  for (const f of [...fills].sort((a, b) => a.t - b.t)) {
+    if (f.dir === 1) { lots.push({ qty: f.qty, price: f.price, t: f.t }); continue; }
+    let left = f.qty;
+    while (left > 1e-9 && lots.length) {
+      const take = Math.min(left, lots[0].qty);
+      lots[0].qty -= take;
+      left -= take;
+      if (lots[0].qty <= 1e-9) lots.shift();
+    }
+  }
+  return lots;
+}
+
+/** Calendar days held by UTC date and the first long-term date (held MORE than one year: day 366). */
+export function lotTerm(t: number, now: Date): { daysHeld: number; daysToLongTerm: number; longTermDate: string } {
+  const open = new Date(t);
+  const d0 = Date.UTC(open.getUTCFullYear(), open.getUTCMonth(), open.getUTCDate());
+  const d1 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const daysHeld = Math.round((d1 - d0) / DAY_MS);
+  return { daysHeld, daysToLongTerm: 366 - daysHeld, longTermDate: new Date(d0 + 366 * DAY_MS).toISOString().slice(0, 10) };
+}
+
+const usd = (x: number) => "$" + Math.round(x).toLocaleString("en-US");
+
+/** Pure: every open long stock/ETF lot within `windowDays` of its long-term
+ *  date, from the fill history the sleeve ledger walked and the live
+ *  positions (the floor's included — informational: its rebalancing trims are
+ *  risk exits and never held). `holdOf(ticker)`: the stop state's tax hold of
+ *  a position the exit logic manages, null otherwise. */
+export function ltApproachingRows(fills: readonly FillRow[], positions: readonly PositionRow[], now: Date,
+  holdOf: (ticker: string) => TaxHold | null, windowDays = TAX_LT_WINDOW_DAYS,
+  rates: { shortTerm: number; longTerm: number } = DEFAULT_TAX_RATES): LtApproachingRow[] {
+  const bySymbol = new Map<string, FillRow[]>();
+  for (const f of fills) { const a = bySymbol.get(f.symbol); if (a) a.push(f); else bySymbol.set(f.symbol, [f]); }
+  const st = Math.round(rates.shortTerm * 100), lt = Math.round(rates.longTerm * 100);
+  const out: LtApproachingRow[] = [];
+  for (const p of positions) {
+    if (p.option || !(p.qty > 0) || p.avgEntry === null || p.unrealizedPl === null) continue;
+    const priceNow = p.avgEntry + p.unrealizedPl / p.qty;
+    const lots = fifoOpenLots(bySymbol.get(p.symbol) ?? []);
+    // the broker holds p.qty: keep the NEWEST p.qty lot shares (a surplus means the walk missed a sale)
+    let excess = lots.reduce((s, l) => s + l.qty, 0) - p.qty;
+    while (excess > 1e-9 && lots.length) {
+      const take = Math.min(excess, lots[0].qty);
+      lots[0].qty -= take;
+      excess -= take;
+      if (lots[0].qty <= 1e-9) lots.shift();
+    }
+    const hold = holdOf(p.symbol);
+    for (const lot of lots) {
+      const term = lotTerm(lot.t, now);
+      if (term.daysToLongTerm <= 0 || term.daysToLongTerm > windowDays) continue;
+      const gain = Math.round((priceNow - lot.price) * lot.qty * 100) / 100;
+      const days = `${term.daysToLongTerm} day${term.daysToLongTerm === 1 ? "" : "s"}`;
+      const lotText = `${lot.qty} sh bought ${new Date(lot.t).toISOString().slice(0, 10)} at ${"$" + lot.price.toFixed(2)}`;
+      const reason = gain > 0
+        ? `${days} to long-term (${term.longTermDate}) for ${lotText}: selling it now would be taxed at ${st}% instead of ${lt}%, about ${usd(gain * (rates.shortTerm - rates.longTerm))} more tax on the ${usd(gain)} gain`
+          + (hold ? `; its profit-taking exits are held until ${hold.until} (stops still run)` : "")
+        : `${days} to long-term (${term.longTermDate}) for ${lotText}, at a ${usd(-gain)} loss: sold before then it stays short-term and offsets gains taxed at ${st}%`;
+      out.push({ ticker: p.symbol, daysToLongTerm: term.daysToLongTerm, gain, reason });
+    }
+  }
+  return out.sort((a, b) => a.daysToLongTerm - b.daysToLongTerm);
 }
