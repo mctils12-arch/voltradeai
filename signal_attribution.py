@@ -516,15 +516,32 @@ def serve_fix_summary(records: Sequence[dict], pop_rows: Optional[List[dict]] = 
     return out
 
 
-def composite_comparison(pop_rows: List[dict]) -> dict:
-    """Legacy vs v2 composite on the same labeled first-seen candidates."""
+def composite_comparison(pop_rows: List[dict], since: Optional[str] = None) -> dict:
+    """Legacy vs v2 composite on the same labeled first-seen candidates.
+
+    `since` (BASE_CONFIG["SCORE_COMPOSITE_V2"]["comparison_since"], an ET entry
+    day): only records from that day on are compared. [RULE-REVIEW] 2026-11-06:
+    the legacy arm's ML term changed definition with the v2 training-honesty
+    deploy (the honest model's near-constant view replaced the in-sample one),
+    so composite v2's rollback trigger 2 reads one definition of the legacy arm
+    only. The records left out that carry both scores are counted, never
+    silently dropped."""
     def g(key):
         def f(rec):
             bd = rec.get("score_breakdown")
             return _num(bd.get(key)) if isinstance(bd, dict) else None
         return f
-    return paired_compare(pop_rows, g(COMPOSITE_LEGACY_KEY), g(COMPOSITE_V2_KEY),
-                          "composite_legacy", "composite_v2", seed_offset=11)
+    get_a, get_b = g(COMPOSITE_LEGACY_KEY), g(COMPOSITE_V2_KEY)
+    rows = list(pop_rows)
+    scoped = isinstance(since, str) and len(since) == 10
+    if scoped:
+        before = [r for r in rows if str(r.get("day") or "") < since]
+        rows = [r for r in rows if str(r.get("day") or "") >= since]
+    out = paired_compare(rows, get_a, get_b, "composite_legacy", "composite_v2", seed_offset=11)
+    if scoped:
+        out["since"] = since
+        out["excluded_before_since"] = sum(1 for r in before if get_a(r["rec"]) is not None and get_b(r["rec"]) is not None)
+    return out
 
 
 def blend_weights() -> dict:
@@ -620,7 +637,7 @@ def build_attribution(records: Sequence[dict], walkforward: Optional[dict] = Non
                              "ic": ml_fw.get("ic"), "ci95": ml_fw.get("ci95")}})
 
     # composites (reference rows: the comparison the strategy change is judged by)
-    comp = composite_comparison(prim_rows)
+    comp = composite_comparison(prim_rows, (cfg or {}).get("comparison_since"))
     composites = []
     for c in COMPOSITE_ROWS:
         lt = long_term_block(wf, c["lt"])

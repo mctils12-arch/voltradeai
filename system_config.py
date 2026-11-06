@@ -83,6 +83,16 @@ BASE_CONFIG = {
         "ml_neutral": True,
         "since": "2026-11-06",
         "kill_date": "2027-02-05",
+        # [RULE-REVIEW] 2026-11-06: the legacy-vs-v2 comparison (rollback trigger
+        # 2, signal_attribution.composite_comparison) reads records from this ET
+        # entry day on. The v2 training-honesty deploy (2026-11-11 evening;
+        # queued for 11-06, it slipped with that night's ship queue) changed
+        # the legacy arm's ML term (the honest model's near-constant view);
+        # 2026-11-12 is the first session scored with the honest model.
+        # Records before it (sessions 11-06..11-11) are counted, not
+        # compared. score_composite.v2_config ignores this key (served score
+        # unchanged).
+        "comparison_since": "2026-11-12",
     },
 
     # ── STOCK QUALITY FILTERS ─────────────────────────────────────────────────
