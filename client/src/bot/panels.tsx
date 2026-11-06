@@ -16,6 +16,7 @@ import type { DerivedState, AuditRow } from "./pageState";
 import type { Insight, BotPosition, OpenOrder, LastScan, MarketStatus, BotAccount, BotStatus, Performance, Calendar, Benchmark, Sleeves } from "./useBotData";
 import { num } from "./useBotData";
 import { optionExitPlan, optionManagement } from "../../../shared/positionLevels";
+import { KILL_CONFIRM, STOP_CONFIRM } from "../../../shared/haltWords";
 import { optionWhatLine, optionExitSegments, stockExitSegments, type PlanSegment } from "./exitPlan";
 import { ShadowChip } from "./shadow";
 import { todayView } from "./today";
@@ -333,8 +334,8 @@ export function IssuesBody({ issues, nowMs, onFocus, onAct, busy }: { issues: Is
   const [confirm, setConfirm] = useState<ActionKind | null>(null);
   const consequence: Record<ActionKind, string> = {
     resume: "clears the kill latch and re-activates the loop; the −20% rule re-latches at the same line",
-    stop: "pauses scans and entries; stops keep firing; cleared by the next deploy",
-    kill: "cancels every open order and stops all exits until resumed",
+    stop: STOP_CONFIRM,
+    kill: KILL_CONFIRM,
   };
   if (!issues.length) return <div className="vt-bot-row" style={{ paddingTop: 8 }}><St word={`normal · checked ${fmtClockET(nowMs)} ET`} /></div>;
   return (

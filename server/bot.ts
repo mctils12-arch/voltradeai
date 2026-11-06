@@ -36,6 +36,7 @@ import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isReg
   streamSignalLogEnabled, type StreamHistory } from "./streamSignals";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { engineKillSnapshot, engineKillHealth, shouldAuditEngineKill, engineKillAuditLine, type EngineKillSnapshot } from "./engineKill";
+import { KILL_ON_AUDIT, KILL_ON_NOTIFY, KILL_ON_EMAIL, DRAWDOWN_KILL_SUFFIX, DRAWDOWN_KILL_EMAIL_SUBJECT, KILL_PRETRADE_REASON } from "../shared/haltWords";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
 import { regimeCounterfactualBody } from "./regimeCounterfactual";
@@ -1631,7 +1632,7 @@ function recordDailyEquity() {
 async function checkTradeAllowed(portfolioValue: number, tradeValue: number): Promise<{ allowed: boolean; reason?: string }> {
   // 1. Kill switch check
   if (state.killSwitch) {
-    return { allowed: false, reason: "Kill switch is active. All trading halted." };
+    return { allowed: false, reason: KILL_PRETRADE_REASON };
   }
   // 2. Daily loss limit check
   if (state.dailyPnL !== 0 && portfolioValue > 0) {
@@ -1836,10 +1837,10 @@ export function registerBotRoutes(app: Express) {
           state.killSwitch = true;
           saveKillSwitch("drawdown-kill (account route)");
           state.active = false;
-          const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${dd.equity!.toFixed(0)} is ${dd.drawdownPct!.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}. All trading stopped.`;
+          const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${dd.equity!.toFixed(0)} is ${dd.drawdownPct!.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}. ${DRAWDOWN_KILL_SUFFIX}`;
           audit("DRAWDOWN-KILL", msg);
           notify("critical", msg);
-          sendEmailAlert("MAX DRAWDOWN — Trading Stopped", msg);
+          sendEmailAlert(DRAWDOWN_KILL_EMAIL_SUBJECT, msg);
           try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
         }
       }
@@ -3631,15 +3632,18 @@ print(json.dumps(result, default=str))
     res.json({ ok: true, active: false });
   });
 
-  // Kill switch
+  // Kill switch. SCOPE (rule call decided 2026-11-06, shared/haltWords.ts):
+  // the owner toggle sets the same latch as the drawdown kill — new entries
+  // are blocked, protective exits keep running and the floor may only reduce
+  // (haltScope.ts; human decision 2026-11-05). /api/bot/stop is the full freeze.
   app.post("/api/bot/kill", requireOwner, async (_req, res) => {
     state.killSwitch = !state.killSwitch;
     saveKillSwitch(state.killSwitch ? "owner toggle ON" : "owner toggle OFF");
     if (state.killSwitch) {
-      sendEmailAlert("Kill Switch Activated", "Kill switch manually activated. All trading stopped. Open orders cancelled.");
+      sendEmailAlert("Kill Switch Activated", KILL_ON_EMAIL);
       state.active = false;
-      audit("KILL SWITCH ON", "All trading halted. Cancelling open orders.");
-      notify("alert", "KILL SWITCH ACTIVATED — all trading halted, open orders cancelled");
+      audit("KILL SWITCH ON", KILL_ON_AUDIT);
+      notify("alert", KILL_ON_NOTIFY);
       try { await alpaca("/v2/orders", { method: "DELETE" }); } catch (err: any) { console.error("[bot]", err?.message || err); }
     } else {
       audit("KILL SWITCH OFF", "Trading can resume.");
@@ -5699,9 +5703,9 @@ print(json.dumps(result[:20]))
       state.killSwitch = true;
       saveKillSwitch("drawdown-kill (tier1)");
       state.active = false;
-      const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${equity.toFixed(0)} is ${t1Drawdown.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}`;
+      const msg = `MAX DRAWDOWN KILL SWITCH: Equity $${equity.toFixed(0)} is ${t1Drawdown.toFixed(1)}% below peak $${state.equityPeak.toFixed(0)}. ${DRAWDOWN_KILL_SUFFIX}`;
       audit("DRAWDOWN-KILL", msg);
-      sendEmailAlert("MAX DRAWDOWN — Trading Stopped", msg);
+      sendEmailAlert(DRAWDOWN_KILL_EMAIL_SUBJECT, msg);
       try { await alpaca("/v2/orders", { method: "DELETE" }); } catch {}
 
       // ═══════════════════════════════════════════════════════════════

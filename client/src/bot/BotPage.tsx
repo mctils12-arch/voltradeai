@@ -28,6 +28,7 @@ import { paneIdFromHash, parsePaneMsg, PANE_CHANNEL, PANE_PREFIX, PANE_WINDOW_PR
 import { liveEvents, flashes, FRESH_MS, type Flash, type LiveEvent, type EventKind } from "./live";
 import { parseLookupInput } from "./lookup";
 import { fmtAge } from "./format";
+import { KILL_BANNER_TEXT } from "../../../shared/haltWords";
 import { ScoreBody } from "./scoreboard";
 import { fmtDay } from "./scoreView";
 import { ShadowBlock, ShadowChip } from "./shadow";
@@ -364,7 +365,7 @@ function KillBanner({ days, onResume, busy, err }: { days: number | null; onResu
         <span className="vt-bot-killbanner-icon">&#9632;</span>
         <div className="vt-bot-killbanner-text">
           <strong>Kill switch latched{days !== null && days > 0 ? ` for ${days} day${days !== 1 ? "s" : ""}` : ""}</strong>
-          <span>The bot is not scanning, trading, or managing exits. Click Resume to clear the latch and re-activate.</span>
+          <span>{KILL_BANNER_TEXT}</span>
         </div>
         <div className="vt-bot-killbanner-act">
           {confirm ? (
