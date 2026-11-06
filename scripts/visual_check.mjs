@@ -688,7 +688,23 @@ function brainFixture() {
   };
 }
 
+// TRADE WORLD fixtures (2026-10-29): real public API responses captured from
+// voltradeai.com that day, trimmed, so the screenshots show loaded cards
+// rather than empty states.
+const tradeFx = (name) => JSON.parse(readFileSync(path.join(ROOT, "scripts", "fixtures", name), "utf8"));
+
 const PAGES = {
+  // TRADE WORLD (2026-10-29): every Trade screen is a body component (scanner,
+  // news, watchlist, research, planner, taxes; analyze's pieces) inside its page
+  // wrapper — the bodies own their data, the wrappers their header and input.
+  // Visitor view by default; the scanner and news bodies render real captures.
+  analyze: { route: "/app#/analyze/options", map: false },
+  scanner: { route: "/app#/scanner", map: false, fixtures: { "/api/market/scanner": tradeFx("trade_scanner.json") } },
+  news: { route: "/app#/news", map: false, fixtures: { "/api/market/news": tradeFx("trade_news.json") } },
+  research: { route: "/app#/research", map: false },
+  watchlist: { route: "/app#/watchlist", map: false },
+  planner: { route: "/app#/planner", map: false },
+  taxes: { route: "/app#/taxes", map: false },
   data: { route: "/app#/data", map: true },
   // Streams inventory overlay (Phase 4, 2026-07-06) — a page-wide surface,
   // registered here per the Phase 5 ratchet: every new view passes the

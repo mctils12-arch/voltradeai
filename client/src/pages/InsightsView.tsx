@@ -662,7 +662,7 @@ function InsightsSkeleton() {
 //   - "structure"       → Float, Support & Resistance
 export type InsightsFilter = "all" | "smart-money" | "structure";
 
-interface InsightsViewProps {
+export interface InsightsViewProps {
   ticker: string | null;
   filter?: InsightsFilter;
 }

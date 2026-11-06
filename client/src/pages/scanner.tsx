@@ -64,9 +64,13 @@ function getTextColor(change: number): string {
   return "#7a8ba0";
 }
 
-// ── Scanner Page ──────────────────────────────────────────────────────────────
+// ── Scanner Body ──────────────────────────────────────────────────────────────
+// 2026-10-29: everything below the page header is its own component so the
+// cockpit can place it in a panel. The body owns the fetch, so the row count,
+// data date, age and Refresh live in its status row; `compact` drops the
+// sector heatmap block for a small panel.
 
-export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
+export function ScannerBody({ onSelectTicker, compact }: { onSelectTicker: (ticker: string) => void; compact?: boolean }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterMode>("all");
   const [sortKey, setSortKey] = useState<SortKey>("volume");
@@ -129,34 +133,13 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
 
   return (
     <div>
-      {/* Page header */}
-      <div className="scanner-page-header">
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.25rem" }}>
-            <h1 style={{
-              fontSize: '1.4rem',
-              fontWeight: 700,
-              letterSpacing: '-0.02em',
-              color: 'var(--text-primary)',
-              margin: 0,
-            }}>
-              Market Scanner
-            </h1>
-            <span style={{
-              fontSize: 9, padding: "3px 8px", borderRadius: 3,
-              background: "rgba(77, 159, 255, 0.1)", border: "1px solid rgba(77, 159, 255, 0.2)",
-              color: "#4d9fff", fontFamily: "'JetBrains Mono', monospace",
-              letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
-            }}>
-              TERMINAL
-            </span>
-          </div>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>
-            {tickers.length > 0 ? `${tickers.length.toLocaleString()} stocks • ` : ''}
-            {data?.date ? `Data for ${data.date}` : 'Loading market data…'}
-            {lastUpdate && ` • Updated ${lastUpdate}`}
-          </p>
-        </div>
+      {/* Status + refresh */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <p style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>
+          {tickers.length > 0 ? `${tickers.length.toLocaleString()} stocks • ` : ''}
+          {data?.date ? `Data for ${data.date}` : 'Loading market data…'}
+          {lastUpdate && ` • Updated ${lastUpdate}`}
+        </p>
         <button
           onClick={() => refetch()}
           disabled={isFetching}
@@ -178,16 +161,18 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
         </button>
       </div>
 
-      {/* Sector Heatmap */}
-      <div style={{
-        marginBottom: "1.5rem",
-        background: "rgba(0, 8, 20, 0.6)",
-        border: "1px solid rgba(77, 159, 255, 0.1)",
-        borderRadius: 8,
-        padding: "1rem",
-      }}>
-        <SectorHeatmap />
-      </div>
+      {/* Sector Heatmap — the one block a compact panel drops */}
+      {!compact && (
+        <div style={{
+          marginBottom: "1.5rem",
+          background: "rgba(0, 8, 20, 0.6)",
+          border: "1px solid rgba(77, 159, 255, 0.1)",
+          borderRadius: 8,
+          padding: "1rem",
+        }}>
+          <SectorHeatmap />
+        </div>
+      )}
 
       {/* View toggle */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "1rem", alignItems: "center" }}>
@@ -633,6 +618,43 @@ export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticke
             "real-time" for the delayed consolidated feed (v1.0.444 repair). */}
         DATA: ALPACA MARKETS · {data?.feed === "sip" ? "REAL-TIME" : "15-MIN DELAYED"} SNAPSHOTS · US STOCKS $1+ · 50K+ DAILY VOL · CLICK ROW TO ANALYZE
       </p>
+    </div>
+  );
+}
+
+// ── Scanner Page ──────────────────────────────────────────────────────────────
+
+export default function ScannerPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
+  return (
+    <div>
+      {/* Page header */}
+      <div className="scanner-page-header">
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.25rem" }}>
+            <h1 style={{
+              fontSize: '1.4rem',
+              fontWeight: 700,
+              letterSpacing: '-0.02em',
+              color: 'var(--text-primary)',
+              margin: 0,
+            }}>
+              Market Scanner
+            </h1>
+            <span style={{
+              fontSize: 9, padding: "3px 8px", borderRadius: 3,
+              background: "rgba(77, 159, 255, 0.1)", border: "1px solid rgba(77, 159, 255, 0.2)",
+              color: "#4d9fff", fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600,
+            }}>
+              TERMINAL
+            </span>
+          </div>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>
+            Every US stock over $1 with 50K+ daily volume — sort, filter, click a row to analyze.
+          </p>
+        </div>
+      </div>
+      <ScannerBody onSelectTicker={onSelectTicker} />
     </div>
   );
 }
