@@ -37,9 +37,14 @@
 // The only local action is expiring flight_events/ day files (a new
 // directory with no prior behavior) at that same 30 days.
 //
-// NOT FLIGHT LOGS (never offloaded, never deleted here): the permanent tiny
-// rollups — <kind>_tracks/ daily summaries, aircraft_fleet_weekly.json.gz,
-// gnss_integrity_daily.json.gz. They feed signals; they are not replay data.
+// NOT FLIGHT LOGS (never deleted anywhere, never in the rolling window): the
+// permanent rollups — <kind>_tracks/ daily summaries, aircraft_fleet_weekly
+// .json.gz, gnss_integrity_daily.json.gz. They feed signals; they are not
+// replay data. SINCE 2026-11-06 the <kind>_tracks day files (668 MiB, read
+// only by /api/diag/archive) move to the PERMANENT R2 tier
+// (server/archivePermanentTier.ts: permanent/ prefix, no retention, local copy
+// deleted only after a byte-for-byte read-back); it runs inside this tick.
+// The two fold files stay local.
 
 import fs from "fs";
 import os from "os";
@@ -47,7 +52,8 @@ import path from "path";
 import zlib from "zlib";
 import crypto from "crypto";
 import type { Express } from "express";
-import { archiveBaseDir, RAW_RETENTION_DAYS, rollupDayAsync, type ArchiveKind } from "./datacoreArchive";
+import { archiveBaseDir, RAW_RETENTION_DAYS, rollupDayAsync, setColdDayFileSource, type ArchiveKind } from "./datacoreArchive";
+import { createPermanentTier, type PermanentTickSummary } from "./archivePermanentTier";
 import { MIN_FREE_BYTES, readFreeBytes, volumeAllowsWrite } from "./globalScopes";
 import { hourName, setColdHourSource, type ColdHourSource } from "./aircraftWindow";
 import { createR2Client, errText, r2ConfigDiagnostics, r2ConfigFromEnv, type R2Client } from "./r2Client";
@@ -463,6 +469,8 @@ export interface TickSummary {
   evictionNote?: string;
   localEventsExpired: number;
   daily?: { r2Deleted: number; r2DeleteErrors: number; adopted: number; dropped: number };
+  /** the permanent tier's own pass (server/archivePermanentTier.ts) */
+  permanent?: PermanentTickSummary;
   errors: string[];
 }
 
@@ -480,6 +488,9 @@ export interface OffloadDeps {
   maxEvictionsPerTick?: number;
   cacheDir?: string;
   cacheMaxBytes?: number;
+  /** read-through cache of the permanent tier (default: <cacheDir>-permanent,
+   *  else os.tmpdir()/voltrade_r2_permanent_cache) */
+  permanentCacheDir?: string;
   log?: (msg: string) => void;
   logError?: (msg: string) => void;
 }
@@ -530,6 +541,15 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
   const coldSource = createColdHourSource({
     client, getManifest: () => manifest, retentionDays, nowMs: now,
     cacheDir: deps.cacheDir, cacheMaxBytes: deps.cacheMaxBytes,
+  });
+
+  // PERMANENT tier (2026-11-06): <kind>_tracks day files -> R2 permanent/,
+  // local copy deleted only after a read-back match; own manifest, own flag
+  // (ARCHIVE_PERMANENT_TIER), runs at the end of each tick below.
+  const permanent = createPermanentTier({
+    base, client, env, nowMs: now,
+    cacheDir: deps.permanentCacheDir ?? (deps.cacheDir ? `${deps.cacheDir}-permanent` : undefined),
+    log: deps.log, logError: deps.logError,
   });
 
   const noteError = (s: TickSummary, msg: string) => {
@@ -742,6 +762,7 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
         if (dailyDue) await dailyPhase(s);
         try { saveManifest(base, manifest); } catch (e: unknown) { noteError(s, `manifest save: ${errText(e)}`); }
         await evictPhase(s);
+        s.permanent = await permanent.tick();
       }
       expireLocalEvents(s);
     } catch (e: unknown) {
@@ -836,6 +857,8 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
     const free = freeBytes(base);
     const est = bytesPerDayEstimate(local);
     const steady = est.bytesPerDay * (days + 1);
+    // the permanent tier's objects never expire: they add to (not replace) the plateau
+    const perm = permanent.status();
     const unitsPerDay = OFFLOAD_HOUR_KINDS.length * 24 + 1;
     const classA = unitsPerDay * 30 + 30 * 3 * 2;     // PUTs + daily LIST/DeleteObjects
     const classB = unitsPerDay * 30 + 30 * 24 * 20;  // HEAD verifies + ~20 cold replay requests/day x 24 hours
@@ -877,12 +900,13 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
       estimatedSteadyStateBytes: Math.round(steady),
       estimateBasis: est.basis,
       estimatedMonthlyCost: {
-        atCurrentGrowth: estimateR2MonthlyCost({ storedBytes: steady, classAOps: classA, classBOps: classB }),
-        at10xGrowth: estimateR2MonthlyCost({ storedBytes: steady * 10, classAOps: classA, classBOps: classB }),
-        note: "rolling window: storage PLATEAUS at ~(retentionDays+1) days of data instead of growing; free tier (10 GB, 1M Class A, 10M Class B) is account-wide and shared with the ~1.35 GB tiles bucket; R2 egress is free",
+        atCurrentGrowth: estimateR2MonthlyCost({ storedBytes: steady + perm.r2Bytes, classAOps: classA, classBOps: classB }),
+        at10xGrowth: estimateR2MonthlyCost({ storedBytes: steady * 10 + perm.r2Bytes, classAOps: classA, classBOps: classB }),
+        note: "rolling window: storage PLATEAUS at ~(retentionDays+1) days of data instead of growing; the permanent tier's objects (permanentTier.r2Bytes, included above) never expire and keep growing with the rollups; free tier (10 GB, 1M Class A, 10M Class B) is account-wide and shared with the ~1.35 GB tiles bucket; R2 egress is free",
       },
+      permanentTier: perm,
       notes: [
-        "Permanent rollups (<kind>_tracks daily summaries, aircraft_fleet_weekly.json.gz, gnss_integrity_daily.json.gz) are not flight logs: never offloaded, never deleted by this job.",
+        "Permanent rollups (<kind>_tracks daily summaries, aircraft_fleet_weekly.json.gz, gnss_integrity_daily.json.gz) are not flight logs and are never deleted anywhere. Since 2026-11-06 the <kind>_tracks day files are copied to R2's permanent/ prefix (no retention window) and their local copy is removed only after a byte-for-byte read-back (see permanentTier); the two fold files stay local.",
         `Local early eviction never touches aircraft days younger than ${HOT_TIER_FLOOR_DAYS} (the live GNSS-integrity signal reads 21 days of local raw files) or vessel days younger than ${VESSEL_HOT_TIER_DAYS} (port dwell reads 168 h); vessel days older than that go once verified in R2. Nothing is deleted before every hour of the day is verified in R2.`,
       ],
       generated_at: new Date(t).toISOString(),
@@ -895,6 +919,7 @@ export function createArchiveOffloadService(deps: OffloadDeps = {}) {
     base,
     client,
     coldSource,
+    permanent,
     runTick,
     status,
     getManifest: () => manifest,
@@ -924,6 +949,7 @@ export type ArchiveOffloadService = ReturnType<typeof createArchiveOffloadServic
 export function registerArchiveOffloadRoutes(app: Express, deps: OffloadDeps & { startTimers?: boolean } = {}): ArchiveOffloadService {
   const svc = createArchiveOffloadService(deps);
   setColdHourSource(svc.coldSource);
+  setColdDayFileSource(svc.permanent.coldSource); // /api/diag/archive reads days held only in R2
   if (deps.startTimers !== false) svc.start();
   app.get("/api/data/archive/offload-status", async (_req, res) => {
     try { res.json(await svc.status()); } catch (e: unknown) { res.status(500).json({ error: errText(e) || "offload status failed" }); }
