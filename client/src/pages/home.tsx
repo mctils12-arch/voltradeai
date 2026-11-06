@@ -1,20 +1,21 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { useLocation } from "wouter";
 import { BarChart2, ScanLine, Newspaper, Bookmark, Bot, LogOut, LogIn, X, Info, ChevronDown, Eye, Layers, Briefcase, Scale, Calculator, Crosshair, Globe, TrendingUp, Database, Radio, Share2, Code2, Sparkles, LayoutGrid, Target, Brain, FileSearch } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { onSessionExpired, SESSION_EXPIRED_NOTICE } from "@/lib/authExpiry";
-import AnalyzePage, { AnalyzeSection } from "./analyze";
-import ScannerPage from "./scanner";
-import ResearchPage from "./research";
-import NewsPage from "./news";
-import WatchlistPage from "./watchlist";
-import PlannerPage from "./planner";
+import type { AnalyzeSection } from "./analyze";
+// The Trade world is one cockpit page (2026-10-29): Options & Volatility,
+// Smart Money, Structure, Research, Scanner, News, Watchlist, Planner, Taxes
+// and the ETF builder are its panels; the old page components stay as the
+// panel bodies' wrappers only.
+import TradePage from "@/trade/TradePage";
 import DataMapPage from "./datamap";
-import TaxesPage from "./taxes";
 import BotDashboard from "./bot";
 import ForecastPage from "./forecast";
 import BrainPage from "./brain";
 import TickerDossierPage from "./tickerDossier";
+import TradeBackdrop from "@/components/TradeBackdrop";
+import { getActiveTicker, setActiveTicker, subscribeActiveTicker } from "@/lib/activeTicker";
 import { paneIdFromHash } from "../bot/popout";
 import LoginPage from "./login";
 
@@ -71,11 +72,21 @@ interface HomeProps {
   isOwner?: boolean;
 }
 
+// "#/analyze/<section>/<SYMBOL>" (2026-10-29): a shareable link to one
+// symbol's view. The third segment seeds lib/activeTicker before the Trade
+// page mounts, so it opens loaded; the state→hash sync below writes it back.
+function tickerFromHash(hash: string): string | null {
+  const parts = hash.replace("#/", "").split("/");
+  return parts[0] === "analyze" && parts[2] ? parts[2] : null;
+}
+
 function getInitialTab(): TabId {
   const hash = window.location.hash.replace("#/", "");
-  // The hash can be either "analyze" or "analyze/<section>" — strip the
-  // subpath when matching against TabIds.
+  // The hash can be "analyze", "analyze/<section>" or
+  // "analyze/<section>/<SYMBOL>" — strip the subpath when matching TabIds.
   const root = hash.split("/")[0];
+  const sym = tickerFromHash(window.location.hash);
+  if (sym) setActiveTicker(sym); // invalid symbols are ignored by the store
   if (root && TABS.some(t => t.id === root)) return root as TabId;
   return "analyze";
 }
@@ -196,6 +207,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   const [paneId] = useState(() => paneIdFromHash(window.location.hash));
   const [analyzeSection, setAnalyzeSection] = useState<AnalyzeSection>(getInitialAnalyzeSection);
   const [, navigate] = useLocation(); // wouter route nav (Developers/API page)
+  // The Trade world's active symbol (lib/activeTicker): read here, above the
+  // hash-sync effect that writes it into the URL.
+  const activeTicker = useSyncExternalStore(subscribeActiveTicker, getActiveTicker, getActiveTicker);
   // Desktop hover dropdowns — which top-nav menu ("trade" | "data") is open, with
   // a small close delay so the pointer can travel button → menu without it
   // snapping shut. Only one menu is open at a time.
@@ -236,7 +250,6 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   // and child components remains valid without rewriting it. localStorage
   // theme key is no longer read or written.
   const [dark] = useState(true);
-  const [analyzeTarget, setAnalyzeTarget] = useState<string | undefined>(undefined);
   const [showLogin, setShowLogin] = useState(false);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
@@ -262,21 +275,18 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   // links like /app#/analyze/etf-builder restore the dropdown selection.
   useEffect(() => {
     if (activeTab === "analyze") {
-      window.location.hash = `#/analyze/${analyzeSection}`;
+      // Carry the active symbol so the URL is a shareable link to this view.
+      const sym = getActiveTicker();
+      window.location.hash = sym ? `#/analyze/${analyzeSection}/${sym}` : `#/analyze/${analyzeSection}`;
     } else {
       // Only rewrite when the hash ROOT disagrees with the tab — tabs may own
       // subpaths (e.g. #/data/filings) that this sync must not stomp.
       const curRoot = window.location.hash.replace("#/", "").split("/")[0];
       if (curRoot !== activeTab) window.location.hash = "#/" + activeTab;
     }
-  }, [activeTab, analyzeSection]);
+  }, [activeTab, analyzeSection, activeTicker]);
 
   // Dark-only 2026-05-03: theme persistence effect removed (always dark).
-
-  const handleSelectTicker = (ticker: string) => {
-    setAnalyzeTarget(ticker);
-    setActiveTab("analyze");
-  };
 
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   useEffect(() => {
@@ -308,6 +318,8 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     const onHash = () => {
       const hash = window.location.hash.replace("#/", "");
       const [root, sub] = hash.split("/");
+      const sym = tickerFromHash(window.location.hash); // "#/analyze/<section>/<SYMBOL>"
+      if (sym) setActiveTicker(sym);
       if (root && root !== activeTab && TABS.some(t => t.id === root)) {
         handleTabClick(root as TabId);
       }
@@ -334,6 +346,13 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     setActiveTab("analyze");
   };
+
+  // ── The Trade world (2026-10-29, human: "it needs to look like the bot UI
+  // but have the functionality of what's there and no duplicates"): every
+  // Trade tab renders the one cockpit page (trade/TradePage) over one moving
+  // map (TradeBackdrop, mounted below) with one active symbol
+  // (lib/activeTicker). The tab only says which panel to open.
+  const isTradeTab = MENU_TABS.trade.has(activeTab);
 
   // Login overlay
   if (showLogin) {
@@ -576,31 +595,17 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         </div>
       </nav>
 
+      {/* ── Moving-map backdrop: one mount for the whole Trade world, so the
+          canvas and its particle field survive tab switches ── */}
+      {isTradeTab && <TradeBackdrop />}
+
       {/* ── Page content ── */}
       <main className="page-container tab-page">
-        {activeTab === "analyze" && (
-          <AnalyzePage key={analyzeTarget} initialTicker={analyzeTarget} section={analyzeSection} />
-        )}
-        {activeTab === "research" && (
-          <ResearchPage onSelectTicker={handleSelectTicker} />
-        )}
-        {activeTab === "scanner" && (
-          <ScannerPage onSelectTicker={handleSelectTicker} />
-        )}
-        {activeTab === "news" && (
-          <NewsPage onSelectTicker={handleSelectTicker} />
-        )}
-        {activeTab === "watchlist" && (
-          <WatchlistPage onSelectTicker={handleSelectTicker} authenticated={authenticated} />
+        {isTradeTab && (
+          <TradePage tab={activeTab as "analyze" | "research" | "scanner" | "news" | "watchlist" | "planner" | "taxes"} section={analyzeSection} authenticated={authenticated} isOwner={!!isOwner} />
         )}
         {activeTab === "data" && (
           <DataMapPage />
-        )}
-        {activeTab === "planner" && (
-          <PlannerPage />
-        )}
-        {activeTab === "taxes" && (
-          <TaxesPage />
         )}
         {activeTab === "forecast" && (
           authenticated && isOwner ? <ForecastPage /> : (

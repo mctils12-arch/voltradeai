@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getActiveTicker } from "@/lib/activeTicker";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Search, RefreshCw, ExternalLink, TrendingUp, TrendingDown, Minus } from "lucide-react";
@@ -268,6 +269,10 @@ export function NewsBody({ ticker, onSelectTicker, showFilter }: {
 // ── News Page ─────────────────────────────────────────────────────────────────
 
 export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: string) => void }) {
+  // One symbol across the Trade world (lib/activeTicker): the filter opens
+  // on the name the user was just analyzing; clearing it shows the market.
+  const [seed] = useState(() => getActiveTicker() ?? "");
+
   return (
     <div>
       {/* Page header */}
@@ -285,7 +290,7 @@ export default function NewsPage({ onSelectTicker }: { onSelectTicker: (ticker: 
           Headlines across the market or for one symbol, with keyword-derived sentiment.
         </p>
       </div>
-      <NewsBody ticker={null} onSelectTicker={onSelectTicker} showFilter />
+      <NewsBody ticker={seed || null} onSelectTicker={onSelectTicker} showFilter />
     </div>
   );
 }

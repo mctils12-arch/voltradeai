@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
 import { Target, TrendingUp, ShieldAlert, Crosshair, ArrowRight } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -20,10 +21,11 @@ const pct = (n: number) => `${n >= 0 ? "" : ""}${(n * 100).toFixed(1)}%`;
 // ── Body ────────────────────────────────────────────────────────────────────
 // 2026-10-29: the form is its own component so the cockpit can place it in a
 // panel. With a `ticker` from the host (the cockpit's one look-up box) the
-// form has no ticker field; with null it falls back to its own field, as the
-// page always had.
+// form has no ticker field; with null it falls back to its own field, seeded
+// from the Trade world's active symbol (lib/activeTicker). Either way a built
+// plan writes the symbol back, so the cockpit's panels follow it.
 export function PlannerBody({ ticker }: { ticker: string | null }) {
-  const [ownTicker, setOwnTicker] = useState("");
+  const [ownTicker, setOwnTicker] = useState(() => getActiveTicker() ?? "");
   const symbol = ticker ?? ownTicker;
   const [account, setAccount] = useState("25000");
   const [riskPct, setRiskPct] = useState("1");
@@ -47,6 +49,7 @@ export function PlannerBody({ ticker }: { ticker: string | null }) {
   async function buildPlan() {
     const t = symbol.trim().toUpperCase();
     if (!t) { setError("Enter a ticker."); return; }
+    setActiveTicker(t);
     setBusy(true); setError(null);
     try {
       const payload: any = {
