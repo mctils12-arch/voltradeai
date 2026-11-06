@@ -115457,3 +115457,78 @@ with Python, the two checkPositionOnTick hold blocks run as written (a stop
 untouched), and wiring pins (TIME-EXIT unchanged).
 
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (tax_filter.py, system_config.py, bot_engine.py, server/taxAware.ts, server/bot.ts) — Tax-loss harvesting: losers that offset this year's gains swap into their sector ETF
+VERSION: v1.0.1315 (shipped 2026-11-06 by the parent session; main was v1.0.1314)
+
+WHY. Refocus spec §6: "harvest losses to offset gains." The live tax ledger
+(diag sleeves, 2026-11-06) shows +$6,194 of short-term gains still taxable
+this year after netting and wash-sale add-backs (estimated tax $1,487 at
+24 %), and 809 wash sales disallowing $22,086. Nothing harvested a loss on
+purpose, and nothing stopped the bot from buying back what it had just sold
+at a loss.
+
+THE CHANGE. tax_filter.harvest_step, once per scan (after the tier block, so
+the kill state is known). Every LOSING stock position is reviewed against this
+calendar year's realized gains. bot.ts writes those gains on every
+sleeve-ledger refresh (server/taxLedger.ts netting, wash disallowances added
+back) to DATA_DIR/voltrade_tax_realized.json, and Tier 3 refreshes the
+ledger when it is more than 6 h old. A position is swapped (sold whole, then
+the proceeds put into its sector SPDR ETF, which is correlated but not
+substantially identical) only when ALL of these hold:
+- a fresh snapshot (< 48 h, this year);
+- a tax saving of min(loss, ST gains) × 24 % + min(rest, LT gains) × 15 % that
+  beats the swap's modeled cost (position_sizing._estimate_costs) by
+  HARVEST_MIN_NET_USD ($20);
+- not a floor ticker (the floor would buy it back — a wash sale);
+- no open option on the underlying;
+- no loss sale of the replacement in the last 31 days;
+- no working order on either symbol;
+- the switch is on, the kill switch is known and off, and stock entries are
+  live (not shadowed);
+- the broker clock is open with more than 6 minutes left.
+At most 2 swaps per scan. Orders go through bot_engine's floor helper (a
+marketable DAY limit at the NBBO, broker-clock gated), and the replacement is
+bought only after the sale was accepted. A harvested symbol and any option on
+it are refused by all three entry gates for 30 days after the sale. That block
+does not depend on TAX_FILTER.ENABLED, because the banked loss depends on it.
+Every reviewed loser is logged (kind "harvest") and written to the review file
+that GET /api/bot/tax serves as `harvest`, with its reason when not acted on.
+bot.ts audits each swap (TAX-HARVEST / -FAIL / -ERROR). Switch:
+TAX_FILTER.HARVEST_ENABLED.
+
+TODAY. The live book is GLD (a floor ticker, at a gain) and one short CMCSA
+put, so no swap would happen now. The rule acts when a stock position is
+losing while gains are realized.
+
+BIASES. The saving is this year's tax at assumed rates. Harvesting mostly
+defers tax: the replacement's later gain is taxed in turn, and that is not
+credited. The $3,000 ordinary offset and carry-forward value are not counted.
+"Not substantially identical" for a stock vs its sector ETF is the standard
+reading, not a ruling. Selling the whole position is what keeps lots bought in
+the prior 30 days from acting as replacements.
+
+DOWNSTREAM (2 steps). A swap replaces single-name exposure with its sector ETF
+→ sector concentration is unchanged, idiosyncratic risk falls. The ETF is a
+new stock-sleeve position that the normal exits manage (stops; a 7-day time
+stop if flat) → it may close within days and leave cash. The 30-day block
+removes the harvested name from the scan and the CSP universe → its slot goes
+to the next candidate.
+
+ROLLBACK TRIGGER. HARVEST_ENABLED = False if a harvest's replacement leg fails
+(TAX-HARVEST "NOT bought") twice in a week, or any harvested symbol is re-bought
+inside its window (a TAX-HARVEST row followed by a fill of that symbol within
+30 days at the broker).
+
+TESTS. test_tax_harvest.py (16): snapshot freshness and year; the swap and its
+saving; LT gains absorbing the remainder; each reason not to harvest; unknown
+gains never guessed; winners, shorts and options excluded; the step's gates
+(switch, kill, shadow, clock), sale-then-buy order, refused sale, refused
+replacement, per-scan limit, a broken dependency reported; wash blocks at the
+scan, option and tier gates (with the filter off); the scan wiring and no
+order endpoint in tax_filter.py. server/taxAware.test.ts (+5): the snapshot
+(year window, netting, recent loss sales and buys); bot.ts's snapshot read by
+Python and Python's review read by the route (cross-language); a missing or
+corrupt review; the audit rows; the wiring.
+
+STARVED: no.
