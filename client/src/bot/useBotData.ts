@@ -1,7 +1,7 @@
 // Bot page v2 — every query the page reads, with its cadence. All routes are
 // the existing owner-gated ones plus /api/bot/insight (v1.0.1096). Each
 // hook result carries dataUpdatedAt so every panel can print its own age.
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { unwrapOpenOrders } from "./orders";
 import type { PositionLevels } from "../../../shared/positionLevels";
@@ -150,7 +150,14 @@ export interface Scoreboard {
   rows: ScoreRow[]; summary: ScoreSummary | null; barsThrough: string | null; curveThrough: string | null;
   fetchedAt: string | null; computedAt?: string; sources?: { equity: string; spy: string };
   cashFlows: { journals: number; transfers: number; since: string | null } | null; error?: string;
+  /** the same comparison AFTER TAX, one point per session, oldest first (server/afterTaxSeries.ts, 2026-11-06):
+   *  null until the sleeve ledger has loaded (afterTaxReason says why); absent from a server that predates it */
+  afterTax?: AfterTaxSeries | null; afterTaxReason?: string | null;
 }
+/** server/afterTaxSeries.ts: each point is afterTaxBenchmark for start → that close (both sold there), the account's
+ *  tax from the ledger point-in-time, open positions left out (the vs-SPY tile's figure is the "sold now" one) */
+export interface AfterTaxPoint { date: string; botPct: number; spyPct: number; botTaxPct: number; spyTaxPct: number; botAfterTaxPct: number; spyAfterTaxPct: number; gapPp: number; spyTerm: "short" | "long" | "unknown" }
+export interface AfterTaxSeries { rates: { shortTerm: number; longTerm: number; state: number; niit: number }; from: string; to: string; equityStart: number; points: AfterTaxPoint[]; notes: string[] }
 /** GET /api/bot/sleeves (server/sleeveLedger.ts): realized P&L by sleeve from
  *  Alpaca's fill ledger + open P&L from current positions. */
 export interface SleeveRow { sleeve: "options" | "floor" | "stocks"; fills: number; symbols: number; realized: number; unpricedCloses: number; unrealized: number | null; openPositions: number; byMonth: Record<string, number> }
@@ -199,9 +206,25 @@ export interface BotData {
   benchmark: UseQueryResult<Benchmark>;
   sleeves: UseQueryResult<Sleeves>;
   scoreboard: UseQueryResult<Scoreboard>;
+  // OVERVIEW (2026-11-06): the backend agents' routes, read as `unknown` and parsed tolerantly by picks.ts /
+  // whyView.ts (a server that predates a route answers 404 or the SPA page — a designed state, never a crash)
+  decisions: UseQueryResult<unknown>;
+  /** /api/bot/regime (the regime engine's report; its risk_budget block from the regime agent's branch) */
+  regime: UseQueryResult<unknown>;
+  attribution: UseQueryResult<unknown>;
+  flows: UseQueryResult<unknown>;
+  tax: UseQueryResult<unknown>;
+  signals: UseQueryResult<unknown>;
 }
+/** the attribution windows the Why panel offers (days) */
+export const ATTRIBUTION_WINDOWS = [7, 30, 90] as const;
+export const DEFAULT_ATTRIBUTION_DAYS = 30;
 
-export function useBotData(): BotData {
+/** `overview`: the overview's routes poll only while a view that shows them is open (the cockpit never reads
+ *  them); `attributionDays` is the Why panel's window. */
+export function useBotData(opts: { overview?: boolean; attributionDays?: number } = {}): BotData {
+  const overview = opts.overview ?? false;
+  const days = opts.attributionDays ?? DEFAULT_ATTRIBUTION_DAYS;
   const status = useQuery<BotStatus>({ queryKey: ["/api/bot/status"], queryFn: () => getJson("/api/bot/status"), refetchInterval: 5_000 });
   const account = useQuery<BotAccount>({ queryKey: ["/api/bot/account"], queryFn: () => getJson("/api/bot/account"), refetchInterval: 10_000 });
   const positions = useQuery<BotPosition[]>({ queryKey: ["/api/bot/positions"], queryFn: () => getJson("/api/bot/positions"), refetchInterval: 15_000 });
@@ -219,7 +242,14 @@ export function useBotData(): BotData {
   const sleeves = useQuery<Sleeves>({ queryKey: ["/api/bot/sleeves"], queryFn: () => getJson("/api/bot/sleeves"), refetchInterval: (q) => (q.state.data?.pending ? 20_000 : 10 * 60_000) });
   // the server caches the computed table 10 min; the page asks as often
   const scoreboard = useQuery<Scoreboard>({ queryKey: ["/api/bot/scoreboard"], queryFn: () => getJson("/api/bot/scoreboard"), refetchInterval: 10 * 60_000 });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard };
+  const decisions = useQuery<unknown>({ queryKey: ["/api/bot/decisions"], queryFn: () => getJson<unknown>("/api/bot/decisions?limit=200"), refetchInterval: 60_000, enabled: overview });
+  // a new window keeps the previous one on screen until it lands (no skeleton flash on the 7d / 30d / 90d control)
+  const attribution = useQuery<unknown>({ queryKey: ["/api/bot/attribution", days], queryFn: () => getJson<unknown>(`/api/bot/attribution?days=${days}`), refetchInterval: 5 * 60_000, enabled: overview, placeholderData: keepPreviousData });
+  const flows = useQuery<unknown>({ queryKey: ["/api/bot/flows"], queryFn: () => getJson<unknown>("/api/bot/flows"), refetchInterval: 10 * 60_000, enabled: overview });
+  const tax = useQuery<unknown>({ queryKey: ["/api/bot/tax"], queryFn: () => getJson<unknown>("/api/bot/tax"), refetchInterval: 5 * 60_000, enabled: overview });
+  const signals = useQuery<unknown>({ queryKey: ["/api/bot/signals"], queryFn: () => getJson<unknown>("/api/bot/signals"), refetchInterval: 10 * 60_000, enabled: overview });
+  const regime = useQuery<unknown>({ queryKey: ["/api/bot/regime"], queryFn: () => getJson<unknown>("/api/bot/regime"), refetchInterval: 10 * 60_000, enabled: overview });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {

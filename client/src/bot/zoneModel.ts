@@ -3,8 +3,10 @@
 // what the centre column holds (pageState) and the per-panel flags
 // (held / pinned / floating / zoomed) the user sets.
 export type Tier = "xl" | "l" | "m" | "s";
-export type PanelId = "kpi" | "stages" | "issues" | "state" | "watch" | "model" | "chart" | "book" | "orders" | "timeline" | "score";
-export const PANEL_IDS: readonly PanelId[] = ["kpi", "stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline", "score"];
+// perf / why / picks: the OVERVIEW panels (2026-11-06, human refocus spec §8 — the after-tax chart vs SPY, the
+// "why are we losing money" attribution, a plain-English card per pick)
+export type PanelId = "kpi" | "stages" | "issues" | "state" | "watch" | "model" | "chart" | "book" | "orders" | "timeline" | "score" | "perf" | "why" | "picks";
+export const PANEL_IDS: readonly PanelId[] = ["kpi", "stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline", "score", "perf", "why", "picks"];
 
 export function tierFor(width: number): Tier {
   if (!Number.isFinite(width)) return "l";
@@ -76,4 +78,31 @@ export function snapEdges(r: Rect, page: { w: number; h: number }, threshold = 1
   if (Math.abs(y) < threshold) y = 0;
   if (Math.abs(y + r.h - page.h) < threshold) y = page.h - r.h;
   return { ...r, x, y };
+}
+
+/** The page's two views (2026-11-06, human refocus spec §8 "simplify"): OVERVIEW — the after-tax chart vs SPY,
+ *  why money is being lost, a plain-English card per pick, with the essentials (kill state, account, positions,
+ *  orders) — and COCKPIT, every panel as before. Overview is the default; the choice is a per-viewer convenience
+ *  (BotPage keeps it in localStorage), never state anyone else reads. */
+export type BotMode = "overview" | "cockpit";
+export const BOT_MODE_STORAGE_KEY = "vt-bot-mode";
+export function botModeFrom(raw: string | null | undefined): BotMode {
+  return raw === "cockpit" ? "cockpit" : "overview";
+}
+/** The panels each view shows (kpi is the strip, in both). */
+export const MODE_PANELS: Record<BotMode, readonly PanelId[]> = {
+  overview: ["perf", "why", "picks", "issues", "book", "orders"],
+  cockpit: ["stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline", "score"],
+};
+/** Overview grid at the desktop tiers: the chart spans the centre and right columns on top, the attribution and
+ *  the pick cards share the row beneath, the essentials (issues, book, orders) hold the left column. The rows
+ *  keep a floor (the chart never squeezes under 380 px); a viewport too short for both floors scrolls the grid
+ *  instead of shrinking the chart. The phone and tablet stack the same panels, the chart first. */
+export const OVERVIEW_TEMPLATES: Record<"xl" | "l", { columns: string; rows: string; areas: string[] }> = {
+  xl: { columns: "380px minmax(0, 1fr) 480px", rows: "88px minmax(460px, 1.3fr) minmax(320px, 1fr)", areas: ["kpi kpi kpi", "left perf perf", "left why picks"] },
+  l: { columns: "340px minmax(0, 1fr) 400px", rows: "86px minmax(420px, 1.3fr) minmax(300px, 1fr)", areas: ["kpi kpi kpi", "left perf perf", "left why picks"] },
+};
+export function overviewGridStyle(tier: "xl" | "l"): { gridTemplateColumns: string; gridTemplateRows: string; gridTemplateAreas: string } {
+  const t = OVERVIEW_TEMPLATES[tier];
+  return { gridTemplateColumns: t.columns, gridTemplateRows: t.rows, gridTemplateAreas: t.areas.map((r) => `"${r}"`).join(" ") };
 }

@@ -508,6 +508,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {/* a page's own view switch (the AI Engine's Overview · Cockpit, 2026-11-06) portals here on the desktop
+              nav, so it costs the page no height; empty, it renders nothing */}
+          <div id="vt-page-nav-slot" style={{ display: "contents" }} />
           <a
             href="/#bot"
             className="theme-toggle-btn"

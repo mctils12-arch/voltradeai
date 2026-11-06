@@ -164,7 +164,14 @@ function botFixtures({ latched }) {
       rows.push({ date: b.date, prevDate: a.date, sessions: days.indexOf(b.date) - days.indexOf(a.date), botPct: r2(bot), spyPct: r2(spy), diffPp: r2(bot - spy), botCumPct: r2(bc), spyCumPct: r2(sc), cumDiffPp: r2(bc - sc), provisional: k === kept.length - 1 });
     }
     const last = rows[rows.length - 1];
-    return { rows: rows.reverse(), summary: { from: kept[0].date, to: last.date, botCumPct: last.botCumPct, spyCumPct: last.spyCumPct, cumDiffPp: last.cumDiffPp, daysBeat: beat, daysCompared: rows.length, gapRows: 1, botMaxDdPct: r2(ddB), spyMaxDdPct: r2(ddS) },
+    // the AFTER-TAX series (server/afterTaxSeries.ts shape, 2026-11-06): SPY's gain since the start taxed once at the
+    // short-term 24 %; the account's realized-ledger tax ramping to 0.35 % of the start equity over its first 40
+    // sessions (wash-sale add-backs) — fixture numbers, real shape; oldest first, the start at zero
+    const atPoints = [{ date: kept[0].date, botPct: 0, spyPct: 0, botTaxPct: 0, spyTaxPct: 0, botAfterTaxPct: 0, spyAfterTaxPct: 0, gapPp: 0, spyTerm: "short" },
+      ...rows.map((r, k) => { const bt = r2(Math.min(0.35, (0.35 * (k + 1)) / 40)), st = r2(Math.max(0, r.spyCumPct) * 0.24); const ba = r2(r.botCumPct - bt), sa = r2(r.spyCumPct - st); return { date: r.date, botPct: r.botCumPct, spyPct: r.spyCumPct, botTaxPct: bt, spyTaxPct: st, botAfterTaxPct: ba, spyAfterTaxPct: sa, gapPp: r2(ba - sa), spyTerm: "short" }; })];
+    const afterTax = { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, from: kept[0].date, to: last.date, equityStart: 106742.68, points: atPoints,
+      notes: ["each point: both sold at that day's close — an estimate at the rates shown; the paper account pays no tax"] };
+    return { afterTax, afterTaxReason: null, rows: rows.reverse(), summary: { from: kept[0].date, to: last.date, botCumPct: last.botCumPct, spyCumPct: last.spyCumPct, cumDiffPp: last.cumDiffPp, daysBeat: beat, daysCompared: rows.length, gapRows: 1, botMaxDdPct: r2(ddB), spyMaxDdPct: r2(ddS) },
       barsThrough: last.date, curveThrough: last.date, fetchedAt: new Date(now).toISOString(), computedAt: new Date(now).toISOString(),
       sources: { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, price return: SPY without dividends, because the paper account receives none (2026-11-05) (Alpaca bars, adjustment=split, feed=iex)" },
       cashFlows: { journals: 0, transfers: 0, since: "2026-05-07T00:00:00.000Z" } };
@@ -185,6 +192,92 @@ function botFixtures({ latched }) {
       decision: { taken: q(51.5, 42.3, 6938, 4031), rejected_score: q(51.8, 70.8, 8098, 2031), rejected_other: q(52.2, 69, 602, 342), rejected_heat: q(24.1, 36.6, 428, 290) },
       decision_x_band: { "taken|<-10": q(79.7, 79.4, 1863, 383), "taken|10..20": q(38.9, 36.5, 3130, 2420), "taken|20..30": q(44.8, 42.3, 1945, 1228) } },
   };
+  // ── OVERVIEW routes (2026-11-06; the contracts the backend agents build to): the decision journal, loss attribution,
+  // the institutional flow model, the tax filter and the signal audit — fixture numbers, real shapes. The latched page
+  // has them all (the QQQ / SMH / KWEB / CRWV / PFE / GOOGL / META positions explained, VXUS / GLD / TEM never seen by
+  // the journal — the honest fallback); the idle page has an EMPTY journal, no attribution route (404 → the fill-ledger
+  // fallback, still computing there), no tax route and the OLD per-ticker signal list.
+  const H = 60, D = 24 * 60;
+  const decisions = [
+    { ts: ago(3 * D + 40), ticker: "QQQ", action: "buy", instrument: "etf", chosen: "61 QQQ shares for the ETF floor", symbol: "QQQ",
+      rejected: [{ instrument: "QQQ Dec calls", reason: "IV rank 74: the calls price a bigger move than QQQ has been making, so shares keep more of the expected gain" }, { instrument: "SPY", reason: "a lower expected return over the same 20 days, with the same short-term tax" }],
+      stages: { regime: "NEUTRAL: VIX 17.4 in contango, SPY above its 200-day — the full stock budget", calendar: "no holiday or index rebalance in the next 5 sessions", flows: "pension rebalancing is expected to sell stocks into month-end, so the first buy is one third", sector: "technology momentum ranks 2nd of 11 and is not crowded", selection: "3-month momentum +9.8%; the top holdings beat their last three quarters", options: "dealer gamma is positive (dips get bought); calls are priced rich", tax: "expected +3.1% over 20 days → +2.4% after short-term tax, against SPY's +0.9% — the edge survives" },
+      sizing: { qty: 61, price: 741.32, notional: 45220.52, pct_equity: 44.9, reasoning: "the floor's target weight at a full risk budget" },
+      summary: "Bought QQQ shares for the ETF floor: tech momentum in a calm, rising market, and the edge survives short-term tax. Calls were passed over because they cost more than the move they need." },
+    { ts: ago(9 * D), ticker: "SMH", action: "buy", instrument: "shares", chosen: "30 SMH shares", rejected: [{ instrument: "NVDA shares", reason: "one name is three times the risk of the semiconductor basket for the same signal" }],
+      stages: { regime: "NEUTRAL — the full stock budget", sector: "semiconductors lead on 1- and 3-month momentum", tax: "+4.0% expected → +3.0% after short-term tax vs SPY's +1.1%" }, sizing: "$16,543 — the full 4% target in one buy (the regime was calm)",
+      summary: "Bought SMH: semiconductors lead the market and the basket spreads the single-name risk." },
+    { ts: ago(2 * D + 3 * H), ticker: "SMH", action: "scale_out", summary: "Sold the first third at +1R ($569.08) — the plan's first profit target; the stop moved to breakeven." },
+    { ts: ago(2 * D + 30), ticker: "KWEB", action: "buy", instrument: "shares", chosen: "388 KWEB shares",
+      rejected: [{ instrument: "KWEB calls", reason: "too little open interest at the strikes the setup needs — the spread would cost about 9% of the premium" }],
+      stages: { selection: "China internet down 7.5% in a month with selling exhausted (RSI 26)", tax: "short holding period: +2.1% expected → +1.6% after tax vs SPY's +0.3%" }, sizing: "$10,294 — a 2% risk budget at a 4% stop",
+      summary: "Bought KWEB on a mean-reversion setup: down 7.5% in a month with the selling exhausted. Shares over calls because the calls barely trade." },
+    { ts: ago(3 * D + 2 * H), ticker: "CRWV", action: "buy", instrument: "cash-secured put", chosen: "CRWV261120P00055000",
+      rejected: [{ instrument: "CRWV shares", reason: "the put collects $247 now and only buys the stock if it falls below $55" }, { instrument: "TEM $70 put", reason: "TEM reports before expiry — a sold option is closed ahead of earnings" }],
+      stages: { options: "implied volatility far above what CRWV has been moving (IV rank 91): the premium is rich", tax: "a sold put's premium is short-term income: $247 → $188 after tax, against SPY's $41 on the same cash" },
+      sizing: "1 contract — $5,500 of cash set aside to buy 100 shares at $55",
+      summary: "Sold a CRWV $55 put for $247: the premium is rich and the bot would be glad to own CRWV at $52.53." },
+    { ts: ago(3 * D + 5 * H), ticker: "PFE", action: "buy", instrument: "cash-secured put", chosen: "PFE261120P00027000", rejected: [],
+      summary: "Sold a PFE $27 put for $48: a dividend payer near its 52-week low with steady implied volatility." },
+    { ts: ago(3 * D + 6 * H), ticker: "GOOGL", action: "buy", instrument: "call", chosen: "GOOGL261219C00280000",
+      rejected: [{ instrument: "GOOGL shares", reason: "100 shares tie up $27,000 for the same upside" }],
+      stages: { options: "calls are cheap (IV rank 18) going into the cloud-earnings momentum", tax: "a 47-day hold is short-term either way" }, sizing: "1 contract, $320 — the most it can lose",
+      summary: "Bought one GOOGL $280 call for $320: a cheap bet on the cloud momentum; the most it can lose is the premium." },
+    { ts: ago(3 * D + 7 * H), ticker: "META", action: "buy", instrument: "bull put credit spread", chosen: "sell META $600 put / buy $580 put",
+      rejected: [{ instrument: "a naked $600 put", reason: "the bought $580 put caps the loss at $1,780 for $60 of the credit" }],
+      summary: "Opened a META bull put spread for a $220 credit: the stock holds above $600 support and the spread caps the loss at $1,780." },
+    { ts: ago(2 * D + 4 * H), ticker: "TSLA", action: "sell", instrument: "shares", summary: "Sold TSLA: the stop at $412.30 was hit after the trade gave back its first target." },
+    { ts: ago(3 * H), ticker: "NVDA", action: "skip", instrument: "shares", rejected: [{ instrument: "NVDA shares", reason: "tax filter: 0.38% after short-term tax, below SPY's 0.60% over the same 10 days" }],
+      summary: "Skipped NVDA: after short-term tax the expected gain is less than simply holding SPY." },
+    { ts: ago(H), ticker: "AMD", action: "skip", instrument: "shares", rejected: [{ instrument: "AMD shares", reason: "the single-stock sleeve's record is negative (win rate 28%), so the sizer refuses new risk there" }],
+      summary: "Skipped AMD: the stock sleeve is losing, so the sizer refuses new single-stock risk." },
+  ];
+  const attribution = (days) => {
+    const k = days <= 7 ? 0.2 : days >= 90 ? 2.2 : 1;
+    const m = (v) => Math.round(v * k * 100) / 100;
+    return { window: { days, from: new Date(now - days * 86_400_000).toISOString().slice(0, 10), to: new Date(now).toISOString().slice(0, 10) }, total: m(-4210.5),
+      bySignal: [{ signal: "VRP (sold premium)", pnl: m(-3120), n: 22, reason: "sold puts into a falling market; three were closed at twice their credit" }, { signal: "momentum", pnl: m(-1400.5), n: 6, reason: "entries came late, after most of the move" }, { signal: "mean reversion", pnl: m(310), n: 9, reason: "bought dips that bounced" }],
+      bySector: [{ sector: "Technology", pnl: m(-2600), n: 14, reason: "the CRWV and TEM puts" }, { sector: "Consumer", pnl: m(-1730.5), n: 8, reason: "TSLA stopped out twice" }, { sector: "Energy", pnl: m(120), n: 3, reason: null }],
+      byInstrument: [{ instrument: "sold puts", pnl: m(-3010), n: 18, reason: "the losses came from the credit side, not from shares" }, { instrument: "shares", pnl: m(-1200.5), n: 11, reason: "two stops, one target" }],
+      byTiming: [{ timing: "first 15 minutes", pnl: m(-1900), n: 7, reason: "orders in the opening auction filled at the worst prices of the day" }, { timing: "held under a day", pnl: m(-1610.5), n: 12, reason: "quick exits paid the spread twice" }, { timing: "held over a week", pnl: m(-700), n: 9, reason: null }],
+      notes: ["realized + open P&L, attributed by the decision journal's own tags (fixture numbers)"], asOf: ago(4) };
+  };
+  const flows = { asOf: ago(30), horizonDays: 10,
+    equity: { pressure: -0.42, direction: "sell", confidence: 0.6, drivers: [{ name: "pension rebalancing", value: -0.3, reason: "stocks ran ahead of bonds this quarter, so target-weight funds sell the excess into month-end" }, { name: "fund tax-loss selling", value: -0.12, reason: "October fiscal year-ends: funds sell this year's losers" }] },
+    sectors: [{ sector: "Technology", etf: "XLK", pressure: -0.5, direction: "sell", drivers: [{ name: "crowding", value: 1, reason: "the most crowded sector" }] }, { sector: "Utilities", etf: "XLU", pressure: 0.3, direction: "buy", drivers: [] }, { sector: "Consumer staples", etf: "XLP", pressure: 0.12, direction: "buy", drivers: [] }],
+    calendar: [{ date: new Date(now + 14 * 86_400_000).toISOString().slice(0, 10), event: "monthly options expiry", effect: "dealer hedging pins the index" }, { date: new Date(now + 42 * 86_400_000).toISOString().slice(0, 10), event: "Nasdaq-100 annual reconstitution", effect: "index funds rebalance at the close" }],
+    notes: ["a model estimate from published target allocations and fund calendars"],
+    label: "ESTIMATE", computedAt: ago(30), ageDays: 0, stale: false,
+    floor: { multiplier: 0.94, applied: true, reason: "expected net selling into month-end: the floor holds 6% under its target until it passes" },
+    sessions: [0, 1, 2, 3, 4].map((k) => ({ date: new Date(now + k * 86_400_000).toISOString().slice(0, 10), pressure: [-0.42, -0.35, -0.2, 0.05, 0.12][k], phase: k < 3 ? "month-end" : null })) };
+  // the flows route before tier 3 has computed its first estimate (server/flowsReport.ts's own empty body)
+  const flowsNotYet = { asOf: null, horizonDays: 5, equity: { pressure: 0, direction: "neutral", confidence: 0, drivers: [] }, sectors: [], calendar: [], label: "ESTIMATE", computedAt: null, ageDays: null, stale: true, floor: null, sessions: [],
+    notes: ["No flows estimate: the daily estimate has not been computed yet. Tier 3 computes it once per completed session."] };
+  // /api/bot/regime with the regime agent's risk_budget block (the pipeline's first stage)
+  const regime = { composite: "RISK_OFF", legacy_label: "NEUTRAL",
+    risk_budget: { budget: 0.56, raw: 0.6, band: "reduced", summary: "Risk budget 0.56 (reduced): VIX term structure inverted (1.04) −0.21; breadth 38% −0.12",
+      drivers: [{ name: "vix_ts", label: "VIX term structure", value: 1.04, score: 0.2, weight: 0.4, cut: -0.21, short: "inverted", reason: "VIX above VIX3M: hedging demand is high, which tends to precede wider swings" },
+        { name: "breadth", label: "Breadth", value: 38, score: 0.4, weight: 0.3, cut: -0.12, short: "narrow", reason: "only 38% of S&P 500 names are above their 50-day average" },
+        { name: "trend", label: "SPY trend", value: 1.01, score: 1, weight: 0.3, cut: 0, short: "up", reason: "SPY is above its 200-day average" }],
+      missing: [], as_of: new Date(now - 86_400_000).toISOString().slice(0, 10), age_market_days: 1, stale: false, enabled: true, applied: true, consumers: ["tier_exposure_cap"],
+      history: Array.from({ length: 12 }, (_, k) => ({ as_of: new Date(now - (12 - k) * 86_400_000).toISOString().slice(0, 10), budget: [0.92, 0.9, 0.88, 0.81, 0.74, 0.71, 0.66, 0.6, 0.58, 0.61, 0.57, 0.56][k], band: k < 3 ? "full" : "reduced" })),
+      note: "applied: the tier engine's room above the passive floor (MAX_TOTAL_EXPOSURE) is multiplied by the budget" } };
+  const tax = { rates: { shortTerm: 0.24, longTerm: 0.15 },
+    decisions: [
+      { ts: ago(3 * H), ticker: "NVDA", side: "buy", allowed: false, expectedPct: 0.5, afterTaxPct: 0.38, spyAfterTaxPct: 0.6, holdingDays: 10, reason: "0.38% after short-term tax is below SPY's 0.60% over the same 10 days" },
+      { ts: ago(3 * D + 40), ticker: "QQQ", side: "buy", allowed: true, expectedPct: 3.1, afterTaxPct: 2.36, spyAfterTaxPct: 0.9, holdingDays: 20, reason: "keeps 2.36% after tax against SPY's 0.90%" },
+      { ts: ago(2 * D + 30), ticker: "KWEB", side: "buy", allowed: true, expectedPct: 2.1, afterTaxPct: 1.6, spyAfterTaxPct: 0.3, holdingDays: 8, reason: "keeps 1.60% after tax against SPY's 0.30%" },
+    ],
+    harvest: [{ ticker: "CRWV", unrealized: -420, replacement: "IGV", washSaleUntil: new Date(now + 31 * 86_400_000).toISOString().slice(0, 10), reason: "sell the loss and hold the software exposure through IGV until the wash-sale window closes" }],
+    ltApproaching: [] };
+  const signalsReport = { asOf: ago(90), signals: [
+    { name: "vrp", verdict: "keep", rank_ic: 0.061, n: 1900, reason: "positive out of sample in all three regimes" },
+    { name: "mean_reversion", verdict: "keep", rank_ic: 0.034, n: 1900, reason: "works in NEUTRAL and BEAR tapes" },
+    { name: "momentum_1m", verdict: "noise", rank_ic: 0.004, n: 1900, reason: "indistinguishable from zero out of sample" },
+    { name: "news_sentiment", verdict: "noise", rank_ic: 0.001, n: 1900, reason: "constant at serve time for most candidates" },
+    { name: "deep_score", verdict: "hurts", rank_ic: -0.08, n: 20000, reason: "anti-predictive: the top score fifth wins least (open question, 2026-10-26)" },
+    { name: "insider_signal", verdict: "unclear", n: 120, reason: "too few samples to judge" },
+  ], notes: ["rank IC of each input against the 5-day forward return, walk-forward"] };
   const nextClose = new Date(now + 2 * 3600_000 + 2 * 60_000).toISOString();
   return {
     "/api/auth/me": { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } },
@@ -249,6 +342,15 @@ function botFixtures({ latched }) {
     // Orders-panel shape bug (audit §8.2 D4) from this harness.
     "/api/orders/open": { orders: [{ id: "ord-1", symbol: "NVDA", side: "buy", qty: "12", type: "limit", limit_price: "181.20", status: "new", submitted_at: ago(4) }] },
     "/api/bot/notifications": [],
+    // OVERVIEW routes (2026-11-06, see above): the journal (empty on the idle page), attribution by the request's
+    // ?days= (404 on the idle page: the fill-ledger fallback), flows, tax (absent on the idle page) and signals
+    // (the old per-ticker list on the idle page)
+    "/api/bot/decisions": latched ? decisions : [],
+    "/api/bot/attribution": latched ? (req) => attribution(Number(new URL(req.url || "/", "http://fixture").searchParams.get("days")) || 30) : { __status: 404, __body: { error: "Not found" } },
+    "/api/bot/flows": latched ? flows : flowsNotYet,
+    ...(latched ? { "/api/bot/regime": regime } : {}),
+    ...(latched ? { "/api/bot/tax": tax } : {}),
+    "/api/bot/signals": latched ? signalsReport : [{ ticker: "SPY", action: "HOLD", confidence: 50, reason: "", type: "neutral", time: ago(30) }],
     // look-up (2026-10-22): what the scan would do with NVDA right now — a name down big on bad news that scores on mean
     // reversion, stopped at admission (prefix fixture: /api/bot/lookup/<symbol>)
     "/api/bot/lookup": { symbol: "NVDA", at: new Date(now).toISOString(), path: "snapshot → quick pass → deep_score → gates → chain", errors: {}, timings: { total_s: 6.4 },
@@ -264,11 +366,21 @@ function botFixtures({ latched }) {
         scanner_setup: null } },
     // the look-up box now opens the ticker dossier (2026-10-29): prefix fixture /api/ticker-dossier/<symbol>
     "/api/ticker-dossier": dossierFixture("NVDA", 183.2),
-    // the live 2026-10-20 comparison (latched page) / no SPY series yet (idle page)
+    // the vs-SPY comparison (latched page) / no SPY series yet (idle page). 2026-11-06: the latched window follows the
+    // scoreboard's walk (it was the live 2026-10-20 reading before), so the vs-SPY tile, the daily scoreboard and the
+    // overview's after-tax chart tell one story; "sold now" = the chart line's last point plus the tax selling the open
+    // positions would add (0.12 % of the start equity) — fixture numbers, real shape
     "/api/bot/benchmark": latched
-      ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "split", basis: "price return: SPY without dividends, because the paper account receives none (2026-11-05)",
-          // the after-tax leg ([RULE-REVIEW] 2026-10-22, server/afterTaxBenchmark.ts): both sold 2026-10-20 at the default rates — a net realized loss (no tax, carried forward), open losses, SPY's one short-term sale
-          afterTax: { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, window: { from: "2026-05-06", to: "2026-10-20", days: 167 }, spy: { pct: 5.24, term: "short", taxPct: 1.26, afterTaxPct: 3.98 }, account: { pct: -6.9, taxPct: 0, afterTaxPct: -6.9, equityStart: 107_900, realizedTax: 0, liquidationTax: 0, openPnl: -4494.2, openTaxIfSold: 0 }, gapPp: -10.88, notes: ["both sold at 2026-10-20: an estimate at the rates shown — the paper account pays no tax", "SPY: its price return, without dividends like the paper account, taxed once at the short-term rate; a real holder would also collect the dividends, taxed each year at the qualified rate, so leaving them out flatters the account by about yield × (1 − qualified rate)", "account: the ledger's estimated tax on the trades closed in the window, plus what selling every open position would add — open P&L taxed as short-term (the conservative term) and netted the way the ledger nets, so open losses reduce the tax"] } }
+      ? (() => {
+          const sm = scoreboard.summary, at = scoreboard.afterTax.points[scoreboard.afterTax.points.length - 1];
+          const days = Math.round((Date.parse(sm.to) - Date.parse(sm.from)) / 86_400_000);
+          const r2 = (v) => Math.round(v * 100) / 100;
+          const acct = r2(at.botAfterTaxPct - 0.12);
+          return { since: { from: sm.from, to: sm.to, days, accountPct: sm.botCumPct, spyPct: sm.spyCumPct, gapPp: sm.cumDiffPp }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: sm.to, fetchedAt: new Date(now).toISOString(), adjustment: "split", basis: "price return: SPY without dividends, because the paper account receives none (2026-11-05)",
+            // the after-tax leg ([RULE-REVIEW] 2026-10-22, server/afterTaxBenchmark.ts): both sold at the walk's last day at the default rates
+            afterTax: { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, window: { from: sm.from, to: sm.to, days }, spy: { pct: sm.spyCumPct, term: "short", taxPct: at.spyTaxPct, afterTaxPct: at.spyAfterTaxPct }, account: { pct: sm.botCumPct, taxPct: r2(at.botTaxPct + 0.12), afterTaxPct: acct, equityStart: 106742.68, realizedTax: r2(at.botTaxPct * 1067.4268), liquidationTax: r2((at.botTaxPct + 0.12) * 1067.4268), openPnl: 534.2, openTaxIfSold: 128.09 }, gapPp: r2(acct - at.spyAfterTaxPct),
+              notes: [`both sold at ${sm.to}: an estimate at the rates shown — the paper account pays no tax`, "SPY: its price return, without dividends like the paper account, taxed once at the short-term rate; a real holder would also collect the dividends, taxed each year at the qualified rate, so leaving them out flatters the account by about yield × (1 − qualified rate)", "account: the ledger's estimated tax on the trades closed in the window, plus what selling every open position would add — open P&L taxed as short-term (the conservative term) and netted the way the ledger nets, so open losses reduce the tax"] } };
+        })()
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
     // the daily scoreboard (fixture walk above) / not enough history on the idle page
     "/api/bot/scoreboard": latched ? scoreboard : { rows: [], summary: null, barsThrough: null, curveThrough: null, fetchedAt: null, cashFlows: null },
@@ -3509,6 +3621,206 @@ async function main() {
         const ctl = (id, label) => page.locator(`section.vt-bot-panel[data-panel="${id}"] .vt-bot-ctl button[aria-label="${label}"]`).first();
         const press = async (loc) => { if (vp.touch) await loc.tap(); else await loc.click(); };
         const settle = () => page.waitForTimeout(250);
+        // ── OVERVIEW (2026-11-06, human refocus spec §8: "simplify; larger main chart: portfolio vs SPY, after tax; per
+        // pick a plain-English card: why bought, why alternatives were rejected, current P&L; a clear 'why are we
+        // losing money' panel"). The page opens on the overview: the view switch, the after-tax chart vs SPY (the
+        // largest panel on the desktop, the first one in the phone stack), the pick cards, the attribution with the
+        // flow / tax / signal sections, and the essentials (issues, book, orders) — and none of the cockpit's engine
+        // panels. Every number is checked against this page's fixtures; the latched page has every route, the idle
+        // page an empty journal, no attribution or tax route and the old signal list (each a designed sentence).
+        // Then the switch opens the cockpit, where every check below runs as before.
+        {
+          const ovFail = (m) => checks.failures.push("overview: " + m);
+          const pressQ = async (loc) => { if (vp.touch) await loc.tap({ timeout: 5000 }); else await loc.click({ timeout: 5000 }); };
+          const sbFx = PAGE_FIXTURES["/api/bot/scoreboard"];
+          const atPts = sbFx && sbFx.afterTax ? sbFx.afterTax.points : null;
+          const pctW = (v) => `${v < 0 ? "−" : v > 0 ? "+" : ""}${Math.abs(v).toFixed(2)}%`;
+          try {
+            for (let i = 0; i < 40; i++) { if (await page.locator('.vt-perf[data-state="ready"], .vt-perf[data-state="empty"]').count()) break; await page.waitForTimeout(100); }
+            for (let i = 0; i < 40; i++) { if (await page.locator('.vt-why[data-source]').count() && !(await page.locator('.vt-why [aria-busy="true"]').count())) break; await page.waitForTimeout(100); }
+            const ov = await page.evaluate(() => {
+              const q = (sel) => document.querySelector(sel);
+              const r = (el) => (el ? el.getBoundingClientRect() : null);
+              const ids = [...document.querySelectorAll("section.vt-bot-panel[data-panel]")].map((e) => e.getAttribute("data-panel"));
+              const panelText = [...document.querySelectorAll('section.vt-bot-panel[data-panel="perf"], section.vt-bot-panel[data-panel="why"], section.vt-bot-panel[data-panel="picks"]')].map((e) => e.textContent || "").join(" ");
+              const perf = q('section.vt-bot-panel[data-panel="perf"]'), svg = q(".vt-perf-plot svg"), plot = q(".vt-perf-plot");
+              const pathPts = (k) => { const d = q(`.vt-perf-plot path[data-line="${k}"]`)?.getAttribute("d") || ""; return d ? d.split(/[ML]/).filter((x) => x.trim()).length : 0; };
+              const cols = ["left", "perf", "why", "picks"].map((a) => {
+                const col = q(`.vt-bot-grid[data-mode="overview"] .vt-bot-area-${a}`);
+                if (!col) return { a, missing: true };
+                const ps = [...col.querySelectorAll("section.vt-bot-panel[data-panel]")];
+                const cr = col.getBoundingClientRect();
+                const painted = ps.reduce((sum, x) => sum + x.getBoundingClientRect().height, 0) + 8 * Math.max(0, ps.length - 1);
+                return { a, missing: false, ids: ps.map((x) => x.getAttribute("data-panel")), hole: ps.length ? cr.height - painted : null };
+              });
+              const grid = q('.vt-bot-grid[data-mode="overview"]');
+              const smallTouch = [...document.querySelectorAll(".vt-bot-modebar button:not(.vt-help), .vt-pick-hd, .vt-why-win button, .vt-why-sh > button:not(.vt-help):not(:disabled), .vt-picks-hd .vt-bot-wbtn")].filter((b) => { const br = b.getBoundingClientRect(); return br.width > 0 && br.height > 0 && br.height < 44; }).map((b) => (b.textContent || b.className).toString().trim().slice(0, 24));
+              return {
+                mode: q(".vt-bot-page")?.getAttribute("data-mode"), ids,
+                switchBtns: [...document.querySelectorAll(".vt-bot-modebar button[data-view]")].map((b) => [b.getAttribute("data-view"), b.getAttribute("aria-pressed")]),
+                chromeOk: ["perf", "why", "picks"].every((id) => ["Hold this panel", "Pin this panel", "Open as a window"].every((l) => !!q(`section.vt-bot-panel[data-panel="${id}"] .vt-bot-ctl button[aria-label="${l}"]`))),
+                bad: (panelText.match(/\bNaN\b|\bundefined\b|Infinity|\bnull\b/) || [])[0] || null,
+                perf: { state: q(".vt-perf")?.getAttribute("data-state"), basis: q(".vt-perf")?.getAttribute("data-basis"), figs: [...document.querySelectorAll(".vt-perf-fig .v")].map((e) => (e.textContent || "").trim()), say: (q(".vt-perf-say")?.textContent || "").trim(), src: (q(".vt-perf-src")?.textContent || "").trim(), empty: (q(".vt-perf")?.textContent || "").trim(),
+                  rect: r(perf) && { w: r(perf).width, h: r(perf).height, area: r(perf).width * r(perf).height }, svg: r(svg) && { w: r(svg).width, h: r(svg).height }, plot: r(plot) && { w: r(plot).width, h: r(plot).height },
+                  bot: pathPts("bot"), spy: pathPts("spy"), pre: pathPts("bot-pre"), dd: pathPts("spy-dd"), rings: document.querySelectorAll(".vt-perf-plot circle[data-sold]").length, bands: document.querySelectorAll(".vt-perf-band").length },
+                largest: [...document.querySelectorAll("section.vt-bot-panel[data-panel]")].map((e) => { const b = e.getBoundingClientRect(); return [e.getAttribute("data-panel"), b.width * b.height]; }).sort((x, y) => y[1] - x[1])[0]?.[0] ?? null,
+                picks: { journal: q(".vt-picks")?.getAttribute("data-journal"), hd: (q(".vt-picks-hd")?.textContent || "").trim(), cards: [...document.querySelectorAll(".vt-pick")].map((c) => ({ key: c.getAttribute("data-key"), src: c.getAttribute("data-source"), title: (c.querySelector(".sym")?.textContent || "").trim(), pl: (c.querySelector(".pl")?.textContent || "").trim(), why: (c.querySelector(".vt-pick-why")?.textContent || "").trim() })),
+                  closed: [...document.querySelectorAll('.vt-pick-mini[data-kind="closed"] .vt-pick-mrow b')].map((b) => b.textContent), passed: [...document.querySelectorAll('.vt-pick-mini[data-kind="passed"] .vt-pick-mrow')].map((x) => (x.textContent || "").trim()) },
+                why: { source: q(".vt-why")?.getAttribute("data-source"), say: (q(".vt-why-say")?.textContent || "").trim(), groups: [...document.querySelectorAll(".vt-why-g")].map((g) => g.getAttribute("data-group")), firstRow: (q('.vt-why-g[data-group="signal"] .vt-why-row .l')?.textContent || "").trim(), text: (q(".vt-why")?.textContent || "").trim(),
+                  secs: Object.fromEntries([...document.querySelectorAll(".vt-why-sec")].map((x) => [x.getAttribute("data-sec"), (x.querySelector(".vt-why-ss")?.textContent || "").trim()])), win: [...document.querySelectorAll(".vt-why-win button")].map((b) => [b.textContent, b.getAttribute("aria-pressed")]) },
+                cols, gridOver: grid ? grid.scrollWidth - grid.clientWidth : 0, smallTouch, vw: innerWidth,
+              };
+            });
+            console.log(`  overview ${vp.w}px: mode ${ov.mode} · panels ${ov.ids.join(",")} · chart ${ov.perf.state}/${ov.perf.basis ?? "-"} ${ov.perf.rect ? `${Math.round(ov.perf.rect.w)}×${Math.round(ov.perf.rect.h)}` : "-"} · ${ov.picks.cards.length} cards · why ${ov.why.source}`);
+            if (ov.mode !== "overview") ovFail(`the page opened on "${ov.mode}", not the overview`);
+            if (JSON.stringify(ov.switchBtns) !== JSON.stringify([["overview", "true"], ["cockpit", "false"]])) ovFail(`the view switch reads ${JSON.stringify(ov.switchBtns)}`);
+            if ([...ov.ids].sort().join(",") !== "book,issues,orders,perf,picks,why") ovFail(`the overview shows the panels ${ov.ids.join(",")} (expected perf, why, picks, issues, book, orders — no engine panel)`);
+            if (!ov.chromeOk) ovFail("an overview panel lacks the hold / pin / window controls");
+            if (ov.bad) ovFail(`a bare "${ov.bad}" reached the overview panels`);
+            if (ov.gridOver > 1) ovFail(`the overview grid overflows sideways by ${ov.gridOver}px`);
+            if (vp.touch && ov.smallTouch.length) ovFail(`touch targets under 44px: ${ov.smallTouch.join(", ")}`);
+            // the stack (phone / tablet): the chart is the first panel; the desktop grid: the chart spans the centre and right columns and is the largest panel
+            if (vp.w < 1180) {
+              if (ov.ids[0] !== "perf") ovFail(`the phone / tablet stack starts with "${ov.ids[0]}", not the chart`);
+              if (ov.perf.state === "ready" && (!ov.perf.plot || ov.perf.plot.h < 240)) ovFail(`the chart's plot is ${ov.perf.plot ? Math.round(ov.perf.plot.h) : 0}px tall on the stack (≥ 240)`);
+            } else {
+              for (const c of ov.cols) {
+                if (c.missing) ovFail(`no ${c.a} area in the overview grid`);
+                else if (c.hole !== null && c.hole > 12) ovFail(`the ${c.a} area has ${Math.round(c.hole)}px of hole (${c.ids.join(" · ")})`);
+              }
+              const left = ov.cols.find((c) => c.a === "left");
+              if (left && !left.missing && left.ids.join(",") !== "issues,book,orders") ovFail(`the left column holds ${left.ids.join(",")}`);
+              if (!ov.perf.rect || ov.perf.rect.w < ov.vw * 0.6) ovFail(`the chart panel is ${ov.perf.rect ? Math.round(ov.perf.rect.w) : 0}px wide (≥ 60% of ${ov.vw})`);
+              if (!ov.perf.rect || ov.perf.rect.h < 300) ovFail(`the chart panel is ${ov.perf.rect ? Math.round(ov.perf.rect.h) : 0}px tall (≥ 300)`);
+              if (ov.largest !== "perf") ovFail(`the largest panel is "${ov.largest}", not the chart`);
+            }
+            // the overview as first drawn (the viewport), before any control is touched
+            await page.screenshot({ path: path.join(OUT, `${name}-overview-${vp.w}.png`), animations: "disabled" });
+            if (name === "bot") {
+              const lastPt = atPts ? atPts[atPts.length - 1] : null;
+              if (!lastPt) ovFail("the bot fixture carries no after-tax series");
+              else {
+                if (ov.perf.state !== "ready" || ov.perf.basis !== "after-tax") ovFail(`the chart is "${ov.perf.state}" / "${ov.perf.basis}" with the after-tax series present`);
+                if (ov.perf.bot !== atPts.length || ov.perf.spy !== atPts.length) ovFail(`the after-tax lines carry ${ov.perf.bot} / ${ov.perf.spy} points (the series has ${atPts.length})`);
+                if (ov.perf.pre !== atPts.length || ov.perf.dd !== atPts.length) ovFail(`the before-tax / drawdown lines carry ${ov.perf.pre} / ${ov.perf.dd} points`);
+                if (ov.perf.rings !== 2) ovFail(`${ov.perf.rings} "sold now" rings (expected the tile's two)`);
+                const want = [pctW(lastPt.botAfterTaxPct), pctW(lastPt.spyAfterTaxPct)];
+                if (ov.perf.figs[0] !== want[0] || ov.perf.figs[1] !== want[1]) ovFail(`the chart's figures read ${JSON.stringify(ov.perf.figs)} (the series' last point: ${JSON.stringify(want)})`);
+                if (!/^After tax, the portfolio is ((up|down) \d+\.\d%|flat) since May 6; SPY is ((up|down) \d+\.\d%|flat)\. The bot is ((ahead of|behind) SPY by \d+\.\d points|level with SPY)\.$/.test(ov.perf.say)) ovFail(`the chart's sentence reads "${ov.perf.say}"`);
+                if (!ov.perf.src.includes(`SPY: ${sbFx.sources.spy}`) || !/trading days since May 6/.test(ov.perf.src) || !/an estimate at 24 % short-term \/ 15 % long-term/.test(ov.perf.src)) ovFail(`the chart's provenance reads "${ov.perf.src.slice(0, 200)}"`);
+              }
+              // the cards: one per position, the META spread's two legs one card; seven explained by the journal, three honestly not
+              const cards = ov.picks.cards;
+              if (cards.length !== 10) ovFail(`${cards.length} pick cards (expected 10: five share lots, four single legs, one two-leg spread)`);
+              if (cards.filter((c) => c.src === "journal").length !== 7) ovFail(`${cards.filter((c) => c.src === "journal").length} cards carry a journal reason (expected 7)`);
+              if (!/7 of 10 with a recorded reason/.test(ov.picks.hd)) ovFail(`the picks header reads "${ov.picks.hd}"`);
+              const qqq = cards.find((c) => c.title === "QQQ");
+              if (!qqq || !/^Bought QQQ shares for the ETF floor: tech momentum/.test(qqq.why) || !/^−2\.4%/.test(qqq.pl)) ovFail(`the QQQ card reads ${JSON.stringify(qqq)}`);
+              const vxus = cards.find((c) => c.title === "VXUS");
+              if (!vxus || vxus.src !== "none" || !/^No recorded reason/.test(vxus.why)) ovFail(`the VXUS card (no journal row) reads ${JSON.stringify(vxus)}`);
+              if (!cards.some((c) => c.title === "META bull put credit spread" && /^net/.test(c.pl))) ovFail("the META spread is not one card with its net P&L");
+              if (ov.picks.closed.join(",") !== "TSLA") ovFail(`recently closed reads ${ov.picks.closed.join(",")}`);
+              if (ov.picks.passed.length !== 2 || !/^NVDA/.test(ov.picks.passed[1] || ov.picks.passed[0])) ovFail(`passed on reads ${JSON.stringify(ov.picks.passed)}`);
+              // expand QQQ: what it passed over and why, the stages, the size, and the engine's exit plan
+              const qHd = page.locator('.vt-pick[data-key="QQQ"] .vt-pick-hd');
+              if (await qHd.count()) {
+                await qHd.scrollIntoViewIfNeeded(); await pressQ(qHd); await settle();
+                const more = await page.evaluate(() => (document.querySelector('.vt-pick[data-key="QQQ"] .vt-pick-more')?.textContent || ""));
+                if (!/Passed over/.test(more) || !/IV rank 74: the calls price a bigger move/.test(more)) ovFail("the expanded QQQ card does not say what it passed over and why");
+                if (!/Market regime — NEUTRAL: VIX 17\.4/.test(more) || !/Tax — expected \+3\.1% over 20 days/.test(more)) ovFail("the expanded QQQ card does not walk the decision's stages");
+                if (!/61 at \$741\.32 = \$45,221 \(44\.9% of equity\) — the floor's target weight at a full risk budget/.test(more)) ovFail("the expanded QQQ card does not give its size in words");
+                if (!/Exit plan/.test(more) || !/stop \$719\.08 from entry/.test(more)) ovFail("the expanded QQQ card does not give the engine's exit plan");
+                if (!/decision journal · decided/.test(more)) ovFail("the expanded QQQ card does not say where its reason came from");
+              } else ovFail("no QQQ card header to expand");
+              const smh = page.locator('.vt-pick[data-key="SMH"] .vt-pick-hd');
+              if (await smh.count()) {
+                await pressQ(smh); await settle();
+                const more = await page.evaluate(() => (document.querySelector('.vt-pick[data-key="SMH"] .vt-pick-more')?.textContent || ""));
+                if (!/Since then/.test(more) || !/scale out .* — Sold the first third at \+1R/.test(more)) ovFail("the SMH card does not show its scale-out since the entry");
+              }
+              // why: the journal's attribution, worst first, four ways; the window control re-asks the route
+              if (ov.why.source !== "journal") ovFail(`the Why panel's source is "${ov.why.source}"`);
+              if (!/^The bot lost \$4,211 over the last 30 days\. Biggest drag: VRP \(sold premium\) \(signal\) −\$3,120 over 22 trades — sold puts into a falling market/.test(ov.why.say)) ovFail(`the Why panel's lead reads "${ov.why.say}"`);
+              if (ov.why.groups.join(",") !== "signal,sector,instrument,timing") ovFail(`the attribution groups are ${ov.why.groups.join(",")}`);
+              if (ov.why.firstRow !== "VRP (sold premium)") ovFail(`the worst signal row is "${ov.why.firstRow}"`);
+              if (JSON.stringify(ov.why.win) !== JSON.stringify([["7d", "false"], ["30d", "true"], ["90d", "false"]])) ovFail(`the window control reads ${JSON.stringify(ov.why.win)}`);
+              if (!/^Next 10 days: big funds are expected to be net sellers of stocks \(pressure −0\.42, confidence 60%\) — stocks ran ahead of bonds.* Flowing in: XLU, XLP; out: XLK\. The floor runs at ×0\.94 of its target because of it\.$/.test(ov.why.secs.flows || "")) ovFail(`the flows line reads "${ov.why.secs.flows}"`);
+              if (ov.why.secs.regime !== "Risk budget 0.56 (reduced): VIX term structure inverted (1.04) −0.21; breadth 38% −0.12. Applied to: the tier engine's exposure cap.") ovFail(`the regime line reads "${ov.why.secs.regime}"`);
+              if (Object.keys(ov.why.secs).join(",") !== "regime,flows,tax,signals") ovFail(`the context sections are ${Object.keys(ov.why.secs).join(",")} (expected the pipeline's order: regime, flows, tax, signals)`);
+              if (ov.why.secs.tax !== "Tax filter: 1 of 3 trades checked in the last 7 days was skipped — the edge did not survive short-term tax (24%) against holding SPY. 1 loss could be harvested.") ovFail(`the tax line reads "${ov.why.secs.tax}"`);
+              if (ov.why.secs.signals !== "Of 6 signals measured: 2 add return, 2 look like noise, 1 hurt, 1 unclear.") ovFail(`the signals line reads "${ov.why.secs.signals}"`);
+              const w7 = page.locator(".vt-why-win button", { hasText: /^7d$/ });
+              if (await w7.count()) {
+                await w7.scrollIntoViewIfNeeded(); await pressQ(w7);
+                let say = "";
+                for (let i = 0; i < 40; i++) { say = await page.evaluate(() => (document.querySelector(".vt-why-say")?.textContent || "").trim()); if (/last 7 days/.test(say)) break; await page.waitForTimeout(100); }
+                if (!/^The bot lost \$842 over the last 7 days\./.test(say)) ovFail(`after 7d the lead reads "${say}" (the 7-day fixture lost $842)`);
+                const w30 = page.locator(".vt-why-win button", { hasText: /^30d$/ });
+                if (await w30.count()) { await pressQ(w30); await settle(); }
+              }
+              // each section opens to its detail
+              const fl = page.locator('.vt-why-sec[data-sec="flows"] .vt-why-sh > button:not(.vt-help)');
+              if (await fl.count()) {
+                await fl.scrollIntoViewIfNeeded(); await pressQ(fl); await settle();
+                const det = await page.evaluate(() => (document.querySelector('.vt-why-sec[data-sec="flows"] .vt-why-sb')?.textContent || ""));
+                if (!/pension rebalancing/.test(det) || !/XLU in/.test(det) || !/an estimate, not a measured flow/.test(det)) ovFail(`the flows detail reads "${det.slice(0, 160)}"`);
+              }
+              const rg = page.locator('.vt-why-sec[data-sec="regime"] .vt-why-sh > button:not(.vt-help)');
+              if (await rg.count()) {
+                await rg.scrollIntoViewIfNeeded(); await pressQ(rg); await settle();
+                const det = await page.evaluate(() => { const b = document.querySelector('.vt-why-sec[data-sec="regime"] .vt-why-sb'); return { text: b?.textContent || "", bars: b ? b.querySelectorAll(".vt-why-bars i").length : 0 }; });
+                if (!/VIX term structure −0\.21 — VIX above VIX3M/.test(det.text) || !/reduced · 0\.56/.test(det.text) || det.bars !== 12) ovFail(`the regime detail reads "${det.text.slice(0, 160)}" with ${det.bars} budget bars`);
+              }
+              // the chart answers a pointer: the readout names the day and both lines
+              const svgLoc = page.locator(".vt-perf-plot svg").first();
+              const box = await svgLoc.boundingBox();
+              if (box) {
+                await svgLoc.scrollIntoViewIfNeeded();
+                const b2 = await svgLoc.boundingBox();
+                if (vp.touch) await page.touchscreen.tap(b2.x + b2.width * 0.55, b2.y + b2.height * 0.4);
+                else await page.mouse.move(b2.x + b2.width * 0.55, b2.y + b2.height * 0.4);
+                await page.waitForTimeout(150);
+                const rd = await page.evaluate(() => (document.querySelector(".vt-perf-read")?.textContent || ""));
+                if (!/^[A-Z][a-z]{2} \d{1,2}portfolio [−+]?\d+\.\d\d% · before tax/.test(rd) || !/SPY [−+]?\d+\.\d\d%/.test(rd) || !/gap [−+]?\d+\.\d\d pt/.test(rd)) ovFail(`the chart's readout reads "${rd.slice(0, 160)}"`);
+                if (!vp.touch) await page.mouse.move(2, 2);
+              }
+            } else {
+              // idle: no history yet, an empty journal, no attribution or tax route, the old signal list — each designed
+              if (ov.perf.state !== "empty" || !/not enough history yet/.test(ov.perf.empty)) ovFail(`the idle chart reads "${ov.perf.state}": "${ov.perf.empty.slice(0, 120)}"`);
+              if (ov.picks.cards.length !== 10 || ov.picks.cards.some((c) => c.src !== "none")) ovFail("with an empty journal every card must say no reason was recorded");
+              if (!/decision journal · 0 decisions/.test(ov.picks.hd)) ovFail(`the idle picks header reads "${ov.picks.hd}"`);
+              if (ov.why.source !== "none" || !/loss attribution \(the decision journal\) is not on this server yet · the fill ledger is still computing/.test(ov.why.text)) ovFail(`the idle Why panel reads "${ov.why.text.slice(0, 200)}"`);
+              if (ov.why.secs.tax !== "the tax filter is not on this server yet") ovFail(`the idle tax line reads "${ov.why.secs.tax}"`);
+              if (!/old per-ticker feed/.test(ov.why.secs.signals || "")) ovFail(`the idle signals line reads "${ov.why.secs.signals}"`);
+              if (ov.why.secs.flows !== "No flows estimate: the daily estimate has not been computed yet. Tier 3 computes it once per completed session.") ovFail(`the idle flows line (no estimate yet) reads "${ov.why.secs.flows}"`);
+              if (ov.why.secs.regime !== "the regime risk budget is not on this server yet") ovFail(`the idle regime line reads "${ov.why.secs.regime}"`);
+            }
+            await page.evaluate(() => document.querySelector(".vt-bot-stack")?.scrollTo(0, 0));
+          } catch (e) {
+            ovFail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 400)}`);
+            console.log(`  overview ${vp.w}px: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+          }
+          try {
+            // the switch opens the cockpit: every engine panel, as before; the checks below run there
+            const ck = page.locator('.vt-bot-modebar button[data-view="cockpit"]').first();
+            if (!(await ck.count())) ovFail("no Cockpit control");
+            else {
+              await pressQ(ck);
+              for (let i = 0; i < 40; i++) { if (await page.locator('.vt-bot-page[data-mode="cockpit"] section.vt-bot-panel[data-panel="watch"]').count()) break; await page.waitForTimeout(100); }
+              await page.waitForTimeout(500);
+              const ckIds = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => e.getAttribute("data-panel")));
+              for (const id of ["stages", "issues", "watch", "model", "chart", "book", "orders", "timeline"]) if (!ckIds.includes(id)) ovFail(`the cockpit lacks its ${id} panel`);
+              if (ckIds.some((id) => id === "perf" || id === "why" || id === "picks")) ovFail(`the cockpit shows an overview panel (${ckIds.join(",")})`);
+              const pressed = await page.evaluate(() => document.querySelector('.vt-bot-modebar button[data-view="cockpit"]')?.getAttribute("aria-pressed"));
+              if (pressed !== "true") ovFail("the Cockpit control does not read pressed in the cockpit");
+              const saved = await page.evaluate(() => { try { return localStorage.getItem("vt-bot-mode"); } catch { return "storage unavailable"; } });
+              if (saved !== "cockpit") ovFail(`the view is not remembered (localStorage vt-bot-mode = ${saved})`);
+              await page.screenshot({ path: path.join(OUT, `${name}-cockpit-${vp.w}.png`), animations: "disabled" });
+            }
+          } catch (e) {
+            ovFail(`cockpit switch: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 400)}`);
+          }
+        }
         const panels = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => [...new Set(els.map((e) => e.getAttribute("data-panel")))]);
         if (!panels.length) fail("no panels rendered");
         // POP-OUT (slice D, 2026-10-21): the chart's "own window" control
@@ -3637,8 +3949,8 @@ async function main() {
             if (name === "bot") {
               const spy = /SPY (\+0\.25%) · (\d\d:\d\d) ET/.exec(td.text);
               if (!spy) fail(`today: SPY's move (fixture +0.25 %) and its own as-of clock are missing — "${td.text}"`);
-              const pp = /^([−+]\d+\.\d\d) pp$/.exec(td.headline);
-              if (!pp) fail(`today: the headline "${td.headline}" is not a signed difference in pp`);
+              const pp = /^([−+]\d+\.\d\d|0\.00) pp$/.exec(td.headline);
+              if (!pp) fail(`today: the headline "${td.headline}" is not a signed difference in pp (or exactly 0.00 pp, unsigned)`);
               if (chg && spy && pp && Math.abs(num(chg[2]) - 0.25 - num(pp[1])) > 0.011) fail(`today: ${chg[2]} − SPY +0.25% is not the headline ${td.headline}`);
             } else {
               if (td.headline !== "—") fail(`today: the idle page (no SPY series) shows "${td.headline}" as the headline, not a dash`);
@@ -4198,6 +4510,42 @@ async function main() {
           if (!seen.ev) fail("live: the fresh trade never reached the Now tile's latest-decision line");
           if (!seen.pulse) fail("live: the Book panel never pulsed for the fresh trade");
           if (!seen.flash) fail("live: no KPI value flashed while the equity moved");
+        }
+        // ── OVERVIEW review shots (2026-11-06): back to the overview, the first card and the regime / flows sections
+        // open, then each overview panel on its own (.visual/<page>-<panel>-<w>.png). LAST on purpose: a panel taller
+        // than the viewport makes Playwright resize the viewport for the shot, after which Chromium reports
+        // (pointer: coarse) false — every touch-sized control a later check measured would shrink.
+        try {
+          const back = page.locator('.vt-bot-modebar button[data-view="overview"]').first();
+          if (!(await back.count())) fail("overview shots: no Overview control in the cockpit");
+          else {
+            if (vp.touch) await back.tap({ timeout: 5000 }); else await back.click({ timeout: 5000 });
+            for (let i = 0; i < 40; i++) { if (await page.locator('.vt-bot-page[data-mode="overview"] section.vt-bot-panel[data-panel="picks"]').count()) break; await page.waitForTimeout(100); }
+            await page.waitForTimeout(400);
+            for (const sel of ['.vt-pick[data-source="journal"] .vt-pick-hd', '.vt-why-sec[data-sec="regime"] .vt-why-sh > button:not(.vt-help)', '.vt-why-sec[data-sec="flows"] .vt-why-sh > button:not(.vt-help)']) {
+              const b = page.locator(sel).first();
+              if ((await b.count()) && (await b.isEnabled())) { await b.scrollIntoViewIfNeeded(); if (vp.touch) await b.tap({ timeout: 5000 }); else await b.click({ timeout: 5000 }); await page.waitForTimeout(150); }
+            }
+            // viewport-only shots (a clip inside the viewport, or the viewport itself): the page is a fixed layer with its
+            // own scroller, so an element shot taller than the viewport would resize the viewport and draw the shell over it
+            for (const id of ["perf", "why", "picks"]) {
+              const el = page.locator(`section.vt-bot-panel[data-panel="${id}"]`).first();
+              if (!(await el.count())) continue;
+              await el.evaluate((e) => e.scrollIntoView({ block: "start" }));
+              await page.waitForTimeout(150);
+              const bb = await el.boundingBox();
+              if (bb && bb.y >= 0 && bb.y + bb.height <= vp.h) {
+                await page.screenshot({ path: path.join(OUT, `${name}-${id}-${vp.w}.png`), clip: { x: bb.x, y: bb.y, width: bb.width, height: bb.height }, animations: "disabled" });
+              } else {
+                await page.screenshot({ path: path.join(OUT, `${name}-${id}-${vp.w}.png`), animations: "disabled" });
+                await page.evaluate((dy) => { const sc = document.querySelector(".vt-bot-stack") || document.querySelector('.vt-bot-grid[data-mode="overview"]'); if (sc) sc.scrollBy(0, dy); }, vp.h - 160);
+                await page.waitForTimeout(150);
+                await page.screenshot({ path: path.join(OUT, `${name}-${id}-${vp.w}-2.png`), animations: "disabled" });
+              }
+            }
+          }
+        } catch (e) {
+          fail(`overview shots: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
         }
       }
 
