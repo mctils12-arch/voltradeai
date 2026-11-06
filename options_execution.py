@@ -35,6 +35,9 @@ import alpaca_feed
 # BROKER CLOCK ORDER GATE 2026-11-05 (human-approved frozen-path touch, the gate only):
 # no order while Alpaca's clock says closed
 import broker_clock
+# 2026-11-05 (daily line, measurement only): the chain quote each order was
+# priced from and the order id Alpaca returned — see option_fill_ledger.py.
+import option_fill_ledger as _fill_ledger
 # Alpaca rate limiter (OPT 2026-04-20): prevents silent 429s during busy scans
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -715,7 +718,9 @@ def _fetch_option_chain(ticker: str, current_price: float, min_dte: int = 7,
                     bid = float(quote.get("bp", 0) or 0)
                     ask = float(quote.get("ap", 0) or 0)
                     mid = (bid + ask) / 2 if (bid + ask) > 0 else float(trade.get("p", 0) or 0)
-                    
+                    # 2026-11-05 (daily line): the quote an entry is priced from
+                    _fill_ledger.note_quote(occ_symbol, bid, ask)
+
                     # v1.0.33: Fix data extraction from Alpaca OPRA snapshot.
                     # Volume lives in dailyBar.v, NOT trade.s (that's last trade size).
                     # OI is not returned by the snapshot endpoint at all — use
@@ -2408,6 +2413,10 @@ def submit_options_order(contract: dict) -> dict:
         
         if resp.status_code in (200, 201):
             order = resp.json()
+            # 2026-11-05 (daily line): ledger row AFTER the POST returned (the
+            # POST above is unchanged; measurement only, never raises).
+            _fill_ledger.record_order(order.get("id", ""), occ_symbol, side, qty,
+                                      "options_execution.submit_options_order", limit=limit_price)
             return {
                 "status": "submitted",
                 "order_id": order.get("id", ""),
@@ -2487,6 +2496,9 @@ def _submit_mleg_order(legs: list, qty: int, limit_price: float, label: str) -> 
 
         if resp.status_code in (200, 201):
             order = resp.json()
+            # 2026-11-05 (daily line): one ledger row per leg AFTER the POST
+            # returned (the POST above is unchanged; measurement only).
+            _fill_ledger.record_mleg_order(order.get("id", ""), legs, qty, "options_execution._submit_mleg_order")
             leg_syms = ", ".join(l["symbol"] for l in legs)
             return {
                 "status": order.get("status", "submitted"),

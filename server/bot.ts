@@ -19,7 +19,13 @@ import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_I
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
-import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS } from "./dailyMaintenance";
+import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS, latestEtDate } from "./dailyMaintenance";
+import {
+  DAILY_LINE_CHECK_MS, DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS, FLOOR_VM_STATE_FILENAME, OPENING_DEFERRALS_FILENAME,
+  appendOptionFillLedger, buildDailyLine, dailyLineDir, dailyLineDue, dailyLinePrecheck, lastLineDay, loadDailyLines,
+  optionLedgerRow, optionWindowStart, parseCalendarSession, parseFloorConfig, parsePositionsLite, readJsonFile,
+  readOptionFillLedger, saveDailyLine, type DailyLineGate, type DailyLineSession,
+} from "./dailyLine";
 import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonExec";
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
@@ -686,6 +692,26 @@ const LEGACY_DEFENSIVE_CANDIDATE_TICKERS = new Set(["VTI", "IWM", "TLT", "IEF", 
 function isOptionSymbol(ticker: string): boolean {
   const t = String(ticker).toUpperCase();
   return t.length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/.test(t);
+}
+
+// DAILY LINE 2026-11-05 (human-directed; measurement only — server/
+// dailyLine.ts): one OPTION FILL LEDGER row per option order this file sends,
+// written AFTER the order POST returned, keyed by the id the broker answered
+// with (option_fill_ledger.py writes the same row shape from the Python order
+// paths). These paths hold no quote (market closes, the POS-KILL backstop,
+// covered-call buy-backs), so bid/ask/mid are null and the daily line counts
+// their fills as unattributed — the row still names the path. A stock symbol
+// or an answer without an id writes nothing. Never throws, so it cannot turn
+// a sent order into an error branch.
+function ledgerOptionOrder(order: unknown, symbol: string, side: string, qty: number, source: string): void {
+  try {
+    if (!isOptionSymbol(symbol)) return;
+    const id = order && typeof order === "object" ? (order as { id?: unknown }).id : undefined;
+    if (typeof id !== "string" || !id) return;
+    appendOptionFillLedger(dailyLineDir(process.env), optionLedgerRow(id, symbol, side, qty, source));
+  } catch (e: unknown) {
+    console.error("[option-fill-ledger]", source, e instanceof Error ? e.message : e);
+  }
 }
 
 // POS-KILL SCOPE FIX 2026-10-13: the ITEM 13 per-position kill
@@ -2552,8 +2578,9 @@ print(json.dumps({
   let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
   // the SPY series every benchmark reader shares (one fetch, one cache): the
   // benchmark + its after-tax leg, the daily scoreboard, the TODAY tile
-  async function spyBenchBars(oldest: string): Promise<NonNullable<typeof spyBenchCache>> {
-    if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
+  // maxAgeMs: the daily line asks for a cache young enough that the day's bar is its final close.
+  async function spyBenchBars(oldest: string, maxAgeMs: number = SPY_BENCH_CACHE_MS): Promise<NonNullable<typeof spyBenchCache>> {
+    if (!spyBenchCache || Date.now() - spyBenchCache.at > maxAgeMs || spyBenchCache.from > oldest) {
       const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
       spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), SPY_BENCH_ADJUSTMENT) };
     }
@@ -3646,6 +3673,21 @@ print(json.dumps(s))
           // yardstick itself. Carries no symbol but SPY.
           return res.json(sanitizeDiag({ probe: "benchmark", ...(await benchmarkBody()) }));
         }
+        case "daily_line": {
+          // ADDED 2026-11-05 (human-directed daily line — server/dailyLine.ts):
+          // the stored lines, newest first (?days=1..60, default 10), and the
+          // job's last attempt. Read-only: one JSON file on the volume, no
+          // broker call. Account values and option symbols (the 2026-07-07
+          // widening authorizes symbols); no keys.
+          const days = Math.min(Math.max(parseInt(String(req.query.days || "10"), 10) || 10, 1), 60);
+          const lines = loadDailyLines(dailyLineDir(process.env));
+          return res.json(sanitizeDiag({
+            probe: "daily_line", count: lines.length,
+            latest: lines.length ? lines[lines.length - 1] : null,
+            recent: lines.slice(-days).reverse(),
+            lastAttempt: dailyLineLastAttempt,
+          }));
+        }
         case "regime": {
           // ADDED 2026-10-28 (regime engine program, step 3): the regime
           // engine's daily report — the SAME body as the owner's
@@ -4506,6 +4548,8 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           time_in_force: "day",
         }),
       });
+      // DAILY LINE 2026-11-05: fill-ledger row after the POST (options only; never throws)
+      ledgerOptionOrder(order, ticker.toUpperCase(), orderSide, Number(qty) || 0, "bot.ts:/api/bot/trade");
       audit("TRADE", `${side.toUpperCase()} ${qty} ${ticker} @ ${type}`);
       notify("trade", `${side.toUpperCase()} ${qty} ${ticker} @ ${type}`);
       // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, manual API
@@ -8252,6 +8296,184 @@ print(json.dumps({'files': count}))
     }
   }
 
+  // ── DAILY LINE (2026-11-05, human-directed; measurement only) ─────────────
+  // "Add a daily line to the logs/report: account vs SPY (same-basis), floor
+  // exposure (x SPY), option P&L split into fills/slippage vs direction, and
+  // number of option exits blocked by the 9:30–9:45 window." The numbers are
+  // server/dailyLine.ts's; this is the I/O. Once per trading day: the first
+  // DAILY_LINE_CHECK_MS tick at/after the broker calendar's close + 20 min,
+  // until ET midnight. The line is SAVED (DATA_DIR/voltrade_daily_line.json,
+  // newest 60) BEFORE its one "DAILY-LINE" audit row, and the newest saved
+  // day is the claim, so a restart neither writes a day twice nor skips it.
+  // Until the close + 90 min a line waits for every input (the cheap reads
+  // first, so a missing one never costs the full fill walk); after that it is
+  // written partial, its missing inputs named. Every input is a READ.
+  let dailyLineRunning = false;
+  let dailyLineWrittenMem: string | null = null;
+  let dailyLineSessionCache: { day: string; session: DailyLineSession | null } | null = null;
+  let dailyLineLastAttempt: { at: string; day: string; status: "written" | "waiting" | "error"; detail: string | null } | null = null;
+  let dailyLineNotedDay: string | null = null; // one DAILY-LINE-WAIT / -ERROR audit row per day
+
+  async function dailyLineSessionFor(day: string): Promise<DailyLineSession | null | undefined> {
+    if (dailyLineSessionCache?.day === day) return dailyLineSessionCache.session;
+    try {
+      const session = parseCalendarSession(await alpaca(`/v2/calendar?start=${day}&end=${day}`), day);
+      dailyLineSessionCache = { day, session };
+      return session;
+    } catch (e: unknown) {
+      console.warn("[daily-line] broker calendar unreadable — retrying next tick:", e instanceof Error ? e.message : e);
+      return undefined;
+    }
+  }
+
+  // FLOOR_MODE and the floor's tickers come from Python's system_config — the
+  // one source — through bot_engine's own _floor_owned_tickers /
+  // _floor_vm_legacy_tickers, so a mode switch (the rollback is one setting)
+  // or a ticker change needs no edit here (FLOOR_AND_LEG_TICKERS is a mirror
+  // of the union, not of the active mode). The LAST stdout line is the JSON.
+  const DAILY_LINE_FLOOR_CFG_CMD = `python3 -c "
+import json
+try:
+    from system_config import BASE_CONFIG as c
+    import bot_engine as be
+    out = {'mode': c.get('FLOOR_MODE', 'basket'), 'base': c.get('FLOOR_VM_TICKER', 'SPY'), 'levered': c.get('FLOOR_VM_LEVERED_TICKER', 'SSO'), 'owned': sorted(be._floor_owned_tickers(c)), 'legacy': sorted(be._floor_vm_legacy_tickers(c))}
+except Exception as e:
+    out = {'error': str(e)[:200]}
+print(json.dumps(out))
+"`;
+
+  async function dailyLineFloorConfig(): Promise<{ cfg: ReturnType<typeof parseFloorConfig>; error: string | null }> {
+    try {
+      const { stdout } = await execPythonSerialized(DAILY_LINE_FLOOR_CFG_CMD, { timeout: 30000 });
+      const raw: unknown = JSON.parse(String(stdout).trim().split("\n").pop() || "{}");
+      const cfg = parseFloorConfig(raw);
+      const err = raw && typeof raw === "object" ? (raw as { error?: unknown }).error : undefined;
+      return { cfg, error: cfg ? null : String(err ?? "no FLOOR_MODE in the answer") };
+    } catch (e: unknown) {
+      return { cfg: null, error: String(e instanceof Error ? e.message : e).slice(0, 160) };
+    }
+  }
+
+  // Every order submitted after `afterIso`, oldest first, nested (an mleg
+  // parent carries its legs); pages of 500, at most 10.
+  async function dailyLineOrders(afterIso: string): Promise<unknown[]> {
+    const out: unknown[] = [];
+    let after = afterIso;
+    for (let page = 0; page < 10; page++) {
+      const batch: unknown = await alpaca(`/v2/orders?status=all&after=${encodeURIComponent(after)}&limit=500&direction=asc&nested=true`);
+      if (!Array.isArray(batch)) throw new Error("an orders page was not a list");
+      out.push(...batch);
+      if (batch.length < 500) return out;
+      const tail: unknown = batch[batch.length - 1];
+      const next = tail && typeof tail === "object" ? String((tail as { submitted_at?: unknown }).submitted_at ?? "") : "";
+      if (!next || next === after) throw new Error("orders paging stalled");
+      after = next;
+    }
+    throw new Error("more than 5000 orders in the window");
+  }
+
+  async function computeDailyLine(gate: DailyLineGate, session: DailyLineSession, dir: string, stored: ReturnType<typeof loadDailyLines>): Promise<{ line: ReturnType<typeof buildDailyLine> | null; missing: string[] }> {
+    const missing: string[] = [];
+    const why = (e: unknown) => String(e instanceof Error ? e.message : e).slice(0, 160);
+    const startMs = Date.now();
+    // phase 1 — the cheap reads
+    let account: { equity: unknown; lastEquity: unknown } | null = null;
+    try {
+      const raw: unknown = await alpaca("/v2/account");
+      const a = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+      account = { equity: a.equity, lastEquity: a.last_equity };
+    } catch (e: unknown) { missing.push(`account: ${why(e)}`); }
+    let positions: ReturnType<typeof parsePositionsLite> = null;
+    try {
+      positions = parsePositionsLite(await alpaca("/v2/positions"));
+      if (!positions) missing.push("positions: the answer was not a list");
+    } catch (e: unknown) { missing.push(`positions: ${why(e)}`); }
+    let spyBars: DailyClose[] | null = null;
+    try {
+      // the benchmark's own SPY series (one fetch, one cache: spyBenchmark.test.ts's ratchet), price
+      // only like the account; no older than DAILY_LINE_SPY_MAX_AGE_MS, so with the line due from the
+      // close + 20 min the day's bar is its final close, never an intraday one cached before the bell
+      spyBars = (await spyBenchBars(DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS)).bars;
+      const lastBar = spyBars.length ? spyBars[spyBars.length - 1].date : null;
+      if (lastBar !== gate.day) missing.push(`spy bars: no ${gate.day} bar yet (last ${lastBar ?? "none"})`);
+    } catch (e: unknown) { missing.push(`spy bars: ${why(e)}`); }
+    const floor = await dailyLineFloorConfig();
+    if (!floor.cfg) missing.push(`floor mode: ${floor.error}`);
+    if (missing.length && !gate.partialOk) return { line: null, missing };
+    // phase 2 — the option window: it opens at the previous line (whose
+    // unrealized P&L is its start); a FRESH closed-lot walk (the cached one
+    // can predate the last fills); the window's orders from a day earlier (an
+    // order queued the evening before fills at the open)
+    const win = optionWindowStart(stored.filter((l) => l.day < gate.day).pop() ?? null, gate.day, startMs);
+    const walkFrom = Date.now();
+    if (sleeveInflight) await sleeveInflight;
+    sleeveInflight = refreshSleeves().finally(() => { sleeveInflight = null; });
+    await sleeveInflight;
+    const events = sleeveCache && sleeveCache.at >= walkFrom ? sleeveCache.taxInputs.events : null;
+    if (!events) missing.push(`sleeve walk: ${sleeveError ?? "not refreshed"}`);
+    let orders: unknown[] | null = null;
+    try {
+      orders = await dailyLineOrders(new Date(win.fromMs - 86_400_000).toISOString());
+    } catch (e: unknown) { missing.push(`orders: ${why(e)}`); }
+    let posKillRows: Array<{ time: string; message: string }> | null = null;
+    try {
+      posKillRows = queryAuditLog(db, { limit: 500, type: "POS-KILL-OPTION-OPENING", since: new Date(startMs - 2 * 86_400_000).toISOString() })
+        .map((r) => ({ time: String(r.time), message: String(r.message) }));
+    } catch (e: unknown) { missing.push(`audit log: ${why(e)}`); }
+    if (missing.length && !gate.partialOk) return { line: null, missing };
+    const line = buildDailyLine({
+      day: gate.day, nowMs: Date.now(), session, account, positions, spyBars, curve: equityCurve,
+      floorCfg: floor.cfg, vmState: readJsonFile(path.join(dir, FLOOR_VM_STATE_FILENAME)),
+      prev: win.prev, windowFromMs: win.fromMs, events, orders,
+      ledger: readOptionFillLedger(dir), deferrals: readJsonFile(path.join(dir, OPENING_DEFERRALS_FILENAME)),
+      posKillRows, missing,
+    });
+    return { line, missing };
+  }
+
+  async function checkDailyLine(): Promise<void> {
+    if (dailyLineRunning) return;
+    const pre = dailyLinePrecheck(Date.now(), dailyLineWrittenMem);
+    if (!pre.due) return;
+    const dir = dailyLineDir(process.env);
+    const stored = loadDailyLines(dir);
+    const written = latestEtDate(dailyLineWrittenMem, lastLineDay(stored));
+    if (written === pre.day) { dailyLineWrittenMem = written; return; }
+    dailyLineRunning = true;
+    const note = (status: "written" | "waiting" | "error", detail: string | null) => {
+      dailyLineLastAttempt = { at: new Date().toISOString(), day: pre.day, status, detail };
+    };
+    try {
+      const session = await dailyLineSessionFor(pre.day);
+      if (session === undefined) return;
+      const gate = dailyLineDue(Date.now(), session, written);
+      if (!gate.due || !session) return;
+      const { line, missing } = await computeDailyLine(gate, session, dir, stored);
+      if (!line) {
+        note("waiting", missing.join("; "));
+        if (dailyLineNotedDay !== gate.day) {
+          dailyLineNotedDay = gate.day;
+          audit("DAILY-LINE-WAIT", `${gate.day}: inputs unreadable (${missing.join("; ").slice(0, 300)}) — retrying every ${DAILY_LINE_CHECK_MS / 60_000} min; a partial line is written from the close + 90 min`);
+        }
+        return;
+      }
+      const savedTo = saveDailyLine(dir, line);
+      dailyLineWrittenMem = line.day;
+      audit("DAILY-LINE", line.message);
+      if (!savedTo) audit("DAILY-LINE-WARN", `${line.day}: the line could not be saved to ${dir} — a restart today would write it again`);
+      note("written", savedTo ? null : "not persisted");
+    } catch (e: unknown) {
+      const msg = String(e instanceof Error ? e.message : e).slice(0, 300);
+      note("error", msg);
+      if (dailyLineNotedDay !== pre.day) {
+        dailyLineNotedDay = pre.day;
+        audit("DAILY-LINE-ERROR", `${pre.day}: ${msg} — retrying every ${DAILY_LINE_CHECK_MS / 60_000} min`);
+      }
+    } finally {
+      dailyLineRunning = false;
+    }
+  }
+
   // ── TIER 0: Real-Time Streaming ──────────────────────────────────────────────
   // WebSocket connection to Alpaca SIP feed — receives 1-minute bar updates the
   // instant each bar closes. Detects volume spikes and breakouts in real-time,
@@ -8364,6 +8586,13 @@ print(json.dumps({'files': count}))
           method: "POST",
           body: JSON.stringify({ symbol: ticker, side: closeSide, time_in_force: "day", ...order }),
         });
+        // DAILY LINE 2026-11-06: every ladder order (each limit step and the
+        // final market order) is one fill-ledger row after its POST returned,
+        // keyed by the id the broker answered with. No quote is held here, so
+        // the row names the path and the daily line counts the fill as
+        // unattributed rather than guessing a mid. Never throws (typeof guard:
+        // this function also runs standalone in the test harnesses).
+        if (typeof ledgerOptionOrder === "function") ledgerOptionOrder(placed, ticker, closeSide, Number(order.qty) || 0, "bot.ts:POS-KILL ladder");
         return { ok: true, order: placed };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
@@ -9098,7 +9327,7 @@ except: print('{}')
             const buyBackQty = Math.abs(parseInt(sc.qty));
             audit("CC-UNWIND", `${ticker}: Scale-out would leave ${sharesAfterScale} shares — buying back ${buyBackQty}x ${sc.symbol}`);
             try {
-              await alpaca("/v2/orders", {
+              const ccScaleOrder = await alpaca("/v2/orders", {
                 method: "POST",
                 body: JSON.stringify({
                   symbol: sc.symbol,
@@ -9108,6 +9337,8 @@ except: print('{}')
                   time_in_force: "day",
                 }),
               });
+              // DAILY LINE 2026-11-05: fill-ledger row after the POST (never throws)
+              ledgerOptionOrder(ccScaleOrder, sc.symbol, "buy", buyBackQty, "bot.ts:CC-UNWIND scale-out");
               audit("CC-UNWIND", `${ticker}: Buy-back order placed for ${sc.symbol}`);
             } catch (unwindErr: any) {
               audit("CC-UNWIND-ERROR", `${ticker}: Failed to buy back ${sc.symbol} on scale-out: ${unwindErr?.message}`);
@@ -9322,7 +9553,7 @@ if '${ticker}' in ss:
         const buyBackQty = Math.abs(parseInt(sc.qty));
         audit("CC-UNWIND", `${ticker}: Buying back ${buyBackQty}x ${sc.symbol} before stock exit`);
         try {
-          await alpaca("/v2/orders", {
+          const ccExitOrder = await alpaca("/v2/orders", {
             method: "POST",
             body: JSON.stringify({
               symbol: sc.symbol,
@@ -9332,6 +9563,8 @@ if '${ticker}' in ss:
               time_in_force: "day",
             }),
           });
+          // DAILY LINE 2026-11-05: fill-ledger row after the POST (never throws)
+          ledgerOptionOrder(ccExitOrder, sc.symbol, "buy", buyBackQty, "bot.ts:CC-UNWIND stock exit");
           audit("CC-UNWIND", `${ticker}: Buy-back order placed for ${sc.symbol}`);
         } catch (unwindErr: any) {
           audit("CC-UNWIND-ERROR", `${ticker}: Failed to buy back ${sc.symbol}: ${unwindErr?.message}`);
@@ -9713,6 +9946,11 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // check catches a process that starts inside the window.
   setInterval(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, DAILY_MAINTENANCE_CHECK_MS);
   setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
+  // Daily line (2026-11-05, measurement only): same unconditional poll;
+  // dailyLineDue() decides and the saved line makes it once per ET day across
+  // restarts. The boot check catches a process that starts after the close.
+  setInterval(() => { checkDailyLine().catch((e: unknown) => console.error("[DAILY-LINE]", e instanceof Error ? e.message : e)); }, DAILY_LINE_CHECK_MS);
+  setTimeout(() => { checkDailyLine().catch((e: unknown) => console.error("[DAILY-LINE]", e instanceof Error ? e.message : e)); }, 90_000);
   // v3 candidate model job (shadow only): same unconditional 5-minute poll.
   setInterval(() => { checkMlV3CandidateJob().catch((e) => console.error("[ML-V3]", e?.message || e)); }, 5 * 60 * 1000);
   // Forecast screen (weekly + daily, SHADOW): same unconditional poll

@@ -114526,3 +114526,36 @@ DOWNSTREAM: (1) an aged, flat option is now held until options_manager's own rul
 ROLLBACK TRIGGER: an option held past options_manager's 21-DTE exit (it would mean the manager is not running its exits) -> revert and fix the manager first.
 TESTS: server/posKillMarkGuard.test.ts +2 (a long call, a sold put and an option with no asset_class, all >14 days and in band: no order, no TIME-EXIT line; the same age/band on a stock still closes; wiring pin). Both fail on main's code. 89 related server tests pass; tsc 6; counter ratchet OK.
 STARVED: no.
+
+## 2026-11-05 [PIPELINE] — T-BOT (new server/dailyLine.ts + option_fill_ledger.py; server/bot.ts daily-line job, `daily_line` diag probe, ledger rows after its option order POSTs; options_manager.py + options_execution.py ledger rows after their order POSTs and the opening-window block count; server/diag.ts) — a DAILY LINE in the audit log: account vs SPY on one basis, floor exposure in SPY terms, option P&L as fills vs direction, exits held by the opening window (measurement only)
+VERSION: v1.0.1305 (shipped 2026-11-06 by the parent session; main was v1.0.1304)
+
+Human 2026-11-05: "Add a daily line to the logs/report: account vs SPY (same-basis), floor exposure (x SPY), option P&L split into fills/slippage vs direction, and number of option exits blocked by the 9:30–9:45 window."
+
+What ships (no order, price, size or decision changes):
+- Once per trading day, on the first 5-minute tick at or after the broker calendar's close + 20 min, bot.ts writes ONE `DAILY-LINE` audit row. The structured line goes to DATA_DIR/voltrade_daily_line.json (newest 60), served by the new `daily_line` diag probe.
+- The line is saved before its audit row, and the newest saved day is the once-a-day claim. A restart neither writes a day twice nor skips it. A process that is down from the close to ET midnight skips that day.
+- Until the close + 90 min the job waits for every input, and the cheap reads come first. After that it writes a partial line that names what was missing.
+
+The four answers:
+- Account vs SPY on the same basis. The paper account gets no dividends, so SPY is price-only here (adjustment=split). Day: equity vs last_equity (evaluateDailyPnl) against today's SPY bar vs the prior close. Since 05-06 and 30 days: benchmarkVsSpy over the equity curve, ending at the same account read. With no SPY bar for today there are no windows, so yesterday's close is never compared with today's equity.
+- Floor exposure: (SPY + 2 x SSO) / equity under FLOOR_MODE "vol_managed_spy", next to the floor's own target when its state file is fresh. Under "basket" it is floor market value / equity, labelled not SPY-equivalent. bot.ts learns FLOOR_MODE by asking Python once per line, through system_config and bot_engine's own floor-ticker functions. A mirror in bot.ts could drift. The vm state file alone is not written in basket mode and goes stale when scans stop.
+- Option P&L. TOTAL = realized option P&L of the window (the sleeve ledger's fresh closed-lot walk) + unrealized now − unrealized at the previous line. A contract that left the book with no fill (expiry, assignment) adds its value going to zero. FILLS = −Σ (fill − mid at submission) x qty x 100. DIRECTION = TOTAL − FILLS.
+- Mid at submission is new: option_fill_ledger.py appends a row after every accepted option order POST. The paths covered are _submit_close_order, the mleg close, submit_options_order and its mleg orders, plus bot.ts's option POSTs (POS-KILL, TIME-EXIT, both covered-call buy-backs, the manual trade route). The quote is the one that path read to price the order (snapshot or chain, at most 120 s old). Paths with no quote write null.
+- The join is by order id (and leg symbol for mleg) against the window's filled orders. A fill with no row, a null mid, or an mleg without per-leg fills is counted unattributed and never guessed. Its slippage then sits inside direction.
+- Exits held by the opening window: options_manager now keeps a per-ET-day set of (contract, rule) deferrals (voltrade_option_opening_deferrals.json, broker-clock date, 14 days), plus the day's POS-KILL-OPTION-OPENING tickers from the audit log.
+
+Judgment calls:
+- Due at close + 20 min, not 16:10: SPY/QQQ/IWM options print until 16:15.
+- The option window runs from the previous line, not from midnight, because that is where the unrealized start was measured. The first line has no total.
+- Not added to the job-heartbeat registry: a fixed 16:20 due time would flag every 13:00 half day as late.
+- LIQUIDATE-ALL (env-gated drawdown liquidation) and bot_engine's convexity/covered-call paths write no rows. Their fills count as unattributed (no row).
+
+Measurement integrity: a new ruler. No existing metric changes. /api/bot/benchmark still uses total-return SPY, so until the separate price-only change lands the line's since-05-06 SPY reads lower by SPY's dividends (~1.2%/yr, about 0.6 pp since 05-06).
+
+Example: `2026-11-05 acct -0.99% vs SPY +0.40% (-1.39pp) | since 05-06 +0.00% vs +6.06% (-6.06pp); 30d +2.04% vs +1.76% (+0.28pp) | floor 1.00x SPY (target 0.94x) | options -$105 = fills -$38 + direction -$67 (5/8 fills priced) | opening-window blocks 5 (manager 3, POS-KILL 2)` (test fixture).
+
+REBASED 2026-11-06 onto the night's exit-path changes: #1644 (POS-KILL backstop ladder: an option kill never reaches the stock POST), #1645 (mid-first exit ladder: a close's later steps are PATCH replacements with new order ids) and #1647 (TIME-EXIT never closes an option). Without a fix, every laddered exit's fill would have counted as unattributed. Now: each backstop-ladder order (every limit step and the final market order) writes one row from the ladder's send (source "bot.ts:POS-KILL ladder"; no quote held there, so its mid is null = unattributed, honestly); each accepted mid-first replace writes one row under its NEW id with the quote that step was priced from (source "options_manager:exit ladder replace"); the POS-KILL stock-path and TIME-EXIT hooks are removed (both paths only ever see stocks now, so the hooks were dead).
+Tests: server/dailyLine.test.ts (20): the gate (DST, half day, holiday, restart claim), same-basis math, exposure, the slippage join incl. unattributed, the option total with an expiry, the store, wiring pins, and the real position-sync loop + the REAL backstop-ladder starter (limitLadder.runLadder) writing the ladder order's ledger row; an aged flat option is not time-exited. test_option_fill_ledger.py (24, +3 at the rebase: the first mid-first ladder order at the mid with its quote; a replace under its new id; a refused replace writes nothing): ledger rows from the real order functions with their POST bodies pinned, rotation, never-raises (an accepted mleg close never falls back), and the deferral count through manage_options_positions on a broker clock in the window.
+
+STARVED: no.

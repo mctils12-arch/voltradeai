@@ -36,6 +36,9 @@ import alpaca_feed
 # BROKER CLOCK ORDER GATE 2026-11-05: no order while Alpaca's clock says closed
 import broker_clock
 import order_ladder
+# 2026-11-05 (daily line, measurement only): the quote each close was priced
+# from and the order id Alpaca returned — see option_fill_ledger.py.
+import option_fill_ledger as _fill_ledger
 from datetime import datetime, timedelta
 
 try:
@@ -197,7 +200,12 @@ def _save_options_state(state: dict):
 
 
 def _get_option_snapshot(occ_symbol: str) -> dict:
-    """Fetch current snapshot for an options contract from Alpaca."""
+    """Fetch current snapshot for an options contract from Alpaca.
+
+    2026-11-05 (daily line): the quote read here is noted in the option fill
+    ledger's memo, so a close priced from it records its mid at submission;
+    a failed read leaves no quote (option_fill_ledger.forget_quote)."""
+    _fill_ledger.forget_quote(occ_symbol)
     try:
         # Extract ticker from OCC symbol (everything before the date portion)
         # OCC format: AAPL260418C00250000
@@ -222,6 +230,7 @@ def _get_option_snapshot(occ_symbol: str) -> dict:
             if snap:
                 quote = snap.get("latestQuote", {})
                 greeks = snap.get("greeks", {})
+                _fill_ledger.note_quote(occ_symbol, quote.get("bp"), quote.get("ap"))
                 return {
                     "bid": float(quote.get("bp", 0) or 0),
                     "ask": float(quote.get("ap", 0) or 0),
@@ -353,6 +362,11 @@ def _submit_close_order(occ_symbol: str, qty: int, side: str, limit_price: float
         )
         if resp.status_code in (200, 201):
             order = resp.json()
+            # 2026-11-05 (daily line): ledger row AFTER the POST returned —
+            # order id, contract, side, qty and the quote this close was
+            # priced from (measurement only; never raises).
+            _fill_ledger.record_order(order.get("id", ""), occ_symbol, side, qty,
+                                      "options_manager._submit_close_order", limit=limit_price)
             return {
                 "status": "submitted",
                 "order_id": order.get("id", ""),
@@ -419,6 +433,14 @@ def _replace_order_price(order_id: str, limit_price: float):
         )
         if resp.status_code == 200:
             body = resp.json()
+            if isinstance(body, dict):
+                # 2026-11-06 (daily line): a replace is a NEW order id at a new
+                # limit — one ledger row for it, with the quote this ladder step
+                # was priced from (the step's _get_option_snapshot noted it), so
+                # its fill is attributed instead of counted as unexplained.
+                _fill_ledger.record_order(body.get("id", ""), body.get("symbol", ""), body.get("side", ""),
+                                          body.get("qty"), "options_manager:exit ladder replace",
+                                          limit=limit_price)
             return (body if isinstance(body, dict) else None), "replaced"
         return None, f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
     except Exception as e:
@@ -571,6 +593,9 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
             new_limit = best_new["ask"]
             new_side = "buy"
 
+        # 2026-11-05 (daily line): the new leg is priced from the chain quote
+        # above, not a snapshot — note it for the fill ledger row.
+        _fill_ledger.note_quote(best_new["occ_symbol"], best_new["bid"], best_new["ask"])
         with order_ladder.paused():   # an opening order: never laddered
             open_result = _submit_close_order(best_new["occ_symbol"], qty, new_side, new_limit)
 
@@ -659,6 +684,11 @@ def _close_strategy_mleg(legs: list, ticker: str) -> dict:
         )
         if resp.status_code in (200, 201):
             order = resp.json()
+            # 2026-11-05 (daily line): one ledger row per leg AFTER the POST
+            # returned (a market close: no quote is read here, so the legs'
+            # mids are null unless a fresh one was noted; measurement only).
+            _fill_ledger.record_mleg_order(order.get("id", ""), mleg_legs, max(qty, 1),
+                                           "options_manager._close_strategy_mleg")
             return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg", "detail": f"mleg close: {len(mleg_legs)} legs"}
         mleg_error = f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
     except broker_clock.OrderBlocked as blocked:
@@ -1315,6 +1345,101 @@ def _parse_clock_timestamp(raw):
         return datetime.fromisoformat(cleaned)
     except ValueError:
         return None
+
+
+# ── OPENING-WINDOW BLOCK COUNT (2026-11-05, measurement only) ───────────────
+# The daily line (server/dailyLine.ts) reports how many option exits the
+# 09:30-09:45 window held back each ET day. A rule keeps firing on every scan
+# while the window lasts, so this keeps a SET of (contract, rule) keys per day
+# — a count of exits, not of scans: a single-leg CLOSE whose order detail is
+# OPENING_WINDOW_DEFERRED_DETAIL keys as "<occ>|<rule>", a group CLOSE_STRATEGY
+# deferred in the window (_request_group_close's "opening window — ..." detail)
+# as "<sorted legs joined by ,>|<rule>" (a comma, not "+": a 4-leg key of
+# [A-Za-z0-9+] reads as base64 to the diag sanitizer). The day is the broker
+# clock's ET date (the clock the window itself reads). Nothing here changes a
+# decision; it only reads the actions manage_options_positions already built.
+OPENING_DEFERRALS_FILE = "voltrade_option_opening_deferrals.json"
+OPENING_DEFERRALS_KEEP_DAYS = 14
+OPENING_WINDOW_DETAIL_PREFIX = "opening window"
+
+
+def _broker_et_now():
+    """The broker's clock now in New York time — the cached /v2/clock timestamp
+    advanced by the seconds since it was read (_in_opening_window's reading,
+    repeated here so that function stays untouched); None without one."""
+    stamp = _CLOCK_CACHE.get("et")
+    if stamp is None:
+        return None
+    now_et = stamp + timedelta(seconds=max(0.0, time.time() - float(_CLOCK_CACHE.get("et_at") or time.time())))
+    if now_et.tzinfo is not None:
+        from zoneinfo import ZoneInfo
+        now_et = now_et.astimezone(ZoneInfo("America/New_York"))
+    return now_et
+
+
+def _opening_window_deferral_keys(actions) -> dict:
+    """This run's opening-window deferrals as {"single_leg": [...], "group": [...]} keys."""
+    single, group = set(), set()
+    for a in actions or []:
+        order = a.get("order") if isinstance(a, dict) else None
+        if not isinstance(order, dict) or order.get("status") != "deferred":
+            continue
+        if not str(order.get("detail", "")).startswith(OPENING_WINDOW_DETAIL_PREFIX):
+            continue
+        rule = str(a.get("type", ""))
+        if a.get("action") == "CLOSE_STRATEGY":
+            legs = sorted(str(s) for s in (a.get("legs") or []) if s)
+            if legs:
+                group.add(",".join(legs) + "|" + rule)
+        elif a.get("occ_symbol"):
+            single.add(f"{a['occ_symbol']}|{rule}")
+    return {"single_leg": sorted(single), "group": sorted(group)}
+
+
+def _note_opening_window_deferrals(actions, now_et=None) -> int:
+    """Add this run's opening-window deferrals to the day's key sets in
+    DATA_DIR/OPENING_DEFERRALS_FILE (atomic rewrite, only when a key is new;
+    the last OPENING_DEFERRALS_KEEP_DAYS days kept). Returns how many keys
+    were new. Never raises."""
+    try:
+        keys = _opening_window_deferral_keys(actions)
+        if not keys["single_leg"] and not keys["group"]:
+            return 0
+        now_et = now_et or _broker_et_now()
+        if now_et is None:
+            from zoneinfo import ZoneInfo
+            now_et = datetime.now(ZoneInfo("America/New_York"))
+        day = now_et.strftime("%Y-%m-%d")
+        path = os.path.join(DATA_DIR, OPENING_DEFERRALS_FILE)
+        doc = {"version": 1, "days": {}}
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict) and isinstance(loaded.get("days"), dict):
+                    doc = loaded
+            except (OSError, ValueError) as e:
+                logger.warning(f"opening-window deferral file unreadable, starting a new one: {e}")
+        today = doc["days"].setdefault(day, {"single_leg": [], "group": []})
+        added = 0
+        for kind in ("single_leg", "group"):
+            have = set(today.get(kind) or [])
+            new = [k for k in keys[kind] if k not in have]
+            added += len(new)
+            today[kind] = sorted(have | set(new))
+        if not added:
+            return 0
+        for old in sorted(doc["days"])[:-OPENING_DEFERRALS_KEEP_DAYS]:
+            doc["days"].pop(old, None)
+        doc["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(doc, f)
+        os.replace(tmp, path)
+        return added
+    except Exception as e:  # measurement only: never break the manager
+        logger.warning(f"opening-window deferral count not saved: {e}")
+        return 0
 
 
 def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: str,
@@ -2289,6 +2414,9 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
             del state[old_sym]
 
     _save_options_state(state)
+    # 2026-11-05 (daily line): count the exits the opening window held back
+    # (reads `actions`, writes its own file; never raises, decides nothing).
+    _note_opening_window_deferrals(actions)
 
     return {
         "actions": actions,
