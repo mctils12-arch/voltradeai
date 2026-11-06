@@ -7950,18 +7950,21 @@ else:
         order = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='executeTrades.options_scanner', strategy=data['strategy'], reason='scanner setup ' + str(data.get('setup','')))
     else:
         order = submit_options_order(contract)
-    if order.get('status') in ('submitted','filled','pending_new','accepted'):
+    if order.get('status') in ('submitted','filled','pending_new','accepted','new'):
         # P0-9 FIX: every leg is registered (options_manager.register_options_entry,
         # by keyword) under the trade's strategy so the manager can group it.
         # 2026-11-06 [REPAIR]: the legs are walked by options_execution.register_contract_entry,
         # the same walk evaluate_and_execute uses (CONTRACT_LEG_KEYS, each leg on its own
         # side). This script's own key list had no short_leg / long_leg, so a scanner
         # bull_put_credit_spread registered neither leg, and it put every condor leg on
-        # the contract's side ('buy').
+        # the contract's side ('buy'). The opening order id keeps a resting multi-leg
+        # entry's state until that order resolves (options_manager RESTING MULTI-LEG
+        # ENTRIES); 'new' is an accepted order too.
         _legs = []
         try:
             from options_execution import register_contract_entry
-            _legs = register_contract_entry(contract, data.get('strategy',''), data.get('ticker',''), data.get('setup',''))
+            _legs = register_contract_entry(contract, data.get('strategy',''), data.get('ticker',''), data.get('setup',''),
+                                            order_id=order.get('order_id',''))
         except Exception as _e:
             print(f'scanner-direct leg registration failed: {_e}', file=sys.stderr)
         # v1.0.33: Save options state for dashboard display (setup, strategy, expiry)
