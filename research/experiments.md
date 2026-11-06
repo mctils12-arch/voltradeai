@@ -116027,3 +116027,29 @@ ROLLBACK TRIGGER. Any bot page control (hold, pin, window, zoom, own window, Esc
 TESTS. 19 new engine tests: cockpit/zoneModel.test.ts (6), popout.test.ts (5), useCockpitLayout.test.ts (8). Every bot test is unchanged. The bot, chart and cockpit suites pass 161/161; tradeChartGuards.test.ts (which reads bot/panels.tsx) passes 7/7. `npx tsc --noEmit -p .` gives 6 errors, the same set as the tip. scripts/counter_ratchet.sh is OK (tests_run_in_ci 807 -> 810, assertions 32234 -> 32335, no counter worse). test_ts_code_only.py: 11 passed. Visual harness at 390/768/1440, plus 1920 for bot: botpane, bot and botidle 0 hard failures. The bot run's warnings are a subset of the ui agent's run on the same tip, and none are new.
 
 STARVED: no.
+
+## 2026-11-06 [PRODUCT] — T-CLIENT (client/src/pages/analyze.tsx, scanner.tsx, news.tsx, watchlist.tsx, research.tsx, planner.tsx, taxes.tsx, InsightsView.tsx, ETFBuilderView.tsx, tradeBodies.test.ts, index.css, scripts/visual_check.mjs, ci/counter_baseline.txt, test_ts_code_only.py) — Trade page bodies: each Trade feature is a body component its page wraps; the never-rendered second scanner is gone
+VERSION: v1.0.1333 (shipped 2026-11-06 by the parent session; main was v1.0.1332)
+
+WHY. This is the second of PR #1556's four planned one-change PRs (see the cockpit-1 entry: the human's "no orphan PRs" and "simplify the UI" directives). The Trade cockpit page (the next PR) places every Trade feature inside a panel. A feature can only sit in a panel once it is a component that owns its data, without the page's header, input and width cap. The PR body's rule was "no duplicates": the cockpit must use these bodies, not second implementations.
+
+CHANGE. Each Trade feature is now a body component. Each default page export is header + input + body, so every Trade tab still renders through its own page:
+- scanner.tsx: ScannerBody. `compact` drops the sector heatmap for a small panel.
+- news.tsx: NewsBody. It takes a ticker prop; `showFilter` keeps the page's debounced typed filter.
+- watchlist.tsx: WatchlistBody.
+- research.tsx: ResearchBody owns the /api/research query. It shows an in-flight line, and a 200 without a verdict reads as "no report" instead of throwing. The page's button reads the same query through useIsFetching, with no second fetch.
+- planner.tsx: PlannerBody. A host ticker hides the ticker field; null keeps the page's own field.
+- taxes.tsx: TaxesBody.
+- analyze.tsx: the /api/analyze query becomes useAnalyze, with the same key, staleTime and retry; the ETF Builder section still skips it. Its types and render pieces are exported, SECTION_META is module-level, and AnalyzeEmptyState is a component with the copy the page already had. The PR's ETF-Builder variant of the empty state was unreachable in the page and the cockpit, so it is not ported.
+
+What a visitor sees on the routed pages: the data-derived status lines move from the page headers into the bodies (scanner: rows, date, age; news: story count, age; watchlist: the count moves to the footer). Each header gets a one-line description in place of its status line. Research gains the in-flight line and the no-verdict guard.
+
+REMOVED. analyze.tsx's MarketScanner and ScanProgressBar were defined and never rendered; scanner.tsx is the one scanner. Their Scan* types and the CSS only they used (.scanner-panel, -header, -row-header, -row, -loading) go with them. ts_any drops 1206 -> 1205 (their `refetchInterval: (data: any)`), and ci/counter_baseline.txt and test_ts_code_only.py's exact pin are lowered together. Follow-up, not done here (a server change in shared routes.ts): /api/scan and /api/scan/progress now have no client caller. They are not owner-gated, and /api/scan fans out analyze.py processes.
+
+DOWNSTREAM (2 steps). (1) The queries are unchanged. Every body keeps its page's query key, so the React Query cache, polling and staleness are the same; research's page button observes the body's query instead of running its own. (2) The next PR's cockpit mounts these bodies directly. Their props (ticker, onSelectTicker, compact, showFilter) are its contract, pinned by tradeBodies.test.ts.
+
+ROLLBACK TRIGGER. A Trade tab that renders differently from the screenshots in this PR, or a body fetching twice: revert this commit. The next PR depends on it.
+
+TESTS. client/src/pages/tradeBodies.test.ts (9): the hook keeps its query key and staleTime, the exports, one useQuery left in analyze.tsx, no MarketScanner or /api/scan, every body's props, bodies own their fetch with no h1 or width cap, the default exports are header + body wrappers, and the existing data-testids survive. All client page tests plus the tests that read index.css and visual_check.mjs pass, 77/77. tsc gives 6 errors, the same set. The counter ratchet is OK (ts_any 1205, tests_run_in_ci 811, assertions 32396). test_ts_code_only.py: 11 passed. Harness: analyze, scanner, news, research, watchlist, planner and taxes are registered at 390/768/1440 (visitor view; scanner and news use captured responses).
+
+STARVED: no.
