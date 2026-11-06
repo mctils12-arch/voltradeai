@@ -10,7 +10,11 @@
 //   • WASH SALES: a loss closed on a symbol that is re-entered on the same
 //     side within the 30 days AFTER the close — the loss is disallowed in
 //     proportion to the replacement quantity (deferred into the new lot's
-//     basis). Only exact-symbol replacements after the close are counted
+//     basis). RELEASE (2026-11-06, [RULE-REVIEW]): a deferred loss is
+//     recognized when the replacement lot next closes (IRC §1091(d): the
+//     disallowed loss is added to the replacement's basis), in that close's
+//     term and year. Before, it was added back and never released, so the
+//     estimate taxed money the account had lost. Only exact-symbol replacements after the close are counted
 //     (a LOWER bound: the rule also covers purchases in the 30 days before
 //     and "substantially identical" contracts, which an average-cost walk
 //     cannot attribute honestly);
@@ -34,14 +38,18 @@ export const WASH_WINDOW_MS = 30 * 86_400_000;
 
 export type Term = "short" | "long" | "unknown";
 export interface TermRow { term: Term; events: number; gains: number; losses: number; net: number; washDisallowed: number }
-export interface WashSale { symbol: string; closedAt: string; loss: number; disallowed: number; replacementQty: number; replacedAt: string; term: Term }
+export interface WashSale { symbol: string; closedAt: string; loss: number; disallowed: number; replacementQty: number; replacedAt: string; term: Term;
+  /** when the replacement lot next closed (the deferred loss is recognized then), or null while it is still open */
+  releasedAt: string | null; releaseTerm: Term | null }
 export interface YearRow { year: number; short: number; long: number; unknown: number; washDisallowed: number; estimatedTax: number }
 export interface TaxLedger {
   rates: TaxRates;
   windowStart: string | null;
   byTerm: TermRow[];
   byYear: YearRow[];
-  washSales: { count: number; disallowed: number; examples: WashSale[] };
+  /** disallowed = still deferred at the window's end (held back now); gross = every disallowance;
+   *  released = recognized again when the replacement lot closed */
+  washSales: { count: number; disallowed: number; gross: number; released: number; deferredCount: number; examples: WashSale[] };
   netting: { shortNet: number; longNet: number; shortAfterNetting: number; longAfterNetting: number; carryforward: number };
   estimatedTax: { shortTerm: number; longTerm: number; niit: number; total: number };
   afterTax: { realizedNet: number; taxDrag: number; afterTaxNet: number };
@@ -58,6 +66,9 @@ export function termOf(e: RealizedEvent): Term {
 export function washSalesFor(events: readonly RealizedEvent[], fills: readonly FillRow[], windowStartMs = -Infinity): WashSale[] {
   const bySymbol = new Map<string, FillRow[]>();
   for (const f of fills) { const a = bySymbol.get(f.symbol); if (a) a.push(f); else bySymbol.set(f.symbol, [f]); }
+  const closesBySymbol = new Map<string, RealizedEvent[]>();
+  for (const ce of events) { const a = closesBySymbol.get(ce.symbol); if (a) a.push(ce); else closesBySymbol.set(ce.symbol, [ce]); }
+  for (const a of closesBySymbol.values()) a.sort((x, y) => x.t - y.t);
   const out: WashSale[] = [];
   for (const e of events) {
     if (!(e.pnl < 0) || e.t < windowStartMs || !(e.qty > 0)) continue;
@@ -73,7 +84,12 @@ export function washSalesFor(events: readonly RealizedEvent[], fills: readonly F
     }
     if (qty <= 0 || firstAt === null) continue;
     const share = Math.min(1, qty / e.qty);
-    out.push({ symbol: e.symbol, closedAt: new Date(e.t).toISOString(), loss: e.pnl, disallowed: -e.pnl * share, replacementQty: qty, replacedAt: new Date(firstAt).toISOString(), term: termOf(e) });
+    // the replacement lot's next close on the same side releases the deferred loss (the whole
+    // deferral at that close: an approximation when the replacement is closed in pieces)
+    const replacedAtMs = firstAt;
+    const release = (closesBySymbol.get(e.symbol) ?? []).find((c) => c.closeDir === e.closeDir && c.t > replacedAtMs) ?? null;
+    out.push({ symbol: e.symbol, closedAt: new Date(e.t).toISOString(), loss: e.pnl, disallowed: -e.pnl * share, replacementQty: qty, replacedAt: new Date(firstAt).toISOString(), term: termOf(e),
+      releasedAt: release ? new Date(release.t).toISOString() : null, releaseTerm: release ? termOf(release) : null });
   }
   return out;
 }
@@ -87,6 +103,9 @@ export function taxLedger(events: readonly RealizedEvent[], fills: readonly Fill
   const wash = washSalesFor(events, fills, windowStartMs);
   const washByEvent = new Map<string, number>();
   for (const w of wash) washByEvent.set(`${w.symbol}|${w.closedAt}|${w.loss}`, (washByEvent.get(`${w.symbol}|${w.closedAt}|${w.loss}`) ?? 0) + w.disallowed);
+  // the replacement's close that recognizes each deferred loss: keyed by symbol + close time
+  const releaseByEvent = new Map<string, number>();
+  for (const w of wash) if (w.releasedAt) releaseByEvent.set(`${w.symbol}|${w.releasedAt}`, (releaseByEvent.get(`${w.symbol}|${w.releasedAt}`) ?? 0) + w.disallowed);
   const terms: Record<Term, TermRow> = {
     short: { term: "short", events: 0, gains: 0, losses: 0, net: 0, washDisallowed: 0 },
     long: { term: "long", events: 0, gains: 0, losses: 0, net: 0, washDisallowed: 0 },
@@ -99,15 +118,20 @@ export function taxLedger(events: readonly RealizedEvent[], fills: readonly Fill
     row.events++;
     if (e.pnl >= 0) row.gains += e.pnl; else row.losses += e.pnl;
     row.net += e.pnl;
-    const dis = washByEvent.get(`${e.symbol}|${new Date(e.t).toISOString()}|${e.pnl}`) ?? 0;
+    const dis = (washByEvent.get(`${e.symbol}|${new Date(e.t).toISOString()}|${e.pnl}`) ?? 0)
+      - (releaseByEvent.get(`${e.symbol}|${new Date(e.t).toISOString()}`) ?? 0);
+    releaseByEvent.delete(`${e.symbol}|${new Date(e.t).toISOString()}`); // one release per close time
     row.washDisallowed += dis;
     const y = new Date(e.t).getUTCFullYear();
     const yr = years.get(y) ?? { year: y, short: 0, long: 0, unknown: 0, washDisallowed: 0, estimatedTax: 0 };
     yr[term] += e.pnl; yr.washDisallowed += dis;
     years.set(y, yr);
   }
-  const washTotal = wash.reduce((s, w) => s + w.disallowed, 0);
-  // netting: disallowed losses are added back (not deductible now), then
+  const washGross = wash.reduce((s, w) => s + w.disallowed, 0);
+  const washReleased = wash.reduce((s, w) => s + (w.releasedAt ? w.disallowed : 0), 0);
+  const washTotal = washGross - washReleased; // still deferred at the window's end
+  // netting: losses still deferred are added back (not deductible now; a released one was
+  // recognized again at its replacement's close, so it nets to zero across its two events), then
   // net short against net long; what is left negative carries forward
   const shortNet = terms.short.net + terms.short.washDisallowed + terms.unknown.net + terms.unknown.washDisallowed; // unknown-age lots are treated as short (the conservative term)
   const longNet = terms.long.net + terms.long.washDisallowed;
@@ -131,6 +155,7 @@ export function taxLedger(events: readonly RealizedEvent[], fills: readonly Fill
     "estimate at the assumed rates shown; the paper account pays no tax",
     "terms from the average-cost lot walk the sleeve ledger uses (not specific-lot or FIFO); lots older than the fetched history read as 'unknown' and are taxed as short-term",
     "wash sales: exact-symbol re-entries on the same side within 30 days AFTER a loss only — a lower bound (purchases before the loss and substantially identical contracts are not evaluated)",
+    "a disallowed loss is deferred into the replacement lot and recognized when that lot next closes (IRC §1091(d)), in that close's term and year; 'held back' is what is still deferred",
     "a remaining net loss carries forward; the $3,000-per-year ordinary-income offset is not modelled",
   ];
   if (terms.unknown.events) notes.push(`${terms.unknown.events} close(s) on lots older than the fetched history`);
@@ -138,7 +163,8 @@ export function taxLedger(events: readonly RealizedEvent[], fills: readonly Fill
     rates, windowStart: Number.isFinite(windowStartMs) ? new Date(windowStartMs).toISOString() : null,
     byTerm: (["short", "long", "unknown"] as Term[]).map((t) => ({ ...terms[t], gains: r2(terms[t].gains), losses: r2(terms[t].losses), net: r2(terms[t].net), washDisallowed: r2(terms[t].washDisallowed) })),
     byYear: [...years.values()].sort((a, b) => a.year - b.year),
-    washSales: { count: wash.length, disallowed: r2(washTotal), examples: wash.sort((a, b) => b.disallowed - a.disallowed).slice(0, 10) },
+    washSales: { count: wash.length, disallowed: r2(washTotal), gross: r2(washGross), released: r2(washReleased),
+      deferredCount: wash.filter((w) => !w.releasedAt).length, examples: wash.sort((a, b) => b.disallowed - a.disallowed).slice(0, 10) },
     netting: { shortNet: r2(shortNet), longNet: r2(longNet), shortAfterNetting: r2(st), longAfterNetting: r2(lt), carryforward: r2(carryforward) },
     estimatedTax: { shortTerm: r2(taxST), longTerm: r2(taxLT), niit: r2(niit), total: r2(total) },
     afterTax: { realizedNet: r2(realizedNet), taxDrag: r2(total), afterTaxNet: r2(realizedNet - total) },
