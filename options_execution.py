@@ -902,6 +902,52 @@ def _optimized_limit_price(contract: dict, direction: str) -> float:
     return round(optimized, 2)
 
 
+# Possible leg keys on multi-leg contract dicts. 2026-11-06 [REPAIR]: + "short_leg" /
+# "long_leg", the keys every vertical builder here uses (bull_call_spread,
+# bull_put_credit_spread, calendar, diagonal). Without them evaluate_and_execute
+# registered NEITHER leg of a vertical: options_manager saw two "unknown" single
+# legs, so a credit put spread's long wing could be stopped out alone (its 50%
+# bought-option stop), leaving a naked short put, and no group profit target,
+# max-loss exit or 21-DTE close ever ran on the structure.
+CONTRACT_LEG_KEYS = ("short_call", "long_call", "short_put", "long_put",
+                     "call_leg", "put_leg", "short_leg", "long_leg")
+
+
+def _contract_leg_entries(contract: dict, entry_side: str) -> list:
+    """[(occ_symbol, entry_price, side, delta)] for every leg a multi-leg
+    contract dict names; [] for a single-leg contract. A leg given as a dict
+    carries its own quote (the bid it sells at, the ask it buys at). A leg given
+    as a bare OCC string is priced from the contract's `leg_quotes` (the debit
+    verticals' quotes, by symbol) when present, else from the contract's limit
+    (the old behaviour). options_manager's group exits price the structure from
+    the broker's avg_entry_price, so a fallback price only seeds the leg's state."""
+    quotes = {}
+    for q in contract.get("leg_quotes") or []:
+        if isinstance(q, dict) and q.get("symbol"):
+            quotes[q["symbol"]] = q
+    out = []
+    for lk in CONTRACT_LEG_KEYS:
+        v = contract.get(lk)
+        leg_side = "sell" if lk.startswith("short") else ("buy" if lk.startswith("long") else entry_side)
+        # Value might be a dict {"occ_symbol": ...} or a raw OCC string.
+        if isinstance(v, dict):
+            occ = v.get("occ_symbol") or v.get("symbol") or ""
+            leg_delta = v.get("delta", 0)
+            leg_price = v.get("bid") if leg_side == "sell" else v.get("ask")
+        elif isinstance(v, str) and v:
+            occ = v
+            q = quotes.get(v) or {}
+            leg_delta = contract.get(f"{lk.split('_')[0]}_delta", 0) or 0
+            leg_price = q.get("bid") if leg_side == "sell" else q.get("ask")
+        else:
+            continue
+        if not leg_price:
+            leg_price = contract.get("limit_price", 0)
+        if occ:
+            out.append((occ, leg_price, leg_side, leg_delta))
+    return out
+
+
 def _vertical_leg_quotes(long_leg: dict, short_leg: dict) -> list:
     """A debit vertical's legs on the side its opening order takes."""
     return [{"symbol": long_leg.get("occ_symbol"), "side": "buy", "bid": long_leg.get("bid"), "ask": long_leg.get("ask")},
@@ -2813,29 +2859,7 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
             setup = trade.get("setup", "")
             shared_max_loss = contract.get("max_loss", 0)
 
-            # Possible leg keys on multi-leg contract dicts.
-            LEG_KEYS = ("short_call", "long_call", "short_put", "long_put",
-                        "call_leg", "put_leg")
-            leg_occs = []
-            for lk in LEG_KEYS:
-                v = contract.get(lk)
-                # Value might be a dict {"occ_symbol": ...} or a raw OCC string.
-                if isinstance(v, dict):
-                    occ = v.get("occ_symbol") or v.get("symbol") or ""
-                    leg_side = "sell" if lk.startswith("short") else ("buy" if lk.startswith("long") else entry_side)
-                    leg_delta = v.get("delta", 0)
-                    leg_price = v.get("bid") if leg_side == "sell" else v.get("ask")
-                    if not leg_price:
-                        leg_price = contract.get("limit_price", 0)
-                elif isinstance(v, str) and v:
-                    occ = v
-                    leg_side = "sell" if lk.startswith("short") else ("buy" if lk.startswith("long") else entry_side)
-                    leg_delta = 0
-                    leg_price = contract.get("limit_price", 0)
-                else:
-                    continue
-                if occ:
-                    leg_occs.append((occ, leg_price, leg_side, leg_delta))
+            leg_occs = _contract_leg_entries(contract, entry_side)
 
             if leg_occs:
                 # Multi-leg path: register each leg with the SAME strategy+max_loss.
