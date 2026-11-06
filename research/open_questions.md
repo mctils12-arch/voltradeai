@@ -23457,3 +23457,35 @@ The opening window (no option exit before 09:45 ET) rests on the bleed study's f
 **[UI follow-up] The Book's exit line does not know the LEFTOVER rule.** `shared/positionLevels.ts optionExitPlan` mirrors the manager's rules; for a long leg alone on its underlying it still prints "no profit target" and the loss rules. The window is short (the rule acts on the next manage tick after the hold gate), but the mirror should name it. Needs the count of option legs on the underlying in the Book's input, plus a client label, with the visual harness.
 
 **[REPAIR candidate] Verify every multi-leg opener records its strategy.** A spread whose legs carry "unknown" is managed leg by leg. Its long leg is then never a leftover while the short is open (correct), but no group rule judges the pair either. List which openers (tier dispatcher verticals, calendars, diagonals) register `register_options_entry(..., strategy=…)` for both legs.
+
+## 2026-11-05 — follow-ups found while building the night's 15 changes (each its own future PR)
+
+**[REPAIR, priority] TIME-EXIT closes OPTIONS with MARKET DAY orders.** It has no opening-window gate. The clock gate now blocks it while the market is closed. It is the same [SCOPE BUG candidate] filed 2026-11-04. Fix: exempt options, since options_manager owns option exits. A market order on an option is the widest fill there is.
+
+**[REPAIR] recordDailyEquity trims the newest row.** It adds the newest row first, then shift()s. Once the equity curve passes 365 rows (around 2027-05), new days stop being recorded. That silently breaks the benchmark, the scoreboard and the daily line.
+
+**[MEASUREMENT] Two kinds of order never reach the option fill ledger.** The daily line counts both as unattributed fills.
+- The backstop ladder's orders (server/limitLadder.ts via posKillStartOptionLadder).
+- The mid-first ladder's PATCH replacements (order_ladder.py; the order ids are in its state/log).
+
+Fix: write a ledger row from each ladder's "submitted" event. A replace gets the new order id with the step's quote.
+
+**[LIVENESS] A toggle that re-latches at once resets the dark clock.** Live 11-05: two owner toggles at 17:26Z and 17:32Z each re-latched within one tick, and each pushed the 2-market-hour alarm back. Fix: count the loop as active only after N consecutive active minutes.
+
+**[RULE-REVIEW candidate] The tier engine's master exposure cap counts the floor.** tiered_strategy._enforce_exposure_cap sets the cap at 0.95 BULL/NEUTRAL, 0.60 CAUTION, 0.50 BEAR and 0.30 PANIC. With the volatility-managed floor near 85% of equity, tier actions (T1 CSPs etc.) get about 10% headroom in BULL/NEUTRAL and none in CAUTION/BEAR/PANIC. Node exempts the floor from its own heat cap. This is a risk limit: log counterfactuals for rejected_masterkill first, then decide.
+
+**[SCORE] The serve-time ML feature fix has been shadow-only since 11-03.** In shadow, v2 is scored on 7 corrected features instead of broken constants. Next: compare the shadow records' serve_fix field, then flip it on. Expect a small effect, since v2's honest AUC is about 0.515.
+
+**[RESEARCH → gate 3] Edge P1 dealer-gamma gate.** It passed gate 2 on 2026-10-28 (t −9.61; holdout t −7.25) and is not built. The next ladder step is a gate-3 ablation backtest: no new short premium when the gamma rank is below 0.2.
+
+**[PIPELINE] Tier-0 stream signals are queued, then cleared unscored.** The scan is called with no arguments (server/bot.ts ~6024). Feed the queue into the deep-score shortlist; every existing gate still applies.
+
+**[EARNINGS CLOSE] Residuals.**
+- market_calendar.py has 2026 holidays only, so the 2027 dates are due in December.
+- Adjusted OCC roots (e.g. IONQ1) find no report.
+- A Setup-1 condor whose recorded state was lost carries no setup, so it is not exempt and closes.
+- The halted subprocess fallback repeats the backfill row.
+
+**[CONVEXITY] The overlay's order sides are invalid.** It posts buy_to_open and sell_to_close, and its roll close is a market order. Fix both before the switch is ever turned on.
+
+**[RULE-REVIEW candidate] The daily −3% circuit breaker is the next gate.** It blocks the tier engine for the rest of a −3% day, which an SPY-like core sees 5–10 times a year. Log counterfactuals first. Change one threshold at a time; the Node kill moved 11-05.
