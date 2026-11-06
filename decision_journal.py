@@ -23,9 +23,15 @@ ROW (schema v1; every reason and the summary are plain English):
      "instrument": "stock" | "etf" | "option" | "floor",
      "chosen": the strategy or rule acted on ("buy_stock",
                "sell_cash_secured_put", "profit_target"; "none" on a skip),
-     "rejected": [{"instrument", "reason"}]  — the alternatives not taken and
-               why (instrument_selector's per-instrument scores and ruled-out
-               reasons; on a skip, the trade that was refused and the gate),
+     "rejected": [{"instrument", "reason", "would_be"?}]  — the alternatives
+               not taken and why (instrument_selector's per-instrument scores
+               and ruled-out reasons; on a skip, the trade that was refused and
+               the gate). On an entry the selector decided, the instrument it
+               passed over across the stock/options line carries `would_be`
+               (2026-11-06, instrument_counterfactual.py): its would-be entry
+               (the option alternative of a stock / ETF buy, the stock
+               alternative of an options entry), and on read the +1/+5/+20
+               trading-day outcomes the nightly job settled,
      "stages": {"regime", "calendar", "flows", "sector", "selection",
                 "options", "tax"} — each a dict or null. calendar / flows /
                tax are filled by their own modules; a producer passes them in
@@ -468,7 +474,10 @@ def normalize(row: dict) -> dict | None:
     rejected = []
     for r in row.get("rejected") or []:
         if isinstance(r, dict) and r.get("instrument"):
-            rejected.append({"instrument": _text(r.get("instrument"), 40), "reason": _text(r.get("reason"), 300)})
+            alt = {"instrument": _text(r.get("instrument"), 40), "reason": _text(r.get("reason"), 300)}
+            if isinstance(r.get("would_be"), dict) and r["would_be"]:
+                alt["would_be"] = _clean(r["would_be"])
+            rejected.append(alt)
     out = {
         "v": SCHEMA_VERSION,
         "id": _text(row.get("id"), 40) or uuid.uuid4().hex[:16],
@@ -499,7 +508,8 @@ def _fit(row: dict) -> str:
         return text
     r = dict(row)
     r["summary"] = r.get("summary", "")[:400]
-    r["rejected"] = [{"instrument": x["instrument"], "reason": x["reason"][:160]} for x in r.get("rejected", [])[:4]]
+    r["rejected"] = [{"instrument": x["instrument"], "reason": x["reason"][:160],
+                      **({"would_be": x["would_be"]} if x.get("would_be") else {})} for x in r.get("rejected", [])[:4]]
     st = dict(r.get("stages") or {})
     if isinstance(st.get("selection"), dict):
         st["selection"] = {k: v for k, v in st["selection"].items() if k not in ("reasons", "subscores")}

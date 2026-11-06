@@ -91,6 +91,7 @@ import { isEntryShadowed, entryShadowStatus, ShadowEntryBook, shadowEntryAuditLi
 import { appendDecisions, decisionsDir, decisionsQuery, entryDecision, exitDecision, readDecisions, skipDecision, tierDecision, type DecisionRow } from "./decisionJournal";
 import { BACKFILL_AUDIT_LIMIT, BACKFILL_AUDIT_TYPES, BACKFILL_WINDOW_DAYS, DECISION_BACKFILL_DELAY_MS, DECISION_BACKFILL_MAX_ATTEMPTS, DECISION_BACKFILL_RETRY_MS, backfillAuditLine, backfillDone, buildBackfill, writeBackfill } from "./decisionBackfill";
 import { ATTRIBUTION_CACHE_MS, ATTRIBUTION_MAX_DECISIONS, attributionDays, attributionReport, readSectorCache, type AttributionReport } from "./decisionAttribution";
+import { appendInstrumentCounterfactuals, readInstrumentCounterfactuals } from "./instrumentCounterfactual";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -319,6 +320,8 @@ function recordEntryFill(payload: ReturnType<typeof buildEntryFillPayload>) {
 function journalDecisions(rows: ReadonlyArray<DecisionRow | null>): void {
   try {
     appendDecisions(decisionsDir(), rows);
+    // INSTRUMENT COUNTERFACTUAL (2026-11-06): an entry's passed-over instrument, same moment (logging only)
+    appendInstrumentCounterfactuals(decisionsDir(), rows);
   } catch (err) {
     console.error("[decision-journal]", err instanceof Error ? err.message : err);
   }
@@ -3120,6 +3123,7 @@ print(json.dumps({
       nowMs, days, events: sleeveCache.taxInputs.events, fills: sleeveCache.taxInputs.fills, positions,
       decisions: readDecisions(dir, { limit: ATTRIBUTION_MAX_DECISIONS }), orders, ordersError,
       ledger: readOptionFillLedger(dailyLineDir(process.env)), floorTickers: FLOOR_AND_LEG_TICKERS, sectors: readSectorCache(dir),
+      instrumentChoices: readInstrumentCounterfactuals(dir),
     });
     attributionCache.set(days, { at: nowMs, body });
     return body;
@@ -5893,6 +5897,7 @@ print(json.dumps(result[:20]))
   let _shadowBackfilledToday = false;
   let _lookupLedgerFilledToday = false;
   let _dossierLedgerScoredToday = false;
+  let _instrumentCfFilledToday = false;
   // A6: which path ran the last Tier-1 stop-state sync (TIER1-SYNC lines on change only).
   let tier1SyncVia: SyncVia | null = null;
 
@@ -6120,10 +6125,29 @@ print(json.dumps(result))
         beat("dossier_ledger_score", "finish", "error", e instanceof Error ? e.message : String(e));
       }
     }
+    // Instrument counterfactual (2026-11-06, instrument_counterfactual.py): each
+    // entry's passed-over instrument priced at +1/+5/+20 trading days — same
+    // slot, own flag, own try.
+    if (nowHour === 22 && !_instrumentCfFilledToday) {
+      _instrumentCfFilledToday = true;
+      beat("instrument_cf_backfill", "start");
+      try {
+        const cr = await execPythonSerialized(
+          `python3 -c "from instrument_counterfactual import backfill; import json; print(json.dumps(backfill(40)))"`,
+          { timeout: 90000 }
+        );
+        audit("INSTRUMENT-CF-BACKFILL", String(cr.stdout).trim().slice(0, 300));
+        beat("instrument_cf_backfill", "finish", "ok");
+      } catch (e: unknown) {
+        audit("INSTRUMENT-CF-BACKFILL-ERROR", String(e instanceof Error ? e.message : e).slice(0, 300));
+        beat("instrument_cf_backfill", "finish", "error", e instanceof Error ? e.message : String(e));
+      }
+    }
     if (nowHour === 0) {
       _shadowBackfilledToday = false;  // reset at midnight UTC
       _lookupLedgerFilledToday = false;
       _dossierLedgerScoredToday = false;
+      _instrumentCfFilledToday = false;
     }
   }
 

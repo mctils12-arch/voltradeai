@@ -26,6 +26,7 @@ Usage:
 import os
 import sys
 import json
+import math
 import time
 import logging
 import subprocess
@@ -1508,6 +1509,17 @@ def select_instrument(trade: dict, equity: float,
     stock_score   = _score_stock(trade, intelligence)
     etf_score     = _score_etf(trade, intelligence, equity)
     options_score = _score_options(trade, intelligence, equity)
+    # INSTRUMENT COUNTERFACTUAL 2026-11-06: why options went unscored and their
+    # score before any rule-out zeroes it (option_alternative records both).
+    # _score_options returns None for exactly two causes; the score is checked
+    # first because it does not move with the clock.
+    if options_score is None:
+        _options_not_scored = (f"score {score} is below the {MIN_OPTIONS_SCORE} options minimum"
+                               if score < MIN_OPTIONS_SCORE else "outside regular hours (09:30-16:00 ET)")
+        _options_raw_score = None
+    else:
+        _options_not_scored = None
+        _options_raw_score = options_score.get("score")
 
     scores = {
         "stock":   stock_score,
@@ -1639,6 +1651,15 @@ def select_instrument(trade: dict, equity: float,
     if chosen != "options" and options_ruled_out_reason:
         full_reasoning += f" | Options ruled out: {options_ruled_out_reason}"
 
+    # INSTRUMENT COUNTERFACTUAL 2026-11-06 (logging only): the option this
+    # decision passes over, carried on the trade dict to the entry row.
+    try:
+        option_alt = option_alternative(trade, options_score, options_ruled_out_reason, _options_not_scored,
+                                        chosen, chosen_score, raw_score=_options_raw_score)
+    except (TypeError, ValueError, KeyError, AttributeError) as _oa_err:
+        logger.warning(f"[{ticker}] option alternative not recorded (decision unaffected): {_oa_err}")
+        option_alt = None
+
     return {
         "chosen":      chosen,
         "strategy":    strategy,
@@ -1652,6 +1673,137 @@ def select_instrument(trade: dict, equity: float,
         "stop_config": stop_config,
         "reasoning":   full_reasoning,
         "options_ruled_out_reason": options_ruled_out_reason,
+        "option_alternative": option_alt,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SECTION F2: THE OPTION ALTERNATIVE (instrument counterfactual — logging only)
+# ═══════════════════════════════════════════════════════════════════════════════
+# INSTRUMENT COUNTERFACTUAL 2026-11-06 (human refocus spec §3 step 7: "log why
+# the rejected instrument lost"). select_instrument describes the option it
+# scored — or why it scored none — so a stock / ETF entry can record the option
+# it passed over: server/instrumentCounterfactual.ts writes the row when the
+# trade is entered, instrument_counterfactual.py prices both legs later. Pure:
+# no I/O and no network call in the scan path; nothing here changes a decision.
+
+_CF_PROXY_DTE_DEFAULT = (30, 45)
+
+
+def _cf_num(x) -> Optional[float]:
+    """A finite float, else None (bools are not numbers here)."""
+    if isinstance(x, bool):
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def _cf_proxy_dte() -> tuple:
+    """system_config INSTRUMENT_COUNTERFACTUAL proxy_dte_min / proxy_dte_max (default 30, 45)."""
+    try:
+        from system_config import BASE_CONFIG as _BC
+        c = _BC.get("INSTRUMENT_COUNTERFACTUAL") or {}
+        lo, hi = int(c.get("proxy_dte_min", 30)), int(c.get("proxy_dte_max", 45))
+    except (ImportError, TypeError, ValueError, AttributeError) as e:
+        logger.debug(f"instrument counterfactual DTE window unavailable ({e}); 30-45 used")
+        return _CF_PROXY_DTE_DEFAULT
+    return (lo, hi) if 0 < lo <= hi else _CF_PROXY_DTE_DEFAULT
+
+
+def _atm_from_chain(chain, spot) -> Optional[dict]:
+    """The row of an option chain the selector was handed (trade["calls_df"] /
+    ["puts_df"]: a DataFrame or a list of dicts) whose strike is nearest spot
+    (a tie goes to the lower strike). None when no row carries a strike."""
+    spot = _cf_num(spot)
+    if chain is None or not spot or spot <= 0:
+        return None
+    try:
+        rows = chain.to_dict("records") if hasattr(chain, "to_dict") else list(chain)
+    except (TypeError, ValueError) as e:
+        logger.debug(f"option chain unreadable for the counterfactual: {e}")
+        return None
+    best, best_d = None, None
+    for r in rows:
+        k = _cf_num(r.get("strike")) if isinstance(r, dict) else None
+        if k is None or k <= 0:
+            continue
+        d = abs(k - spot)
+        if best_d is not None and (d > best_d or (d == best_d and k >= best["strike"])):
+            continue
+        bid, ask = _cf_num(r.get("bid")), _cf_num(r.get("ask"))
+        best_d = d
+        best = {
+            "symbol": str(r.get("contractSymbol") or r.get("symbol") or "") or None,
+            "strike": k, "bid": bid, "ask": ask,
+            "mid": round((bid + ask) / 2, 4) if bid is not None and ask is not None and 0 < bid <= ask else None,
+            "last": _cf_num(r.get("lastPrice")), "iv": _cf_num(r.get("impliedVolatility")),
+        }
+    return best
+
+
+def option_alternative(trade: dict, options_score: Optional[dict], ruled_out: Optional[str],
+                       not_scored: Optional[str], chosen: str, chosen_score=None, raw_score=None) -> dict:
+    """The would-be OPTION leg of one selector decision: the strategy and score
+    the selector gave options and, in plain English, why options lost (not
+    scored, ruled out, no viable strategy, routed to stock, outscored) — or
+    that the selector chose them (an entry that fell back to the stock uses
+    this too). `contract` is the ATM contract of the chain the selector was
+    given (rare: the scan passes none), else None with `contract_reason`;
+    `proxy` is what the nightly job resolves and prices instead: a BOUGHT ATM
+    call for a bullish idea (a put for a bearish one) expiring proxy_dte_min..
+    proxy_dte_max days after the entry. Pure: no I/O."""
+    trade = trade if isinstance(trade, dict) else {}
+    price = _cf_num(trade.get("price"))
+    bearish = str(trade.get("side") or "buy").lower() in ("sell", "short")
+    right = "P" if bearish else "C"
+    lo, hi = _cf_proxy_dte()
+    o = options_score if isinstance(options_score, dict) else None
+    strategy = str((o or {}).get("strategy") or "")
+    score = _cf_num(raw_score if raw_score is not None else (o or {}).get("score"))
+    vs = _cf_num(chosen_score)
+    o_why = " ".join(str((o or {}).get("reasoning") or "").split())[:200]
+    if o is None:
+        why = f"options were not scored: {not_scored or 'no options score'}"
+    elif ruled_out:
+        why = f"options were ruled out: {ruled_out}"
+    elif o.get("instrument") == "stock":       # _score_options routed it to stock (buy_call / bull_spread disabled)
+        why = f"the options scorer routed it to stock: {o_why}"
+    elif strategy in ("", "none"):
+        why = f"options had no viable strategy: {o_why}"
+    elif chosen == "options":
+        why = f"the selector chose options ({strategy}" + (f", scored {score:g})" if score is not None else ")")
+    else:
+        why = (f"options ({strategy}) scored {score:g}" if score is not None else f"options ({strategy})") \
+            + (f" vs {vs:g} for the {chosen}" if vs is not None else f", below the {chosen}")
+    chain = trade.get("puts_df") if bearish else trade.get("calls_df")
+    atm = _atm_from_chain(chain, price) if chain is not None else None
+    t_years = _cf_num(trade.get("T"))
+    if atm:
+        contract = {**atm, "right": right, "dte": round(t_years * 365) if t_years else None,
+                    "source": "the option chain the selector was given"}
+        contract_reason = None
+    else:
+        contract = None
+        contract_reason = ("the selector was given an option chain without a usable strike" if chain is not None else
+                           "no option chain was fetched for this candidate in the scan (the selector scores options "
+                           "from the VXX ratio and the scan's VRP alone), so the ATM proxy is resolved and priced "
+                           "afterwards from Alpaca's contract list and daily option bars")
+    return {
+        "instrument": "option",
+        "strategy": strategy if o is not None and strategy not in ("", "none", "stock") else None,
+        "selector_score": score,
+        "scored": o is not None,
+        "chosen_by_selector": chosen == "options",
+        "selector_reason": why[:300],
+        "contract": contract,
+        "contract_reason": contract_reason,
+        "proxy": {"kind": "atm_put" if bearish else "atm_call", "right": right, "side": "buy",
+                  "dte_min": lo, "dte_max": hi,
+                  "underlying": str(trade.get("ticker") or "").upper() or None, "underlying_price": price},
+        "source": "instrument_selector",
     }
 
 
