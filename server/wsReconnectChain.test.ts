@@ -54,12 +54,12 @@ function harness() {
   const api = new Function(
     "WebSocket", "audit", "haltAllows", "currentHaltState", "setTimeout", "clearTimeout",
     "ALPACA_KEY", "ALPACA_SECRET", "STREAM_TICKERS", "syncMonitoredPositions", "monitoredPositions",
-    "checkPositionOnTick", "streamVolHistory", "streamPriceHistory", "streamLastSignal", "state", js,
+    "checkPositionOnTick", "streamHistory", "streamLastSignal", "state", js,
   )(
     FakeWs, (t: string, m: string) => audits.push([t, m]), () => true, () => ({}),
     (fn: () => void, ms: number) => { const id = ++seq; timers.set(id, { at: now + ms, fn }); return id; },
     (id: number) => { timers.delete(id); },
-    "k", "s", ["SPY"], async () => {}, {}, async () => {}, {}, {}, {}, {},
+    "k", "s", ["SPY"], async () => {}, {}, async () => {}, {}, {}, {},
   ) as { startStreaming: () => void; stopStreaming: () => void; current: () => FakeWs | null; connected: () => boolean };
   const flushCloses = () => { while (FakeWs.pendingCloses.length) FakeWs.pendingCloses.shift()!.emit("close"); };
   const advance = (ms: number) => {

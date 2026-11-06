@@ -115848,3 +115848,50 @@ TESTS.
 - heapDiag + euLoad + euGenerationMix + euDayAheadPrices + analyst: 70/70. tsc pinned 6. counter_ratchet OK.
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (server/streamSignals.ts new; server/bot.ts Tier-0 WebSocket handler + tier2 scan step 3; scripts/stream_signal_gate2.py new) — Tier-0 stream signals restored as a measured signal: logged with price for a pre-registered gate-2 test, never traded
+VERSION: v1.0.1325 (shipped 2026-11-06 by the parent session; main was v1.0.1324)
+
+Refocus spec §2 review of removed features (the session's removed_features_review.md, row 13).
+
+**What was broken.**
+- The WebSocket 1-min bars flagged volume ≥ 2.5x average, bar ≥ 0.8% and 5-bar momentum ≥ 0.3% on 43 mega caps.
+- Each flag was queued for the next Tier 2 scan. Its `STREAM-PRIORITY` row said "processing first", then the scan cleared the queue and ran without it: `run_full_scan` takes no tickers. The audit trail claimed work that never happened.
+- The 20-bar baseline mixed thin pre-market bars with the open: 13 of the 41 live flags (2026-10-28..11-05, /api/diag/audit) fired at 09:31–09:32 ET, at 9.5x–849x. The other 28 had a median of 4.1x.
+
+**Why measured, not traded.**
+- Llorente, Michaely, Saar & Wang (RFS 2002), read this session: "Stocks of larger firms, or stocks with smaller bid-ask spreads, show almost no continuation and mostly return reversal following high-volume days." Campbell, Grossman & Wang (1993), as cited there: high-volume returns reverse in aggregate.
+- The idea has passed no ladder gate.
+- Feeding the deep-score shortlist (the top 5 of ~11,600 by quick score, mostly small-cap high-volume movers, where Llorente finds continuation) would displace those names, or lengthen scans that already reach the 300 s daemon timeout.
+
+**PRIOR (pre-registered in the script before any outcome):** REVERSAL.
+
+**Change.**
+- `server/streamSignals.ts` keeps the rule unchanged (2.5x, 0.8%, 0.3%, 5 bars, 10-minute cooldown) on a within-day, regular-session (09:30–16:00 ET) history. The first flag can come from the fifth bar.
+- Each flag is appended with its price to `DATA_DIR/voltrade_stream_signals.jsonl`. It rotates at 5 MB; the off switch is env `VOLTRADE_STREAM_SIGNAL_LOG=off`; a write failure is logged.
+- The audit row now says "logged for its gate-2 test; not traded".
+- The queue and the tier-2 `STREAM-PRIORITY` read are removed. The halt gate is unchanged: no flag while entries are halted.
+- `scripts/stream_signal_gate2.py`:
+  - excess = direction × (return − the ticker's own mean h-session return), at the same-day close, +1 and +5 sessions;
+  - verdict from +1 only, |t| > 2.39 (Bonferroni, 3 horizons), n ≥ 200;
+  - first flag per ticker-day only (overlapping windows otherwise);
+  - direction and first-hour splits are descriptive only;
+  - caveat: no flags while entries are halted, so stressed sessions are under-sampled.
+
+**Downstream, traced two steps.**
+- Trading: none. The queue never reached a decision, so removing it changes no order, size or gate.
+- The position monitor still sees every bar in any session, before the signal block.
+- Audit volume: about 4 flags a day instead of ~6 (the opening artifacts are gone).
+- The log grows ~300 bytes per flag.
+- The gate-2 verdict feeds a later session's decision whether the flag should ever be a trade input (and in which direction).
+
+**Rollback trigger.** The log fails to write on 3 consecutive days (the audit row says "NOT logged"), or a later gate-2 run returns NO_EDGE at n ≥ 200. Then retire the flag and its code.
+
+**Tests.**
+- `server/streamSignals.test.ts`: 8. Includes the regression test that replays the live 849x opening bar: the old baseline fires, the new one cannot. Also: no queue and no "processing first" in bot.ts.
+- `test_stream_signal_gate2.py`: 8. Synthetic known reversal t = −36; nulls |t| < 0.7; null false-positive rate 2.5% over 40 seeds.
+- Existing bot.ts slicing suites pass: haltScope 26/26 (its halt-gate assertion untouched), wsReconnectChain 5/5 (harness parameters renamed to follow the variables; no assertion changed), wsPositionFeed, optionSymbolStreamSubscribe, tier2DaemonTimeoutVisibility, entryShadow, jobHeartbeat, tierDispatchOffHours, client live.test.
+- Pin updated to its new exact value: `ts_any` 1220 → 1214 (ci/counter_baseline.txt + test_ts_code_only.py; six `: any` removed with the queue).
+- counter_ratchet OK, tsc 6.
+
+STARVED: no.

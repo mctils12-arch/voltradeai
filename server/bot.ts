@@ -31,6 +31,8 @@ import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { floorAuditRows } from "./floorAudit";
 import { flowsBody, readFlows, flowsAuditMessage, FLOWS_REFRESH_CMD, FLOWS_REFRESH_TIMEOUT_MS } from "./flowsReport";
+import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isRegularSessionMinute, pushRegularBar,
+  streamSignalLogEnabled, type StreamHistory } from "./streamSignals";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
@@ -6406,15 +6408,10 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
     }
 
     // 3. Run bot_engine scan (quick scan + deep analyze top 20)
-    //    Priority: process streaming signals first (detected in real-time by Tier 0)
-    const streamQueue: any[] = ((state as any).streamSignalQueue || []).filter(
-      (s: any) => Date.now() - s.ts < 300_000  // Only signals < 5 min old
-    );
-    if (streamQueue.length > 0) {
-      const tickers = streamQueue.map((s: any) => s.ticker).join(", ");
-      audit("STREAM-PRIORITY", `${streamQueue.length} real-time signal(s) queued: ${tickers} — processing first`);
-      (state as any).streamSignalQueue = [];  // Clear after reading
-    }
+    // 2026-11-06: the Tier-0 stream-signal queue read here is gone. It was
+    // cleared unread (run_full_scan takes no tickers) while its STREAM-PRIORITY
+    // row said "processing first". Stream signals are now a measured signal
+    // (server/streamSignals.ts), not a trade input.
 
     try {
       const enginePath = require("path").resolve(process.cwd(), "bot_engine.py");
@@ -9019,8 +9016,8 @@ print(json.dumps(out))
     "SPY","QQQ","IWM",
   ];
 
-  const streamVolHistory: Record<string, number[]>   = {};
-  const streamPriceHistory: Record<string, number[]> = {};
+  // 2026-11-06: one within-day, regular-session history per ticker (server/streamSignals.ts)
+  const streamHistory: Record<string, StreamHistory> = {};
   const streamLastSignal: Record<string, number>     = {};
   let   streamWs: WebSocket | null = null;
   // RECONNECT CHAIN FIX 2026-11-05: the one pending reconnect (see startStreaming)
@@ -9744,8 +9741,7 @@ except: print('{}')
     delete monitoredPositions[ticker];
     // OOM fix: clean up stream data for non-base tickers to prevent unbounded growth
     if (!STREAM_TICKERS.includes(ticker)) {
-      delete streamVolHistory[ticker];
-      delete streamPriceHistory[ticker];
+      delete streamHistory[ticker];
       delete streamLastSignal[ticker];
     }
     if (positionSubscribedTickers.has(ticker)) {
@@ -10400,43 +10396,28 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
               });
             }
 
-            if (!streamVolHistory[ticker])   streamVolHistory[ticker]   = [];
-            if (!streamPriceHistory[ticker]) streamPriceHistory[ticker] = [];
-            streamVolHistory[ticker].push(volume);
-            streamPriceHistory[ticker].push(close);
-            if (streamVolHistory[ticker].length   > 20) streamVolHistory[ticker].shift();
-            if (streamPriceHistory[ticker].length > 20) streamPriceHistory[ticker].shift();
-            if (streamVolHistory[ticker].length < 5) continue;
-
-            const volArr  = streamVolHistory[ticker].slice(0, -1);
-            const avgVol  = volArr.reduce((a: number, b: number) => a + b, 0) / volArr.length;
-            const volRatio = avgVol > 0 ? volume / avgVol : 1;
-            const barChg   = open_ > 0 ? ((close - open_) / open_) * 100 : 0;
-            const ph       = streamPriceHistory[ticker];
-            const mom5     = ph.length >= 5 ? ((ph[ph.length-1] - ph[ph.length-5]) / ph[ph.length-5]) * 100 : 0;
-
-            // Signal: volume 2.5x+ average AND directional price move
-            if (volRatio >= 2.5 && Math.abs(barChg) >= 0.8 && Math.abs(mom5) >= 0.3) {
-              const cooldown = 10 * 60 * 1000;
-              if (Date.now() - (streamLastSignal[ticker] || 0) < cooldown) continue;
-              if (!haltAllows(currentHaltState(), "entry")) continue;
-
-              streamLastSignal[ticker] = Date.now();
-              const dir = barChg > 0 ? "bullish" : "bearish";
-              audit("STREAM-SIGNAL", `${ticker}: ${volRatio.toFixed(1)}x vol, ${barChg > 0 ? "+" : ""}${barChg.toFixed(2)}% bar (${dir}) — queued for fast scan`);
-
-              // Queue for priority processing in next Tier 2 cycle
-              if (!Array.isArray((state as any).streamSignalQueue)) (state as any).streamSignalQueue = [];
-              const queue: any[] = (state as any).streamSignalQueue;
-              // Deduplicate and cap
-              if (!queue.find((s: any) => s.ticker === ticker)) {
-                queue.push({ ticker, price: close, direction: dir, volRatio, barChg, ts: Date.now() });
-              }
-              // Expire signals older than 5 minutes
-              (state as any).streamSignalQueue = queue
-                .filter((s: any) => Date.now() - s.ts < 300_000)
-                .slice(-20);
-            }
+            // ── Tier-0 stream signal (2026-11-06): measured, never traded ──
+            // Regular-session bars only, in a within-day history, so the
+            // opening auction is not compared with thin pre-market bars.
+            // Each flag is logged with its price for the gate-2 test
+            // (scripts/stream_signal_gate2.py). See server/streamSignals.ts.
+            const sess = etSession(String(item.t || ""));
+            if (!sess || !isRegularSessionMinute(sess.minute)) continue;
+            const hist = pushRegularBar(streamHistory[ticker], sess.day, volume, close);
+            streamHistory[ticker] = hist;
+            const sig = detectStreamSignal(hist, open_, close);
+            if (!sig) continue;
+            if (Date.now() - (streamLastSignal[ticker] || 0) < STREAM_SIGNAL.COOLDOWN_MS) continue;
+            // unchanged: no flag while entries are halted (server/haltScope.test.ts)
+            if (!haltAllows(currentHaltState(), "entry")) continue;
+            streamLastSignal[ticker] = Date.now();
+            const logged = streamSignalLogEnabled() && appendStreamSignal({
+              bar_start: String(item.t), logged_at: new Date().toISOString(), et_day: sess.day, et_minute: sess.minute,
+              ticker, price: close, open: open_, volume, avg_volume: Math.round(sig.avgVolume),
+              vol_ratio: Number(sig.volRatio.toFixed(2)), bar_pct: Number(sig.barPct.toFixed(3)),
+              mom5_pct: Number(sig.mom5Pct.toFixed(3)), direction: sig.direction,
+            });
+            audit("STREAM-SIGNAL", `${ticker}: ${sig.volRatio.toFixed(1)}x vol, ${sig.barPct > 0 ? "+" : ""}${sig.barPct.toFixed(2)}% bar (${sig.direction}) at ${close} — ${logged ? "logged for its gate-2 test" : "NOT logged (log off or write failed)"}; not traded`);
           }
         }
       } catch (_) {}
