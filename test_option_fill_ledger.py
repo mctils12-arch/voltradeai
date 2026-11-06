@@ -260,7 +260,9 @@ class TestOrderPathsWriteAfterThePost(_LedgerDir):
                                         qty=1, limit_price=-0.55, label="bear call")
         self.assertEqual(res["order_id"], "mleg-entry")
         payload = post.call_args.kwargs["json"]
-        self.assertEqual((payload["order_class"], payload["limit_price"], payload["type"]), ("mleg", "0.55", "limit"))
+        # 2026-11-06 (mleg limit sign, human-approved): this credit's -0.55 now goes out signed,
+        # as Alpaca's mleg notation requires; the old pin "0.55" was the abs() that made it a debit cap.
+        self.assertEqual((payload["order_class"], payload["limit_price"], payload["type"]), ("mleg", "-0.55", "limit"))
         rows = _rows(self.dir)
         self.assertEqual([(r["order_id"], r["symbol"], r["side"], r["mid"]) for r in rows],
                          [("mleg-entry", "SPY261218C00560000", "sell", 1.05), ("mleg-entry", "SPY261218C00570000", "buy", 0.45)])
