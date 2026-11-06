@@ -125,3 +125,24 @@ test("wiring ratchet: /api/bot/account serves `today` from todayTile, reading th
   assert.doesNotMatch(helper, /await/, "the account poll never waits on an Alpaca bars fetch");
   assert.match(helper, /void spyBenchBars\(/, "a cold or expired cache is warmed for the next poll");
 });
+
+test("SPY's side names its basis ([RULE-REVIEW] 2026-11-05): price only, no dividends, like the paper account", () => {
+  assert.equal(TODAY_SOURCE, "Alpaca paper account: equity now vs last_equity (the prior session's 16:00 ET close) · SPY: today's daily bar vs the prior close, price only, no dividends, like the paper account (Alpaca bars, adjustment=split, feed iex)");
+  assert.doesNotMatch(TODAY_SOURCE, /dividend-adjusted|total return/);
+});
+
+test("on SPY's ex-dividend day the tile is like for like: an account holding only SPY, credited no dividend, reads 0.00 pp against the price-only bar", () => {
+  // 2026-09-18, SPY ex $1.889: 762.60 → 761.69 on price (Yahoo closes); dividend-adjusted, the prior close
+  // would be 762.60 × (1 − 1.889 / 762.60) = 760.71 and SPY would read +0.13 % while the holder lost 0.12 %
+  const at = Date.parse("2026-09-18T19:00:00Z"); // 15:00 ET
+  const priceBars = [{ date: "2026-09-17", close: 762.6 }, { date: "2026-09-18", close: 761.69 }];
+  const held = (100_000 * 761.69) / 762.6;
+  const t = todayTile({ equity: held, lastEquity: 100_000, spyBars: priceBars, spyFetchedAt: at - 60_000, nowMs: at });
+  assert.equal(t.pnl_pct, -0.12);
+  assert.equal(t.spy_pct_today, -0.12);
+  assert.equal(t.excess_pct, 0);
+  const totalBars = [{ date: "2026-09-17", close: 760.71 }, { date: "2026-09-18", close: 761.69 }];
+  const old = todayTile({ equity: held, lastEquity: 100_000, spyBars: totalBars, spyFetchedAt: at - 60_000, nowMs: at });
+  assert.equal(old.spy_pct_today, 0.13);
+  assert.equal(old.excess_pct, -0.25, "the dividend-adjusted series charged the account the dividend it never received");
+});

@@ -69,7 +69,7 @@ function todayFixture(equityNow, prevClose, spyPct, now, ago, spyReason) {
   return { day, equity_now: equityNow, equity_prev_close: prevClose, pnl_usd: r2(equityNow - prevClose), pnl_pct: pct, pnl_reason: null,
     spy_pct_today: spyPct, spy_asof: spyPct === null ? null : ago(4), spy_bar_date: spyPct === null ? null : day, spy_reason: spyReason,
     excess_pct: spyPct === null ? null : r2(pct - spyPct), asof: new Date(now).toISOString(),
-    source: "Alpaca paper account: equity now vs last_equity (the prior session's 16:00 ET close) · SPY: today's daily bar vs the prior close, dividend-adjusted (Alpaca bars, feed iex)" };
+    source: "Alpaca paper account: equity now vs last_equity (the prior session's 16:00 ET close) · SPY: today's daily bar vs the prior close, price only, no dividends, like the paper account (Alpaca bars, adjustment=split, feed iex)" };
 }
 function botFixtures({ latched }) {
   const now = Date.now();
@@ -166,7 +166,7 @@ function botFixtures({ latched }) {
     const last = rows[rows.length - 1];
     return { rows: rows.reverse(), summary: { from: kept[0].date, to: last.date, botCumPct: last.botCumPct, spyCumPct: last.spyCumPct, cumDiffPp: last.cumDiffPp, daysBeat: beat, daysCompared: rows.length, gapRows: 1, botMaxDdPct: r2(ddB), spyMaxDdPct: r2(ddS) },
       barsThrough: last.date, curveThrough: last.date, fetchedAt: new Date(now).toISOString(), computedAt: new Date(now).toISOString(),
-      sources: { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, dividend-adjusted (Alpaca bars, adjustment=all, feed=iex)" },
+      sources: { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: "SPY daily closes, price return: SPY without dividends, because the paper account receives none (2026-11-05) (Alpaca bars, adjustment=split, feed=iex)" },
       cashFlows: { journals: 0, transfers: 0, since: "2026-05-07T00:00:00.000Z" } };
   })();
   const feats = ["momentum_1m", "momentum_3m", "rsi_14", "price_vs_52w_high", "volume_ratio", "ewma_vol", "atr_pct", "vrp", "iv_rank_proxy", "vwap_position", "adx", "range_pct", "vxx_ratio", "spy_vs_ma50", "markov_state", "regime_score", "sector_momentum", "cross_sec_rank", "earnings_surprise", "put_call_proxy", "vol_of_vol", "frac_diff_price", "idiosyncratic_ret", "change_pct_today", "above_ma10", "trend_strength", "intel_score", "news_sentiment", "insider_signal", "iv_rank_stock", "days_to_earnings", "credit_spread", "market_breadth", "put_call_ratio"];
@@ -266,9 +266,9 @@ function botFixtures({ latched }) {
     "/api/ticker-dossier": dossierFixture("NVDA", 183.2),
     // the live 2026-10-20 comparison (latched page) / no SPY series yet (idle page)
     "/api/bot/benchmark": latched
-      ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "all",
+      ? { since: { from: "2026-05-06", to: "2026-10-20", days: 167, accountPct: -6.9, spyPct: 5.24, gapPp: -12.15 }, d30: { from: "2026-09-20", to: "2026-10-20", days: 30, accountPct: -3.11, spyPct: 0.88, gapPp: -3.99 }, spyLast: { date: new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), pct: 0.25 }, barsThrough: "2026-10-20", fetchedAt: new Date(now).toISOString(), adjustment: "split", basis: "price return: SPY without dividends, because the paper account receives none (2026-11-05)",
           // the after-tax leg ([RULE-REVIEW] 2026-10-22, server/afterTaxBenchmark.ts): both sold 2026-10-20 at the default rates — a net realized loss (no tax, carried forward), open losses, SPY's one short-term sale
-          afterTax: { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, window: { from: "2026-05-06", to: "2026-10-20", days: 167 }, spy: { pct: 5.24, term: "short", taxPct: 1.26, afterTaxPct: 3.98 }, account: { pct: -6.9, taxPct: 0, afterTaxPct: -6.9, equityStart: 107_900, realizedTax: 0, liquidationTax: 0, openPnl: -4494.2, openTaxIfSold: 0 }, gapPp: -10.88, notes: ["both sold at 2026-10-20: an estimate at the rates shown — the paper account pays no tax", "SPY: its whole total return taxed once at the short-term rate; the dividends inside it would really be taxed each year at the qualified rate, so SPY's tax is slightly overstated (about (short − long) × yield), which flatters the account by that much", "account: the ledger's estimated tax on the trades closed in the window, plus what selling every open position would add — open P&L taxed as short-term (the conservative term) and netted the way the ledger nets, so open losses reduce the tax"] } }
+          afterTax: { rates: { shortTerm: 0.24, longTerm: 0.15, state: 0, niit: 0 }, window: { from: "2026-05-06", to: "2026-10-20", days: 167 }, spy: { pct: 5.24, term: "short", taxPct: 1.26, afterTaxPct: 3.98 }, account: { pct: -6.9, taxPct: 0, afterTaxPct: -6.9, equityStart: 107_900, realizedTax: 0, liquidationTax: 0, openPnl: -4494.2, openTaxIfSold: 0 }, gapPp: -10.88, notes: ["both sold at 2026-10-20: an estimate at the rates shown — the paper account pays no tax", "SPY: its price return, without dividends like the paper account, taxed once at the short-term rate; a real holder would also collect the dividends, taxed each year at the qualified rate, so leaving them out flatters the account by about yield × (1 − qualified rate)", "account: the ledger's estimated tax on the trades closed in the window, plus what selling every open position would add — open P&L taxed as short-term (the conservative term) and netted the way the ledger nets, so open losses reduce the tax"] } }
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
     // the daily scoreboard (fixture walk above) / not enough history on the idle page
     "/api/bot/scoreboard": latched ? scoreboard : { rows: [], summary: null, barsThrough: null, curveThrough: null, fetchedAt: null, cashFlows: null },
@@ -3626,7 +3626,7 @@ async function main() {
             for (const l of td.lines) if (l.cut) fail(`today: a line is cut short — "${l.text}"`);
             if (td.lines.length !== 3) fail(`today: ${td.lines.length} caption lines (expected the change, SPY, and prior → now)`);
             if (!td.help) fail("today: no help glyph");
-            if (!/last_equity/.test(td.title) || !/dividend-adjusted/.test(td.title)) fail(`today: the hover carries no provenance — "${td.title.slice(0, 120)}"`);
+            if (!/last_equity/.test(td.title) || !/price only, no dividends/.test(td.title)) fail(`today: the hover carries no provenance — "${td.title.slice(0, 120)}"`);
             const num = (s) => Number(s.replace(/−/g, "-").replace(/[$,%]/g, ""));
             const chg = /([−+]?\$[\d,]+) · ([−+]?\d+\.\d\d%)/.exec(td.text);
             const path = /prior (\$[\d,]+) → (\$[\d,]+)/.exec(td.text);
@@ -4070,7 +4070,7 @@ async function main() {
                   const p = document.querySelector('section.vt-bot-panel[data-panel="score"]');
                   if (!p) return null;
                   const pb = p.querySelector(".vt-bot-pb");
-                  return { rows: p.querySelectorAll(".vt-score-t tbody tr").length, hero: !!p.querySelector(".vt-score-hero"), src: /dividend-adjusted/.test(p.querySelector(".vt-score-src")?.textContent || ""), skel: !!p.querySelector('[aria-busy="true"]'), empty: !!p.querySelector(".vt-bot-empty"), h: Math.round(p.getBoundingClientRect().height), over: pb ? pb.scrollWidth - pb.clientWidth : 0 };
+                  return { rows: p.querySelectorAll(".vt-score-t tbody tr").length, hero: !!p.querySelector(".vt-score-hero"), src: /price-only daily closes, no dividends/.test(p.querySelector(".vt-score-src")?.textContent || ""), skel: !!p.querySelector('[aria-busy="true"]'), empty: !!p.querySelector(".vt-bot-empty"), h: Math.round(p.getBoundingClientRect().height), over: pb ? pb.scrollWidth - pb.clientWidth : 0 };
                 });
                 if (sb && !sb.skel) break;
                 await page.waitForTimeout(100);

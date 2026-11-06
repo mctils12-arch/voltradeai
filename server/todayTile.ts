@@ -57,8 +57,10 @@ export interface TodayInput {
   nowMs: number;
 }
 
+// SPY's side is the benchmark's own series: price return, split-adjusted with no dividends, like the
+// paper account, which is credited none (spyBenchmark.ts SPY_BENCH_ADJUSTMENT; 2026-11-05, was dividend-adjusted)
 export const TODAY_SOURCE =
-  "Alpaca paper account: equity now vs last_equity (the prior session's 16:00 ET close) · SPY: today's daily bar vs the prior close, dividend-adjusted (Alpaca bars, feed iex)";
+  "Alpaca paper account: equity now vs last_equity (the prior session's 16:00 ET close) · SPY: today's daily bar vs the prior close, price only, no dividends, like the paper account (Alpaca bars, adjustment=split, feed iex)";
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 /** the same parse evaluateDailyPnl applies to the raw account fields */

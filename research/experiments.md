@@ -114445,3 +114445,75 @@ Tests:
 - Existing options suites pass unchanged (306). They patch _submit_close_order, so they still pin each rule's own price; none needed the ladder switched off.
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (server/spyBenchmark.ts; server/bot.ts spyBenchBars, benchmarkBody, scoreboardBody; server/todayTile.ts; server/afterTaxBenchmark.ts; server/scoreboard.ts comment; client/src/bot wording; scripts/visual_check.mjs) — the SPY benchmark is price return: no dividends on either side, because the paper account is credited none
+VERSION: v1.0.1303 (shipped 2026-11-06 by the parent session; main was v1.0.1302)
+
+Human order: "Benchmark: fix the dividend mismatch. Either compare against SPY price-only return, or credit simulated dividends on SPY/SSO holdings in our P&L. Pick one, document it, and restate the since-May-6 and 30-day comparisons both ways once."
+
+Decision: compare against SPY's PRICE return. Crediting simulated dividends was not chosen: it would put cash the broker never paid into the account's P&L, a second ledger to keep honest. Price return on both sides needs nothing synthetic.
+
+The mismatch, with its ground truth:
+- Since 2026-10-20, server/bot.ts spyBenchBars fetched SPY with Alpaca adjustment=all, which adds dividends (total return).
+- The paper account is credited no dividends. Alpaca's own activity ledger (the sleeves probe, read 2026-11-05 ~17:45Z) shows dividends 0 since 2026-05-07: 1,127 FEE rows (−$124.04) and nothing else.
+- Over that time the floor held long QQQ lots open through QQQ's 2026-06-22 ($0.813) and 09-21 ($0.751) ex-dates (the lots probe), so a dividend was owed and none was booked. The 2026-10-20 ~21:50Z entry found the same.
+- So SPY was credited its dividend yield, about 1%/yr ($7.583 over the last four quarters on a $766.81 price), which the account could not earn by holding the same ETFs.
+
+The change (the yardstick only; nothing that trades reads it):
+- spyBenchmark.ts: SPY_BENCH_ADJUSTMENT = "split" and SPY_BENCH_BASIS = "price return: SPY without dividends, because the paper account receives none (2026-11-05)". The header states the basis, the reason and the bias.
+- bot.ts: spyBenchBars fetches SPY with SPY_BENCH_ADJUSTMENT. Its one cache feeds every reader: /api/bot/benchmark and the "benchmark" diag probe (one body, now `adjustment: "split"` plus `basis`), the after-tax leg, /api/bot/scoreboard (its `sources.spy` names the basis) and the account route's TODAY tile.
+- todayTile.ts TODAY_SOURCE says price only. afterTaxBenchmark.ts: SPY's leg is its price return taxed once at the sale; the bias note now says the dividends are left out (below).
+- Client wording only: the glossary (vs holding SPY, Daily vs SPY, Today, After tax vs SPY), the Today hover (both branches), the vs-SPY tile's hover and the scoreboard's source line. The Benchmark type gains `basis?`.
+
+Restatement (once). The first two rows are the windows the live /api/diag/benchmark reports, read at 2026-11-05T17:39:34Z (its SPY bars fetched at 17:19:57Z). The 11-05 SPY bar was intraday then (about 12:20 ET), and so is the account's 11-05 point, the latest hourly snapshot. The last two rows end at the last complete session, the 11-04 close.
+
+| window | account % | SPY total return % | SPY price-only % | gap (total) | gap (price-only) |
+|---|---|---|---|---|---|
+| 2026-05-06 → 2026-11-05 (183 d, 11-05 intraday) | −15.62 | +1.46 | +0.95 | −17.08 | −16.57 |
+| 2026-10-06 → 2026-11-05 (30 d, 11-05 intraday) | −14.84 | −4.92 | −4.92 | −9.92 | −9.92 |
+| 2026-05-06 → 2026-11-04 close (182 d) | −12.16 | +5.02 | +4.49 | −17.18 | −16.65 |
+| 2026-10-05 → 2026-11-04 close (30 d) | −11.20 | −1.04 | −1.04 | −10.17 | −10.17 |
+
+Sources and method:
+- Rows 1–2, account % and SPY total return: the live probe (Alpaca bars, adjustment=all, feed iex). This is the "before".
+- Rows 1–2, SPY price-only: Yahoo's chart API, using the split-adjusted close (indicators.quote close) with the SAME end price as the probe. That end price is Yahoo's 11-04 close of 766.81 moved by the probe's own spyLast (−3.39 %), giving 740.82. Since 05-06: 740.82 / 733.83 − 1 = +0.95 %. The 30 days hold no ex-date, so price return equals total return there.
+- Rows 3–4: the live equity curve (equity_curve probe, 18:12Z): 05-06 106,742.68, 10-05 105,592.66, and 11-04 93,765.00 (after-close). SPY comes from Yahoo: total return from adjclose, price from close. The live curve's 10-06 (105,773.85) and 11-05 (90,072.76) points reproduce rows 1–2's −15.62 and −14.84.
+- The dividends in the since window: $1.904 ex 06-18 (0.257 % of the 06-17 close 740.96) and $1.889 ex 09-18 (0.248 % of 762.60). Together they compound to 0.507 % of the start price: 0.51 pp at today's level and 0.53 pp at the 11-04 close.
+- Yahoo data: the chart API answered 429 to every request today (43 requests, 17:40–18:05Z, about 20 s apart). The figures use the same API's response cached in this workspace at 2026-11-04 04:02Z (bars through the 11-03 close, with the dividend events), plus the 11-04 close from a Yahoo download cached at 14:57Z today. Neither has an ex-date after 09-18, so 11-04's close is the same on both bases.
+
+Cross-check of the total-return figure:
+- Since 05-06, Yahoo's dividend-adjusted close gives 740.82 / 730.13 − 1 = +1.46 %, the same as the live +1.46. The end price is shared by construction. The independent part is the start: Yahoo's dividend-adjusted 05-06 close equals the 733.83 split close times the two ex-date factors to the cent, and matches Alpaca's adjustment=all series to 0.01 pp.
+- 30 days: Yahoo gives −4.91 against the live −4.92. That 0.01 pp is the probe's 2-dp rounding of spyLast (±0.005 % on the end price) plus IEX against consolidated closes.
+- Dropping today's intraday bar: from 05-06 and from 10-06 to the 11-04 close, Yahoo gives +5.02 and −1.58 total return. The live probe's own numbers imply the same: (1.0146 / 0.9661) − 1 = +5.02 and (0.9508 / 0.9661) − 1 = −1.58.
+- The 15:30Z read (since +2.38, 30-day −4.06, account −15.31 / −14.53) differs only because SPY's 11-05 bar and the account's 11-05 point moved during the session (SPY fell from about −2.5 % to −3.39 % on the day). Restated, it gives since +1.86 price-only and a gap of −17.69 → −17.17; the 30-day gap of −10.47 does not change.
+- After tax (live, 24 %): SPY goes from +1.11 to +0.72 (0.95 less 0.23 tax), and the after-tax gap from −18.93 to −18.54. The account's −17.82 does not change.
+
+MEASUREMENT INTEGRITY:
+- Before and after on identical inputs: the table above (the same account values and end prices; only SPY's adjustment differs). server/spyBenchmark.test.ts pins rows 1–4.
+- Bias direction: the account reads BETTER by SPY's dividends inside the window. Today that is +0.51 pp since 05-06 (+0.53 at the 11-04 close; the "≈0.6" estimate computes to 0.507 %), 0 over 30 days (no ex-date since 09-18), and +0.39 pp after tax.
+- Justification: a named mismatch with an external ground truth. Alpaca's activity ledger shows no dividend credited to the account, so a total-return SPY compares a dividend-earning holder with an account that cannot earn one.
+- Against a real SPY holder, who collects the dividends, the account is flattered by about the yield (about yield × (1 − qualified rate), ≈0.43 pt, after tax). Both module notes say so.
+- This changes only the yardstick: no Python, order path, kill switch, sizing or scoring. Nothing that trades reads the benchmark, the scoreboard or the TODAY tile.
+
+Downstream:
+- Benchmark and diag probe: since.spyPct drops and gapPp rises by the window's dividends (0.51 pp today). The 30-day window moves only when an ex-date falls inside it: after SPY's next ex-date (mid-December), its SPY number reads about 0.25 pp lower for 30 days.
+- Scoreboard: only ex-date rows change (06-18 and 09-18, SPY's day about 0.25 pp lower), so "beat SPY" can gain up to 2 days. Cumulative SPY ends 0.51 pp lower, and SPY's max drawdown can shift slightly.
+- TODAY tile: the same except on an ex-date, where SPY now shows the drop the account's holdings also take (the new test: a SPY-only account reads 0.00 pp, where the old series showed −0.25).
+
+Rollback trigger: any dividend row (DIV, DIVCGL, DIVCGS, DIVNRA, DIVROC, DIVTXEX, CGD) in the account's activity ledger, that is the sleeves probe's nonTrade.groups.dividends ≠ 0. The account would then be earning dividends, and SPY goes back to adjustment=all.
+
+Tests:
+- server/spyBenchmark.test.ts +3:
+  - the constants, pinned exactly;
+  - a wiring ratchet: one split-adjusted SPY fetch fills the one cache; benchmarkBody carries the adjustment and the basis; the scoreboard's sources name the basis; todayFor reads the same cache. It fails against the pre-change bot.ts.
+  - the restatement on identical inputs with the live curve's values: rows 1–4 above, both bases.
+- server/todayTile.test.ts +2: TODAY_SOURCE pinned exactly; the ex-date day reads like for like.
+- server/afterTaxBenchmark.test.ts +1: the SPY note pinned exactly (and its long-term form); no note claims a total return.
+- client/src/bot/today.test.ts: the `/dividend-adjusted/` match became an exact match on the new sentence, plus a no-old-wording check and the missing-SPY branch.
+- scripts/visual_check.mjs: the fixtures mirror the new payloads, and the two provenance checks match the new wording (the Today check runs on both bot pages; both hover branches now carry "price only, no dividends").
+- Existing benchmark, scoreboard, diag, TODAY and after-tax tests pass unchanged.
+- Visual harness (promotion rule 6, fresh build): bot PASSES at 390, 768, 1440 and 1920, and botidle at 390, 768 and 1440, with 0 hard failures. The only on-page change is the scoreboard's source line: three lines at 390, two at 768 and one at 1440/1920, inside its panel. Everything else is hover or glossary text.
+
+Not done here: the package.json version bump (the integration commit carries it). docs/audits/trading-engine-audit.md (dated 2026-10-27) still describes the total-return series as it was then; it is left as a point-in-time record.
+
+STARVED: no.

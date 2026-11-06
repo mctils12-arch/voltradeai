@@ -187,7 +187,7 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
           <div className="vt-bot-eb">vs holding SPY<Help k="vsSpy" /></div>
           {bench?.since ? (
             <>
-              <div className="vt-bot-kpiv" data-flash={flashAttr(flash?.vsSpy, now)} title={`account return minus SPY total return (dividend-adjusted closes through ${bench.barsThrough ?? "?"}), ${bench.since.from} to ${bench.since.to}`}>
+              <div className="vt-bot-kpiv" data-flash={flashAttr(flash?.vsSpy, now)} title={`account return minus SPY's price return (closes without dividends, like the paper account, through ${bench.barsThrough ?? "?"}), ${bench.since.from} to ${bench.since.to}`}>
                 <span className={bench.since.gapPp < 0 ? "vt-bot-r" : "vt-bot-g"}>{fmtSigned(bench.since.gapPp, 1, " pt")}</span>
               </div>
               <div className="vt-bot-t3 vt-bot-m" style={{ fontSize: 11, lineHeight: 1.35 }}>

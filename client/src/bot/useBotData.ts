@@ -117,12 +117,13 @@ export interface Insight {
 export interface LastScanPick { ticker: string; score: number; price?: number; change_pct?: number; side?: string; action_label?: string; reasons?: string[]; rank?: number; tiebreak_score?: number | null; factor_strength?: number | null; sector_clash?: boolean; sector?: string | null; factors?: { momentum?: number | null; mean_reversion?: number | null; vrp?: number | null; squeeze?: number | null; volume?: number | null } }
 export interface LastScan { timestamp?: string; scanned?: number; filtered?: number; deep_analyzed?: number; current_positions?: number; slots_available?: number; options_slots_available?: number; partial?: boolean; new_trades?: unknown[]; top_10?: LastScanPick[]; sizing_blocks?: Array<{ ticker: string; reason: string; score?: number | null; strategy?: string }>; scan_phase_times?: unknown }
 /** GET /api/bot/benchmark (server/spyBenchmark.ts): the account vs
- *  buy-and-hold SPY on dividend-adjusted closes. Null windows = not enough
+ *  buy-and-hold SPY on split-adjusted closes: price return, no dividends, like
+ *  the paper account (2026-11-05; `basis` says so). Null windows = not enough
  *  data on one side — never a zero. */
 export interface BenchWindow { from: string; to: string; days: number; accountPct: number; spyPct: number; gapPp: number }
 export interface Benchmark {
   since: BenchWindow | null; d30: BenchWindow | null; spyLast: { date: string; pct: number } | null;
-  barsThrough: string | null; fetchedAt?: string | null; adjustment?: string; error?: string;
+  barsThrough: string | null; fetchedAt?: string | null; adjustment?: string; basis?: string; error?: string;
   afterTax?: AfterTaxBenchmark | null;
 }
 /** server/afterTaxBenchmark.ts: the same comparison with both legs sold at the window's end —

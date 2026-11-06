@@ -4,7 +4,9 @@
 // SAME inputs as /api/bot/benchmark (server/spyBenchmark.ts): the bot's own
 // daily equity curve (Alpaca /v2/account portfolio_value, one row per UTC
 // date, written by the hourly tier-3 job, last write before 00:00Z = after
-// the close) and SPY's dividend-adjusted (total-return) daily closes.
+// the close) and SPY's split-adjusted daily closes: price return with no
+// dividends, like the paper account, which is credited none (2026-11-05; the
+// series was dividend-adjusted total return before).
 //
 // HONESTY RULES (each pinned by server/scoreboard.test.ts):
 //   - A row exists only for a SESSION date — an equity point whose date has

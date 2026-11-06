@@ -27,7 +27,9 @@ test("a down day against an up SPY: the change in $ and %, SPY with its own cloc
   assert.equal(v.pathValue, "$100,423 → $100,172");
   assert.match(v.title, /equity \$100,172\.07 now vs \$100,423\.31 at the prior close/);
   assert.match(v.title, /last_equity/);
-  assert.match(v.title, /dividend-adjusted/);
+  // SPY's basis (2026-11-05): price only, no dividends, like the paper account (was /dividend-adjusted/)
+  assert.match(v.title, /SPY \+0\.25% today: its daily bar against the prior close, price only, no dividends \(Alpaca bars, feed iex; fetched 12:02 ET\)/);
+  assert.doesNotMatch(v.title, /dividend-adjusted|total return/);
   assert.match(v.title, /read 12:06:00 ET/);
   assert.match(v.title, /headline −0\.50 pp = account − SPY in percentage points/);
   noLeak(v);
@@ -56,6 +58,7 @@ test("SPY missing: the headline is a dash and the SPY line carries the server's 
   assert.equal(v.change, `${MINUS}$251 · ${MINUS}0.25%`);
   assert.match(v.title, /headline — needs both sides/);
   assert.match(v.title, /never an older day's move/);
+  assert.match(v.title, /\(daily bars, price only, no dividends; SPY's side stays empty until today's bar exists/, "the missing side names the same basis, in the same words the harness checks on both pages");
   noLeak(v);
   const cold = todayView({ ...T, spy_pct_today: null, spy_asof: null, spy_bar_date: null, spy_reason: "no SPY bars fetched yet", excess_pct: null }, NOW, true);
   assert.equal(cold.spyNote, "no bars yet");

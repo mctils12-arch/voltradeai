@@ -2,11 +2,23 @@
 // GOAL's own yardstick (CLAUDE.md priority 3). Pure; server/bot.ts fetches
 // the bars and serves GET /api/bot/benchmark.
 //
-// MEASUREMENT NOTES (2026-10-20, [RULE-REVIEW]):
-//   - SPY bars are DIVIDEND-adjusted (Alpaca adjustment=all), so SPY is a
-//     total-return benchmark. A split-only series would understate SPY by
-//     its ~1.2%/yr yield and flatter the account — the wrong direction for
-//     an honesty metric.
+// MEASUREMENT NOTES (2026-10-20, [RULE-REVIEW]; SPY's basis changed
+// 2026-11-05, [RULE-REVIEW], human-ordered "fix the dividend mismatch"):
+//   - SPY is PRICE RETURN: the bars are split-adjusted only (Alpaca
+//     adjustment=split, SPY_BENCH_ADJUSTMENT), with no dividends. The paper
+//     account is credited no dividends: its activity ledger has no dividend
+//     row since May (the sleeves probe, 2026-10-20 and again 2026-11-05),
+//     though the floor held QQQ over its 2026-06-22 and 09-21 ex-dates
+//     ($0.813 and $0.751 a share). The total-return series used until
+//     2026-11-05 (adjustment=all) credited SPY with its dividend yield, about
+//     1%/yr (the last four dividends, $7.58, on a ~$767 price), which the
+//     account could not earn by holding the same ETFs. Price on both sides is
+//     like for like.
+//   - BIAS, stated: against a real SPY holder, who collects the dividends,
+//     this reads the account better by SPY's dividends over the window
+//     (0.51 pt over 2026-05-06 → 11-05: $1.904 ex 06-18 and $1.889 ex 09-18,
+//     Yahoo; the 30 days to 11-05 hold no ex-date and do not move). If the
+//     paper account is ever credited dividends, go back to adjustment=all.
 //   - The equity curve keeps one row per UTC date, last written by the
 //     hourly tier-3 job before 00:00Z (~19-20 ET), i.e. after the close; each
 //     row is compared with the SPY close of the same date, or the latest
@@ -30,6 +42,11 @@ export interface Benchmark {
 export const BENCH_SHORT_WINDOW_DAYS = 30;
 /** How long the server keeps fetched SPY bars (the series moves daily). */
 export const SPY_BENCH_CACHE_MS = 30 * 60_000;
+/** The Alpaca adjustment of the SPY series every benchmark reader shares: splits only, so price
+ *  return without dividends, like the paper account ([RULE-REVIEW] 2026-11-05; was "all"). */
+export const SPY_BENCH_ADJUSTMENT = "split" as const;
+/** Served beside the numbers, so every reader knows which SPY they are. */
+export const SPY_BENCH_BASIS = "price return: SPY without dividends, because the paper account receives none (2026-11-05)";
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const dayMs = (d: string) => Date.parse(`${d}T00:00:00Z`);
