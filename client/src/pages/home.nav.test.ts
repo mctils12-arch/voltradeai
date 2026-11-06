@@ -1,12 +1,16 @@
-// Source-text pins for the 2026-10-29 Trade-world change (human: "I want
+// Source-text pins for the 2026-10-29 Trade-world change (human: "trade data
+// forecast brain ai engine, what do we need, it seems like a lot … I want
 // this moving map like this but more modern as well for some of the screens
 // … if you look for a ticker symbol and then you might want the stock vs.
 // options info on it, and trade information"; on the first preview: "it
 // needs to look like the bot UI but have the functionality of what's there
 // and no duplicates").
 //
-// Pinned here so the next session cannot quietly move the map back into one
-// page, re-route the old pages, or drop what the old pages showed:
+// Pinned here so the next session cannot quietly re-grow the nav, move the
+// map back into one page, re-route the old pages, or drop what they showed:
+//   0. the owner reaches the bot page, Dossier, Forecast and Brain through ONE
+//      drop-down (ENGINE_MENU), not four direct buttons, and every one of them
+//      stays a TABS entry, so deep links and the phone More sheet keep working;
 //   1. the moving map (DataWorldMap) is mounted once by the shell for the
 //      Trade world (TradeBackdrop) and no longer by analyze.tsx;
 //   2. every Trade tab renders the one cockpit page (trade/TradePage) on the
@@ -29,6 +33,27 @@ const home = read("./home.tsx");
 const analyze = read("./analyze.tsx");
 const trade = read("../trade/TradePage.tsx");
 const css = read("../index.css");
+
+test("one owner-only AI Engine drop-down carries the bot page, dossier, forecast and brain", () => {
+  assert.match(home, /const ENGINE_MENU: NavMenu = \{\s*id: "engine", label: "AI Engine"/);
+  for (const tab of ["bot", "dossier", "forecast", "brain"]) {
+    assert.match(home, new RegExp(`key: "engine-[a-z]+"[^\\n]*action: \\{ kind: "tab", tab: "${tab}" \\}`), `ENGINE_MENU has a leaf for ${tab}`);
+  }
+  assert.match(home, /\(isOwner \? \[\.\.\.NAV_MENUS, ENGINE_MENU\] : NAV_MENUS\)\.map\(/, "the engine menu renders only for the owner");
+  assert.match(home, /engine: new Set<TabId>\(\["bot", "dossier", "forecast", "brain"\]\)/, "MENU_TABS highlights the engine menu for its tabs");
+});
+
+test("the four standalone owner buttons are gone from the desktop nav", () => {
+  for (const tab of ["forecast", "brain", "dossier", "bot"]) {
+    assert.doesNotMatch(home, new RegExp(`className=\\{\`tab-btn \\$\\{activeTab === "${tab}"`), `no direct tab-btn for ${tab}`);
+  }
+});
+
+test("every owner page is still a TABS entry (deep links + phone More sheet)", () => {
+  for (const id of ["forecast", "brain", "dossier", "bot"]) {
+    assert.match(home, new RegExp(`\\{ id: "${id}",[^\\n]*requiresOwner: true`), `${id} stays in TABS`);
+  }
+});
 
 test("the moving map is the Trade world's shared backdrop, mounted once by the shell", () => {
   assert.match(home, /import TradeBackdrop from "@\/components\/TradeBackdrop"/);
