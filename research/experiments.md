@@ -115960,3 +115960,14 @@ MERGE: docs-only log; safe any time.
 ## 2026-11-03 [NO-ACTION] — daily-evening (Tuesday, 20:16Z) — healthy; nothing changed since the midday review
 
 HEALTH (20:16Z): /api/health status ok, serving/jobs/feeds/regime all ok, liveness not dark, drawdown -4.7%, 0 unhandled rejections, 0 errored/late jobs. Main HEAD unchanged since midday session (#1589). Loop-health ratio: 2 REPAIR in last 10, no thrash. Queue unchanged from the midday triage (items all data-/date-/human-gated; time-stop ablation is a multi-session build); no duplicate research filed. No code changed. STARVED: no.
+
+## 2026-11-06 [NO-ACTION] — docs + research scripts (research/experiments.md, scripts/p3_realquote_check.py, scripts/edge_p1_gate1.py) — re-landed four orphaned PRs (#1466, #1592, #1591, #1552)
+VERSION: v1.0.1328 (shipped 2026-11-06 by the parent session; main was v1.0.1327)
+WHY: the human's refocus directive (2026-11-05): "No orphan PRs or half-built features sitting in GitHub." Four PRs from scheduled-routine sessions never merged:
+- #1466 (2026-10-26 evening) and #1592 (2026-11-03 evening): session logs (docs only). Their entries, including the 10-26 design note for CSP counterfactual logging, were missing from research/experiments.md.
+- #1591 (2026-11-03): `scripts/p3_realquote_check.py --fetch` compiles the post-close chain_vs fetch (DIAG_TOKEN) with a guard that refuses before 16:30 ET. P3 on the indicative feed was killed at gate 1 (#1594), but this is the tool for the filed follow-up (archive Cboe delayed chains forward).
+- #1552 (2026-10-29): `scripts/edge_p1_gate1.py`, Edge P1's gate-1 (DATA) check: our own OI-GEX against SqueezeMetrics' GEX, with the pre-registered verdict (PENDING below 40 overlapping days, KILL above 30% sign disagreement). The dealer-gamma filter shipped tonight (#1651) runs on SqueezeMetrics' rank; this checker is the path to our own GEX (see wishlist: SqueezeMetrics terms).
+CHANGE: the original commits cherry-picked unchanged (research entries kept both sides; their old package.json bumps dropped). No runtime effect: research tooling and docs only. One deploy for four no-runtime-effect re-lands (attribution is not at stake).
+ALSO CLOSED: #1593 (P3 day-2 duplicate of #1594, same verdict), #1506 (superseded: bot_engine half by #1641's broker clock, the rest by this night's N17 PR).
+TESTS: test_edge_p1_gate1.py, test_p3_realquote_check.py (the originals' tests).
+STARVED: no.
