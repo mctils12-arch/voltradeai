@@ -7951,52 +7951,27 @@ else:
     else:
         order = submit_options_order(contract)
     if order.get('status') in ('submitted','filled','pending_new','accepted'):
-        # P0-9 FIX: previous call passed delta as the 4th positional arg,
-        # but register_options_entry's signature is
-        # (occ_symbol, entry_price, side, strategy, delta=0, qty=1, ticker, setup, max_loss).
-        # So strategy was never registered, every position defaulted to
-        # strategy='' which broke grouping/profit-target/max-loss logic.
-        # Use kwargs + iterate ALL leg keys so multi-leg states get saved.
+        # P0-9 FIX: every leg is registered (options_manager.register_options_entry,
+        # by keyword) under the trade's strategy so the manager can group it.
+        # 2026-11-06 [REPAIR]: the legs are walked by options_execution.register_contract_entry,
+        # the same walk evaluate_and_execute uses (CONTRACT_LEG_KEYS, each leg on its own
+        # side). This script's own key list had no short_leg / long_leg, so a scanner
+        # bull_put_credit_spread registered neither leg, and it put every condor leg on
+        # the contract's side ('buy').
+        _legs = []
         try:
-            from options_manager import register_options_entry
-            _strategy = data.get('strategy','')
-            _ticker = data.get('ticker','')
-            _setup = data.get('setup','')
-            _max_loss = float(contract.get('max_loss', 0) or 0)
-            _leg_keys = ['occ_symbol','short_call','long_call','short_put','long_put','call_leg','put_leg']
-            _registered = set()
-            for _lk in _leg_keys:
-                _occ = contract.get(_lk,'')
-                if not _occ or _occ in _registered:
-                    continue
-                _registered.add(_occ)
-                # Each leg carries its own side / delta / qty if present,
-                # falling back to top-level contract fields.
-                _leg_side = contract.get(_lk + '_side') or contract.get('side','buy')
-                _leg_delta = contract.get(_lk + '_delta')
-                if _leg_delta is None: _leg_delta = contract.get('delta',0)
-                _leg_qty = contract.get(_lk + '_qty') or contract.get('qty',1)
-                _leg_price = contract.get(_lk + '_price') or contract.get('limit_price',0)
-                register_options_entry(
-                    occ_symbol=_occ,
-                    entry_price=float(_leg_price or 0),
-                    side=_leg_side,
-                    strategy=_strategy,
-                    delta=float(_leg_delta or 0),
-                    qty=int(_leg_qty or 1),
-                    ticker=_ticker,
-                    setup=_setup,
-                    max_loss=_max_loss,
-                )
-        except Exception as _e: pass
+            from options_execution import register_contract_entry
+            _legs = register_contract_entry(contract, data.get('strategy',''), data.get('ticker',''), data.get('setup',''))
+        except Exception as _e:
+            print(f'scanner-direct leg registration failed: {_e}', file=sys.stderr)
         # v1.0.33: Save options state for dashboard display (setup, strategy, expiry)
         # REPAIR 2026-10-20: MERGED into each key, never rewritten — the old
         # rewrite deleted the entry_timestamp/max_loss register_options_entry
         # just recorded above (iron condors closed minutes after opening).
         try:
             from options_manager import merge_options_meta
-            # P0-9 FIX: iterate all possible multi-leg keys, not just call/put.
-            merge_options_meta([contract.get(k,'') for k in ('occ_symbol','short_call','long_call','short_put','long_put','call_leg','put_leg')],
+            # P0-9 FIX: every registered leg, not just call/put.
+            merge_options_meta(_legs,
                                {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'ticker': data.get('ticker','')})
             merge_options_meta([data.get('ticker','')], {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'options_strategy': data.get('strategy','')})
         except: pass

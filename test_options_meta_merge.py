@@ -23,6 +23,7 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+import options_execution as real_oe   # 2026-11-06: the script registers legs through its shared walk
 import options_manager
 import storage_config
 
@@ -83,6 +84,7 @@ class ScannerDirectStateTest(unittest.TestCase):
             patch.dict(sys.modules, {"options_execution": types.SimpleNamespace(
                 select_contract=lambda *a, **k: dict(CONDOR),
                 submit_options_order=lambda c: {"status": "pending_new", "id": "x"},
+                register_contract_entry=real_oe.register_contract_entry,
             )}),
         ]
         for p in self.patches:
