@@ -625,6 +625,10 @@ REGIME_GUARD_KEYS = ("regime_knife", "regime_dip", "regime_panic", "regime_rs", 
 SCORE_BREAKDOWN_EXTRA_KEYS = (
     "recommendation", "contrarian", "rel_strength", "insider_mspr", "rules_raw",
 )
+# COMPOSITE v2 (2026-11-06, score_composite.py): the legacy and v2 composites
+# side by side, the points v2 removed and 1.0 when v2 was the served score.
+# Totals and a flag, not score components (so not source_validation sources).
+COMPOSITE_KEYS = ("composite_legacy", "composite_v2", "composite_v2_removed", "composite_v2_served")
 
 
 def _sanitize_score_breakdown(bd) -> dict | None:
@@ -633,7 +637,7 @@ def _sanitize_score_breakdown(bd) -> dict | None:
     if not isinstance(bd, dict) or not bd:
         return None
     out = {}
-    for k in SCORE_BREAKDOWN_KEYS + REGIME_GUARD_KEYS + SCORE_BREAKDOWN_EXTRA_KEYS:
+    for k in SCORE_BREAKDOWN_KEYS + REGIME_GUARD_KEYS + SCORE_BREAKDOWN_EXTRA_KEYS + COMPOSITE_KEYS:
         v = bd.get(k)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
             out[k] = round(float(v), 1)

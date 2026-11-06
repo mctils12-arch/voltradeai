@@ -60,6 +60,30 @@ BASE_CONFIG = {
     # more true positives than false positives in bull/neutral regimes.
     # Bear/panic regimes use their own higher thresholds (75+) regardless.
     "MIN_SCORE":            63,    # Optimized: 63 (was 65)
+    # COMPOSITE SCORE v2 2026-11-06 ([RULE-REVIEW], EXPLORATORY, kill date
+    # 2027-02-05; human refocus spec section 7 "cut what does not work";
+    # score_composite.py, evidence live on GET /api/bot/signals). The served
+    # deep_score holds three terms at their neutral values — volume sub-score
+    # 50, vol-premium bonus 0, relative-strength bonus 0: the 2017-2026
+    # point-in-time walk-forward (513 weekly dates, ~2,060 names a week)
+    # found each one's 5-day rank IC significantly negative after Bonferroni
+    # (-0.015 / -0.017 / -0.020), the same sign at 20 days, top-10 picks
+    # behind random entry. With ml_neutral the ML input of the blend is held
+    # at 50 (the legacy "uncertain" value): no honest out-of-sample test of
+    # these features shows skill (AUC 0.515 / 0.513) and the live v2 fit
+    # trains on per-scan duplicates. Prior behaviour: the legacy composite,
+    # still computed and logged as score_breakdown.composite_legacy.
+    # Expected effect: hot names (volume surge, outperformance, vol premium)
+    # lose up to ~20 points, so fewer clear MIN_SCORE; ranking among the
+    # deep-scored few shifts to the remaining terms. ROLLBACK: enabled False
+    # serves the legacy composite (v2 stays logged for comparison).
+    "SCORE_COMPOSITE_V2": {
+        "enabled": True,
+        "neutralize": ["volume", "vol_premium", "rel_strength"],
+        "ml_neutral": True,
+        "since": "2026-11-06",
+        "kill_date": "2027-02-05",
+    },
 
     # ── STOCK QUALITY FILTERS ─────────────────────────────────────────────────
     # 3-year backtest: penny stocks (<$5) = 25% WR. Volume 500K = liquidity minimum.

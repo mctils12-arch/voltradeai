@@ -59,6 +59,8 @@ export const BRAIN_CONFIG_MIRROR: Readonly<Record<string, unknown>> = Object.fre
   DRAWDOWN_HALT_ENABLED: true,
   POSITION_HARD_STOP_ENABLED: true,
   CONVEXITY_OVERLAY_enabled: false,
+  SCORE_COMPOSITE_V2_neutralize: ["volume", "vol_premium", "rel_strength"],
+  SCORE_COMPOSITE_V2_ml_neutral: true,
 });
 
 /** env var -> BASE_CONFIG key (regime_engine.FLAG_DEFAULTS + entry_shadow.CONFIG_KEY). */
@@ -143,6 +145,7 @@ export type StatusRule =
   | { by: "code"; status: BrainStatus; detail: string }
   | { by: "entries"; sleeve: "stocks" | "options" }
   | { by: "scored" }
+  | { by: "composite_term"; term: string }
   | { by: "regime_engine" }
   | { by: "selection_guard"; guard: string }
   | { by: "options_guard"; guards: string[] }
@@ -173,6 +176,20 @@ export function deriveStatus(rule: StatusRule, sw: Switches): StatusResult {
       return anyEntryLive
         ? { status: "live", status_source: entSrc, detail: `computed every scan; feeds the score that orders ${!sw.entries.stocks ? "stock" : "options"} entries` }
         : { status: "shadow", status_source: entSrc, detail: `computed every scan and logged; ${NOTHING_ORDERED} (VOLTRADE_SHADOW_ENTRIES=${JSON.stringify(sw.entries.flag.value)}, ${entSrc})` };
+    case "composite_term": {
+      // COMPOSITE v2 (2026-11-06, score_composite.py): a term the served score
+      // holds at its neutral value is computed and logged, never acted on.
+      const held = sw.config.SCORE_COMPOSITE_V2_neutralize;
+      const cut = rule.term === "ml"
+        ? sw.config.SCORE_COMPOSITE_V2_ml_neutral === true
+        : Array.isArray(held) && held.includes(rule.term);
+      if (!cut) return deriveStatus({ by: "scored" }, sw);
+      const why = rule.term === "ml"
+        ? "no honest out-of-sample test of its features shows skill (AUC 0.515 / 0.513)"
+        : "measured anti-predictive in the 2017-2026 point-in-time walk-forward";
+      return { status: "shadow", status_source: "config",
+        detail: `computed and logged every scan, held at its neutral value in the served score (composite v2, SCORE_COMPOSITE_V2, since 2026-11-06): ${why}` };
+    }
     case "regime_engine":
       return { status: sw.engine.on ? "live" : "off", status_source: sw.engine.flag.source,
         detail: `VOLTRADE_REGIME_ENGINE=${JSON.stringify(sw.engine.flag.value)} (${sw.engine.flag.source}); its state feeds the selection/CSP guards, sizing and labels below` };
@@ -358,12 +375,12 @@ export const BRAIN_COMPONENTS: readonly BrainComponent[] = Object.freeze([
   { id: "mean_reversion", name: "Mean-reversion sub-score (20%)", kind: "rule", group: "Stock score", does: "Mean-reversion sub-score, weight 0.20 (neutralized by the regime dip guard).", inventory_ref: "Rules composite: momentum 0.25", status: scored, short: src("adj.mean_reversion"), long: noLong },
   { id: "vrp", name: "VRP sub-score (25%)", kind: "rule", group: "Stock score", does: "Implied-minus-realized vol sub-score, weight 0.25.", inventory_ref: "Rules composite: momentum 0.25", status: scored, short: src("adj.vrp"), long: noLong },
   { id: "squeeze", name: "Squeeze sub-score (15%)", kind: "rule", group: "Stock score", does: "Short-squeeze sub-score, weight 0.15.", inventory_ref: "Rules composite: momentum 0.25", status: scored, short: src("adj.squeeze"), long: noLong },
-  { id: "volume", name: "Volume sub-score (15%)", kind: "rule", group: "Stock score", does: "Volume-surge sub-score, weight 0.15.", inventory_ref: "Rules composite: momentum 0.25", status: scored, short: src("adj.volume"), long: noLong },
-  { id: "vol_premium", name: "EWMA vol-premium bonus", kind: "rule", group: "Stock score", does: "+8/+5 points when EWMA implied premium is rich.", inventory_ref: "EWMA-premium bonus", status: scored, short: src("adj.vol_premium"), long: noLong },
+  { id: "volume", name: "Volume sub-score (15%)", kind: "rule", group: "Stock score", does: "Volume-surge sub-score, weight 0.15.", inventory_ref: "Rules composite: momentum 0.25", status: { by: "composite_term", term: "volume" }, short: src("adj.volume"), long: noLong },
+  { id: "vol_premium", name: "EWMA vol-premium bonus", kind: "rule", group: "Stock score", does: "+8/+5 points when EWMA implied premium is rich.", inventory_ref: "EWMA-premium bonus", status: { by: "composite_term", term: "vol_premium" }, short: src("adj.vol_premium"), long: noLong },
   { id: "macro_adj", name: "Macro adjustments", kind: "rule", group: "Stock score", does: "VIX regime ±5/-10, sector ±8, risk on/off -5/+3 points.", inventory_ref: "Macro adjustments: VIX regime", status: scored, short: src("adj.macro"), long: noLong },
   { id: "adx", name: "ADX trend bonus", kind: "rule", group: "Stock score", does: "+6/+3/-4 points by ADX.", inventory_ref: "OBV ±5", status: scored, short: src("adj.adx"), long: noLong },
   { id: "obv", name: "OBV bonus", kind: "rule", group: "Stock score", does: "±5 points by on-balance volume.", inventory_ref: "OBV ±5", status: scored, short: src("adj.obv"), long: noLong },
-  { id: "rel_strength", name: "Relative-strength bonus", kind: "rule", group: "Stock score", does: "+6 points for relative strength vs the market.", inventory_ref: "OBV ±5", status: scored, short: src("adj.rel_strength"), long: noLong },
+  { id: "rel_strength", name: "Relative-strength bonus", kind: "rule", group: "Stock score", does: "+6 points for relative strength vs the market.", inventory_ref: "OBV ±5", status: { by: "composite_term", term: "rel_strength" }, short: src("adj.rel_strength"), long: noLong },
   { id: "recommendation", name: "\"AI recommends\" boost", kind: "rule", group: "Stock score", does: "+8 when analyze.py's action contains BUY (direction-blind).", inventory_ref: "AI recommends", status: scored, short: src("adj.recommendation"), long: noLong },
   { id: "contrarian", name: "Contrarian / squeeze-watch flags", kind: "rule", group: "Stock score", does: "+10/+8/+4 contrarian flags, +10 \"Squeeze Watch\".", inventory_ref: "Contrarian flags", status: scored, short: src("adj.contrarian"), long: noLong },
   // ── rules (gates) ──
@@ -385,7 +402,7 @@ export const BRAIN_COMPONENTS: readonly BrainComponent[] = Object.freeze([
   { id: "live_exits", name: "Live stock exit ladder", kind: "rule", group: "Exits", does: "2×ATR stop, scale-outs in thirds, breakeven, trails, 7-day flat time stop — the only stock exit executor.", inventory_ref: "phase-1 stop clamp", status: { by: "code", status: "live", detail: "exits are never gated by entry shadow (bot.ts checkPositionOnTick)" }, short: { kind: "bucket", buckets: ["taken", "shadow_mode_entry:stocks"], blocks: false, label: "would-be and taken entries walked through the live exits (exit-aligned ruler)" }, long: { items: ["live_exit_base_rate"], reason: "Only a base rate exists: no alternative exit model has been tested against it." } },
   { id: "kill_switches", name: "Drawdown halts and kill switches", kind: "rule", group: "Risk", does: "Node -20% drawdown kill (was -10% until 2026-11-05), Python 18% halt, daily -3%, circuit breaker, POS-KILL.", inventory_ref: "Node drawdown kill", status: { by: "config_bool", key: "DRAWDOWN_HALT_ENABLED", detail: "risk mechanisms (frozen); not gated by entry shadow" }, short: { kind: "none", reason: "Not measured: kill thresholds have no counterfactual logging yet (inventory §2.11)." }, long: { items: [], reason: "Not yet measured." } },
   // ── models ──
-  { id: "ml_v2", name: "ML v2 (LightGBM) blend", kind: "model", group: "Models", does: "Win probability blended into the score at ~0.28–0.40 weight.", inventory_ref: "LightGBM global model", status: scored, short: { kind: "reference", name: "ml_only_score" }, long: { items: ["ml_v2_honest"] } },
+  { id: "ml_v2", name: "ML v2 (LightGBM) blend", kind: "model", group: "Models", does: "Win probability blended into the score at ~0.28–0.40 weight.", inventory_ref: "LightGBM global model", status: { by: "composite_term", term: "ml" }, short: { kind: "reference", name: "ml_only_score" }, long: { items: ["ml_v2_honest"] } },
   { id: "ml_v3", name: "ML v3 candidate", kind: "model", group: "Models", does: "Honest-CV candidate model; its probability is logged on every shadow record, never blended.", inventory_ref: null, ref_file: "research/ml_v3_eval.md", status: { by: "code", status: "shadow", detail: "ml_model_v3.py: promoted=False hard-coded; logged next to v2, never blended" }, short: { kind: "ml_v3_ic" }, long: { items: ["ml_v3_doc"], live: "ml_v3" } },
   { id: "final_score", name: "Final blended score", kind: "model", group: "Models", does: "Rules composite + adjustments, blended with ML, clamped 0–100: ranks every candidate.", inventory_ref: "rules·rw + ml·mw", status: scored, short: { kind: "reference", name: "score" }, long: noLong },
   { id: "forecast", name: "Weekly forecast screen", kind: "model", group: "Models", does: "Weekly up/down calls with probabilities for SPY, positions and candidates.", inventory_ref: null, ref_file: "forecast.py", status: { by: "code", status: "shadow", detail: "display and tracking only: nothing in the trading loop reads it" }, short: { kind: "forecast" }, long: { items: [], live: "forecast", reason: "Only the fit-time holdout exists (below)." } },

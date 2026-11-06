@@ -1663,6 +1663,16 @@ except Exception as e:
     combined_score = max(0, min(100, combined_score))
     rules_only_score = round(combined_score, 1)  # Capture BEFORE ML blend for attribution
     ml_only_score = None  # Set below if ML runs
+    # COMPOSITE v2 (2026-11-06, score_composite.py): its config, read once.
+    # The legacy score below is computed unchanged either way.
+    try:
+        import score_composite as _sc
+        _v2_cfg = _sc.v2_config()
+    except Exception as _v2_cfg_exc:
+        import logging as _v2_log
+        _v2_log.getLogger("bot_engine").warning(f"composite v2 config unreadable, serving the legacy score: {_v2_cfg_exc}")
+        _sc, _v2_cfg = None, None
+    _v2_ml_logged_only = bool(_v2_cfg and _v2_cfg["enabled"] and _v2_cfg["ml_neutral"])
 
     # ── ML Model Integration ──────────────────────────────────────────────────
     # PIPELINE 2026-10-16 (cockpit audit §4 layer 4): everything ml_score()
@@ -2102,7 +2112,8 @@ except Exception as e:
                 reasons.append(f"ML: uncertain ({ml_s:.0f}), using rules-only")
             else:
                 ml_s_blended = ml_s
-                reasons.append(f"ML model: {ml_result.get('ml_signal', 'HOLD')} ({ml_result.get('ml_confidence', 0):.0%} confidence)")
+                reasons.append(f"ML model{' (logged, not used by score v2)' if _v2_ml_logged_only else ''}: "
+                               f"{ml_result.get('ml_signal', 'HOLD')} ({ml_result.get('ml_confidence', 0):.0%} confidence)")
 
             combined_score = combined_score * rule_weight + ml_s_blended * ml_weight
             reasons.append(f"Blend: {rule_weight:.0%} rules + {ml_weight:.0%} ML")
@@ -2114,6 +2125,29 @@ except Exception as e:
         _ml_trace["error"] = f"{type(_ml_exc).__name__}: {_ml_exc}"[:200]
 
     combined_score = max(0, min(100, combined_score))
+
+    # ── COMPOSITE v2 (2026-11-06, [RULE-REVIEW] EXPLORATORY, kill date 2027-02-05) ──
+    # The legacy composite above is unchanged and logged (score_breakdown.
+    # composite_legacy). v2 (score_composite.py) holds the measured anti-
+    # predictive terms (volume, vol-premium, relative strength) and, with
+    # ml_neutral, the ML input at their neutral values; it is SERVED when
+    # BASE_CONFIG["SCORE_COMPOSITE_V2"]["enabled"]. Any failure serves legacy.
+    _composite_legacy = combined_score
+    _composite_v2 = None
+    if _sc is not None and _v2_cfg is not None:
+        try:
+            _composite_v2 = _sc.composite_v2(
+                rules_raw_score,
+                {"volume": volume_score, "vol_premium": vol_premium_bonus, "rel_strength": rel_strength_adjustment},
+                _ml_trace, _v2_cfg)
+        except Exception as _v2_exc:
+            import logging as _v2_log
+            _v2_log.getLogger("bot_engine").warning(f"composite v2 failed for {ticker}, serving the legacy score: {_v2_exc}")
+            _composite_v2 = None
+    _v2_served = bool(_composite_v2 is not None and _v2_cfg["enabled"])
+    if _v2_served:
+        combined_score = _composite_v2["score"]
+        reasons.append(_sc.reason_line(_composite_v2, _composite_legacy, _v2_cfg))
 
     # Store ml_features and regime on the result dict for entry_features logging
     # This is how the self-learning loop works: entry features saved at trade time,
@@ -2188,6 +2222,11 @@ except Exception as e:
             "rel_strength": round(rel_strength_adjustment, 1),
             "insider_mspr": round(insider_mspr_adjustment, 1),
             "rules_raw": round(rules_raw_score, 1),
+            # COMPOSITE v2 (2026-11-06): both composites on every record
+            "composite_legacy": round(_composite_legacy, 1),
+            "composite_v2": round(_composite_v2["score"], 1) if _composite_v2 else None,
+            "composite_v2_removed": round(_composite_v2["removed"], 1) if _composite_v2 else None,
+            "composite_v2_served": 1.0 if _v2_served else 0.0,
         }
         # REGIME ENGINE selection guards (step 4, shadow): 0/1 per guard + the
         # score points a live 'dip' neutralization would remove. None when the
@@ -2258,6 +2297,8 @@ except Exception as e:
         "entry_features": ml_features if 'ml_features' in locals() else None,
         # Score attribution (exposed at scan level via stock.get())
         "rules_only_score": rules_only_score,  # Pre-ML-blend score captured above
+        "score_legacy": round(_composite_legacy, 1),          # COMPOSITE v2 (2026-11-06)
+        "score_version": "v2" if _v2_served else "legacy",
         "ml_only_score": ml_only_score if ml_only_score is not None else None,  # FIX 2026-05-18: use rounded var
         "sector": _yf_sector,
         # 200d MA fields for ETF gate (alpha audit 2026-05-03)
