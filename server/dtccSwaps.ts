@@ -448,7 +448,7 @@ function appendSeenIdsIndex(dir: string, ids: string[]): void {
     fs.mkdirSync(dir, { recursive: true });
     fs.appendFileSync(seenIdsIndexPath(dir), zlib.gzipSync(ids.join("\n") + "\n"));
   } catch (e) {
-    console.error("[datacore] dtccswaps appendSeenIdsIndex:", e);
+    indexAppendFailed(e, ids.length);
   }
 }
 
@@ -461,7 +461,7 @@ async function appendSeenIdsIndexAsync(dir: string, ids: string[]): Promise<void
     await fs.promises.mkdir(dir, { recursive: true });
     await fs.promises.appendFile(seenIdsIndexPath(dir), await gzipAsync(ids.join("\n") + "\n"));
   } catch (e) {
-    console.error("[datacore] dtccswaps appendSeenIdsIndex:", e);
+    indexAppendFailed(e, ids.length);
   }
 }
 
@@ -741,6 +741,28 @@ function idsEmit(action: string, detail: string): void {
   if (idsAuditSink) {
     try { idsAuditSink(action, detail); } catch (e) { console.error("[datacore] dtccswaps audit sink threw:", e); }
   }
+}
+
+// ── ARCHIVE WRITE FAILURES ([REPAIR] 2026-11-06, archive integrity) ────────
+// The day file IS the archive; the seen-ID index, the in-memory claim and the
+// dedup DB only record what reached it. Before, a failed day-file write was a
+// console line and the fresh IDs were still appended to the index (and kept
+// in the claim), so those rows were treated as archived forever: a permanent
+// gap (CLAUDE.md priority 1: an archive gap never refills), and the volume is
+// short of space. Now nothing records them, the in-memory claim is dropped so
+// the next poll reloads the set from the index (which never got them) and
+// re-archives the rows, and the failure is an audit row (DTCC-ARCHIVE-ERROR).
+function archiveWriteFailed(e: unknown, rows: number, file: string): void {
+  seenIds = null; seenIdsEpoch++; seenIdsLoad = null; seenIdsMutations++;
+  idsEmit("DTCC-ARCHIVE-ERROR", `${rows} new row(s) not written to ${path.basename(file)}: ${e instanceof Error ? e.message : String(e)} — not recorded as seen; the next poll retries them`);
+}
+
+/** The rows reached the day file but their IDs did not reach the index: this
+ *  process still knows them (its in-memory claim stands), but after a restart
+ *  the index lacks them and a later poll archives them again — a duplicate,
+ *  never a gap. Loud, so the duplicate window is visible. */
+function indexAppendFailed(e: unknown, ids: number): void {
+  idsEmit("DTCC-ARCHIVE-ERROR", `seen-ID index append of ${ids} id(s) failed: ${e instanceof Error ? e.message : String(e)} — the rows are archived; after a restart a later poll may archive them again (a duplicate, never a gap)`);
 }
 
 function idsMismatch(kind: "decision" | "count", detail: string): void {
@@ -1073,12 +1095,14 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
   const store = mode === "memory" ? null : readyIdsStoreSync(dir);
   const d = decideFresh(rows, dir, mode, store);
   if (!d.fresh.length) { d.dualCountCheck(); return { newRows: 0, seenTotal: d.total() }; }
+  const freshIds = d.fresh.map((r) => r.disseminationId);
   try {
     fs.appendFileSync(dayFilePath(dir, observedDate), zlib.gzipSync(d.fresh.map((r) => JSON.stringify(r)).join("\n") + "\n"));
   } catch (e) {
-    console.error("[datacore] dtccswaps archive:", e);
+    const seenBefore = d.total() - new Set(freshIds).size;
+    archiveWriteFailed(e, d.fresh.length, dayFilePath(dir, observedDate));
+    return { newRows: 0, seenTotal: seenBefore };
   }
-  const freshIds = d.fresh.map((r) => r.disseminationId);
   appendSeenIdsIndex(dir, freshIds);
   insertFreshIds(d.store, freshIds);
   d.dualCountCheck();
@@ -1133,12 +1157,14 @@ async function archiveNewRowsOnce(rows: DtccSwapRow[], observedDate: string, bas
   }
   const d = decideFresh(rows, dir, mode, store, sliced);
   if (!d.fresh.length) { d.dualCountCheck(); return { newRows: 0, seenTotal: d.total() }; }
+  const freshIds = d.fresh.map((r) => r.disseminationId);
   try {
     await fs.promises.appendFile(dayFilePath(dir, observedDate), await gzipAsync(await jsonlPayloadAsync(d.fresh)));
   } catch (e) {
-    console.error("[datacore] dtccswaps archive:", e);
+    const seenBefore = d.total() - new Set(freshIds).size;
+    archiveWriteFailed(e, d.fresh.length, dayFilePath(dir, observedDate));
+    return { newRows: 0, seenTotal: seenBefore };
   }
-  const freshIds = d.fresh.map((r) => r.disseminationId);
   await appendSeenIdsIndexAsync(dir, freshIds);
   insertFreshIds(d.store, freshIds);
   d.dualCountCheck();
