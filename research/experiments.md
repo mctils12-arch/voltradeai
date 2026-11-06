@@ -115990,3 +115990,13 @@ ROLLBACK TRIGGER: an options scan reports CLOSED on a normal trading day while /
 TESTS: test_regular_hours_broker_clock.py (6: both helpers follow the clock inside the window, never ask it outside, a closed clock stops the scan with no data fetched, an unreadable clock keeps the time-of-day rule); 533 existing tests across the 30 test files that import either module + test_broker_clock_gate.py pass.
 ORPHAN: closes #1506 as superseded (bot_engine half by #1641, the rest here).
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — measurement (server/bot.ts recordDailyEquity + equity-curve load) — the equity curve keeps recording past 365 days: trim drops the oldest row; cap ten years
+VERSION: v1.0.1331 (shipped 2026-11-06 by the parent session; main was v1.0.1330)
+WHY (named bug, followups_1105): the curve is newest-first; recordDailyEquity did `unshift(today); if (length > 365) shift()` — shift() removes index 0, the row just added. From the 366th row (~2027-05-06 for this account; 185 rows today, 2026-05-06 -> 2026-11-06) every new day would be added and removed in the same call, freezing the equity curve, the SPY benchmark (benchmarkVsSpy), the scoreboard, the after-tax benchmark and the daily line on that date — silently. The 365 cap itself also meant since-inception figures would quietly become trailing-365-day figures after a year, while the human asks for performance "after-tax vs SPY" reported honestly.
+CHANGE: trim from the END (`length = EQUITY_CURVE_MAX_ROWS`), cap EQUITY_CURVE_MAX_ROWS = 3660 (ten years of daily rows, ~0.2 MB JSON) at load (prior `.slice(0, 365)`) and at record time. Prior value: 365.
+MEASUREMENT INTEGRITY: before vs after on identical inputs — today's 185 rows: identical output (nothing trimmed either way). The two differ only once the curve passes 365 rows: before, it froze; after, it keeps recording and keeps the inception row. Bias direction: none toward looking better — a frozen curve would have hidden whatever happened after the freeze date, good or bad.
+DOWNSTREAM: (1) the SPY-bars fetch for the benchmark/scoreboard spans from the curve's oldest date, so after year one it requests more history (one cached request); (2) the diag equity_curve probe still clamps its view to 365 days (a view limit, unchanged).
+ROLLBACK TRIGGER: a curve that loses its newest row or exceeds 3660 rows -> revert.
+TESTS: server/equityCurveRetention.test.ts (5; the real recordDailyEquity cut out of bot.ts: a full 3660-row curve records today and drops the oldest; the old bug's 365-row state records day 366; a same-day call updates in place and persists; the load slice uses the cap; the cap is 3660). 4 of the 5 fail on main's code. diag.test.ts passes; tsc 6; counter ratchet OK.
+STARVED: no.
