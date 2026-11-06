@@ -117,6 +117,12 @@ export class ReserveBudget {
   spend(value: number): void {
     if (this.active && Number.isFinite(value) && value > 0) this.left -= value;
   }
+
+  /** Give back dollars the snapshot already counted as pending — a scale-in tranche
+   *  spending its own reservation (position_mgmt counts unbought tranches as pending). */
+  release(value: number): void {
+    if (this.active && Number.isFinite(value) && value > 0) this.left += value;
+  }
 }
 
 /** The fields of a scan trade the reserve reads and, on a trim, rewrites. */

@@ -80,7 +80,10 @@ test("runUpgradeCandidates is no longer dead: tier2Intelligence calls it after e
 });
 
 test("runUpgradeCandidates re-checks each swap, keeps its original transmission calls, and records both fills", () => {
-  const fn = section("async function runUpgradeCandidates(", "// ── Overnight Research Engine");
+  // ends at the next section header (the scale-in executor follows it on the scale-in branch)
+  const whole = section("async function runUpgradeCandidates(", "// ── Overnight Research Engine");
+  const cut = whole.indexOf("// ── SCALE-IN BY THIRDS");
+  const fn = cut > 0 ? whole.slice(0, cut) : whole;
   assert.match(fn, /if \(state\.killSwitch \|\| !haltAllows\(currentHaltState\(\), "entry"\)\) break;/);
   assert.match(fn, /const pre = rotationPreflight\(rot, \{/);
   assert.match(fn, /isEntryShadowed\("stocks"\)/);

@@ -152,7 +152,10 @@ class TestManagePositions(TempLog):
     def test_without_the_hold_the_same_position_scales_out(self):
         actions, state = self.run_with(100)
         self.assertEqual(len([a for a in actions if a["type"] == "scale_out"]), 1)
-        self.assertEqual(state["scales_completed"], 1)
+        # pin updated 2026-11-06 (scale-out repair, PR #1663): manage_positions only RECOMMENDS a
+        # scale-out; the WS monitor records it once the shares actually sell, so the stop state's
+        # scales_completed stays 0 here (it was 1: the phantom scale-out the repair removes)
+        self.assertEqual(state["scales_completed"], 0)
         self.assertIsNone(state["tax_defer_until"])
 
     def test_a_stop_is_never_held(self):

@@ -115632,3 +115632,35 @@ ROLLBACK TRIGGER: rejected_cash_reserve candidates beat SPY over +20d by more th
 TESTS: test_position_mgmt.py (52), server/positionMgmt.test.ts (12), server/positionMgmtWiring.test.ts (6); fixture isolation added to test_third_leg_vrp_risk.py and test_entry_shadow.py (the reserve off there so the SVXY rules are pinned alone); exact pins updated: test_shadow_scan_gate_relabel SITES += rejected_cash_reserve, server/entryShadow.test.ts isEntryShadowed("stocks") 4 -> 5 (rotation's buy), ci/counter_baseline.txt + test_ts_code_only.py ts_any 1220 -> 1212 (the dead function's eight `: any` removed).
 
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (server/scaleIn.ts, server/bot.ts, bot_engine.py manage_positions, position_mgmt.py) — Scale-in by thirds; scale-out by thirds verified and repaired
+VERSION: v1.0.1320 (shipped 2026-11-06 by the parent session; main was v1.0.1319)
+
+WHY (human refocus spec 2026-11-05, section 4: "scale in systematically (e.g. thirds); scale out systematically (e.g. thirds) at defined targets"). Before this change every stock/ETF entry was bought whole. Scale-out by thirds existed (server/bot.ts checkPositionOnTick: sell 1/3 at +1R and 1/3 at +2R (+3R BULL, +1.5R CAUTION/BEAR/PANIC), trail the last third). Read in full this session, it was BROKEN in three ways:
+(a) bot_engine.manage_positions (run every ~45 s by Tier 1 and in every scan) only RECOMMENDS scale-outs (nothing executes its actions: server/daemonRouting.posMonitorSyncLines), but it wrote each recommendation into voltrade_stop_state.json as if executed (scales_completed +1, remaining_qty -1/3, breakeven on). syncMonitoredPositions takes the max of scales_completed, so whenever Python saw a 1R crossing first, the WS monitor skipped the real first-third sale, armed a breakeven stop, and later sized its final exit from the reduced remaining_qty, leaving shares unsold (pinned in test_scale_out_executed_state.py; the first test fails on the old code).
+(b) Those stranded shares stayed under pendingExit forever. The flag was preserved on every sync and cleared only when a stale order was cancelled, never after an exit filled short.
+(c) original_qty / remaining_qty were frozen at the first fill, so any shares added later (a partial entry fill completing, or a scale-in tranche) were never counted for the thirds or for the final exit.
+The live audit has no WS-SCALE-OUT rows in its retention window (stock entries have been rare), so this was verified in code and tests, not seen live.
+
+CHANGE:
+1. Scale-in (server/scaleIn.ts, ON; env VOLTRADE_SCALE_IN=off turns it off). executeTrades (stock and ETF substitution) and the morning queue buy only the first third, after the shadow gate. The plan is saved once the order is accepted (DATA_DIR/voltrade_scale_in_state.json). executeScaleInTranches runs every in-hours scan after rotation, inside 09:45-15:54 ET:
+   - Tranche 2 (confirmation): a later session than the entry, with the price within ±3% of the first fill.
+   - Tranche 3 (after tranche 2): a pullback at least half-way from the first fill toward the stop and still above it, or a breakout to a new high at least +4% over the first fill.
+   - The plan is cancelled when the position is gone, the price reaches the plan's stop (the sizing stop; for an ETF, estimated as 2x the stock's stop percent within 4-9%), the regime turns BEAR/PANIC, a scale-out begins, or 5 days pass. NEUTRAL only makes a tranche wait.
+   - A tranche passes the kill switch, halts, shadow mode, one working order per symbol, and the cash reserve, spending its own reservation: position_mgmt counts unbought tranches as pending.
+   - Tranche fills are not new ML entry records.
+   - Every plan, tranche and cancellation is audited (SCALE-IN / SCALE-IN-CANCEL / SCALE-IN-ERROR) and logged to voltrade_position_mgmt.jsonl (kind scale_in).
+2. Scale-out repair:
+   - manage_positions persists only executed scale-out state. Before the first scale-out, original_qty = remaining_qty = the live qty.
+   - Its final write merges any scale-out the monitor persisted during the pass.
+   - syncMonitoredPositions uses the whole live qty before the first scale-out, and keeps pendingExit only while an exit order for that ticker is still tracked.
+
+DOWNSTREAM (traced two steps): (a) an entry's first fill is 1/3 of the size -> its stop risk is 1/3 until confirmation -> more entries fit the reserve and heat cap at once (the reserve still holds the whole planned value); (b) a filled tranche grows the live position -> the next sync re-bases original/remaining qty -> the thirds and the final exit cover every share; (c) a scale-out cancels the remaining tranches, so the system never adds after it starts taking profit; (d) the old phantom first-third skip is gone, so 1R scale-outs now sell, which realizes more short-term gains earlier (a tax effect the taxfilter change measures).
+
+EXPECTED: most plans complete tranche 2 the next session or expire; tranche 3 is rarer. Average entry cost moves toward the confirmation price. Fewer full-size stop-outs on the entry day (only 1/3 is exposed).
+
+ROLLBACK TRIGGER: over 20+ completed plans, the average P&L of the tranche-2/3 shares (vs their fill) trails the first third's by more than the 0.2% round-trip cost of the extra orders -> VOLTRADE_SCALE_IN=off and review. Any recurrence of shares left behind after a full exit -> root-cause, per the recurrence rule.
+
+TESTS: server/scaleIn.test.ts (8), server/scaleInWiring.test.ts (6), test_scale_out_executed_state.py (6); server/positionMgmtWiring.test.ts slice adjusted for the new section; exact pin updated: server/entryShadow.test.ts isEntryShadowed("stocks") 5 -> 6 (the tranche executor).
+
+STARVED: no.

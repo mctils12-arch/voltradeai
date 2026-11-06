@@ -19,7 +19,7 @@ import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_I
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
-import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS, latestEtDate } from "./dailyMaintenance";
+import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS, latestEtDate, etClock } from "./dailyMaintenance";
 import {
   DAILY_LINE_CHECK_MS, DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS, FLOOR_VM_STATE_FILENAME, OPENING_DEFERRALS_FILENAME,
   appendOptionFillLedger, buildDailyLine, dailyLineDir, dailyLineDue, dailyLinePrecheck, lastLineDay, loadDailyLines,
@@ -110,6 +110,7 @@ import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
 import { decideMorningQueueEntry } from "./morningQueueEntry";
 import { ReserveBudget, parseReserveSnapshot, reserveAuditLine, fitTradeToReserve, parseRotationPlan, rotationPreflight, appendPositionMgmtLog, type ReserveFit, type RotationRow } from "./positionMgmt"; // position management 2026-11-06
+import { planScaleIn, decideTranche, applyTrancheDecision, etfStopFromStock, loadScaleInState, saveScaleInState, scaleInStatePath, scaleInEnabled, SCALE_IN, type ScaleInPlan, type TrancheContext } from "./scaleIn"; // scale-in by thirds 2026-11-06
 // PROCESS-GROUP KILL (2026-10-27, trading-engine audit D1): child_process.exec
 // semantics (shell, env, maxBuffer, utf8, exec's error shape), but the child
 // leads its own process group and a timeout/maxBuffer kill takes every
@@ -5175,6 +5176,7 @@ print(json.dumps(result[:20]))
     // Carried through from the Python scan result's trade dict via spread.
     volume?: number;
     instrument?: string;
+    stop_loss?: number; // the sizing stop — a scale-in plan's thesis stop (2026-11-06)
   }
   const morningQueue: QueuedTrade[] = [];
 
@@ -5687,19 +5689,27 @@ print(json.dumps(result[:20]))
         continue;
       }
 
+      // SCALE-IN BY THIRDS 2026-11-06 (server/scaleIn.ts): the first third now;
+      // executeScaleInTranches places the other two when their conditions hold.
+      const mqScaleIn = planScaleIn({ ticker: trade.ticker, qty: _qtyToSubmit, price: Number(trade.price) || 0,
+        stopPrice: Number(trade.stop_loss) || 0, equity, score: trade.score, regime: lastScanResult?.cash_reserve?.regime ?? null,
+        nowMs: Date.now(), etDate: etClock(Date.now()).etDate });
+      const mqOrderQty = mqScaleIn.firstQty;
+
       try {
         const order = await alpaca("/v2/orders", {
           method: "POST",
           body: JSON.stringify({
             symbol: trade.ticker,
-            qty: String(_qtyToSubmit),
+            qty: String(mqOrderQty),
             side: mqVerdict.side,
             ...getOrderParams(trade.price || 0), // Market during regular hours, limit during extended
           }),
         });
+        registerScaleIn(mqScaleIn.plan, order?.id || null, mqScaleIn.reason);
 
-        audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${_qtyToSubmit} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
-        notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${_qtyToSubmit} ${trade.ticker} (score: ${trade.score})`);
+        audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${mqOrderQty} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
+        notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${mqOrderQty} ${trade.ticker} (score: ${trade.score})`);
 
         // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, morning-
         // queue): getOrderParams' 'new_entry' default is ALWAYS a DAY limit
@@ -5714,7 +5724,7 @@ print(json.dumps(result[:20]))
             score: trade.score || 0,
             placedAt: Date.now(),
             side: mqVerdict.side,
-            qty: _qtyToSubmit,
+            qty: mqOrderQty,
             limitPrice: Number(order.limit_price) || 0,
           });
         }
@@ -5728,7 +5738,7 @@ print(json.dumps(result[:20]))
           const mVol = trade.volume || 1000000;
           settleEntryFill(order.id, order, {
             ticker: trade.ticker, side: trade.side || "buy",  // side already normalized above (short blocked)
-            expectedPrice: trade.price, qtyRequested: _qtyToSubmit,
+            expectedPrice: trade.price, qtyRequested: mqOrderQty,
             syntheticSlippagePct: syntheticSlippagePct(mVol, "morning_queue"), syntheticBase: "expected",
             orderId: order.id,
             session: "morning_queue", volume: mVol, score: trade.score,
@@ -5739,7 +5749,7 @@ print(json.dumps(result[:20]))
 
         slotsUsed++;
         // Auto-subscribe for real-time exit monitoring
-        addPositionToMonitor(trade.ticker, mqVerdict.monitorSide, trade.price || 0, Math.floor(trade.shares));  // side from the verdict (N2)
+        addPositionToMonitor(trade.ticker, mqVerdict.monitorSide, trade.price || 0, mqOrderQty);  // side from the verdict (N2)
       } catch (e: any) {
         audit("MORNING-ERROR", `Failed: ${trade.ticker} — ${e.message}`);
       }
@@ -6609,6 +6619,8 @@ print(json.dumps(check_weekly_loss(history)))
         await executeTrades(result.new_trades || [], equity);
         // CAPITAL ROTATION 2026-11-06: this scan's planned swaps (position_mgmt.plan_rotations).
         await runUpgradeCandidates(parseRotationPlan(result.rotation_plan));
+        // SCALE-IN BY THIRDS 2026-11-06: due second/third tranches (server/scaleIn.ts).
+        await executeScaleInTranches(equity);
       } else {
         // Queue for morning
         for (const trade of (result.new_trades || []).slice(0, MAX_POSITIONS)) {
@@ -7575,7 +7587,7 @@ else:
             audit("ETF-FALLBACK", `${trade.instrument_ticker}: ${etfPlan.reason} — falling back to stock`);
           } else {
           const etfTicker = etfPlan.symbol;
-          const etfShares = etfPlan.qty;
+          let etfShares = etfPlan.qty;
           const etfPrice = etfPlan.price;
           if (isEntryShadowed("stocks")) {
             // ENTRY SHADOW MODE (2026-10-28): logged, not ordered (gate before the POST).
@@ -7588,6 +7600,13 @@ else:
             totalDeployed += etfPlan.value;
             continue;
           }
+          // SCALE-IN BY THIRDS 2026-11-06: the ETF's own first third now; its thesis
+          // stop is estimated from the stock's (scaleIn.etfStopFromStock).
+          const etfScaleIn = planScaleIn({ ticker: etfTicker, underlying: trade.ticker, instrument: "etf", qty: etfShares,
+            price: etfPrice, stopPrice: etfStopFromStock(Number(trade.price) || 0, Number(trade.stop_loss) || 0, etfPrice),
+            equity, score: trade.score, regime: lastScanResult?.cash_reserve?.regime ?? null,
+            nowMs: Date.now(), etDate: etClock(Date.now()).etDate });
+          etfShares = etfScaleIn.firstQty;
           try {
             const etfOrderParams = getOrderParams(etfPrice);
             const etfOrderResult = await alpaca("/v2/orders", {
@@ -7597,6 +7616,7 @@ else:
                 ...etfOrderParams,
               }),
             });
+            registerScaleIn(etfScaleIn.plan, etfOrderResult?.id || null, etfScaleIn.reason);
             audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} @ ~$${etfPrice.toFixed(2)} ($${etfPlan.value.toFixed(0)}, leveraged ETF for ${trade.ticker}, sizing=${trade.etf_sizing_source || "?"}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
             notify("trade", `ETF: ${etfShares} ${etfTicker} (leveraged ${trade.ticker})`);
             slotsUsed++;
@@ -7805,7 +7825,7 @@ else:
         }
 
         // ── Stock execution (default or fallback from options) ──
-        const qty = Math.floor(trade.shares);
+        let qty = Math.floor(trade.shares);
         if (qty <= 0) continue;
 
         // ══ HARD BLOCK: No stock shorting (PR #52 + PR #53) ══════════════
@@ -7831,6 +7851,14 @@ else:
           continue;
         }
 
+        // SCALE-IN BY THIRDS 2026-11-06 (server/scaleIn.ts): only the first third
+        // is bought now; executeScaleInTranches places the other two when their
+        // conditions hold (the reserve above already set aside the whole entry).
+        const scaleIn = planScaleIn({ ticker: trade.ticker, qty, price: Number(trade.price) || 0,
+          stopPrice: Number(trade.stop_loss) || 0, equity, score: trade.score, regime: lastScanResult?.cash_reserve?.regime ?? null,
+          nowMs: Date.now(), etDate: etClock(Date.now()).etDate });
+        qty = scaleIn.firstQty;
+
         const orderParams = getOrderParams(trade.price || 0);
         const orderResult = await alpaca("/v2/orders", {
           method: "POST",
@@ -7839,6 +7867,7 @@ else:
           }),
         });
         const orderId = orderResult?.id || null;
+        registerScaleIn(scaleIn.plan, orderId, scaleIn.reason);
 
         // Log with sizing details
         const sizingInfo = trade.sizing_reasoning ? ` | Sizing: ${trade.sizing_reasoning.slice(0, 150)}` : "";
@@ -8260,6 +8289,104 @@ print(json.dumps(run_update()))
           sell: candidate.ticker, buy: betterPick.ticker });
       }
       break; // one swap per scan (ROTATION_MAX_PER_SCAN): each one stays attributable
+    }
+  }
+
+  // ── SCALE-IN BY THIRDS 2026-11-06 (server/scaleIn.ts) ────────────────────
+  // registerScaleIn: an entry's plan for its other two thirds, kept once its
+  // first-third order is accepted (no order id = nothing to scale into).
+  function registerScaleIn(plan: ScaleInPlan | null, orderId: string | null, why: string): void {
+    if (!plan || !orderId) return;
+    const file = scaleInStatePath();
+    const st = loadScaleInState(file);
+    plan.tranches[0].orderId = orderId;
+    st.plans[plan.ticker] = plan;
+    try {
+      saveScaleInState(file, st);
+    } catch (e: unknown) {
+      audit("SCALE-IN-ERROR", `${plan.ticker}: plan not saved, the entry stays at its first third (${e instanceof Error ? e.message : String(e)})`.slice(0, 220));
+      return;
+    }
+    audit("SCALE-IN", `${plan.ticker}: ${why}`);
+    appendPositionMgmtLog({ kind: "scale_in", action: "plan", ticker: plan.ticker, summary: `${plan.ticker}: ${why}.`,
+      planned_qty: plan.planned_qty, tranche_qty: plan.tranches.map((t) => t.qty), ref_price: plan.ref_price,
+      stop_price: plan.stop_price, instrument: plan.instrument, underlying: plan.underlying });
+  }
+
+  // executeScaleInTranches: every in-hours scan, each active plan is judged
+  // (scaleIn.decideTranche): a due tranche is placed with the same order call
+  // and entry gates as executeTrades (kill switch / halts, shadow mode, the cash
+  // reserve — the tranche spends its own reservation — and one working order per
+  // symbol); a broken thesis cancels the rest. Every placement and cancellation
+  // is audited (SCALE-IN / SCALE-IN-CANCEL) and logged. Tranche fills are not
+  // new ML entry records: the position's entry record is its first third's.
+  async function executeScaleInTranches(equity: number) {
+    if (!scaleInEnabled(process.env)) return;
+    const file = scaleInStatePath();
+    const st = loadScaleInState(file);
+    const active = Object.values(st.plans).filter((p) => p.status === "active");
+    if (active.length === 0) return;
+    const livePositions = await alpaca("/v2/positions").catch(() => null);
+    const liveOrders = await alpaca("/v2/orders?status=open").catch(() => null);
+    if (!Array.isArray(livePositions) || !Array.isArray(liveOrders)) return; // no live book, no judgement
+    const regime = String(lastScanResult?.cash_reserve?.regime || "NEUTRAL");
+    const nowMs = Date.now();
+    const { etDate, etHour } = etClock(nowMs);
+    const inWindow = etHour >= SCALE_IN.WINDOW_ET[0] && etHour < SCALE_IN.WINDOW_ET[1];
+    let budget: ReserveBudget | null = null;
+    for (const plan of active) {
+      const held = livePositions.find((p: { symbol?: string; side?: string }) => String(p.symbol).toUpperCase() === plan.ticker && String(p.side || "long") === "long");
+      const ctx: TrancheContext = {
+        held: held ? { qty: Math.abs(Number(held.qty) || 0), price: Number(held.current_price) || 0 } : null,
+        orderWorking: liveOrders.some((o: { symbol?: string }) => String(o.symbol).toUpperCase() === plan.ticker),
+        scalesCompleted: monitoredPositions[plan.ticker]?.scalesCompleted ?? 0,
+        regime, etDate, nowMs,
+      };
+      const d = decideTranche(plan, ctx);
+      if (d.action === "cancel" || d.action === "complete") {
+        applyTrancheDecision(plan, d, ctx);
+        if (d.action === "cancel") audit("SCALE-IN-CANCEL", `${plan.ticker}: remaining tranches cancelled — ${d.reason}`);
+        appendPositionMgmtLog({ kind: "scale_in", action: d.action, ticker: plan.ticker, summary: `${plan.ticker}: ${d.action === "cancel" ? "remaining tranches cancelled" : "scale-in complete"} — ${d.reason}.` });
+        continue;
+      }
+      if (d.action !== "buy") { applyTrancheDecision(plan, d, ctx); continue; }
+      if (!inWindow) continue;
+      if (state.killSwitch || !haltAllows(currentHaltState(), "entry")) break;
+      const price = ctx.held ? ctx.held.price : 0;
+      if (isEntryShadowed("stocks")) {
+        if (appendPositionMgmtLog({ kind: "scale_in", action: "skipped", ticker: plan.ticker, summary: `${plan.ticker}: tranche ${d.tranche.n} due (${d.reason}) but stock entries are in shadow mode.` },
+          { dedupKey: `scale-in-shadow|${plan.ticker}|${d.tranche.n}`, dedupMs: 6 * 3600_000 })) audit("SCALE-IN", `${plan.ticker}: tranche ${d.tranche.n} not placed — stock entries are in shadow mode`);
+        continue;
+      }
+      budget = budget ?? await fetchReserveBudget(livePositions, liveOrders, equity, "scale-in");
+      budget.release(d.tranche.qty * plan.ref_price); // the snapshot counted this tranche as pending
+      const fit = budget.fitShares(price, d.tranche.qty);
+      noteReserve(plan.ticker, fit, budget, "scale-in", d.tranche.qty * price);
+      if (fit.action === "block") { budget.spend(d.tranche.qty * plan.ref_price); continue; } // waits for room
+      const trancheQty = fit.action === "trim" ? fit.qty : d.tranche.qty;
+      try {
+        const trancheParams = getOrderParams(price);
+        const trancheOrder = await alpaca("/v2/orders", {
+          method: "POST",
+          body: JSON.stringify({ symbol: plan.ticker, qty: String(trancheQty), side: "buy", ...trancheParams }),
+        });
+        budget.spend(trancheQty * price);
+        applyTrancheDecision(plan, d, ctx, { qty: trancheQty, price, orderId: trancheOrder?.id ?? null });
+        if (trancheOrder?.id) {
+          openOrders.push({ orderId: trancheOrder.id, ticker: plan.ticker, score: plan.score || 0, placedAt: Date.now(),
+            side: "buy", qty: trancheQty, limitPrice: Number(trancheParams.limit_price) || 0 });
+        }
+        audit("SCALE-IN", `${plan.ticker}: tranche ${d.tranche.n}/3 — ${trancheParams.type.toUpperCase()} BUY ${trancheQty} @ ~$${price.toFixed(2)} — ${d.reason}`);
+        appendPositionMgmtLog({ kind: "scale_in", action: "tranche", ticker: plan.ticker, summary: `${plan.ticker}: bought tranche ${d.tranche.n} of 3 (${trancheQty} shares) — ${d.reason}.`,
+          tranche: d.tranche.n, qty: trancheQty, price, order_id: trancheOrder?.id ?? null, ref_price: plan.ref_price });
+      } catch (e: unknown) {
+        audit("SCALE-IN-ERROR", `${plan.ticker}: tranche ${d.tranche.n} order failed — ${e instanceof Error ? e.message : String(e)}`.slice(0, 220));
+      }
+    }
+    try {
+      saveScaleInState(file, st);
+    } catch (e: unknown) {
+      audit("SCALE-IN-ERROR", `scale-in state not saved: ${e instanceof Error ? e.message : String(e)}`.slice(0, 220));
     }
   }
 
@@ -9372,19 +9499,36 @@ except: print('{}')
           : (ps.breakeven_active || false);
         const regime = ps.regime || "NEUTRAL";
         const highestPrice = Math.max(ps.highest_price || current, current);
+        // SCALE-IN / SCALE-OUT 2026-11-06: before the first scale-out the whole
+        // live position IS the position — a filled scale-in tranche (or a late
+        // partial entry fill) grows it, and the thirds and the final exit must
+        // count those shares (the persisted/in-memory min above would pin them at
+        // the first fill and leave the added shares unsold). After a scale-out
+        // the values above apply unchanged.
+        const preScaleOut = scalesCompleted === 0;
 
         monitoredPositions[ticker] = {
           ticker, side, entryPrice: entry, qty, phase,
           initialRiskPct, highestPnl, currentStopPct: stopPct, tpPct,
           entryDate: ps.entry_date || new Date().toISOString().split("T")[0],
           lastCheckedPrice: current,
-          originalQty, remainingQty, scalesCompleted, breakevenActive,
+          originalQty: preScaleOut ? qty : originalQty,
+          remainingQty: preScaleOut ? qty : remainingQty,
+          scalesCompleted, breakevenActive,
           regime, atrPct: atrPct, highestPrice,
           taxDeferUntil: ps.tax_defer_until || null, taxDeferReason: ps.tax_defer_reason || null,
         };
         // Preserve pendingExit flag from in-memory state — prevents re-triggering
-        // exit logic while a limit sell order is still open and unfilled
-        if (existingPos?.pendingExit) {
+        // exit logic while a limit sell order is still open and unfilled.
+        // SCALE-OUT FIX 2026-11-06: only while an exit order for this ticker is
+        // still tracked. Once the sweep has resolved it (filled or cancelled), a
+        // position that is STILL held has shares no exit covers (an exit sized
+        // before a tranche filled, a swept scale-out) — they are re-evaluated
+        // instead of sitting under pendingExit until the next restart.
+        // (typeof guard: the loop body runs standalone in the test harnesses)
+        const exitStillWorking = typeof openOrders === "undefined"
+          || openOrders.some((o) => o.ticker === ticker && o.isExit === true);
+        if (existingPos?.pendingExit && exitStillWorking) {
           monitoredPositions[ticker].pendingExit = true;
         }
       }

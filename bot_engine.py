@@ -2507,11 +2507,28 @@ def manage_positions():
         r_multiple = pnl_pct / initial_risk_pct if initial_risk_pct > 0 else 0
         peak_r = highest_pnl / initial_risk_pct if initial_risk_pct > 0 else 0
 
-        # Scale-out state
-        original_qty = ps.get("original_qty", qty)
-        remaining_qty = ps.get("remaining_qty", qty)
-        scales_completed = ps.get("scales_completed", 0)
-        breakeven_active = ps.get("breakeven_active", False)
+        # Scale-out state — SCALE-OUT FIX 2026-11-06: what the EXECUTOR has done.
+        # server/bot.ts checkPositionOnTick places every scale-out and persists
+        # scales_completed / remaining_qty / breakeven_active here; this function
+        # only RECOMMENDS (Tier 1 never executes its actions). It used to write
+        # its own recommendation back as if executed, so a 1R crossing seen here
+        # first made the WS monitor skip the real first-third sale (scales 1,
+        # breakeven on) and its final exit under-sell remaining_qty (shares left
+        # behind). The persisted fields now carry only executed state; the
+        # recommendation below still mutates the local copies for its action.
+        _scales_done = int(ps.get("scales_completed", 0) or 0)
+        _breakeven_done = bool(ps.get("breakeven_active", False))
+        if _scales_done == 0:
+            # Before the first scale-out the whole live position is the position:
+            # scale-in tranches (server/scaleIn.ts) and late partial entry fills grow it.
+            original_qty = qty
+            remaining_qty = qty
+        else:
+            original_qty = ps.get("original_qty", qty)
+            remaining_qty = min(ps.get("remaining_qty", qty), qty)
+        _original_done, _remaining_done = original_qty, remaining_qty
+        scales_completed = _scales_done
+        breakeven_active = _breakeven_done
 
         # TAX: HOLD WINNERS PAST ONE YEAR (2026-11-06, tax_filter.lt_deferral):
         # inside LT_DEFER_WINDOW_DAYS of its long-term date a winner's PROFIT-
@@ -2636,11 +2653,11 @@ def manage_positions():
             "entry_date": entry_date if entry_date != time.strftime("%Y-%m-%d") else ps.get("entry_date", time.strftime("%Y-%m-%d")),
             "entry_timestamp": ps.get("entry_timestamp", datetime.now().isoformat()),
             "days_held": days_held,
-            # Scale-out tracking
-            "original_qty": original_qty,
-            "remaining_qty": remaining_qty,
-            "scales_completed": scales_completed,
-            "breakeven_active": breakeven_active,
+            # Scale-out tracking — executed state only (SCALE-OUT FIX 2026-11-06 above)
+            "original_qty": _original_done,
+            "remaining_qty": _remaining_done,
+            "scales_completed": _scales_done,
+            "breakeven_active": _breakeven_done,
             # Regime for bot.ts to read
             "regime": regime,
         }
@@ -2777,6 +2794,9 @@ def manage_positions():
     for old_ticker in list(stop_state.keys()):
         if old_ticker not in held_tickers:
             del stop_state[old_ticker]
+    # SCALE-OUT FIX 2026-11-06: a scale-out the WS monitor persisted while this
+    # pass ran (it re-reads + rewrites this file) must survive this write.
+    _merge_executed_scale_outs(stop_state, _stop_state_path)
     try:
         with open(_stop_state_path, 'w') as f:
             json.dump(stop_state, f)
@@ -2784,6 +2804,30 @@ def manage_positions():
         pass
 
     return {"actions": actions, "positions": len(positions), "upgrade_candidates": upgrade_candidates, "regime": regime}
+
+
+def _merge_executed_scale_outs(stop_state: dict, path: str) -> None:
+    """Fold the executor's scale-out fields from the file as it is NOW into
+    `stop_state` before manage_positions writes it: a ticker whose on-disk
+    scales_completed is ahead (server/bot.ts persisted a real scale-out during
+    this pass) keeps the disk's scales_completed / original_qty /
+    remaining_qty / breakeven_active. An unreadable file merges nothing."""
+    try:
+        with open(path) as f:
+            disk = json.load(f)
+    except (OSError, ValueError):
+        return
+    if not isinstance(disk, dict):
+        return
+    for t, row in stop_state.items():
+        d = disk.get(t)
+        if not isinstance(row, dict) or not isinstance(d, dict):
+            continue
+        if int(d.get("scales_completed", 0) or 0) > int(row.get("scales_completed", 0) or 0):
+            for k in ("scales_completed", "original_qty", "remaining_qty"):
+                if k in d:
+                    row[k] = d[k]
+            row["breakeven_active"] = bool(row.get("breakeven_active")) or bool(d.get("breakeven_active"))
 
 
 def _get_atr(ticker, period=14):
