@@ -18,7 +18,7 @@ import { parseNonTradeActivities, activityLedger, reconcile } from "./accountAct
 import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
-import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
+import { retrainStatusIsSuccess, retrainFailureDetail, retrainHonestDetail } from "./mlRetrainStatus";
 import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS, latestEtDate, etClock } from "./dailyMaintenance";
 import {
   DAILY_LINE_CHECK_MS, DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS, FLOOR_VM_STATE_FILENAME, OPENING_DEFERRALS_FILENAME,
@@ -553,7 +553,11 @@ function startMlRetrain(trigger: string): void {
         audit("TIER3-ML-ERROR", `ML retrain failed (${trigger}, ${elapsedS}s${queuedNote}): ${_statusStr}${_reason}${_extra}${_loc}${_tbTail}`);
         beat("ml_retrain", "finish", "error", `${_statusStr}${_reason}${_loc}`);
       } else {
-        audit("TIER3", `ML retrain complete (${trigger}, ${elapsedS}s${queuedNote}) — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}`);
+        // [RULE-REVIEW] 2026-11-06: the honest out-of-sample record (AUC vs 0.5,
+        // accuracy vs always-majority, shadow copies -> candidate-days) beside
+        // the accuracy; "" for a result without honest_cv (server/mlRetrainStatus.ts).
+        const _honest = retrainHonestDetail(trainResult);
+        audit("TIER3", `ML retrain complete (${trigger}, ${elapsedS}s${queuedNote}) — status: ${trainResult.status}, accuracy: ${trainResult.accuracy || 'N/A'}, features: ${trainResult.feature_count || 'N/A'}, samples: ${trainResult.samples || trainResult.sample_count || 'N/A'}${_honest ? ` — ${_honest}` : ""}`);
         beat("ml_retrain", "finish", "ok", `status ${trainResult.status}`);
       }
     } catch (trainErr: any) {

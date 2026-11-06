@@ -49,6 +49,33 @@ DEFAULT_ES_ROUNDS = 30
 DEFAULT_NUM_BOOST_ROUND = 300
 _EPS = 1e-6
 
+# ── The live v2 fit's switch (BASE_CONFIG["ML_V2_HONEST_TRAINING"]) ─────────
+# [RULE-REVIEW] 2026-11-06: ml_model_v2._train_model_impl trains on dated,
+# deduplicated rows with date-keyed splits while this reads enabled. One
+# parser, shared by ml_model_v2 (which acts on it) and signal_attribution
+# (which describes the fit), so the two can never disagree about the state.
+V2_HONEST_TRAINING_DEFAULTS = {"enabled": True, "embargo_dates": 11, "cv_splits": 5, "holdout_frac": 0.2}
+
+
+def v2_honest_training_cfg(raw) -> Tuple[dict, Optional[str]]:
+    """(config, problem). A missing value (None) is the defaults (ON). A
+    malformed value is the defaults too, with `problem` saying why — never
+    silently the legacy procedure."""
+    if raw is None:
+        return dict(V2_HONEST_TRAINING_DEFAULTS), None
+    if not isinstance(raw, dict):
+        return dict(V2_HONEST_TRAINING_DEFAULTS), f"not a dict ({raw!r})"
+    cfg = {**V2_HONEST_TRAINING_DEFAULTS, **{k: raw[k] for k in V2_HONEST_TRAINING_DEFAULTS if k in raw}}
+
+    def _int(v, lo):
+        return isinstance(v, int) and not isinstance(v, bool) and v >= lo
+    frac = cfg["holdout_frac"]
+    ok = (isinstance(cfg["enabled"], bool) and _int(cfg["embargo_dates"], 1) and _int(cfg["cv_splits"], 2)
+          and isinstance(frac, (int, float)) and not isinstance(frac, bool) and 0.0 < float(frac) < 0.5)
+    if not ok:
+        return dict(V2_HONEST_TRAINING_DEFAULTS), f"malformed ({raw!r})"
+    return cfg, None
+
 
 # ── Date bookkeeping ─────────────────────────────────────────────────────────
 

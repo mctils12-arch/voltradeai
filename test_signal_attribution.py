@@ -286,6 +286,32 @@ def test_training_duplication_mirrors_load_shadow_data_filter():
     assert sa.training_duplication([])["duplication"] is None
 
 
+def test_training_duplication_says_what_the_fit_keeps_in_both_switch_states():
+    """[RULE-REVIEW] 2026-11-06: since load_shadow_data dedupes, the fit's shadow
+    rows are the unique candidate-days; with the switch off, every scan row."""
+    recs = shadow_records(n_days=3, per_day=2, copies=5)
+    on = sa.training_duplication(recs, deduplicated=True)
+    off = sa.training_duplication(recs, deduplicated=False)
+    assert on["rows"] == off["rows"] == 30 and on["unique_ticker_days"] == 6 and on["duplication"] == 5.0
+    assert on["fit_deduplicated"] is True and on["fit_rows"] == 6
+    assert off["fit_deduplicated"] is False and off["fit_rows"] == 30
+    assert "ONE row per candidate-day" in on["note"] and "LAST 10,000" in off["note"]
+
+
+def test_ml_row_reason_follows_the_v2_training_switch(monkeypatch):
+    import system_config
+    kw = dict(walkforward=walkforward_latest(), ml_v3=ML_V3, blend={"rule_weight": 0.72, "ml_weight": 0.28},
+              cfg=CFG_V2, now=datetime(2026, 11, 6, tzinfo=timezone.utc))
+    monkeypatch.setitem(system_config.BASE_CONFIG, "ML_V2_HONEST_TRAINING",
+                        {"enabled": True, "embargo_dates": 11, "cv_splits": 5, "holdout_frac": 0.2})
+    on = _row(sa.build_attribution(shadow_records(), **kw), "ml_v2")["reason"]
+    assert "keeps one row per candidate-day (the first-seen scan)" in on and "repeated 3.0 times each" in on
+    assert "has no honest out-of-sample number" not in on
+    monkeypatch.setitem(system_config.BASE_CONFIG, "ML_V2_HONEST_TRAINING", {"enabled": False})
+    off = _row(sa.build_attribution(shadow_records(), **kw), "ml_v2")["reason"]
+    assert "has no honest out-of-sample number" in off and "repeated 3.0 times each" in off
+
+
 def test_serve_fix_summary_measures_delta_and_paired_oos(table):
     sf = table["ml"]["serve_fix"]
     assert sf["records"] > 0 and sf["modes"] == {"shadow": sf["records"]}

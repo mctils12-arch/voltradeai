@@ -1155,13 +1155,58 @@ def _load_trade_feedback() -> List[dict]:
     return []
 
 
-def _build_feedback_training_data(trades: List[dict]) -> Tuple:
+def _et_session_date(v) -> Optional[str]:
+    """ET calendar date of a feedback timestamp (ISO string or epoch seconds);
+    a bare YYYY-MM-DD is already a session date. None when unparseable.
+    [RULE-REVIEW] 2026-11-06 (v2 training honesty): feedback rows are placed
+    in time by this, never by their position in the file."""
+    if v is None or isinstance(v, bool) or v == "":
+        return None
+    if isinstance(v, (int, float)):
+        if v <= 0:
+            return None
+        from datetime import timezone as _tz
+        try:
+            v = datetime.fromtimestamp(float(v), tz=_tz.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return None
+    s = str(v).strip()
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        return s
+    from shadow_portfolio import _xa_entry_date_et
+    return _xa_entry_date_et(s)
+
+
+def _feedback_row_dates(trade: dict, today_et: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """(decision date, label end date) of one feedback record, both ET session
+    dates. Decision: when the entry was placed (time_placed, else time_filled,
+    else entry_date, else timestamp). Label end: the exit (exit_time, else
+    exit_date); an OPEN position has no exit yet, so its label window is
+    bounded by today (the conservative side for a purge)."""
+    dec = None
+    for k in ("time_placed", "time_filled", "entry_date", "timestamp"):
+        dec = _et_session_date(trade.get(k))
+        if dec:
+            break
+    end = None
+    for k in ("exit_time", "exit_date"):
+        end = _et_session_date(trade.get(k))
+        if end:
+            break
+    return dec, (end or today_et)
+
+
+def _build_feedback_training_data(trades: List[dict], return_meta: bool = False) -> Tuple:
     """
     Build training rows from real closed trades with:
     - Exponential recency decay (30-day half-life)
     - ±20% P&L outlier filter
     - ATR-consistent labeling (matching triple-barrier thresholds)
     - Sample weights for LightGBM
+
+    return_meta=True ([RULE-REVIEW] 2026-11-06, v2 training honesty) appends a
+    5th element {"dates", "label_end_dates"} (_feedback_row_dates per row; None
+    where a record carries no parseable entry time). Default shape unchanged.
     """
     current_ts = time.time()
     half_life_days = 30
@@ -1170,6 +1215,8 @@ def _build_feedback_training_data(trades: List[dict]) -> Tuple:
     trades = [t for t in trades if abs(t.get("pnl_pct", 0) or 0) <= 20.0]
 
     X_rows, y_labels, regimes, sample_weights = [], [], [], []
+    meta_dates, meta_ends = [], []
+    today_et = _et_session_date(current_ts) if return_meta else None
     for trade in trades:
         features = trade.get("entry_features", {})
         if not features: continue
@@ -1204,14 +1251,21 @@ def _build_feedback_training_data(trades: List[dict]) -> Tuple:
         sample_weights.append(weight)
         regimes.append(features.get("regime_at_entry", "neutral").lower()
                        if "regime_at_entry" in trade else "neutral")
+        if return_meta:
+            _dec, _end = _feedback_row_dates(trade, today_et)
+            meta_dates.append(_dec)
+            meta_ends.append(_end)
 
     if len(X_rows) < 15:
-        return None, None, None, None
+        return (None, None, None, None, None) if return_meta else (None, None, None, None)
 
-    return (np.array(X_rows, dtype=np.float32),
-            np.array(y_labels, dtype=np.int8),
-            regimes,
-            np.array(sample_weights, dtype=np.float32))
+    out = (np.array(X_rows, dtype=np.float32),
+           np.array(y_labels, dtype=np.int8),
+           regimes,
+           np.array(sample_weights, dtype=np.float32))
+    if return_meta:
+        return out + ({"dates": meta_dates, "label_end_dates": meta_ends},)
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1272,146 +1326,263 @@ def _train_single_lgbm(X_tr, X_te, y_tr, y_te, label="", sample_weight=None):
     return gb, scaler, acc
 
 
-def train_model(fast_mode: bool = False) -> dict:
-    """Wrapper that surfaces retrain errors instead of swallowing them."""
-    try:
-        return _train_model_impl(fast_mode=fast_mode)
-    except Exception as e:
-        # MEM FIX 2026-04-21: surface actual error instead of swallowing it.
-        # ALPHA AUDIT 2026-05-03 batch 4: also capture full traceback location
-        # so we can diagnose 'NoneType is not subscriptable' style errors that
-        # don't tell us which line failed. Production logs were just showing
-        # "error: 'NoneType' object is not subscriptable" with no file/line —
-        # making it impossible to know which sub-function returned None.
-        import traceback
-        err_msg = str(e)[:200]
-        err_tb = traceback.format_exc()
-        # Extract the deepest line that's in OUR code (skip site-packages)
-        our_frames = [
-            line for line in err_tb.split("\n")
-            if 'File "' in line and "/site-packages/" not in line
-            and "/lib/python" not in line
-        ]
-        err_location = our_frames[-1].strip() if our_frames else "unknown location"
-        try:
-            import logging
-            logging.getLogger("voltrade.ml").error(
-                f"Retrain failed at {err_location}: {err_msg}\n{err_tb[-1000:]}")
-        except Exception:
-            pass
-        return {
-            "status": f"error: {err_msg}",
-            "error_location": err_location,
-            "accuracy": None, "features": None, "samples": None,
-            "error_detail": err_msg,
-            "traceback_tail": err_tb[-500:],
-        }
+# ══════════════════════════════════════════════════════════════════
+# v2 TRAINING HONESTY — split by DATE, not by row ([RULE-REVIEW] 2026-11-06)
+# ══════════════════════════════════════════════════════════════════
+# The legacy path (_fit_v2_legacy) treats ROW ORDER as time: generic rows are
+# emitted ticker by ticker, so the fast-mode "last 10,000 rows", the walk-
+# forward folds, the 5 x n_tickers-row "embargo" and the production holdout
+# are all row-index cuts, and early stopping (with the LightGBM-vs-GB choice)
+# reads the test fold. The shadow rows were one per SCAN (~52 copies of each
+# candidate-day), so the reported accuracy and the isotonic calibrator were
+# in-sample. This path keys every split on the rows' decision DATES (ml_cv),
+# purges rows whose label window reaches the test block, and runs ONE
+# estimator (_fit_v2_window) for the CV folds and the production fit, so the
+# CV measures the procedure that produces the served model.
+# BASE_CONFIG["ML_V2_HONEST_TRAINING"] (system_config.py) is the switch.
+
+HONEST_WINDOW_ROWS = 10000   # the fast-mode row cap (the legacy cut's number)
+HONEST_SOURCES = ("generic", "feedback", "shadow")
 
 
-def _train_model_impl(fast_mode: bool = False) -> dict:
-    """
-    Train the regime-conditional ensemble.
+def _honest_training_cfg() -> dict:
+    """BASE_CONFIG["ML_V2_HONEST_TRAINING"] read by the shared parser
+    (ml_cv.v2_honest_training_cfg): missing = the defaults (ON); malformed =
+    the defaults, logged — never silently the legacy procedure."""
+    import ml_cv
+    cfg, problem = ml_cv.v2_honest_training_cfg(BASE_CONFIG.get("ML_V2_HONEST_TRAINING"))
+    if problem:
+        logger.warning(f"ML_V2_HONEST_TRAINING {problem}; using the shipped defaults")
+    return cfg
 
-    Architecture:
-      - One model trained on ALL data (global fallback)
-      - One model trained ONLY on bull-regime bars
-      - One model trained ONLY on bear-regime bars
-      - One model trained ONLY on neutral-regime bars
 
-    At inference: blend by current regime probability.
-    If a regime has < 50 training rows, use the global model.
+def _recent_whole_dates(dates: List[str], cap: int) -> np.ndarray:
+    """Positions of the most recent rows by decision date — whole dates only,
+    at most `cap` rows — in chronological order (ties keep input order). A
+    single date larger than the cap keeps the last `cap` rows of the order."""
+    import ml_cv
+    order = ml_cv.chronological_order(dates)
+    if len(order) <= cap:
+        return order
+    ds = np.array([str(x)[:10] for x in dates])
+    uniq, counts = np.unique(ds, return_counts=True)
+    total, first = 0, len(uniq)
+    for j in range(len(uniq) - 1, -1, -1):
+        if total + int(counts[j]) > cap:
+            break
+        total += int(counts[j])
+        first = j
+    if first == len(uniq):
+        return order[-cap:]
+    return order[ds[order] >= uniq[first]]
 
-    Training uses:
-      1. Real trade feedback (3× weight, highest priority)
-      2. Generic market data with triple-barrier labels (bootstrap)
-    """
-    if not HAS_SKLEARN:
-        return {"status": "skipped", "reason": "sklearn not installed"}
 
-    t0 = time.time()
-
-    # Step 1: Fetch training data
-    # MEMORY-AWARE 2026-05-22: production daemon has a 1024 MB cap (NOT 8GB
-    # as a prior comment claimed). When fast_mode is True (the path called
-    # by ml_retrain_safe.py from the subprocess), _fetch_training_bars caps
-    # to 100 tickers × 2 years so the subprocess fits inside the available
-    # ~575 MB headroom. Full-history training still available via fast_mode=False.
-    _ml_days = BASE_CONFIG.get("ML_LOOKBACK_DAYS", 365)
-    _ml_max_tickers = BASE_CONFIG.get("ML_MAX_TICKERS", 200)
-    all_bars, _bars_fetch_error = _fetch_training_bars(days=_ml_days, max_tickers=_ml_max_tickers,
-                                     fast_mode=fast_mode)
-    if not all_bars:
-        _reason = "Could not fetch training bars"
-        if _bars_fetch_error:
-            _reason += f" ({_bars_fetch_error})"
-        return {"status": "failed", "reason": _reason}
-
-    ticker_list = [k for k in all_bars if k not in ("SPY","QQQ","IWM","VXX","GLD","TLT")]
-
-    # Step 2: Build generic training data with triple-barrier labels
-    # (the EPS-surprise feature is 0.0 on every row: the latest-surprise look-ahead
-    # was removed 2026-10-27, see _build_training_data)
-    X_gen, y_gen, reg_gen = _build_training_data(all_bars)
-
-    # Release raw bar data — features have been extracted into X_gen
-    del all_bars
-    import gc; gc.collect()
-
-    # Step 3: Load real trade feedback
-    feedback    = _load_trade_feedback()
-    X_fb, y_fb, reg_fb, fb_weights = None, None, None, None
-    if len(feedback) >= 15:
-        fb_result = _build_feedback_training_data(feedback)
-        if fb_result[0] is not None:
-            X_fb, y_fb, reg_fb, fb_weights = fb_result
-
-    # Step 4: Combine — use sample_weight instead of tripling
-    # Cap feedback at 15% of generic training data
-    sample_weights = None
-    if X_fb is not None and X_gen is not None:
-        max_feedback_rows = int(len(X_gen) * 0.15)
-        if len(X_fb) > max_feedback_rows:
-            X_fb = X_fb[-max_feedback_rows:]
-            y_fb = y_fb[-max_feedback_rows:]
-            reg_fb = reg_fb[-max_feedback_rows:]
-            fb_weights = fb_weights[-max_feedback_rows:]
-        X_all = np.vstack([X_gen, X_fb])
-        y_all = np.concatenate([y_gen, y_fb])
-        reg_all = reg_gen + list(reg_fb)
-        # Sample weights: 1.0 for generic, decay-weighted for feedback
-        gen_weights = np.ones(len(X_gen), dtype=np.float32)
-        sample_weights = np.concatenate([gen_weights, fb_weights])
-        data_source = f"generic({len(X_gen)})+feedback({len(X_fb)})"
-    elif X_gen is not None:
-        X_all, y_all, reg_all = X_gen, y_gen, reg_gen
-        data_source = f"generic_only({len(X_gen)})"
-    elif X_fb is not None:
-        X_all, y_all, reg_all = X_fb, y_fb, list(reg_fb)
-        sample_weights = fb_weights
-        data_source = f"feedback_only({len(X_fb)})"
+def _predict_v2(model, scaler, X_raw: np.ndarray) -> np.ndarray:
+    """Win probability from a _train_single_lgbm model, read the way the
+    legacy CV loop reads it (Booster.predict, else predict_proba)."""
+    import pandas as pd
+    X_sc = scaler.transform(pd.DataFrame(X_raw, columns=FEATURE_COLS))
+    if hasattr(model, "feature_name_"):
+        p = model.predict(pd.DataFrame(X_sc, columns=FEATURE_COLS))
+    elif hasattr(model, "predict_proba"):
+        p = model.predict_proba(X_sc)[:, 1]
     else:
-        return {"status": "failed", "reason": "No training data"}
+        p = model.predict(X_sc)
+    return np.asarray(p, dtype=np.float64)
 
-    # ── NEW: blend in shadow portfolio training data ─────────────────────
-    try:
-        from shadow_portfolio import load_shadow_data
-        shadow = load_shadow_data(horizon_days=10, shadow_weight=0.3)
-        if shadow is not None:
-            X_shadow, y_shadow, w_shadow = shadow
-            if sample_weights is None:
-                sample_weights = np.ones(len(X_all), dtype=np.float32)
-            X_all = np.vstack([X_all, X_shadow])
-            y_all = np.concatenate([y_all, y_shadow])
-            reg_all = reg_all + ["neutral"] * len(X_shadow)
-            sample_weights = np.concatenate([sample_weights, w_shadow])
-            logger.info(f"[ML] Blended {len(X_shadow)} shadow samples (weight 0.3x)")
-    except Exception as e:
-        logger.debug(f"[ML] Shadow blend skipped: {e}")
 
-    # Normalize regime labels to lowercase to match training split expectations
-    # (bot_engine stores labels as UPPERCASE e.g. "NEUTRAL", training expects "neutral")
-    reg_all = [r.lower() for r in reg_all]
+def _fit_v2_window(X, y, idx, dates, label_ends, sample_weight, embargo: int,
+                   holdout_frac: float, label: str):
+    """The v2 estimator on rows `idx` only: _train_single_lgbm fit on the
+    window's older dates, with early stopping and the LightGBM-vs-GB choice
+    made on its last `holdout_frac` of dates — embargoed by `embargo` dates
+    and label-purged (ml_cv.inner_validation_split). Returns (model, scaler,
+    train_idx, holdout_idx), or None when the window cannot be split or its
+    training side holds one class."""
+    import ml_cv
+    split = ml_cv.inner_validation_split(idx, dates, frac=holdout_frac, embargo_dates=embargo,
+                                         label_end_dates=label_ends)
+    if split is None:
+        return None
+    itr, iva = split
+    if len(np.unique(y[itr])) < 2:
+        return None
+    m, s, _acc = _train_single_lgbm(X[itr], X[iva], y[itr], y[iva], label,
+                                    sample_weight=None if sample_weight is None else sample_weight[itr])
+    if m is None:
+        return None
+    return m, s, itr, iva
 
+
+def _rounded(d: dict) -> dict:
+    return {k: (round(v, 4) if isinstance(v, float) else v) for k, v in d.items()}
+
+
+def _oos_block(y, oos, dates, mask) -> dict:
+    """binary_metrics of the out-of-sample probabilities on `mask`, plus the
+    always-majority accuracy (the trivial bar for `accuracy`), the number of
+    distinct dates (the effective sample is dates, not rows) and a date-block
+    bootstrap 95% CI on AUC (None under 10 dates)."""
+    import ml_cv
+    n = int(mask.sum())
+    if n < 10 or len(np.unique(y[mask])) < 2:
+        return {"n": n, "status": "INSUFFICIENT"}
+    m = ml_cv.binary_metrics(y[mask], oos[mask])
+    m["majority_accuracy"] = max(m["base_rate"], 1.0 - m["base_rate"])
+    md = [d for d, t in zip(dates, mask) if t]
+    m["n_dates"] = len(set(md))
+    m = _rounded(m)
+    ci = ml_cv.block_bootstrap_ci(y[mask], oos[mask], md, ml_cv.auc)
+    m["auc_ci95_date_block"] = list(ci) if ci else None
+    m["status"] = "OK"
+    return m
+
+
+def _honest_cv_report(y, oos, dates, sources, folds, cfg) -> dict:
+    """The honest out-of-sample record of one retrain: pooled and per-source
+    metrics vs the base rates, a date-block bootstrap CI on AUC, and a
+    pre-stated skill rule."""
+    tested = ~np.isnan(oos)
+    pooled = _oos_block(y, oos, dates, tested)
+    ci = pooled.get("auc_ci95_date_block")
+    skill = bool(ci and ci[0] > 0.5 and pooled.get("status") == "OK"
+                 and pooled["log_loss"] < pooled["base_rate_log_loss"])
+    return {
+        "method": (f"purged walk-forward by decision date (blocks={cfg['cv_splits'] + 1}, "
+                   f"embargo_dates={cfg['embargo_dates']}, purge=label_end, early stopping on the last "
+                   f"{cfg['holdout_frac']:.0%} of each training window's dates)"),
+        "rows_tested": int(tested.sum()),
+        "folds_scored": len(folds),
+        "pooled": pooled,
+        "auc_ci95_date_block": ci,
+        "by_source": {k: _oos_block(y, oos, dates, tested & (sources == k)) for k in HONEST_SOURCES},
+        "skill": skill,
+        "skill_rule": "AUC 95% date-block CI above 0.5 AND log-loss below always predicting the base rate",
+        "folds": folds,
+    }
+
+
+def _fit_v2_honest(X_all, y_all, reg_all, sample_weights, blocks, fast_mode: bool, cfg: dict) -> dict:
+    """Dated CV + production fit. `blocks` = [(dates, label_end_dates, source),
+    ...] in X_all's row order. Returns the fit dict _train_model_impl saves,
+    or an early-return status dict."""
+    import ml_cv
+    E, n_splits, frac = cfg["embargo_dates"], cfg["cv_splits"], float(cfg["holdout_frac"])
+    dates, ends, srcs = [], [], []
+    for b_dates, b_ends, b_src in blocks:
+        dates.extend(b_dates)
+        ends.extend(b_ends)
+        srcs.extend([b_src] * len(b_dates))
+    if len(dates) != len(y_all) or len(ends) != len(y_all):
+        return {"status": "failed",
+                "reason": f"honest training: {len(dates)} row dates for {len(y_all)} rows (blocks misaligned)"}
+
+    # 1. Only rows that can be placed in time can be split by time.
+    dated = np.array([i for i, x in enumerate(dates) if x], dtype=np.int64)
+    sub_dates = [dates[i] for i in dated]
+    # 2. Fast-mode window: the most recent whole dates (<= 10,000 rows), not
+    #    the last rows of a ticker-major stack.
+    if fast_mode and len(dated) > HONEST_WINDOW_ROWS:
+        pos = _recent_whole_dates(sub_dates, HONEST_WINDOW_ROWS)
+    else:
+        pos = ml_cv.chronological_order(sub_dates)
+    keep = dated[pos]
+    X, y = X_all[keep], y_all[keep]
+    reg = [reg_all[i] for i in keep]
+    w = sample_weights[keep] if sample_weights is not None else None
+    d = [str(dates[i])[:10] for i in keep]
+    le = [str(ends[i])[:10] if ends[i] else "9999-12-31" for i in keep]   # unknown end: purged everywhere
+    src = np.array([srcs[i] for i in keep], dtype=object)
+    n = len(y)
+    training_set = {
+        "rows": n,
+        "undated_dropped": int(len(dates) - len(dated)),
+        "by_source": {k: int((src == k).sum()) for k in HONEST_SOURCES},
+        "dates": len(set(d)),
+        "date_range": [d[0], d[-1]] if n else None,
+        "window": (f"most recent whole decision dates, at most {HONEST_WINDOW_ROWS} rows" if fast_mode
+                   else "every dated row"),
+    }
+    if n < 50:
+        return {"status": "insufficient_data", "samples": n}
+
+    # 3. Walk-forward CV keyed on decision dates: embargo + label purge; each
+    #    fold's model is _fit_v2_window on that fold's training rows only.
+    splits = ml_cv.purged_walk_forward_splits(d, n_splits=n_splits, embargo_dates=E, label_end_dates=le)
+    oos = np.full(n, np.nan)
+    fold_accs, fold_regime_accs, folds = [], {}, []
+    for k, (tr, te) in enumerate(splits):
+        if len(tr) < 50 or len(te) < 10:
+            continue
+        fit = _fit_v2_window(X, y, tr, d, le, w, E, frac, f"wf_fold{k}")
+        if fit is None:
+            continue
+        m, s, itr, _iva = fit
+        p = _predict_v2(m, s, X[te])
+        oos[te] = p
+        hit = (p > 0.5).astype(int) == y[te]
+        fold_accs.append(float(np.mean(hit)))
+        reg_te = [reg[i] for i in te]
+        for r in ("bull", "bear", "neutral"):
+            r_idx = [j for j, rr in enumerate(reg_te) if rr == r]
+            if len(r_idx) >= 5:
+                fold_regime_accs.setdefault(r, []).append(float(np.mean(hit[r_idx])))
+        fm = ml_cv.binary_metrics(y[te], p)
+        fm.update({"fold": k, "train_rows": int(len(itr)), "test_rows": int(len(te)),
+                   "train_last_date": max(d[i] for i in itr), "test_first_date": min(d[i] for i in te),
+                   "test_last_date": max(d[i] for i in te)})
+        folds.append(_rounded(fm))
+    wf_accuracy = float(np.mean(fold_accs)) if fold_accs else 0.5
+    logger.info(f"Dated walk-forward CV: {len(fold_accs)} folds, per-fold acc="
+                f"{[round(a * 100, 1) for a in fold_accs]}, avg={round(wf_accuracy * 100, 1)}%")
+
+    # 4. Isotonic calibrator on genuinely out-of-sample probabilities.
+    calibrator = None
+    tested = ~np.isnan(oos)
+    if int(tested.sum()) >= 50 and HAS_SKLEARN:
+        try:
+            calibrator = IsotonicRegression(out_of_bounds='clip')
+            calibrator.fit(oos[tested], y[tested])
+            joblib.dump(calibrator, CALIBRATOR_PATH)
+            logger.info("Isotonic calibrator fitted on dated out-of-sample probabilities and saved")
+        except Exception as e:
+            logger.warning(f"Isotonic calibration failed: {e}")
+            calibrator = None
+
+    # 5. Production fit: the same estimator on every row (early stopping on the
+    #    last `frac` of the dates, embargoed and purged).
+    prod = _fit_v2_window(X, y, np.arange(n, dtype=np.int64), d, le, w, E, frac, "global")
+    if prod is None:
+        return {"status": "insufficient_data", "samples": n,
+                "reason": f"the dated holdout split (last {frac:.0%} of {len(set(d))} dates, "
+                          f"embargo {E}) left too few training rows or one class"}
+    global_model, global_scaler, itr, iva = prod
+
+    # 6. Regime models: each regime's rows on either side of the same date split.
+    regime_models, regime_accs = {}, {}
+    for r in ("bull", "bear", "neutral"):
+        idx_tr = [i for i in itr if reg[i] == r]
+        idx_te = [i for i in iva if reg[i] == r]
+        if len(idx_tr) >= 50 and len(idx_te) >= 10:
+            rm, rs, ra = _train_single_lgbm(X[idx_tr], X[idx_te], y[idx_tr], y[idx_te], r)
+            if rm is not None:
+                regime_models[r] = {"model": rm, "scaler": rs}
+                regime_accs[r] = round(ra * 100, 1)
+    wf_regime_accs = {r: round(float(np.mean(a)) * 100, 1) for r, a in fold_regime_accs.items() if a}
+
+    report = _honest_cv_report(y, oos, d, src, folds, cfg)
+    cv_method = "purged_walk_forward_by_date"
+    return {"status": None, "model": global_model, "scaler": global_scaler,
+            "regime_models": regime_models, "regime_accs": regime_accs, "wf_regime_accs": wf_regime_accs,
+            "wf_accuracy": wf_accuracy, "fold_accs": fold_accs, "calibrator": calibrator, "samples": n,
+            "bundle_cv_method": cv_method, "result_cv_method": cv_method,
+            "honest_cv": report, "training_set": training_set}
+
+
+def _fit_v2_legacy(X_all, y_all, reg_all, sample_weights, fast_mode: bool, n_tickers: int) -> dict:
+    """The prior procedure, unchanged (BASE_CONFIG["ML_V2_HONEST_TRAINING"]
+    enabled False): row-order fast-mode cut, row-index walk-forward CV, row-
+    index production split. Same fit dict as _fit_v2_honest."""
     # Fast mode: subsample to reduce memory on Railway.
     #
     # BUGFIX: Previous implementation used rng.choice() to pick a *random*
@@ -1425,6 +1596,8 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
     #
     # Fix: take the most recent contiguous 10K rows — preserves temporal order,
     # keeps sample_weights aligned, and is a more relevant training window.
+    # ([RULE-REVIEW] 2026-11-06: true only when rows are date-ordered; the
+    # generic rows are ticker-major — see _fit_v2_honest.)
     if fast_mode and len(X_all) > 10000:
         keep = 10000
         X_all = X_all[-keep:]
@@ -1437,7 +1610,7 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
         return {"status": "insufficient_data", "samples": len(X_all)}
 
     # Step 5: Walk-forward CV for accuracy reporting
-    _n_tickers = max(1, len(ticker_list))
+    _n_tickers = max(1, n_tickers)
     wf_splits = _walk_forward_cv(X_all, y_all, n_splits=5,
                                   embargo_days=5, n_tickers_approx=_n_tickers)
     fold_accs = []
@@ -1522,6 +1695,200 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
     # Average regime accs from walk-forward if available
     wf_regime_accs = {r: round(float(np.mean(accs))*100, 1)
                       for r, accs in fold_regime_accs.items() if accs}
+    return {"status": None, "model": global_model, "scaler": global_scaler,
+            "regime_models": regime_models, "regime_accs": regime_accs, "wf_regime_accs": wf_regime_accs,
+            "wf_accuracy": wf_accuracy, "fold_accs": fold_accs, "calibrator": calibrator,
+            "samples": len(X_all),
+            "bundle_cv_method": "walk_forward_5fold_purged", "result_cv_method": "walk_forward_5fold"}
+
+
+def train_model(fast_mode: bool = False) -> dict:
+    """Wrapper that surfaces retrain errors instead of swallowing them."""
+    try:
+        return _train_model_impl(fast_mode=fast_mode)
+    except Exception as e:
+        # MEM FIX 2026-04-21: surface actual error instead of swallowing it.
+        # ALPHA AUDIT 2026-05-03 batch 4: also capture full traceback location
+        # so we can diagnose 'NoneType is not subscriptable' style errors that
+        # don't tell us which line failed. Production logs were just showing
+        # "error: 'NoneType' object is not subscriptable" with no file/line —
+        # making it impossible to know which sub-function returned None.
+        import traceback
+        err_msg = str(e)[:200]
+        err_tb = traceback.format_exc()
+        # Extract the deepest line that's in OUR code (skip site-packages)
+        our_frames = [
+            line for line in err_tb.split("\n")
+            if 'File "' in line and "/site-packages/" not in line
+            and "/lib/python" not in line
+        ]
+        err_location = our_frames[-1].strip() if our_frames else "unknown location"
+        try:
+            import logging
+            logging.getLogger("voltrade.ml").error(
+                f"Retrain failed at {err_location}: {err_msg}\n{err_tb[-1000:]}")
+        except Exception:
+            pass
+        return {
+            "status": f"error: {err_msg}",
+            "error_location": err_location,
+            "accuracy": None, "features": None, "samples": None,
+            "error_detail": err_msg,
+            "traceback_tail": err_tb[-500:],
+        }
+
+
+def _train_model_impl(fast_mode: bool = False) -> dict:
+    """
+    Train the regime-conditional ensemble.
+
+    Architecture:
+      - One model trained on ALL data (global fallback)
+      - One model trained ONLY on bull-regime bars
+      - One model trained ONLY on bear-regime bars
+      - One model trained ONLY on neutral-regime bars
+
+    At inference: blend by current regime probability.
+    If a regime has < 50 training rows, use the global model.
+
+    Training uses:
+      1. Real trade feedback (3× weight, highest priority)
+      2. Generic market data with triple-barrier labels (bootstrap)
+    """
+    if not HAS_SKLEARN:
+        return {"status": "skipped", "reason": "sklearn not installed"}
+
+    t0 = time.time()
+    # [RULE-REVIEW] 2026-11-06: dated rows + deduplicated shadow rows + date-keyed
+    # splits (_fit_v2_honest) unless the switch is off (_fit_v2_legacy).
+    honest_cfg = _honest_training_cfg()
+    honest = bool(honest_cfg["enabled"])
+
+    # Step 1: Fetch training data
+    # MEMORY-AWARE 2026-05-22: production daemon has a 1024 MB cap (NOT 8GB
+    # as a prior comment claimed). When fast_mode is True (the path called
+    # by ml_retrain_safe.py from the subprocess), _fetch_training_bars caps
+    # to 100 tickers × 2 years so the subprocess fits inside the available
+    # ~575 MB headroom. Full-history training still available via fast_mode=False.
+    _ml_days = BASE_CONFIG.get("ML_LOOKBACK_DAYS", 365)
+    _ml_max_tickers = BASE_CONFIG.get("ML_MAX_TICKERS", 200)
+    all_bars, _bars_fetch_error = _fetch_training_bars(days=_ml_days, max_tickers=_ml_max_tickers,
+                                     fast_mode=fast_mode)
+    if not all_bars:
+        _reason = "Could not fetch training bars"
+        if _bars_fetch_error:
+            _reason += f" ({_bars_fetch_error})"
+        return {"status": "failed", "reason": _reason}
+
+    ticker_list = [k for k in all_bars if k not in ("SPY","QQQ","IWM","VXX","GLD","TLT")]
+
+    # Step 2: Build generic training data with triple-barrier labels
+    # (the EPS-surprise feature is 0.0 on every row: the latest-surprise look-ahead
+    # was removed 2026-10-27, see _build_training_data)
+    _gen = _build_training_data(all_bars, return_meta=honest)
+    X_gen, y_gen, reg_gen = _gen[0], _gen[1], _gen[2]
+    meta_gen = _gen[3] if honest else None
+    del _gen
+
+    # Release raw bar data — features have been extracted into X_gen
+    del all_bars
+    import gc; gc.collect()
+
+    # Step 3: Load real trade feedback
+    feedback    = _load_trade_feedback()
+    X_fb, y_fb, reg_fb, fb_weights = None, None, None, None
+    meta_fb = None
+    if len(feedback) >= 15:
+        fb_result = _build_feedback_training_data(feedback, return_meta=honest)
+        if fb_result[0] is not None:
+            X_fb, y_fb, reg_fb, fb_weights = fb_result[0], fb_result[1], fb_result[2], fb_result[3]
+            meta_fb = fb_result[4] if honest else None
+
+    # Step 4: Combine — use sample_weight instead of tripling
+    # Cap feedback at 15% of generic training data
+    # (honest mode: `blocks` keeps each stacked block's dates, label end dates
+    # and source, in X_all's row order)
+    sample_weights = None
+    blocks = []
+    if X_fb is not None and X_gen is not None:
+        max_feedback_rows = int(len(X_gen) * 0.15)
+        if len(X_fb) > max_feedback_rows:
+            X_fb = X_fb[-max_feedback_rows:]
+            y_fb = y_fb[-max_feedback_rows:]
+            reg_fb = reg_fb[-max_feedback_rows:]
+            fb_weights = fb_weights[-max_feedback_rows:]
+            if meta_fb is not None:
+                meta_fb = {k: v[-max_feedback_rows:] for k, v in meta_fb.items()}
+        X_all = np.vstack([X_gen, X_fb])
+        y_all = np.concatenate([y_gen, y_fb])
+        reg_all = reg_gen + list(reg_fb)
+        # Sample weights: 1.0 for generic, decay-weighted for feedback
+        gen_weights = np.ones(len(X_gen), dtype=np.float32)
+        sample_weights = np.concatenate([gen_weights, fb_weights])
+        data_source = f"generic({len(X_gen)})+feedback({len(X_fb)})"
+        if honest:
+            blocks = [(meta_gen["dates"], meta_gen["label_end_dates"], "generic"),
+                      (meta_fb["dates"], meta_fb["label_end_dates"], "feedback")]
+    elif X_gen is not None:
+        X_all, y_all, reg_all = X_gen, y_gen, reg_gen
+        data_source = f"generic_only({len(X_gen)})"
+        if honest:
+            blocks = [(meta_gen["dates"], meta_gen["label_end_dates"], "generic")]
+    elif X_fb is not None:
+        X_all, y_all, reg_all = X_fb, y_fb, list(reg_fb)
+        sample_weights = fb_weights
+        data_source = f"feedback_only({len(X_fb)})"
+        if honest:
+            blocks = [(meta_fb["dates"], meta_fb["label_end_dates"], "feedback")]
+    else:
+        return {"status": "failed", "reason": "No training data"}
+
+    # ── NEW: blend in shadow portfolio training data ─────────────────────
+    # (honest mode: ONE row per (ticker, ET day), the first-seen record — the
+    # log holds one record per scan — with each row's dates for the CV)
+    shadow_counts = None
+    try:
+        from shadow_portfolio import load_shadow_data
+        shadow = load_shadow_data(horizon_days=10, shadow_weight=0.3, dedupe=honest, return_meta=honest)
+        if shadow is not None:
+            X_shadow, y_shadow, w_shadow = shadow[0], shadow[1], shadow[2]
+            sh_block = None
+            if honest:
+                sh_meta = shadow[3]
+                sh_block = (list(sh_meta["dates"]), list(sh_meta["label_end_dates"]), "shadow")
+                shadow_counts = {"rows_labeled": int(sh_meta["rows_labeled"]), "rows_used": int(len(X_shadow))}
+            if sample_weights is None:
+                sample_weights = np.ones(len(X_all), dtype=np.float32)
+            X_all = np.vstack([X_all, X_shadow])
+            y_all = np.concatenate([y_all, y_shadow])
+            reg_all = reg_all + ["neutral"] * len(X_shadow)
+            sample_weights = np.concatenate([sample_weights, w_shadow])
+            if sh_block is not None:
+                blocks.append(sh_block)
+                data_source += (f"+shadow({len(X_shadow)} first-seen ticker-days of "
+                                f"{shadow_counts['rows_labeled']} labeled scan rows)")
+            logger.info(f"[ML] Blended {len(X_shadow)} shadow samples (weight 0.3x)")
+    except Exception as e:
+        logger.warning(f"[ML] Shadow blend skipped: {e}")
+
+    # Normalize regime labels to lowercase to match training split expectations
+    # (bot_engine stores labels as UPPERCASE e.g. "NEUTRAL", training expects "neutral")
+    reg_all = [r.lower() for r in reg_all]
+
+    # Steps 5-7: CV for accuracy reporting + calibrator, production model,
+    # regime models — by decision date (honest) or by row index (legacy).
+    if honest:
+        fit = _fit_v2_honest(X_all, y_all, reg_all, sample_weights, blocks,
+                             fast_mode=fast_mode, cfg=honest_cfg)
+    else:
+        fit = _fit_v2_legacy(X_all, y_all, reg_all, sample_weights,
+                             fast_mode=fast_mode, n_tickers=len(ticker_list))
+    del X_all, y_all
+    if fit.get("status"):
+        return fit
+    global_model, global_scaler = fit["model"], fit["scaler"]
+    regime_models, regime_accs, wf_regime_accs = fit["regime_models"], fit["regime_accs"], fit["wf_regime_accs"]
+    wf_accuracy, fold_accs, calibrator = fit["wf_accuracy"], fit["fold_accs"], fit["calibrator"]
 
     # Step 8: Feature importance
     importance = {}
@@ -1540,16 +1907,20 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
         "feature_names":  FEATURE_COLS,
         "accuracy":       round(wf_accuracy, 4),
         "regime_accs":    wf_regime_accs or regime_accs,
-        "samples":        len(X_all),
+        "samples":        fit["samples"],
         "feedback_trades":len(feedback),
         "data_source":    data_source,
         "timestamp":      datetime.now().isoformat(),
         "feature_importance": importance,
         "label_method":   "triple_barrier_volatility_adjusted_timeout_relabel",
-        "cv_method":      "walk_forward_5fold_purged",
+        "cv_method":      fit["bundle_cv_method"],
         "architecture":   "regime_conditional_ensemble",
         "calibrator_path": CALIBRATOR_PATH if calibrator else None,
     }
+    if honest:
+        # the honest out-of-sample record travels with the model it describes
+        bundle["honest_cv"] = fit["honest_cv"]
+        bundle["training_set"] = {**fit["training_set"], "shadow": shadow_counts}
     if HAS_SKLEARN:
         joblib.dump(bundle, MODEL_PATH)
 
@@ -1558,11 +1929,10 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
     _model_cache["mtime"] = 0.0
 
     # Save counts before releasing training data
-    _n_samples = len(X_all)
+    _n_samples = fit["samples"]
     _n_feedback = len(feedback)
 
     # Release training data from memory
-    del X_all, y_all, X_tr, X_te, y_tr, y_te
     try:
         del X_gen
     except NameError:
@@ -1573,7 +1943,7 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
         pass
     import gc; gc.collect()
 
-    return {
+    result = {
         "status":         "trained",
         "accuracy":       round(wf_accuracy * 100, 1),
         "regime_accs":    wf_regime_accs or regime_accs,
@@ -1582,12 +1952,16 @@ def _train_model_impl(fast_mode: bool = False) -> dict:
         "feedback_trades":_n_feedback,
         "data_source":    data_source,
         "label_method":   "triple_barrier_timeout_relabel",
-        "cv_method":      "walk_forward_5fold",
+        "cv_method":      fit["result_cv_method"],
         "regime_models":  list(regime_models.keys()),
         "wf_fold_accs":   [round(a*100, 1) for a in fold_accs],
         "calibrated":     calibrator is not None,
         "training_seconds": round(time.time() - t0, 1),
     }
+    if honest:
+        result["honest_cv"] = fit["honest_cv"]
+        result["training_set"] = {**fit["training_set"], "shadow": shadow_counts}
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════
