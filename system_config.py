@@ -540,6 +540,14 @@ BASE_CONFIG = {
         # sample's mean). test_tax_filter.py recomputes them from the file.
         "HOLD_DAYS": {"stocks": 6.36, "etf": 6.76, "csp_options": 6.39, "vrp": 6.45},
         "LOG_MAX_BYTES": 4 * 1024 * 1024,   # rotate the decision log to .1 above this
+        # HOLD WINNERS PAST ONE YEAR (2026-11-06, tax_filter.lt_deferral): a
+        # winning stock/ETF position within LT_DEFER_WINDOW_DAYS of its
+        # long-term date keeps its PROFIT-TAKING exits (scale-out, take-profit,
+        # time stop, TIME-EXIT) on hold while the tax saving (gain × (24 % −
+        # 15 %)) beats the expected give-back of waiting; stops and every risk
+        # exit always run. Prior behaviour: no deferral. Rollback: False.
+        "LT_DEFER_ENABLED": True,
+        "LT_DEFER_WINDOW_DAYS": 45,
     },
 
     # ── AGGRESSIVE TREND EXITS (pro-level) ────────────────────────────

@@ -2467,11 +2467,22 @@ def manage_positions():
         scales_completed = ps.get("scales_completed", 0)
         breakeven_active = ps.get("breakeven_active", False)
 
+        # TAX: HOLD WINNERS PAST ONE YEAR (2026-11-06, tax_filter.lt_deferral):
+        # inside LT_DEFER_WINDOW_DAYS of its long-term date a winner's PROFIT-
+        # TAKING exits (scale-out, take-profit, time stop) wait while the tax
+        # saving beats the expected give-back; stops and risk exits never wait.
+        # The verdict rides in the stop state (tax_defer_until / _reason) that
+        # bot.ts's WS exits and TIME-EXIT read: one decision for both layers.
+        import tax_filter as _tf_lt
+        _tax_hold = _tf_lt.lt_deferral(ticker=ticker, side=side, gain_pct=pnl_pct,
+                                       entry_date=ps.get("entry_date") or time.strftime("%Y-%m-%d"),
+                                       atr_pct=atr_pct)
+
         # ── SCALE-OUT CHECK ─────────────────────────────────────────────────
         # Scale out 1/3 at each threshold. Only recommend if not already done.
         third_qty = max(1, original_qty // 3)
 
-        if scales_completed < 2 and remaining_qty > 1:
+        if scales_completed < 2 and remaining_qty > 1 and not _tax_hold["defer"]:
             if scales_completed == 0 and r_multiple >= 1.0 and third_qty >= 1:
                 # First scale-out: sell 1/3 at 1R
                 scale_qty = third_qty
@@ -2587,6 +2598,8 @@ def manage_positions():
             # Regime for bot.ts to read
             "regime": regime,
         }
+        stop_state[ticker]["tax_defer_until"] = _tax_hold["longTermDate"] if _tax_hold["defer"] else None
+        stop_state[ticker]["tax_defer_reason"] = _tax_hold["reason"] if _tax_hold["defer"] else None
 
         # Exit context: full state at exit time (for ML exit model training)
         exit_context = {
@@ -2675,14 +2688,14 @@ def manage_positions():
                 _cd = {k: v for k, v in _cd.items() if time.time() - v < 86400}
                 with open(_cd_path, 'w') as _f: json.dump(_cd, _f)
             except Exception: pass
-        elif pnl_pct >= tp_pct and phase < 3 and scales_completed >= 2:
+        elif pnl_pct >= tp_pct and phase < 3 and scales_completed >= 2 and not _tax_hold["defer"]:
             scale_note = f" (final {remaining_qty}/{original_qty} shares)" if scales_completed > 0 else ""
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": f"TAKE PROFIT: +{pnl_pct:.1f}% hit target +{tp_pct:.1f}% (Phase {phase}){scale_note}",
                 "type": "take_profit", "phase": phase,
                 "qty": remaining_qty, "exit_context": exit_context,
                 "unwind_cc_first": True})
-        elif time_stop:
+        elif time_stop and not _tax_hold["defer"]:
             scale_note = f" ({remaining_qty}/{original_qty} shares)" if scales_completed > 0 else ""
             actions.append({"action": "CLOSE", "ticker": ticker, "side": side,
                 "reason": f"TIME STOP: {days_held} days held, P&L only {pnl_pct:+.1f}% — capital locked up{scale_note}",

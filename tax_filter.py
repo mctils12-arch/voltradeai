@@ -61,7 +61,7 @@ import logging
 import os
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 log = logging.getLogger("voltrade.tax_filter")
 
@@ -87,6 +87,8 @@ DEFAULTS = {
     "SUBTRACT_COSTS": True,
     "HOLD_DAYS": {"stocks": 6.36, "etf": 6.76, "csp_options": 6.39, "vrp": 6.45},
     "LOG_MAX_BYTES": 4 * 1024 * 1024,
+    "LT_DEFER_ENABLED": True,
+    "LT_DEFER_WINDOW_DAYS": 45,
 }
 
 # Option strategies that SELL premium (position_sizing._infer_strategy's
@@ -595,3 +597,100 @@ def skip_error(row: dict) -> str:
     for any error containing "budget" or "capital", so neither word may appear."""
     text = str(row.get("reason", "skipped"))[:300]
     return "tax filter: " + re.sub(r"(?i)budget|capital", "money", text)
+
+
+# ── holding winners past one year (exit deferral) ──────────────────────────
+#
+# A winning stock/ETF lot within LT_DEFER_WINDOW_DAYS of its long-term date
+# keeps its discretionary profit-taking exits (scale-out, take-profit, time
+# stop) on hold while the tax saving of waiting exceeds the expected give-back
+# of waiting. Stops, trailing stops, breakeven, the hard floor, POS-KILL, kill
+# switches and every risk exit are NEVER deferred — they keep running through
+# the wait, which is what bounds the give-back. bot.ts's 14-day TIME-EXIT is
+# not held either: its band (P&L at most +2 %) caps the saving at ~0.18 % of
+# the position, below the give-back of any wait.
+#
+#   saving    = gain / value × (short − long) — percent of the position's value
+#               (selling now pays the short-term rate on the gain, waiting the
+#               long-term rate)
+#   give-back = E[max(0, −X)] × (1 − long), X ~ N(0, σ·√T): the expected
+#               adverse move over the T trading days left, driftless, after the
+#               long-term tax it would no longer pay. σ = ATR% / 1.596 (for a
+#               driftless random walk E[high − low] = 2·√(2/π)·σ, Feller 1951);
+#               T = calendar days × 252/365.
+#   defer     = saving > give-back
+#
+# BIASES, STATED: the upside of waiting is ignored and the stop that caps the
+# downside is not credited, so the rule defers LESS than an expected-value rule
+# would; the holding period is the stop state's entry_date (when the bot first
+# managed the position — the same date bot.ts reads), not a broker lot date.
+
+LT_DEFER_EXITS = ("scale_out", "take_profit", "time_stop")   # what a hold may delay; nothing else
+ATR_PER_SIGMA = 1.596          # E[daily high − low] / σ for a driftless random walk (Feller 1951)
+_DOWNSIDE_SEMI_MEAN = 0.3989   # E[max(0, −Z)] for Z ~ N(0, 1) = 1/√(2π)
+
+
+def days_to_long_term(days_held: int) -> int:
+    """Calendar days until a sale is long-term: a lot held MORE than one year,
+    i.e. sold on day 366 or later after its purchase date."""
+    return LONG_TERM_DAYS + 1 - int(days_held)
+
+
+def lt_deferral(*, ticker: str, side: str, gain_pct: float, entry_date: str, atr_pct: float,
+                today: date = None, cfg: dict = None, source: str = "manage_positions",
+                path: str = None, log_row: bool = True) -> dict:
+    """The deferral verdict for a position's discretionary exits.
+
+    Returns {defer, eligible, daysToLongTerm, longTermDate, taxSavingPct,
+    giveBackPct, reason}; `defer` is True only when the position is a long
+    winner inside the window and the saving beats the give-back (and the
+    switch is on). An eligible verdict is logged (kind "exit_deferral", once
+    per ticker and verdict per day). Never raises: any failure is no deferral."""
+    out = {"defer": False, "eligible": False, "daysToLongTerm": None, "longTermDate": None,
+           "taxSavingPct": None, "giveBackPct": None, "reason": ""}
+    try:
+        c = cfg or config()
+        d0 = date.fromisoformat(str(entry_date)[:10])
+        t = today or date.today()
+        held = (t - d0).days
+        left = days_to_long_term(held)
+        out["daysToLongTerm"] = left
+        out["longTermDate"] = (d0 + timedelta(days=LONG_TERM_DAYS + 1)).isoformat()
+        g = float(gain_pct) / 100.0
+        window = int(c.get("LT_DEFER_WINDOW_DAYS", DEFAULTS["LT_DEFER_WINDOW_DAYS"]))
+        if str(side).lower() not in ("long", "buy") or g <= 0 or left <= 0 or left > window:
+            return out
+        out["eligible"] = True
+        st, lt = float(c["SHORT_TERM_RATE"]), float(c["LONG_TERM_RATE"])
+        saving = g / (1.0 + g) * (st - lt) * 100.0
+        sigma = max(float(atr_pct or 0.0), 0.0) / ATR_PER_SIGMA
+        giveback = _DOWNSIDE_SEMI_MEAN * sigma * ((left * 252.0 / 365.0) ** 0.5) * (1.0 - lt)
+        out["taxSavingPct"], out["giveBackPct"] = round(saving, 3), round(giveback, 3)
+        beneficial = saving > giveback
+        enabled = bool(c.get("LT_DEFER_ENABLED", True))
+        out["defer"] = beneficial and enabled
+        what = (f"{str(ticker).upper()} is {left} day{'s' if left != 1 else ''} from long-term ({out['longTermDate']}); "
+                f"selling now would pay {st * 100:.0f}% instead of {lt * 100:.0f}% on a +{gain_pct:.1f}% gain")
+        cmp = (f"saves about {saving:.2f}% of the position, "
+               f"{'more' if beneficial else 'less'} than the {giveback:.2f}% expected give-back over those days "
+               f"(ATR {float(atr_pct or 0):.1f}%; stops keep running)")
+        if out["defer"]:
+            out["reason"] = f"Deferred: {what}; waiting {cmp} — profit-taking exits wait until {out['longTermDate']}."
+        elif beneficial:
+            out["reason"] = f"Not deferred (TAX_FILTER.LT_DEFER_ENABLED off): {what}; waiting {cmp}."
+        else:
+            out["reason"] = f"Not deferred: {what}; waiting {cmp}, so the exits run as usual."
+        if log_row:
+            row = _base_row(ticker, "sell", "exit_deferral", "stock", source, c)
+            row.update({"allowed": not out["defer"], "wouldAllow": not beneficial, "priced": True,
+                        "expectedPct": None, "afterTaxPct": None, "spyAfterTaxPct": None,
+                        "holdingDays": float(held), "gainPct": round(float(gain_pct), 3),
+                        "daysToLongTerm": left, "longTermDate": out["longTermDate"],
+                        "taxSavingPct": out["taxSavingPct"], "giveBackPct": out["giveBackPct"],
+                        "atrPct": round(float(atr_pct or 0), 3), "reason": out["reason"]})
+            log_decision(row, path=path)
+        return out
+    except Exception as e:   # no deferral on a broken input — and the reason says why
+        log.warning(f"[TAX] LT deferral failed for {ticker}: {type(e).__name__}: {e}")
+        out["reason"] = f"no deferral: {type(e).__name__}: {e}"
+        return out
