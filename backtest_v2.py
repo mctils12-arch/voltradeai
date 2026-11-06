@@ -130,7 +130,10 @@ def liquidity_cost_pct(bars: dict, i: int) -> float:
 # Mirrors system_config.get_adaptive_params regime overrides (MAX_POSITIONS /
 # MIN_SCORE) in the backtest engine's compact dialect. test_audit_critical.py
 # asserts the NEUTRAL line blocks trades, and a consistency test asserts these
-# match the live values in system_config.py.
+# match the live values in system_config.py. time_stop_days (3/5/10) is the
+# legacy and control arms' own copy of the regime time stops the configured
+# TIME_STOP_DAYS overrides carried until 2026-11-06 (deleted unread, KNOWN
+# BROKEN #48 step 3); the live arm uses live_exit_policy's 7-day flat stop.
 REGIME_PARAMS = {
     "PANIC":   {"max_pos": 0, "min_score": 75, "max_position_pct": 0.06, "time_stop_days": 3},
     "BEAR":    {"max_pos": 0, "min_score": 75, "max_position_pct": 0.08, "time_stop_days": 5},
@@ -138,17 +141,19 @@ REGIME_PARAMS = {
     "NEUTRAL": {"max_pos": 0, "min_score": 63, "max_position_pct": 0.08, "time_stop_days": 10},
     "BULL":    {"max_pos": 8, "min_score": 63, "max_position_pct": 0.15, "time_stop_days": 10},
 }
-ATR_STOP_MULT = 1.5        # system_config ATR_STOP_MULTIPLIER
-MIN_STOP_PCT = 2.0         # system_config MIN_STOP_PCT
-MAX_STOP_PCT = 6.0         # system_config MAX_STOP_PCT
+ATR_STOP_MULT = 1.5        # the deleted system_config ATR_STOP_MULTIPLIER (KB #48)
+MIN_STOP_PCT = 2.0         # the deleted system_config MIN_STOP_PCT
+MAX_STOP_PCT = 6.0         # the deleted system_config MAX_STOP_PCT
 TAKE_PROFIT_RR = 2.0       # target = 2R (asymmetry over accuracy)
 
 # ── Exit models ([RULE-REVIEW] measurement change, 2026-10-16) ──────────────
 # KNOWN BROKEN #48: the four constants above are the "legacy" exit model — a
-# copy of system_config's ATR_STOP_MULTIPLIER/MIN/MAX_STOP_PCT block, which
-# NO live code reads. The only live stock exits are server/bot.ts
-# checkPositionOnTick: 2xATR R-ladder, scale-outs in thirds, breakeven,
-# phase trails, conditional TP, 7-calendar-day flat time stop.
+# copy of the stop clamp in system_config's configured exit block, which NO
+# live code ever read (the block was deleted 2026-11-06, KB #48 step 3; these
+# copies stay so legacy reruns remain reproducible). The only live stock
+# exits are server/bot.ts checkPositionOnTick: 2xATR R-ladder, scale-outs in
+# thirds, breakeven, phase trails, conditional TP, 7-calendar-day flat time
+# stop.
 # exit_model="live" simulates THAT engine through live_exit_policy.py
 # (same rule set as PR #1355's reviewed shadow-labeler mirror), walking each
 # bar OPEN -> LOW -> HIGH -> CLOSE (adverse leg first = stop-first on an
