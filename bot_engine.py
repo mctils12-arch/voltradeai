@@ -131,6 +131,8 @@ FLOOR_AND_LEG_TICKERS = (
     # 2026-11-05: the volatility-managed floor (FLOOR_MODE "vol_managed_spy")
     # holds SPY + the 2x SSO; both are floor-managed, never stopped out.
     | {BASE_CONFIG.get("FLOOR_VM_TICKER", "SPY"), BASE_CONFIG.get("FLOOR_VM_LEVERED_TICKER", "SSO")}
+    # 2026-11-06: + the T-bill fund holding the floor's idle cash (BOXX)
+    | {t for t in (str(BASE_CONFIG.get("FLOOR_VM_CASH_TICKER") or "").strip().upper(),) if t}
 )
 
 # ── Markov regime detector ───────────────────────────────────────────
@@ -4668,7 +4670,9 @@ def _scan_market_inner():
                     _scan_engine_label = None
                 ctx = TierContext(
                     equity=equity, peak_equity=peak, buying_power=bp,
-                    positions=positions,
+                    # 2026-11-06: the T-bill fund is the floor's idle cash; the
+                    # invested ceilings (PANIC 30% ... BULL 95%) count it as cash
+                    positions=without_floor_cash(positions),
                     macro=_macro if '_macro' in locals() else {},
                     portfolio_margin=get_portfolio_margin_status(),
                     daily_pnl_pct=daily_pnl,
@@ -5243,7 +5247,8 @@ def _run_third_leg(macro: dict) -> dict:
         # Implementation: buy SVXY (inverse VXX ETF) — goes up when VXX falls
         # Simpler than options straddles, trackable as a regular stock position
         # Capital budget check: ensure we don't exceed 100% total deployment
-        total_deployed = sum(float(p.get("market_value", 0)) for p in positions_raw) / equity if equity > 0 else 0.0
+        # 2026-11-06: the floor's T-bill fund is cash here (without_floor_cash)
+        total_deployed = sum(float(p.get("market_value", 0)) for p in without_floor_cash(positions_raw)) / equity if equity > 0 else 0.0
         remaining_capacity = max(0.0, 1.0 - total_deployed)
         # Scale VRP allocation by remaining capacity (cap at 60% of remaining)
         vrp_pct = min(LEG3_VRP_PCT, remaining_capacity * 0.6)
@@ -6342,6 +6347,175 @@ def floor_reduce_only_pass() -> dict:
     return _manage_vol_managed_floor({}, reduce_only=True)
 
 
+# ── The floor's idle cash in a T-bill fund (2026-11-06) ─────────────────────
+# system_config FLOOR_VM_CASH_* has the evidence (idle cash at 0% drops the
+# floor study's V1 below SPY's log growth) and why the fund is BOXX (it
+# accrues in price; the paper account credits no dividends). The decision is
+# floor_vol_managed.cash_plan; this pass reads the account and trades.
+FLOOR_VM_CASH_STATE_FILE = "voltrade_floor_cash_state.json"
+FLOOR_VM_CORE_ORDER_ACTIONS = ("floor_vm_buy", "floor_vm_sell", "floor_vm_legacy_sell")
+# A rejected buy (e.g. the fund not tradable) blocks buys for the rest of the
+# ET day, so the scan does not resubmit it every 1-5 minutes. Process memory.
+_FLOOR_CASH_BUY_BLOCK = {"day": None, "error": None}
+
+
+def floor_cash_ticker(cfg: dict = None):
+    """The T-bill fund the floor parks idle cash in, or None when unset or
+    clashing with a ticker the floor already trades (SPY/SSO or a legacy one).
+    Configured even when FLOOR_VM_CASH_ENABLED is False: a fund still held
+    must stay exempt from stops while the next pass sells it."""
+    cfg = BASE_CONFIG if cfg is None else cfg
+    t = str(cfg.get("FLOOR_VM_CASH_TICKER") or "").strip().upper()
+    if not t or t in set(_floor_vm_tickers(cfg)) or t in _floor_vm_legacy_tickers(cfg):
+        return None
+    return t
+
+
+def without_floor_cash(positions, cfg: dict = None):
+    """positions minus the T-bill fund: the exposure caps count it as the cash
+    it replaces (the tier engine's invested ceiling, the third leg's room).
+    Anything but a list (an error body from the broker) passes through
+    unchanged, so a failed read fails exactly as it did before."""
+    if not isinstance(positions, list):
+        return positions
+    t = floor_cash_ticker(cfg)
+    return [p for p in positions if not (t and isinstance(p, dict) and str(p.get("symbol", "")).upper() == t)]
+
+
+def _short_put_collateral(positions) -> float:
+    """strike x 100 x contracts over every short put: the cash a cash-secured
+    put keeps tied up. The fund never buys into it. A malformed quantity
+    raises: the cash step then stops with a visible error status instead of
+    guessing the collateral."""
+    from options_manager import _parse_occ_symbol
+    total = 0.0
+    for p in positions if isinstance(positions, list) else []:
+        if not isinstance(p, dict):
+            continue
+        sym = str(p.get("symbol", ""))
+        qty = float(p.get("qty") or 0)
+        if qty >= 0 or len(sym) < 16:
+            continue
+        occ = _parse_occ_symbol(sym)
+        if occ.get("option_type") == "put" and float(occ.get("strike") or 0) > 0:
+            total += float(occ["strike"]) * 100.0 * abs(qty)
+    return total
+
+
+def _floor_cash_save_state(state: dict) -> None:
+    try:
+        tmp = os.path.join(DATA_DIR, FLOOR_VM_CASH_STATE_FILE + ".tmp")
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, os.path.join(DATA_DIR, FLOOR_VM_CASH_STATE_FILE))
+    except OSError as _se:
+        import logging as _fcl
+        _fcl.getLogger("bot_engine").warning(f"[FLOOR-CASH] state not saved: {_se}")
+
+
+def _manage_floor_cash(core_result: dict) -> dict:
+    """One pass of the floor's cash parking, run by _run_floor_step right after
+    the core (never in reduce-only: the drawdown halt and the kill switch call
+    _manage_vol_managed_floor directly). The plan is stored as
+    core_result["cash_parking"]; an order joins core_result["actions"] so the
+    floor audit (server/floorAudit.ts) logs it."""
+    from system_config import BASE_CONFIG as cfg
+    from floor_vol_managed import cash_plan as _vm_cash_plan
+    import math as _fcm
+    ticker = floor_cash_ticker(cfg)
+    if ticker is None:
+        core_result["cash_parking"] = {"status": "off: no usable FLOOR_VM_CASH_TICKER"}
+        return core_result["cash_parking"]
+    if not core_result.get("ok"):
+        # no floor plan this pass (short history or a failed read): never trade blind
+        core_result["cash_parking"] = {"ticker": ticker, "status": "skipped: no floor plan this pass"}
+        return core_result["cash_parking"]
+    acct = get_alpaca_account() or {}
+    equity = float(acct.get("equity") or 0)
+    try:
+        cash = float(acct["cash"])
+    except (KeyError, TypeError, ValueError):
+        cash = None
+    positions = get_alpaca_positions()
+    positions = positions if isinstance(positions, list) else []
+    by_sym = {str(p.get("symbol", "")).upper(): p for p in positions if isinstance(p, dict)}
+
+    def _value(sym: str) -> float:
+        return float(by_sym[sym].get("market_value") or 0) if sym in by_sym else 0.0
+
+    base, lev = _floor_vm_tickers(cfg)
+    capital_pct = float(cfg.get("FLOOR_VM_CAPITAL_PCT", 0.85))
+    capital = max(0.0, equity) * capital_pct
+    reserve = (1.0 - capital_pct) * max(0.0, equity) + _short_put_collateral(positions)
+    core_traded = any(str(a.get("type", "")) in FLOOR_VM_CORE_ORDER_ACTIONS
+                      for a in core_result.get("actions", []) if isinstance(a, dict))
+    plan = _vm_cash_plan(capital, _value(base) + _value(lev), _value(ticker), cash, reserve, cfg,
+                         enabled=bool(cfg.get("FLOOR_VM_CASH_ENABLED", True)), buys_allowed=not core_traded)
+    plan.update(ticker=ticker, cash=None if cash is None else round(cash, 2), reserve=round(reserve, 2),
+                status="ok")
+    core_result["cash_parking"] = plan
+
+    def _done() -> dict:
+        _floor_cash_save_state({"at": datetime.now().isoformat(), **plan})
+        return plan
+
+    if plan["action"] == "hold":
+        return _done()
+    hour = _et_now_hour()
+    if not (FLOOR_VM_TRADE_WINDOW_ET[0] <= hour < FLOOR_VM_TRADE_WINDOW_ET[1]) or not _is_regular_hours():
+        plan["status"] = "deferred: outside 09:45-15:54 ET or market closed"
+        return _done()
+    clock_ok, clock_why = _floor_vm_broker_clock()
+    if not clock_ok:
+        plan["status"] = f"deferred: {clock_why}"
+        return _done()
+    working = _open_order_symbols()
+    if ticker in working:
+        plan["status"] = "wait: an order for the fund is working"
+        return _done()
+    side = plan["action"]
+    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    if side == "buy":
+        if working & ({base, lev} | _floor_vm_legacy_tickers(cfg)):
+            plan["status"] = "wait: a floor order is working"
+            return _done()
+        if _FLOOR_CASH_BUY_BLOCK["day"] == today:
+            plan["status"] = f"buys blocked today after a rejected buy: {_FLOOR_CASH_BUY_BLOCK['error']}"
+            return _done()
+    bid, ask = _latest_quote(ticker)
+    actions = core_result.setdefault("actions", [])
+    if bid <= 0 or ask <= 0:
+        actions.append({"type": "floor_vm_no_quote", "ticker": ticker})
+        plan["status"] = "no quote"
+        return _done()
+    spread = (ask - bid) / ((ask + bid) / 2.0)
+    if spread > float(cfg.get("FLOOR_VM_CASH_MAX_SPREAD_PCT", 0.002)):
+        actions.append({"type": "floor_vm_cash_wide_spread", "ticker": ticker,
+                                       "reason": f"bid {bid:.2f} / ask {ask:.2f} is {spread * 100:.2f}% wide"})
+        plan["status"] = "skipped: quote too wide"
+        return _done()
+    held_qty = 0
+    if ticker in by_sym:
+        p = by_sym[ticker]
+        held_qty = int(float(p.get("qty_available", p.get("qty", 0)) or 0))
+    if side == "buy":
+        qty, px = int(plan["dollars"] // ask), ask
+    else:
+        qty = held_qty if plan.get("sell_all") else min(held_qty, int(_fcm.ceil(plan["dollars"] / bid)))
+        px = bid
+    if qty <= 0:
+        plan["status"] = "nothing to trade at this price"
+        return _done()
+    order = _floor_vm_order(ticker, qty, side, px)
+    actions.append({"type": f"floor_vm_cash_{side}", "ticker": ticker, "qty": qty, "limit": px,
+                    "reason": plan["reason"], **order})
+    plan["order"] = {"side": side, "qty": qty, "limit": px, **order}
+    if side == "buy" and not order.get("ok"):
+        _FLOOR_CASH_BUY_BLOCK.update(day=today, error=str(order.get("error") or "rejected")[:200])
+    plan["status"] = "traded" if order.get("ok") else "order rejected"
+    return _done()
+
+
 def _run_floor_step(macro: dict, floor_regime: dict) -> tuple:
     """Step 10 / 10b of the scan: the floor that FLOOR_MODE names.
 
@@ -6358,6 +6532,13 @@ def _run_floor_step(macro: dict, floor_regime: dict) -> tuple:
             spy_floor_result = _manage_vol_managed_floor(macro)
         except Exception as _vme:
             spy_floor_result = {"mode": "vol_managed_spy", "actions": [], "status": f"error: {str(_vme)[:80]}"}
+        # 2026-11-06: the floor's idle cash goes to the T-bill fund (FLOOR_VM_CASH_*),
+        # after the core and only here: never in the reduce-only passes.
+        if not str(spy_floor_result.get("status", "")).startswith("error"):
+            try:
+                _manage_floor_cash(spy_floor_result)
+            except Exception as _fce:
+                spy_floor_result["cash_parking"] = {"status": f"error: {str(_fce)[:120]}"}
         defensive_floor_result["status"] = "off: the vol-managed floor owns the core (GLD is sold as legacy)"
         return spy_floor_result, defensive_floor_result
     try:

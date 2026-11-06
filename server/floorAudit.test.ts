@@ -111,3 +111,41 @@ test("bot.ts: the scan audits its floor pass, and the halted pass runs the kill 
   const heavy = slice("const HEAVY_DAEMON_ONLY = new Set([", "]);");
   assert.ok(heavy.includes('"floor_reduce_only"'), "never a fresh interpreter for a bot_engine import");
 });
+
+// 2026-11-06: the floor's idle cash in the T-bill fund (bot_engine._manage_floor_cash)
+const CASH = { ticker: "BOXX", idle: 42500, target: 42500, held: 0, action: "buy", status: "traded" };
+
+test("a cash-only pass: its own head, the plan in the summary, the reason on the order line", () => {
+  const rows = floorAuditRows({
+    ...PLAN, rebalance: false, status: "ok", cash_parking: CASH,
+    actions: [{ type: "floor_vm_cash_buy", ticker: "BOXX", qty: 357, limit: 118.92, ok: true, order_id: "c1",
+                reason: "$42,500 of the floor's $85,000 is idle; park $42,500 (cash would earn 0)" }],
+  }, "scan");
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].message, /^idle cash in the T-bill fund \(paper cash earns 0; the fund accrues in price\) — sigma20 15\.5%/);
+  assert.match(rows[0].message, /; idle cash \$42500, BOXX target \$42500, held \$0$/);
+  assert.equal(rows[1].message,
+    "BUY T-bill fund (idle floor cash) 357 BOXX @ 118.92 limit — order c1 ($42,500 of the floor's $85,000 is idle; park $42,500 (cash would earn 0))");
+});
+
+test("a rebalance that also sells the fund keeps the rebalance head; a wide quote is noted", () => {
+  const rows = floorAuditRows({
+    ...PLAN, status: "ok", cash_parking: { ...CASH, target: 5000, held: 40000, action: "sell" },
+    actions: [
+      { type: "floor_vm_buy", ticker: "SPY", qty: 75, limit: 500.1, ok: true, order_id: "a1" },
+      { type: "floor_vm_cash_sell", ticker: "BOXX", qty: 295, limit: 118.9, ok: false, order_id: null, error: "rejected", reason: "the floor needs the capital back: hold $5,000, not $40,000" },
+    ],
+  }, "scan");
+  assert.match(rows[0].message, /^rebalance — /);
+  assert.equal(rows[2].message, "SELL T-bill fund 295 BOXX @ 118.90 limit — REJECTED: rejected (the floor needs the capital back: hold $5,000, not $40,000)");
+  const wide = floorAuditRows({
+    ...PLAN, status: "ok", cash_parking: CASH,
+    actions: [
+      { type: "floor_vm_buy", ticker: "SPY", qty: 1, limit: 500.1, ok: true, order_id: "a2" },
+      { type: "floor_vm_cash_wide_spread", ticker: "BOXX", reason: "bid 118.00 / ask 119.00 is 0.84% wide" },
+    ],
+  }, "scan");
+  assert.equal(wide[2].message, "BOXX: quote too wide, not traded (bid 118.00 / ask 119.00 is 0.84% wide)");
+  // a cash plan that only waited or deferred writes nothing, like any floor pass
+  assert.deepEqual(floorAuditRows({ ...PLAN, rebalance: false, status: "ok", cash_parking: { ...CASH, status: "deferred: outside" }, actions: [] }, "scan"), []);
+});

@@ -260,6 +260,48 @@ BASE_CONFIG = {
     "FLOWS_W_CROWDING": 0.25,
     "FLOWS_TAX_WINDOW_WEIGHTS": {"fund_tax_loss": 0.25, "fund_tax_loss_reversal": 0.25,
                                  "december_tax_loss": 1.0, "turn_of_year": 1.0},
+    # FLOOR IDLE CASH IN A T-BILL FUND 2026-11-06 (refocus spec section 2,
+    # "review previously removed features"; bot_engine._manage_floor_cash,
+    # floor_vol_managed.cash_plan). When E* < 1 the floor holds
+    # (1 - E*) x FLOOR_VM_CAPITAL_PCT x equity in cash. The floor study's V1
+    # credited that cash with the 13-week T-bill rate
+    # (scripts/floor_study.py lever_ret). Alpaca paper cash earns nothing.
+    # Re-running V1 1993-02..2026-11 on the study's own data and code:
+    # - idle cash at the T-bill rate (the study): log growth 10.38%
+    #   (the study reported 10.41%), Sharpe 0.570, max DD -48.4%;
+    # - idle cash at 0% (paper today): 10.16%, 0.557, -49.3%. That is below
+    #   SPY's 10.25%: the rule loses its log-growth edge over SPY;
+    # - idle cash in a fund at T-bill minus 0.19%/yr: 10.36%, 0.569, -48.5%.
+    # Idle cash is 9.9% of the floor's capital on average (35.9% of days).
+    # - The fund must pay its return in PRICE: the paper account credits no
+    #   dividends (research/open_questions.md [DECIDED 2026-11-05]).
+    #   SGOV/BIL return their yield as monthly distributions (price-only
+    #   +0.04% / -0.05% a year, 2024-11..2026-11). BOXX (1-3 month box
+    #   spreads, 0.19% fee) made one distribution in four years: price-only
+    #   +4.2% a year over the same window.
+    # - Target = min(the floor's idle capital, what the fund can hold while
+    #   account cash stays >= (1 - FLOOR_VM_CAPITAL_PCT) x equity + every
+    #   short put's strike collateral). The rest of the account never loses
+    #   the cash it has today.
+    # - Trades only when |target - held| > max(MIN_TRADE_DOLLARS,
+    #   BAND x the floor's capital). Same window, broker clock and marketable
+    #   limits as the floor. Buys only when the core did not trade this pass
+    #   and no floor order is working; sells any time. Never in reduce-only
+    #   (drawdown halt, kill switch).
+    # - The fund is a floor ticker: no stops or POS-KILL. Tier caps, the
+    #   third leg's sizing and position_sizing's heat count it as cash.
+    # - Off switch: FLOOR_VM_CASH_ENABLED False sells the fund on the next
+    #   in-window pass. Before FLOOR_MODE "basket", turn this off first:
+    #   the basket floor does not trade the fund.
+    # - EXPLORATORY: kill date 2027-02-05.
+    # - Rollback trigger: the fund's realized return over 60 sessions below
+    #   the 13-week T-bill yield minus 1 pp, or any fill more than 0.3% from
+    #   the mid.
+    "FLOOR_VM_CASH_ENABLED": True,
+    "FLOOR_VM_CASH_TICKER": "BOXX",
+    "FLOOR_VM_CASH_BAND": 0.05,               # of the floor's capital
+    "FLOOR_VM_CASH_MIN_TRADE_DOLLARS": 2000,
+    "FLOOR_VM_CASH_MAX_SPREAD_PCT": 0.002,    # skip a quote wider than 0.2% of the mid
     # BROKER CLOCK ORDER GATE 2026-11-05 (human-directed; broker_clock.py):
     # every Python order POST first asks Alpaca's /v2/clock whether the market
     # is open. One cached reading serves every order path; it is re-read after
