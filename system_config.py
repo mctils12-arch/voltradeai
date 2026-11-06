@@ -908,6 +908,23 @@ BASE_CONFIG = {
     # (wins whenever present, no deploy).
     "INSTRUMENT_COUNTERFACTUAL": {"enabled": True, "max_bytes": 5_000_000,
                                   "proxy_dte_min": 30, "proxy_dte_max": 45},
+    # EARNINGS HISTORY 2026-11-06 ([PIPELINE], human refocus spec §3 step 5
+    # "earnings history (beats last 3 quarters)" + §7 "log every signal";
+    # earnings_history.py). LOGGING ONLY — no score, size or gate reads it.
+    # Tier 3 (hourly) fetches Finnhub's EPS actual vs estimate for the names
+    # deep_score asked about in the last 24 h into a cache deep_score reads
+    # with no network (a fetch inside deep_score would eat its 15 s budget);
+    # each deep-scored shadow record / candidate / journal selection stage
+    # carries {beats_last_3, surprise_pct_last_3, quarters_seen, cache_age_h}.
+    # ttl_h: refresh age; max_age_h: older entries are logged as None
+    # ("stale"); max_fetch_per_run x call_interval_s keeps this job at <= 30
+    # calls/min (half of Finnhub's free 60/min); run_budget_s < the 60 s kill.
+    # Prior behaviour: none (no key). Expected effect: one Finnhub call per
+    # deep-scored name per 12 h (a failed one is retried hourly; <= 15 calls
+    # an hour), ~170 bytes on each deep-scored shadow record. Off switch:
+    # enabled False, or env VOLTRADE_EARNINGS_HISTORY=off (wins whenever present).
+    "EARNINGS_HISTORY": {"enabled": True, "ttl_h": 12, "max_age_h": 48, "max_fetch_per_run": 15,
+                         "call_interval_s": 2.0, "run_budget_s": 40},
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

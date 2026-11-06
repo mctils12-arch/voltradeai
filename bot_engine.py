@@ -2195,6 +2195,21 @@ except Exception as e:
     _yf_sector = detail.get("valuation", {}).get("sector", "Unknown")
     _update_sector_cache(ticker, _yf_sector)
 
+    # ── EARNINGS HISTORY (2026-11-06, earnings_history.py; refocus spec §3
+    # step 5 "beats last 3 quarters", §7 "log every signal") ──────────────
+    # LOGGING ONLY, read after the score, side and action above are final:
+    # the last 3 quarters' EPS beats / surprises from the cache Tier 3 fills
+    # hourly (a Finnhub call here would eat the 15 s fetch budget). A local
+    # file read, no network. Only the shadow record, the candidate (decision
+    # journal) and the trade dict carry it. None when the feature is off.
+    _earnings_hist = None
+    try:
+        import earnings_history as _eh_mod
+        _earnings_hist = _eh_mod.read_for_candidate(ticker)
+    except Exception as _eh_err:
+        logging.getLogger("bot_engine").warning(f"earnings history not logged for {ticker} (scoring unaffected): {_eh_err}")
+        _earnings_hist = None
+
     # ── SHADOW PORTFOLIO LOGGING (learning data multiplier) ───────────────
     # Log EVERY scored candidate so we can learn from rejections too
     try:
@@ -2271,6 +2286,7 @@ except Exception as e:
             ml={**_ml_trace, "final_score": combined_score} if '_ml_trace' in locals() else None,
             score_breakdown=_score_breakdown,
             serve_fix=_serve_fix if '_serve_fix' in locals() else None,
+            earnings_history=_earnings_hist,
             regime_snapshot=_regime_snapshot,
         )
     except Exception:
@@ -2308,6 +2324,8 @@ except Exception as e:
         # DECISION JOURNAL 2026-11-06: the sub-scores the shadow record keeps,
         # on the candidate too (decision_journal.selection_stage reads them).
         "score_breakdown": _score_breakdown if '_score_breakdown' in locals() else None,
+        # EARNINGS HISTORY 2026-11-06 (logging only; decision_journal.selection_stage)
+        "earnings_history": _earnings_hist,
         "sector": _yf_sector,
         # 200d MA fields for ETF gate (alpha audit 2026-05-03)
         "above_ma200":      _above_ma200 if '_above_ma200' in locals() else None,
@@ -4472,6 +4490,8 @@ def _scan_market_inner():
             "scan_regime": _scan_regime,
             "score_threshold": _min_score_threshold,
             "decision_stages": stock.get("decision_stages"),
+            # EARNINGS HISTORY 2026-11-06 (logging only; decisionJournal.ts selectionStage)
+            "earnings_history": stock.get("earnings_history"),
         })
         trades[-1]["tax"] = _tf.summary(_tax)
         if not _tax.get("allowed", True):

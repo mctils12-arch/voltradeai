@@ -736,6 +736,44 @@ def _sanitize_serve_fix(sf) -> dict | None:
     return out
 
 
+# EARNINGS HISTORY (2026-11-06, earnings_history.py; refocus spec §3 step 5):
+# the last 3 quarters' EPS beats / surprises deep_score read from the Tier-3
+# cache. LOGGING ONLY. Same contract as the blocks above: absent when the
+# feature is off and on older records; a missing value is None with a
+# `reason`, never a zero. Every field is capped, so even the longest block
+# (~430 bytes; ~170 typical) stays inside the regime snapshot's 1000-byte
+# budget (test_earnings_history.py pins it): the log is rewritten per record.
+EARNINGS_HISTORY_MAX_BYTES = 1000
+
+
+def _finite(v):
+    """A finite float, else None (bools are not numbers here)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    v = float(v)
+    return v if v == v and v not in (float("inf"), float("-inf")) else None
+
+
+def _sanitize_earnings_history(eh) -> dict | None:
+    if not isinstance(eh, dict) or not eh:
+        return None
+    pcts = eh.get("surprise_pct_last_3")
+    beats, seen, age = _finite(eh.get("beats_last_3")), _finite(eh.get("quarters_seen")), _finite(eh.get("cache_age_h"))
+    out = {
+        "source": str(eh.get("source") or "finnhub")[:20],
+        "beats_last_3": int(beats) if beats is not None else None,
+        "surprise_pct_last_3": ([round(x, 2) if (x := _finite(p)) is not None else None for p in pcts[:3]]
+                                if isinstance(pcts, (list, tuple)) else None),
+        "quarters_seen": int(seen) if seen is not None else None,
+        "latest_period": str(eh["latest_period"])[:10] if eh.get("latest_period") else None,
+        "cache_age_h": round(age, 1) if age is not None else None,
+        "reason": str(eh["reason"])[:40] if eh.get("reason") else None,
+    }
+    if eh.get("error"):
+        out["error"] = str(eh["error"])[:120]
+    return out
+
+
 def log_candidate(
     ticker: str,
     features: dict,
@@ -753,6 +791,7 @@ def log_candidate(
     regime_snapshot: dict = None,
     shadow_entry: dict = None,
     serve_fix: dict = None,
+    earnings_history: dict = None,
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -789,6 +828,12 @@ def log_candidate(
                          one and the per-feature diff between the two
                          vectors; ABSENT when the fix runs in `off` mode
                          (today's exact behaviour) and on older records.
+        earnings_history: EARNINGS HISTORY (2026-11-06, earnings_history.py):
+                         the last 3 quarters' EPS beats / surprises from the
+                         Tier-3 cache ({beats_last_3, surprise_pct_last_3,
+                         quarters_seen, latest_period, cache_age_h, reason,
+                         source}); logging only; ABSENT when the feature is
+                         off and on older records.
 
     Rate cost: ZERO API calls. Pure file I/O.
     """
@@ -797,7 +842,8 @@ def log_candidate(
             return
         record = _build_record(ticker, features, score, decision, decision_reason, entry_price,
                                vxx_ratio, regime_label, side, action_label, trade_type, ml,
-                               score_breakdown, regime_snapshot, shadow_entry, serve_fix)
+                               score_breakdown, regime_snapshot, shadow_entry, serve_fix,
+                               earnings_history)
 
         # Load, append, rotate, save
         records = _load_shadow_log()
@@ -814,7 +860,7 @@ def log_candidate(
 def _build_record(ticker, features, score, decision, decision_reason="", entry_price=0.0,
                   vxx_ratio=1.0, regime_label="neutral", side="", action_label="", trade_type="",
                   ml=None, score_breakdown=None, regime_snapshot=None, shadow_entry=None,
-                  serve_fix=None) -> dict:
+                  serve_fix=None, earnings_history=None) -> dict:
     """One shadow record (log_candidate's shape; raises on bad input — callers catch)."""
     record = {
         "ticker":          str(ticker).upper(),
@@ -855,6 +901,11 @@ def _build_record(ticker, features, score, decision, decision_reason="", entry_p
     _sf = _sanitize_serve_fix(serve_fix)
     if _sf is not None:
         record["serve_fix"] = _sf
+    # EARNINGS HISTORY (2026-11-06): key ABSENT when the feature is off and on
+    # older records, so their shape is untouched.
+    _eh = _sanitize_earnings_history(earnings_history)
+    if _eh is not None:
+        record["earnings_history"] = _eh
     return record
 
 

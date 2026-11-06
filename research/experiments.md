@@ -116188,3 +116188,51 @@ TESTS:
 - On the committed tree: Python 431 passed and 1 skipped across 25 files (the new 18 included); TS 186 passed across 17 files (the new 11 included). test_full_system.py is a script that pytest ignores via conftest; its selector scenario was run directly and carries the option block.
 - tsc reports 6 errors (unchanged). The counter ratchet is OK. test_ts_code_only.py passes 11.
 STARVED: no.
+
+## 2026-11-06 [PIPELINE] — T-BOT (earnings_history.py, finnhub_data.py, bot_engine.py deep_score + scan trade dict, shadow_portfolio.py, decision_journal.py, signal_attribution.py row text, system_config.py, voltrade_daemon.py, conftest.py; server/earningsHistory.ts, decisionJournal.ts, bot.ts Tier 3) — earnings beats over the last 3 quarters, logged forward on every deep-scored candidate
+VERSION: v1.0.1339 (shipped 2026-11-06 by the parent session; main was v1.0.1338)
+WHY:
+- Refocus spec §3 step 5 lists "earnings history (beats last 3 quarters)" in stock selection. §7 says "build our own dataset going forward; log every signal".
+- Tonight's ML audit filed "[DATA] Earnings beats over the last 3 quarters are not logged forward" (findings_1106). A Finnhub call inside deep_score would use up its 15 s fetch budget, so Tier 3 should fill the 12 h cache and deep_score should read only the cache.
+- The same findings name "the earnings-beat streak once it is logged" as a candidate pre-rank for the next selection experiment.
+- signal_attribution.py's `earnings_beats` row read "not used by the score and not logged yet".
+- Finnhub's /stock/earnings endpoint carries no report dates, so there is no history to backtest. Forward logging is the only test.
+CHANGE (logging only; no score, size, side, gate or decision reads any of it):
+- `earnings_history.py`, new. Its FILL, `refresh_wanted()`, runs as a Tier 3 step: bot.ts step 9, after the flows refresh, in the Python mutex lane with a 60 s kill (server/earningsHistory.ts).
+  - It fetches Finnhub /stock/earnings (EPS actual vs estimate, the last 4 reported quarters) for the names deep_score asked about in the last 24 h.
+  - Calls go through finnhub_data's rate-limited GET (its 55/min token bucket) via the new `get_earnings_history_raw`, which is uncached and never zero-filled.
+  - Calls are spaced 2 s apart, so this job alone stays at or under 30/min, half the free tier. It makes at most 15 calls a run and starts none after 40 s.
+  - Entries are refreshed after 12 h. A failed refresh keeps the last good entry. HTTP 401/403/429 stops the run and writes nothing for that name.
+  - It writes at most one audit row per run (EARNINGS-HISTORY / EARNINGS-HISTORY-ERROR). An idle run writes nothing. A missing FINNHUB_KEY is audited once, when the status changes.
+- Its READ, `read_for_candidate()`, is called by deep_score after the score, side and action are final. It reads the cache file only, with no network.
+  - It attaches `{source:"finnhub", beats_last_3, surprise_pct_last_3 (newest first), quarters_seen, latest_period, cache_age_h, reason}` to the shadow record (key `earnings_history`, about 170 bytes; the field caps keep it under the 1000-byte snapshot budget), to the candidate, and to the scan trade dict.
+  - A missing value is None with a reason, never a zero. The reasons are not_cached, no_api_key, fetch_error, stale (an entry over 48 h old), no_reports, fewer_than_3, incomplete and cache_unreadable.
+  - Its one side effect: a name whose entry is missing, failed or due goes on a want-list file. The fill reads that file instead of parsing the ~45 MB shadow log, which the memory audit (2a) measured at a 0.1-0.15 GB parse peak.
+- Decision journal (Python skip rows and Node entry and skip rows): the selection stage gains `earnings` with a plain-English `text`, for example "beat estimates 3 of the last 3 quarters (EPS surprise +12.35%, +4.10%, +0.52%, newest first); logged, not used in the score". A null block gives the reason in words. The Python and Node vocabularies are pinned equal.
+- Attribution, text only: the `earnings_beats` row's role, action text and forward sentence now say it is logged on every deep-scored shadow record since 2026-11-06 (earnings_history.beats_last_3) and not measured yet. source_validation has no forward source for it in this change, so `fw` stays None, as the pin test_registry_points_at_real_harness_names requires, and the row reads "untested". Registering that source is its own [RULE-REVIEW] change, stacked on this one.
+- Off switch: system_config `EARNINGS_HISTORY.enabled`, or env `VOLTRADE_EARNINGS_HISTORY=off`. It ships on.
+PRIOR (before any data): a small positive +5d IC (|IC| < 0.05). A beat count over three quarters changes once a quarter, while the deep-scored names are picked by the day's move and volume, not by report dates.
+DOWNSTREAM (two steps):
+1. deep_score does one more local read per candidate (a small JSON file), plus a want-list write only for a missing or due name, at most every 15 min per name. Each deep-scored shadow record grows about 170 bytes, about +3.4 MB (~7%) on the ~45 MB log at its 20,000-record cap, which is rewritten per candidate. Journal rows grow under 0.5 KB, under the 8 KB cap. The pick cards' selection line is unchanged: the new key is nested.
+2. Tier 3 adds one hourly subprocess. Idle, it reads two small files. With work, it holds the mutex for up to ~40 s and makes up to 15 Finnhub calls. deep_score's own Finnhub calls (insider, recommendations; cached 6/12 h) use the daemon's separate token bucket, which is why the job paces itself. A name's first deep score of a day is usually "not_cached"; its later records that day carry the data.
+ROLLBACK TRIGGER: set `VOLTRADE_EARNINGS_HISTORY=off` (or `enabled` False) and fix it if any of these happen:
+- 3 consecutive hourly runs end in EARNINGS-HISTORY-ERROR or `tier3_strategic` "earnings history:" job errors, not counting the one-time no-key notice.
+- HTTP 429 shows up in EARNINGS-HISTORY rows on 2 or more days.
+- deep_score's per-candidate time (/api/diag/timings) rises by more than 1 s after the deploy.
+Revert if anything shows it changed a score, size or decision.
+UNKNOWN: whether FINNHUB_KEY is set in production. The diag probes read tonight do not say. The first Tier 3 run after the deploy will: either EARNINGS-HISTORY rows, or one EARNINGS-HISTORY-ERROR "FINNHUB_KEY is not set" with records logging `no_api_key`.
+TESTS:
+- New: test_earnings_history.py, 35 tests. They cover:
+  - the fill against a mocked Finnhub through the real token bucket: today's names only, the order, the spacing, the cap and the time budget, the 429 stop, the last good entry kept, no key, off and idle;
+  - deep_score reading only the cache with every network path patched to raise, and its score, sub-scores, features and side byte-identical with the feature off;
+  - null handling for every reason;
+  - the record staying inside the 1000-byte budget;
+  - the journal text and its parity with Node;
+  - the attribution row listed as untested and not used by the score;
+  - config parity and the daemon route.
+- New: server/earningsHistory.test.ts, 5 tests: the audit rows, the Tier-3 wiring (mutex lane, 60 s), and the selection stage on entry rows.
+- Existing: one exact pin in test_signal_attribution.py was updated to its new exact value. The earnings row now says "logged … not measured yet", and its forward block is `{logged: False, verdict: None}`.
+- conftest.py gains the hermetic fixture `_hermetic_earnings_history`.
+- On the committed tree: Python 451 passed (+9 subtests) across 32 files; TS 81 passed across 7 files (60 server, 21 client).
+- tsc reports 6 errors (unchanged). The counter ratchet is OK. test_ts_code_only.py passes 11.
+STARVED: no.

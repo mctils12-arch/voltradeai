@@ -31,6 +31,7 @@ import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { floorAuditRows } from "./floorAudit";
 import { flowsBody, readFlows, flowsAuditMessage, FLOWS_REFRESH_CMD, FLOWS_REFRESH_TIMEOUT_MS } from "./flowsReport";
+import { earningsRefreshAuditMessage, EARNINGS_HISTORY_REFRESH_CMD, EARNINGS_HISTORY_REFRESH_TIMEOUT_MS } from "./earningsHistory";
 import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isRegularSessionMinute, pushRegularBar,
   streamSignalLogEnabled, type StreamHistory } from "./streamSignals";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
@@ -8346,6 +8347,22 @@ print(json.dumps(run_update()))
       const why = err instanceof Error ? err.message : String(err);
       console.error("[tier3-flows]", why);
       noteJobError("tier3_strategic", `flows: ${why.slice(0, 200)}`);
+    }
+
+    // 9. EARNINGS HISTORY (2026-11-06, earnings_history.py; refocus spec §3
+    // step 5 "beats last 3 quarters", §7 "log every signal"): Finnhub's EPS
+    // actual vs estimate for the names deep_score asked about in the last 24 h,
+    // paced under the free tier's 60 calls/min, into the 12 h cache deep_score
+    // reads with no network. LOGGING ONLY. At most one audit row per run
+    // (server/earningsHistory.ts); an idle run writes nothing.
+    try {
+      const { stdout: earnOut } = await execPythonSerialized(EARNINGS_HISTORY_REFRESH_CMD, { timeout: EARNINGS_HISTORY_REFRESH_TIMEOUT_MS });
+      const earnRow = earningsRefreshAuditMessage(JSON.parse(earnOut.trim()));
+      if (earnRow) audit(earnRow.type, earnRow.message);
+    } catch (err: unknown) {
+      const why = err instanceof Error ? err.message : String(err);
+      console.error("[tier3-earnings]", why);
+      noteJobError("tier3_strategic", `earnings history: ${why.slice(0, 200)}`);
     }
 
     audit("TIER3", "Strategic scan complete");

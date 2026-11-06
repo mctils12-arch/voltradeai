@@ -99,6 +99,21 @@ def _hermetic_decision_journal(tmp_path_factory):
         yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _hermetic_earnings_history(tmp_path_factory):
+    """2026-11-06 EARNINGS HISTORY (earnings_history.py): every deep_score now
+    reads the Tier-3 earnings cache and, on a miss, adds the name to a
+    want-list, both under DATA_DIR. Point them at a session temp dir (no cache
+    there: every candidate reads "not_cached", what a fresh CI runner sees) so
+    the suite never reads a cache a CLI run left in the real DATA_DIR and never
+    writes the real want-list. Tests of the module patch DATA_DIR themselves
+    (they shadow this). Changes reachability, not behavior."""
+    import earnings_history
+
+    with patch.object(earnings_history, "DATA_DIR", str(tmp_path_factory.mktemp("earnings_history"))):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_broker_clock():
     """BROKER CLOCK ORDER GATE 2026-11-05 (broker_clock.py): every order POST

@@ -122,8 +122,14 @@ SIGNAL_REGISTRY: Tuple[dict, ...] = (
      "lt_reason": "analyze.py's recommendation has no point-in-time history"},
     {"id": "contrarian", "label": "Contrarian sentiment flags", "group": "sentiment",
      "role": "adds 4, 8 or 10 points", "fw": "adj.contrarian", "lt": None, "lt_nm": "contrarian"},
+    # EARNINGS HISTORY (2026-11-06, earnings_history.py): logged on every
+    # deep-scored shadow record since then (earnings_history.beats_last_3);
+    # not measured yet: source_validation has no forward source for it, so
+    # `fw` stays None (test_registry_points_at_real_harness_names) and the
+    # row reads untested.
     {"id": "earnings_beats", "label": "Earnings beats, last 3 quarters", "group": "earnings",
-     "role": "not used by the score and not logged yet", "fw": None, "lt": None,
+     "role": "logged on every deep-scored candidate since 2026-11-06 (Finnhub EPS actual vs estimate); not used by the score",
+     "fw": None, "lt": None,
      "lt_reason": "Finnhub's last-4-quarters endpoint carries no report dates, so no point-in-time history exists"},
 )
 # Composite rows (reference: outside both families).
@@ -131,8 +137,11 @@ COMPOSITE_ROWS: Tuple[dict, ...] = (
     {"id": "composite_legacy", "label": "Composite score (legacy)", "lt": "price_composite"},
     {"id": "composite_v2", "label": "Composite score v2", "lt": "price_composite_v2"},
 )
+# Forward sentence for a signal with no forward source (fw None).
 NOT_LOGGED_REASON = {
-    "earnings_beats": "Forward: deep_score does not fetch it, so nothing is logged on the shadow record yet.",
+    "earnings_beats": ("Forward: logged on every deep-scored shadow record since 2026-11-06 "
+                       "(earnings_history.beats_last_3), not measured yet: source_validation has no forward "
+                       "source for it (earn.beats_last_3)."),
 }
 
 
@@ -300,7 +309,7 @@ def composite_config(cfg=None) -> Optional[dict]:
 def action_for(sig_id: str, cfg: Optional[dict]) -> Tuple[str, str]:
     """(action, plain text). action: kept | cut | not_used."""
     if sig_id == "earnings_beats":
-        return "not_used", "Not used by the score."
+        return "not_used", "Not used by the score (logged only, since 2026-11-06)."
     on = bool(cfg and cfg.get("enabled"))
     cut = set(cfg.get("neutralize") or ()) if on else set()
     if sig_id in cut:

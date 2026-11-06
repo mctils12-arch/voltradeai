@@ -47,7 +47,11 @@ SELECTION sub-scores: deep_score's breakdown (shadow_portfolio's 14 + extra
 keys) as returned on the candidate ("score_breakdown"). "drivers" are each
 term's points in the RULES score relative to a neutral 50 (the five weighted
 components: (score - 50) x weight) or its added points (the adjustments) —
-before the ML blend. "dominant" is the largest positive driver.
+before the ML blend. "dominant" is the largest positive driver. "earnings"
+(2026-11-06, only when deep_score logged it): the candidate's earnings_history
+block (earnings_history.py) plus a plain-English `text` — "beat estimates 3 of
+the last 3 quarters (EPS surprise ...)", or why there is no count — logged,
+never scored.
 
 SKIPS are deduplicated: one row per (ticker, gate, ET day) — the shadow
 portfolio still records every evaluation; the journal records the decision.
@@ -349,6 +353,49 @@ def dominant_driver(drivers) -> dict | None:
     return (drivers or [None])[0]
 
 
+# ── selection: the earnings history deep_score logs (earnings_history.py) ─────
+# Why a block has no 3-quarter count, in plain English (server/decisionJournal.ts
+# EARNINGS_REASON_TEXT is the twin; test_earnings_history.py pins the parity).
+EARNINGS_REASON_TEXT = {
+    "not_cached": "it has not been fetched yet (the hourly Finnhub refresh adds it)",
+    "no_api_key": "no Finnhub key is configured",
+    "fetch_error": "the last Finnhub fetch failed",
+    "stale": "the cached copy is too old to use",
+    "no_reports": "Finnhub has no earnings reports for it",
+    "fewer_than_3": "fewer than 3 quarters are on record",
+    "incomplete": "a recent quarter has no estimate or actual on record",
+    "cache_unreadable": "the earnings cache could not be read",
+}
+
+
+def earnings_view(eh) -> dict | None:
+    """The candidate's earnings_history block as the selection stage shows it:
+    the numbers plus one plain-English `text` ("beat estimates 3 of the last 3
+    quarters ..."). Logged, never scored — the text says so. None without a block."""
+    if not isinstance(eh, dict) or not eh:
+        return None
+    beats = _num(eh.get("beats_last_3"))
+    seen = _num(eh.get("quarters_seen"))
+    age = _num(eh.get("cache_age_h"))
+    pcts = [_num(p) for p in (eh.get("surprise_pct_last_3") or [])[:3]] if isinstance(eh.get("surprise_pct_last_3"), list) else []
+    reason = _text(eh.get("reason"), 40) or None
+    if beats is not None:
+        text = f"beat estimates {int(beats)} of the last 3 quarters"
+    else:
+        why = EARNINGS_REASON_TEXT.get(reason or "", "it is not on record")
+        if reason == "stale" and age is not None:
+            why = f"the cached copy is {math.floor(age)} hours old, too old to use"
+        text = f"earnings history {'incomplete' if seen else 'unavailable'}: {why}"
+    if pcts:
+        # 2 decimals = the stored precision, so the Node twin prints the same digits
+        text += " (EPS surprise " + ", ".join("n/a" if p is None else f"{p:+.2f}%" for p in pcts) + ", newest first)"
+    return {"beats_last_3": int(beats) if beats is not None else None,
+            "quarters_seen": int(seen) if seen is not None else None,
+            "surprise_pct_last_3": pcts or None, "latest_period": _text(eh.get("latest_period"), 10) or None,
+            "cache_age_h": age, "reason": reason, "source": _text(eh.get("source"), 20) or None,
+            "text": text + "; logged, not used in the score"}
+
+
 def selection_stage(cand: dict, threshold=None) -> dict | None:
     if not isinstance(cand, dict) or not cand:
         return None
@@ -358,7 +405,7 @@ def selection_stage(cand: dict, threshold=None) -> dict | None:
     subs = None
     if bd:
         subs = {k: round(v, 1) for k in SUBSCORE_KEYS if (v := _num(bd.get(k))) is not None}
-    return {
+    out = {
         "score": round(score, 1) if score is not None else None,
         "threshold": _num(threshold),
         "rules_score": _num(cand.get("rules_only_score", cand.get("rules_score"))),
@@ -370,6 +417,11 @@ def selection_stage(cand: dict, threshold=None) -> dict | None:
         "recommendation": _text(cand.get("recommendation"), 40) or None,
         "side": _text(cand.get("side"), 12) or None,
     }
+    # EARNINGS HISTORY (2026-11-06): only on candidates deep_score logged it for.
+    ev = earnings_view(cand.get("earnings_history"))
+    if ev is not None:
+        out["earnings"] = ev
+    return out
 
 
 def signal_for_candidate(cand: dict) -> str:
