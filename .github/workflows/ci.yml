@@ -311,8 +311,21 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Merge PR (squash)
-        run: gh pr merge --squash "$PR_URL"
+      # DEPLOY WINDOW (human-approved frozen-path edit, 2026-11-06 "fix all of
+      # this"; the gap was filed 2026-08-15 and 2026-09-14 in
+      # research/wishlist.md). Every merge redeploys and restarts the bot, so a
+      # green PR no longer merges during market hours: scripts/automerge.sh
+      # merges outside weekdays 09:15-16:00 ET and otherwise defers (logged,
+      # labelled `deploy-window-deferred`); .github/workflows/automerge-sweep.yml
+      # merges deferred PRs after the close. The rule lives in that mutable,
+      # tested script (test_automerge_deploy_window.py), so this step changed
+      # once. `needs:` and `if:` above are untouched: the same checks gate a merge.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/automerge.sh
+          sparse-checkout-cone-mode: false
+      - name: Merge PR (squash) outside the deploy window
+        run: bash scripts/automerge.sh "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

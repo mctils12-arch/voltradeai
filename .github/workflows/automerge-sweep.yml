@@ -1,0 +1,44 @@
+# AFTER-CLOSE MERGE SWEEP — human-approved frozen-path ADDITION (2026-11-06,
+# "fix all of this", replying to the audit item "making auto-merge respect
+# market hours (flagged Aug 15 and Sep 14)").
+#
+# WHY: every merge to main redeploys and restarts the bot, and the human's rule
+# is that nothing restarts it during market hours. ci.yml's automerge job now
+# defers a green claude/ PR that settles during weekdays 09:15-16:00 ET
+# (scripts/automerge.sh); this sweep merges the deferred ones after the close.
+#
+# WHAT: each run merges at most ONE open, non-draft claude/ PR — the oldest —
+# whose head commit passed every check the automerge job `needs` (changes
+# success; python-tests, node-build, docker-build, test success or skipped).
+# Anything failed, cancelled, pending or missing is skipped. One merge per run
+# keeps each deploy to one change and spaces deploys 30 minutes apart.
+#
+# SCHEDULE (cron is UTC): :07 and :37 past 20-23Z, Monday-Friday. The close is
+# 20:00Z under EDT and 21:00Z under EST, so 6-8 runs a day land after it, 4 of
+# them inside the first two hours either way. The two 20:xxZ runs fall at 15:07
+# and 15:37 ET in winter; the script sees the window and merges nothing then.
+name: automerge-sweep
+on:
+  schedule:
+    - cron: "7,37 20-23 * * 1-5"
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+concurrency:
+  group: automerge-sweep
+  cancel-in-progress: false
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/automerge.sh
+          sparse-checkout-cone-mode: false
+      - name: Merge one green claude/ PR (outside the deploy window)
+        run: bash scripts/automerge.sh --sweep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
