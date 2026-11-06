@@ -116236,3 +116236,68 @@ TESTS:
 - On the committed tree: Python 451 passed (+9 subtests) across 32 files; TS 81 passed across 7 files (60 server, 21 client).
 - tsc reports 6 errors (unchanged). The counter ratchet is OK. test_ts_code_only.py passes 11.
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (source_validation.py, signal_attribution.py) — source_validation prereg v2.1: earnings beats as a logged-only forward source, insulated from the existing family, measured once labels accrue
+VERSION: v1.0.1340 (shipped 2026-11-06 by the parent session; main was v1.0.1339)
+WHY:
+- The stacked [PIPELINE] change logs `earnings_history.beats_last_3` on every deep-scored shadow record from 2026-11-06. Its attribution row reads "logged, not measured yet" because no forward source exists for it.
+- Refocus spec §7 asks for "feature attribution: which add return, which are noise".
+- CLAUDE.md MEASUREMENT INTEGRITY puts any change to the forward harness in its own PR. This is that PR.
+- The source is registered before any record carries the value, so the rule is pre-registered and not chosen after seeing data.
+CHANGE (measurement only):
+- `source_validation.py`:
+  - `LOGGED_SOURCES` adds `earn.beats_last_3` with kind "logged". It uses the two-sided feature verdict rule, because the score does not use it and so it has no intended sign.
+  - It is never a candidate in either forward-selection arm. The breakdown arm's coverage clause now admits only "adjustment" sources, which is identical for the two kinds that existed before.
+  - Its population is pre-registered as one record per (ticker, ET day): the FIRST record that carries the value, with its own day bootstrap. A name's first deep score of a day comes before the hourly fill. Under the first-seen rule the other sources use, it would measure nothing; the test that reproduces the live timing shows 0 records under that rule.
+  - INSULATION, from 100 labeled ticker-days (MIN_N, unchanged):
+    - The existing family's Benjamini-Hochberg (BH) correction never includes the logged source. No existing q-value or verdict can move because of it.
+    - Its own q is its BH q in the full family: the m existing tested sources plus itself. It pays the whole multiple-testing penalty, never a family of its own.
+  - PREREG_VERSION goes from v2 to v2.1.
+- `signal_attribution.py`:
+  - The `earnings_beats` row's forward source is now `earn.beats_last_3`. It reads untested until labels accrue, and the action stays "not_used".
+  - The forward sentence names the population rule.
+  - The family size counts the family's own tests, and the family text and note describe the insulation.
+  - NOT_LOGGED_REASON is now empty.
+BEFORE vs AFTER ON IDENTICAL INPUTS:
+- The v2 module (25a15cfc) and v2.1 ran side by side on the same fixture records: test_source_validation.make_records, 52 sources, 320 ticker-days. Three cases:
+  - records without the block (every existing record);
+  - the block present and strongly predictive (new p ≈ 0);
+  - the block present and pure noise (new p 0.70).
+- Results in all three cases:
+  - all 52 existing sources' results identical, q-values and verdicts included;
+  - population, reference rows, and both selection arms plus the ablation identical;
+  - the BH family stays at 44 sources.
+- `method.multiple_testing` gains a suffix only when the logged source is tested: "; 1 logged-only source(s) corrected against all 45, outside the family's own correction".
+- The new source: n 0 / INSUFFICIENT without the block; n 320 / PASS (q 0.0) when strong; n 320 / FAIL (q 0.9924) as noise.
+- Tests pin two things:
+  - existing results are byte-identical with and without a strong (p ≈ 0) or a noise logged source present;
+  - the logged source's q equals its BH q in the (m+1) family, on the exact p-values.
+- Without the insulation (the first version of this PR), the strong case lowered 15 existing q-values, to as low as 0.77 of their old value, and turned a pure-noise feature, `feat.earnings_surprise`, from FAIL (q 0.129) to PASS (q 0.099). The insulation removes that path.
+BIAS DIRECTION:
+- Neutral for existing verdicts, now and after labels accrue: their correction is exactly v2's.
+- Conservative for the new source: its q is never below its own p and is corrected against all m+1 tests.
+- Not claimed: a joint FDR guarantee over the existing family's rejections and the logged source's together. The existing family keeps its own FDR control at 0.10, and the logged source's q is the one it would get had it joined that family.
+PRIOR: INSUFFICIENT for weeks (a +5d label lags 13 calendar days, and a verdict needs 100 ticker-days), then FAIL more likely than PASS (|IC| < 0.05).
+ROLLBACK TRIGGER: revert to v2 (empty `LOGGED_SOURCES`, and set the row's `fw` back to None) if either of these happens:
+- any existing source's result differs between `LOGGED_SOURCES = ()` and the default on the production log (the insulation broke);
+- the logged source's q stops matching its full-family BH q.
+DOWNSTREAM:
+1. Each validate_sources call makes four more passes over the shadow log (one population per outcome for the logged source) and, once the source is tested, one more BH pass over m+1 p-values. The signals and source_validation probes gain one source row (53 keys, under the diag sanitizer's 100).
+2. The attribution row reads "Forward (shadow log): N labeled records (the first per ticker-day that carries it), fewer than the 100 a verdict needs" until labels accrue, then gets a verdict. Nothing reads that verdict to cut or keep a term: the action stays "not_used".
+TESTS:
+- New: test_source_validation_logged.py, 6 tests:
+  - registered as logged-only, with the row wired to it;
+  - untested, then measured on planted data;
+  - the pre-registered population;
+  - identical existing results on records without the block, and never a selection candidate even when it carries data;
+  - existing q-values and verdicts byte-identical with a strong or a noise logged source present;
+  - its q equal to its BH q in the (m+1) family.
+- Existing: the exact pin in test_signal_attribution.py moved to the logged-source sentence (its new exact value).
+- Mutation checks:
+  - removing the insulation fails both insulation tests;
+  - correcting the logged source in a family of its own fails the full-family test;
+  - restoring the old selection-arm clause fails the identity test;
+  - dropping the population rule fails the population test.
+- On the committed tree: Python 471 passed (+9 subtests) across 34 files (test_brain_evidence.py included); TS 81 passed across 7 files.
+- tsc reports 6 errors (unchanged). The counter ratchet is OK. test_ts_code_only.py passes 11.
+STARVED: no.
