@@ -114405,3 +114405,43 @@ Tests:
 - Results: all 96 server test files that read bot.ts pass (811). Counter ratchet OK. tsc 6 (baseline 6).
 
 STARVED: no.
+
+## 2026-11-05 [RULE-REVIEW] — T-BOT (order_ladder.py new; options_manager.py _submit_close_order branch, roll and group-close pauses, per-tick pursuit; system_config.OPTIONS_EXIT_LADDER; server/optionsMgmtAudit.ts) — mid-first exit ladder for single-leg option exits, ON in paper, EXPLORATORY, kill date 2027-02-05
+VERSION: v1.0.1302 (shipped 2026-11-05 by the parent session; main was v1.0.1301)
+
+Human directive (2026-11-05): "Midpoint-first order ladder for live trading: build it behind a config flag that defaults to OFF on paper. Leave out any fill-improvement claims until live." Later the same day: "I want as much on as possible to see if it works and not gate everything ... we have a paper account so use it." So the flag ships ON in paper.
+
+What paper can and cannot show:
+- Alpaca paper fills a limit only once it is marketable at the NBBO, with no price improvement. A limit at the mid rests until the quote moves through it.
+- So paper tests the mechanics: step timing, replace and cancel races, one order per contract, one exit record per close. A laddered exit normally fills at the touch after the last step, a few minutes later than today's single touch order.
+- A fill before the last step is worth recording, so every finished ladder logs the step it filled at.
+- Paper cannot show whether starting at the mid saves money. No fill-improvement claim is made from paper.
+- The quotes come from the option snapshot feed (alpaca_feed.options_feed(): the indicative feed whenever OPRA is not entitled), so "the touch" means that feed's touch.
+
+The rule:
+- **Which exits.** A single-leg exit is laddered when its own price crosses the spread at the live quote (a sell at the bid, a buy at the ask). That covers six of the nine single-leg rules: leftover long leg, assignment close, 21 DTE sold, 21 DTE bought, sold loss limit and bought loss limit. Unchanged: the three rules that already price at the mid (CRITICAL DTE, profit target, gamma); a close with no two-sided quote (e.g. a 0 bid); a one-tick market; rolls (a close plus a sell-to-open in one tick); multi-leg group closes and their per-leg fallback; entries; Node's POS-KILL backstop.
+- **Prices.** Step 1 is the mid, rounded to a valid increment in our favour ($0.01 under $3.00, $0.05 at or above). The middle steps are evenly spaced. The last step is the quoted touch itself: a limit, never a market order. Prices are re-read from the live quote at every step. A step never re-prices less aggressively than the order already working. After the last step the order rests at that touch, as today's order does (it is not chased).
+- **Timing.** steps = 3, step_seconds = 60 (system_config.OPTIONS_EXIT_LADDER). A ladder advances at most one step per options-manager tick, so step_seconds is a minimum. At the Tier 2 cadence (1–7 min), a 3-step ladder reaches the touch 2 ticks after it starts. No step is taken outside regular hours or in the 09:30–09:45 window.
+- **Across ticks.** The rule submits step 1 through _submit_close_order. Its result says which step it is on, and its exit record is written once, at that submit, as before. The rule then pops the leg's state, so the 60-minute hold gate keeps it from firing again. That is why a per-tick pursuit, run before any rule, owns the ladder: it reads the order by id, replaces its limit (Alpaca PATCH) when a step is due, and finishes the ladder on a fill. A rule that fires again while a ladder works gets "working": no second order, no second exit record.
+- **Races.** A replace answered 200 whose original filled first (Alpaca then rejects the replacement) is logged as a fill at the earlier step. A refused replace cancels the order; the touch goes out on the next tick, never in the cancel's tick. A partly filled order is never replaced in place: it is canceled and the rest goes out at the next step. A working order whose position is gone is canceled. A ladder from an earlier session is dropped untouched. An unreadable order is judged again next tick. If the broker refuses step 1, the rule's own order goes out instead.
+- **Mode.** "on" | "off" | "auto" (auto = on only against the live host api.alpaca.markets; paper and anything unrecognised are off). Env VOLTRADE_OPTIONS_EXIT_LADDER=on|off|auto wins when set. Switched off, every exit is today's single order, byte for byte. Ladders already working still finish.
+- **Audit and data.** A laddered CLOSE row reads "exit ladder step 1/3 @ $x". Each step and the fill is an OPTIONS-LADDER row; that is not an exit type, so the Bot page does not count steps as exits. Working ladders are kept in DATA_DIR/voltrade_options_exit_ladder.json. Each finished ladder appends one line to voltrade_options_exit_ladder_log.jsonl: outcome, filled step, fill price, and the price and quote at each step.
+
+Downstream:
+- Laddered exits fill a few minutes later in paper, at the touch (the same price class as today). Exposure is held up to 2 ticks longer (2–14 min at midday), in either direction.
+- POS-KILL skips a contract while a close order is open on it. For a laddered contract the backstop waits for the ladder, at most until it reaches the touch.
+- Exit records are unchanged: written once, at step 1, with the same mark-based P&L. No measurement code is touched.
+- Cost: one order read per working ladder per tick, plus a quote read and a replace when a step is due.
+
+Next candidates (not in this change):
+- Multi-leg group closes: the mleg order first, then the per-leg fallback.
+- The three mid-priced rules. They rest at the mid today; laddering them to the touch would make them more aggressive than today, which is a pricing decision for the human.
+
+Rollback trigger: over the first 20 laddered exits, any second order on one contract, any second exit record for one close, or any laddered exit left unfilled at the session close while its quote was two-sided. Any one of these: set env VOLTRADE_OPTIONS_EXIT_LADDER=off and root-cause.
+
+Tests:
+- test_options_exit_ladder.py (30): mode resolution (default on in paper, auto only against the live host, env override, bounds, a missing key is off); the schedule (both sides, $0.01/$0.05 increments across $3.00, monotone, inside the quote, last step = touch, over 5,600 generated quotes); which closes ladder (mid-priced, no bid, one-tick market, rolls and group fallback at the touch, every non-rule close paused); tick by tick through manage_options_positions on the default config (step 1 at the mid, a re-fire sends nothing and records nothing, one step per tick, the touch held, the fill logged with its step, a fill at the mid, an order that ends unfilled, never backing off when the quote moves our way); the races above; and switched off (env off or auto on paper) the exact single POST and result of today, with no quote read and no file.
+- server/optionsMgmtAudit.test.ts (+1): a laddered close names its step; steps and fills are OPTIONS-LADDER rows; a close without a ladder renders as before.
+- Existing options suites pass unchanged (306). They patch _submit_close_order, so they still pin each rule's own price; none needed the ladder switched off.
+
+STARVED: no.

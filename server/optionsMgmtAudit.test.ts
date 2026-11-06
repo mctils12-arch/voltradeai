@@ -40,6 +40,24 @@ test("the per-leg fallback's rejected legs are counted, not hidden behind 'submi
   assert.match(row.message, / · order submitted \(individual_legs\) · 2\/4 legs FAILED$/);
 });
 
+test("exit ladder (2026-11-05): a laddered close names its step; steps and the fill are OPTIONS-LADDER rows, not exits", () => {
+  const rows = formatOptionsMgmt({ actions: [
+    { action: "CLOSE", ticker: "BLOS", occ_symbol: "BLOS261218C00520000", reason: "LOSS LIMIT: Bought option down 64% from entry", type: "bought_loss_limit",
+      order: { status: "submitted", detail: "Close sell 2x BLOS261218C00520000 @ $1.80", ladder: { step: 1, of: 3, price: 1.8 } } },
+    { action: "LADDER", ticker: "BLOS", occ_symbol: "BLOS261218C00520000", reason: "exit ladder step 2/3: limit $1.70 (bid 1.6 / ask 2.0)", type: "exit_ladder_step",
+      order: { status: "replaced", ladder: { step: 2, of: 3, price: 1.7 } } },
+    { action: "LADDER", ticker: "BLOS", occ_symbol: "BLOS261218C00520000", reason: "exit ladder FILLED at step 3/3 (the touch) at $1.60, 2m 1s after step 1", type: "exit_ladder_filled",
+      order: { status: "filled", ladder: { step: 3, of: 3, price: 1.6 } } },
+  ] });
+  assert.deepEqual(rows.map((r) => r.type), ["OPTIONS-EXIT", "OPTIONS-LADDER", "OPTIONS-LADDER"]);
+  assert.match(rows[0].message, / · order submitted · exit ladder step 1\/3 @ \$1\.80$/);
+  assert.match(rows[1].message, /^BLOS BLOS261218C00520000: exit ladder step 2\/3: limit \$1\.70 .* · order replaced · exit ladder step 2\/3 @ \$1\.70$/);
+  assert.match(rows[2].message, /FILLED at step 3\/3 \(the touch\).* · order filled · exit ladder step 3\/3 @ \$1\.60$/);
+  // a close without a ladder renders exactly as before
+  const [plain] = formatOptionsMgmt({ actions: [{ action: "CLOSE", ticker: "X", occ_symbol: "X261218C00010000", reason: "PROFIT TARGET", order: { status: "submitted" } }] });
+  assert.equal(plain.message, "X X261218C00010000: PROFIT TARGET · order submitted");
+});
+
 test("a manager error is surfaced; nothing / garbage gives no rows; a busy scan is capped", () => {
   assert.deepEqual(formatOptionsMgmt({ actions: [], error: "Position fetch failed: 500" }),
     [{ type: "OPTIONS-MGMT-ERROR", message: "options manager failed this scan: Position fetch failed: 500" }]);

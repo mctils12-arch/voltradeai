@@ -15,9 +15,14 @@
 export interface OptionsMgmtAction {
   action?: string; ticker?: string; strategy?: string; occ_symbol?: string; legs?: string[];
   reason?: string; type?: string; combined_pnl?: number; dte?: number; roll_detail?: string;
-  order?: { status?: string; detail?: string; method?: string; leg_results?: Array<{ status?: string }> } | null;
+  order?: { status?: string; detail?: string; method?: string; leg_results?: Array<{ status?: string }>; ladder?: { step?: number; of?: number; price?: number | null } | null } | null;
 }
-export interface OptionsMgmtRow { type: "OPTIONS-EXIT" | "OPTIONS-ROLL" | "OPTIONS-MGMT-ERROR" | "OPTIONS-EARNINGS"; message: string }
+// 2026-11-05 MID-FIRST EXIT LADDER (order_ladder.py): a laddered close says
+// which step its order is on, and each later step / the fill (with the step it
+// filled at) is one OPTIONS-LADDER row — not an exit type, so the Bot page does
+// not count a ladder's steps as extra exits. OPTIONS-EARNINGS: the earnings-close
+// notices (2026-11-05).
+export interface OptionsMgmtRow { type: "OPTIONS-EXIT" | "OPTIONS-ROLL" | "OPTIONS-LADDER" | "OPTIONS-MGMT-ERROR" | "OPTIONS-EARNINGS"; message: string }
 
 /** a scan closing more positions than this is summarised in one extra row */
 export const OPTIONS_MGMT_AUDIT_CAP = 10;
@@ -41,6 +46,11 @@ function describe(a: OptionsMgmtAction): string {
     const legs = Array.isArray(o.leg_results) ? o.leg_results : [];
     const bad = legs.filter((l) => l && l.status === "error").length;
     if (bad) parts.push(`${bad}/${legs.length} legs FAILED`);
+    const ladder = o.ladder;
+    if (ladder && typeof ladder === "object" && Number.isFinite(ladder.step) && Number.isFinite(ladder.of)) {
+      const px = typeof ladder.price === "number" && Number.isFinite(ladder.price) ? ` @ $${ladder.price.toFixed(2)}` : "";
+      parts.push(`exit ladder step ${ladder.step}/${ladder.of}${px}`);
+    }
   }
   if (a.roll_detail) parts.push(String(a.roll_detail).slice(0, 120));
   return parts.join(" · ");
@@ -56,8 +66,8 @@ export function formatOptionsMgmt(result: unknown, cap: number = OPTIONS_MGMT_AU
   for (const a of all.filter((a) => OPTIONS_EARNINGS_NOTICE_TYPES.includes(String(a.type)))) {
     out.push({ type: "OPTIONS-EARNINGS", message: String(a.reason || a.type).slice(0, OPTIONS_EARNINGS_NOTICE_MAX_CHARS) });
   }
-  const acts = all.filter((a) => a.action === "CLOSE" || a.action === "CLOSE_STRATEGY" || a.action === "ROLL");
-  for (const a of acts.slice(0, cap)) out.push({ type: a.action === "ROLL" ? "OPTIONS-ROLL" : "OPTIONS-EXIT", message: describe(a) });
+  const acts = all.filter((a) => a.action === "CLOSE" || a.action === "CLOSE_STRATEGY" || a.action === "ROLL" || a.action === "LADDER");
+  for (const a of acts.slice(0, cap)) out.push({ type: a.action === "ROLL" ? "OPTIONS-ROLL" : a.action === "LADDER" ? "OPTIONS-LADDER" : "OPTIONS-EXIT", message: describe(a) });
   if (acts.length > cap) out.push({ type: "OPTIONS-EXIT", message: `… ${acts.length - cap} more options exits/rolls this scan` });
   return out;
 }
