@@ -87,6 +87,7 @@ import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubsti
 import { isEntryShadowed, entryShadowStatus, ShadowEntryBook, shadowEntryAuditLine, SHADOW_ORDER_STATUS, SHADOW_REPEAT_DECISION, type NodeShadowEntry, type EntrySleeve } from "./entryShadow";
 import { appendDecisions, decisionsDir, decisionsQuery, entryDecision, exitDecision, readDecisions, skipDecision, tierDecision, type DecisionRow } from "./decisionJournal";
 import { BACKFILL_AUDIT_LIMIT, BACKFILL_AUDIT_TYPES, BACKFILL_WINDOW_DAYS, DECISION_BACKFILL_DELAY_MS, DECISION_BACKFILL_MAX_ATTEMPTS, DECISION_BACKFILL_RETRY_MS, backfillAuditLine, backfillDone, buildBackfill, writeBackfill } from "./decisionBackfill";
+import { ATTRIBUTION_CACHE_MS, ATTRIBUTION_MAX_DECISIONS, attributionDays, attributionReport, readSectorCache, type AttributionReport } from "./decisionAttribution";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -3074,6 +3075,47 @@ print(json.dumps({
   }
   setTimeout(() => { void runDecisionBackfill().catch(noteDecisionBackfillError); }, DECISION_BACKFILL_DELAY_MS).unref();
 
+  // LOSS ATTRIBUTION (2026-11-06, server/decisionAttribution.ts): the window's
+  // P&L by signal, sector, instrument, timing and execution, each bucket with
+  // a plain-English reason — the Bot page's "why are we losing money" panel.
+  // Inputs: the sleeve ledger's lots + fills (the same cache /api/bot/sleeves
+  // reads), the open positions, the decision journal, and, for execution, the
+  // window's orders (the daily line's own reader) against its option fill
+  // ledger. ?days 1..365 (default 30); a window's body is recomputed at most
+  // every ATTRIBUTION_CACHE_MS. Same body as the "attribution" diag probe.
+  const attributionCache = new Map<number, { at: number; body: AttributionReport }>();
+  async function attributionBody(daysRaw: unknown): Promise<AttributionReport | { pending: true; days: number; lastError: string | null }> {
+    const days = attributionDays(daysRaw);
+    const hit = attributionCache.get(days);
+    if (hit && Date.now() - hit.at < ATTRIBUTION_CACHE_MS) return hit.body;
+    await sleevesBody();
+    const positions = parsePositions(await alpaca("/v2/positions"));
+    if (!sleeveCache || !positions) return { pending: true, days, lastError: sleeveError ?? (positions ? null : "positions unreadable") };
+    const nowMs = Date.now();
+    let orders: unknown[] | null = null;
+    let ordersError: string | null = null;
+    try {
+      orders = await dailyLineOrders(new Date(nowMs - days * 86_400_000).toISOString());
+    } catch (err) {
+      ordersError = (err instanceof Error ? err.message : String(err)).slice(0, 160);
+    }
+    const dir = decisionsDir();
+    const body = attributionReport({
+      nowMs, days, events: sleeveCache.taxInputs.events, fills: sleeveCache.taxInputs.fills, positions,
+      decisions: readDecisions(dir, { limit: ATTRIBUTION_MAX_DECISIONS }), orders, ordersError,
+      ledger: readOptionFillLedger(dailyLineDir(process.env)), floorTickers: FLOOR_AND_LEG_TICKERS, sectors: readSectorCache(dir),
+    });
+    attributionCache.set(days, { at: nowMs, body });
+    return body;
+  }
+  app.get("/api/bot/attribution", requireOwner, async (req, res) => {
+    try {
+      res.json(await attributionBody(req.query.days));
+    } catch (err) {
+      res.status(500).json({ error: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+    }
+  });
+
   // ── Trade History CSV Export ─────────────────────────────────────────────
   app.get("/api/bot/export-trades", requireOwner, async (_req, res) => {
     try {
@@ -3776,6 +3818,11 @@ print(json.dumps(s))
             fetchedAt: sleeveCache ? new Date(sleeveCache.at).toISOString() : null,
             pending: !sleeveCache, lastError: sleeveError, rows,
           });
+        }
+        case "attribution": {
+          // ADDED 2026-11-06 (see diag.ts): loss attribution — the SAME body as
+          // the owner's /api/bot/attribution (one cache for both).
+          return res.json(sanitizeDiag({ probe: "attribution", ...(await attributionBody(req.query.days)) }));
         }
         case "decisions": {
           // ADDED 2026-11-06 (see diag.ts): the decision journal — the SAME
