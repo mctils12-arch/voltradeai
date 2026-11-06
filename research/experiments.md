@@ -116104,3 +116104,28 @@ TESTS.
   - Run against the unamended page, the check fails with 9 hard failures: research and insights were fetched on the look-up alone.
 
 STARVED: no.
+
+## 2026-11-06 [PRODUCT] — T-CLIENT (client/src/pages/home.tsx, home.nav.test.ts, scripts/visual_check.mjs) — Nav: Trade · Data · AI Engine — the owner's four direct buttons become one drop-down
+VERSION: v1.0.1335 (shipped 2026-11-06 by the parent session; main was v1.0.1334)
+
+WHY. This is the last of PR #1556's four one-change PRs (cockpit-1 entry). The human (2026-10-29), on the owner nav's six top-level items (Trade, Data, Forecast, Brain, Dossier, AI Engine): "trade data forecast brain ai engine, what do we need, it seems like a lot". Tonight's directive: "simplify the UI".
+
+CHANGE. In home.tsx, the owner-only Forecast, Brain, Dossier and AI Engine buttons collapse into ENGINE_MENU. It is a third drop-down beside Trade and Data, built on the same NavMenu machinery, rendered for the owner only, and MENU_TABS highlights it on its four tabs. The leaves:
+- Bot. Adapted from the PR's "Cockpit": the page opens on its Overview tonight, with the Cockpit one press away.
+- Dossier.
+- Forecast. The PR said "weekly calls"; it now has a daily horizon too.
+- Brain.
+
+TABS, the hash routes, the phone bar and the More sheet are untouched, so every deep link and the phone navigation keep working. The AI Engine page's Overview / Cockpit switch still portals into the nav's page slot.
+
+DOWNSTREAM (2 steps). (1) Every owner page is reached by hover + click instead of one click. Deep links (#/bot, #/forecast, #/brain, #/dossier/<SYM>) and the phone's More sheet are unchanged. (2) The desktop nav has three items instead of six, so the page slot (the AI Engine's view switch) has more room at 1180–1440 px.
+
+ROLLBACK TRIGGER. The human asks for the direct buttons back, or an owner page becomes unreachable from the desktop nav: revert this commit. The routes are untouched.
+
+TESTS.
+- home.nav.test.ts gains 3 tests. The menu and its four leaves, and the direct buttons being gone, both fail on the old nav (checked by running them against the previous home.tsx). The third test checks every owner page is still a TABS entry.
+- Client pages, trade, cockpit, bot, chart and lib suites, plus tradeChartGuards, celestialToggleWiring and visualPagesWiring: 256/256. tsc: 6 errors, the same set. Counter ratchet OK (assertions 32507, harness_rules_checked 88, tests_run_in_ci 816). test_ts_code_only.py: 11 passed.
+- Harness: an AI Engine menu check on analyzeowner (no direct owner button left; at desktop width the menu opens on hover with Bot, Dossier, Forecast, Brain inside the viewport).
+- Harness at 390/768/1440, plus 1920 where the page has a wide entry, on the branch restacked onto the amended Trade cockpit PR (a look-up runs one Python process): analyzeowner, analyzeloaded, research, analyze, forecast, brain, dossier, botpane, bot and botidle, 0 hard failures each. The Trade cockpit's request-log checks also pass on this branch. Against the previous PR's bot and botidle runs the nav change only removes warnings. At 768 the six-item owner nav had pushed the sign-out button off the bar ("clipped control: Sign out"), and the three removed buttons' touch-target flags are gone. botpane is identical.
+
+STARVED: no.

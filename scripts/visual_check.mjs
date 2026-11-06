@@ -3548,6 +3548,30 @@ async function main() {
           fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
         }
       }
+      // ── AI ENGINE MENU (2026-11-06, the port of PR #1556's nav): the owner
+      // reaches the bot page, Dossier, Forecast and Brain through one drop-down
+      // beside Trade and Data — no direct owner buttons left in the desktop
+      // nav; the menu opens on hover with its four leaves inside the viewport.
+      if (name === "analyzeowner") {
+        const fail = (m) => checks.failures.push("engine-menu: " + m);
+        const direct = await page.locator(".tab-nav-tabs > button.tab-btn").count();
+        if (direct) fail(`${direct} direct owner button(s) left in the desktop nav`);
+        const btn = page.locator(".tab-nav-tabs .analyze-dropdown-wrapper > button.tab-btn", { hasText: "AI Engine" }).first();
+        if (!vp.touch) {
+          if (!(await btn.count()) || !(await btn.isVisible())) fail("no AI Engine menu for the owner");
+          else {
+            await btn.hover();
+            await page.waitForTimeout(150);
+            const items = await page.$$eval(".nav-dropdown-menu [role='menuitem'] .analyze-dropdown-label", (els) => els.map((e) => (e.textContent || "").trim()));
+            if (items.join(",") !== "Bot,Dossier,Forecast,Brain") fail(`the AI Engine menu reads [${items.join(", ")}]`);
+            const inside = await page.evaluate(() => { const m = document.querySelector(".nav-dropdown-menu"); if (!m) return false; const r = m.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; });
+            if (!inside) fail("the AI Engine menu leaves the viewport");
+            await page.screenshot({ path: path.join(OUT, `${name}-enginemenu-${vp.w}.png`), animations: "disabled" });
+            await page.mouse.move(2, 600);
+            await page.waitForTimeout(250);
+          }
+        }
+      }
       if (name === "analyzeloaded" || name === "analyzeowner") {
         const fail = (m) => checks.failures.push("trade-cockpit: " + m);
         try {

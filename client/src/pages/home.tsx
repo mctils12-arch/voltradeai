@@ -137,7 +137,8 @@ interface NavLeaf {
   soon?: boolean; // rendered disabled with a "soon" tag (honest, not clickable)
 }
 interface NavSubgroup { heading: string; items: NavLeaf[]; }
-interface NavMenu { id: "trade" | "data"; label: string; icon: React.ReactNode; groups: NavSubgroup[]; }
+type NavMenuId = "trade" | "data" | "engine";
+interface NavMenu { id: NavMenuId; label: string; icon: React.ReactNode; groups: NavSubgroup[]; }
 
 const NAV_MENUS: NavMenu[] = [
   {
@@ -195,9 +196,37 @@ const NAV_MENUS: NavMenu[] = [
 // Which top-level tabs belong to which menu — drives the menu button's active
 // underline (highlight "Data" while the map/overlays are open, "Trade" while any
 // trading tab is open). Derived once from the menu actions so it can't drift.
-const MENU_TABS: Record<"trade" | "data", Set<TabId>> = {
+const MENU_TABS: Record<NavMenuId, Set<TabId>> = {
   trade: new Set<TabId>(["analyze", "scanner", "watchlist", "research", "news", "planner", "taxes"]),
   data: new Set<TabId>(["data"]),
+  engine: new Set<TabId>(["bot", "dossier", "forecast", "brain"]),
+};
+
+// ONE AI ENGINE MENU (human 2026-10-29: "trade data forecast brain ai engine,
+// what do we need, it seems like a lot"; 2026-11-06 "simplify the UI"): the
+// four owner-only direct buttons (Forecast, Brain, Dossier, AI Engine)
+// collapse into one owner-only drop-down beside Trade and Data, built on the
+// same NavMenu machinery. Every destination stays one hover + one click away;
+// TABS, the hash routes and the phone bar are untouched, so deep links keep
+// working. The bot page opens on its Overview, the Cockpit one press away.
+const ENGINE_MENU: NavMenu = {
+  id: "engine", label: "AI Engine", icon: <Bot size={14} />,
+  groups: [
+    {
+      heading: "Operate",
+      items: [
+        { key: "engine-bot",     label: "Bot",     icon: <Bot size={14} />,        description: "After tax vs SPY, losses explained, the cockpit", accent: "var(--accent)",       action: { kind: "tab", tab: "bot" } },
+        { key: "engine-dossier", label: "Dossier", icon: <FileSearch size={14} />, description: "One ticker: market → stock → options → plan",    accent: "var(--accent-green)", action: { kind: "tab", tab: "dossier" } },
+      ],
+    },
+    {
+      heading: "Evidence",
+      items: [
+        { key: "engine-forecast", label: "Forecast", icon: <Target size={14} />, description: "Daily and weekly calls in shadow, scored", accent: "var(--accent-orange)", action: { kind: "tab", tab: "forecast" } },
+        { key: "engine-brain",    label: "Brain",    icon: <Brain size={14} />,  description: "What is live, shadow, off — and why",      accent: "var(--accent-purple)", action: { kind: "tab", tab: "brain" } },
+      ],
+    },
+  ],
 };
 
 export default function Home({ authenticated, authLoading, isMobile, isOwner }: HomeProps) {
@@ -210,13 +239,13 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
   // The Trade world's active symbol (lib/activeTicker): read here, above the
   // hash-sync effect that writes it into the URL.
   const activeTicker = useSyncExternalStore(subscribeActiveTicker, getActiveTicker, getActiveTicker);
-  // Desktop hover dropdowns — which top-nav menu ("trade" | "data") is open, with
+  // Desktop hover dropdowns — which top-nav menu (NavMenuId) is open, with
   // a small close delay so the pointer can travel button → menu without it
   // snapping shut. Only one menu is open at a time.
-  const [openMenuId, setOpenMenuId] = useState<null | "trade" | "data">(null);
+  const [openMenuId, setOpenMenuId] = useState<null | NavMenuId>(null);
   const menuCloseTimer = useRef<number | null>(null);
 
-  const openMenu = (id: "trade" | "data") => {
+  const openMenu = (id: NavMenuId) => {
     if (menuCloseTimer.current) {
       window.clearTimeout(menuCloseTimer.current);
       menuCloseTimer.current = null;
@@ -227,7 +256,7 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
     if (menuCloseTimer.current) window.clearTimeout(menuCloseTimer.current);
     menuCloseTimer.current = window.setTimeout(() => setOpenMenuId(null), delay);
   };
-  const toggleMenu = (id: "trade" | "data") => setOpenMenuId(cur => (cur === id ? null : id));
+  const toggleMenu = (id: NavMenuId) => setOpenMenuId(cur => (cur === id ? null : id));
 
   // Execute a nav-menu leaf's action. Tab actions honor auth gating via
   // handleTabClick; hash actions open a datamap overlay (its hashchange listener
@@ -399,9 +428,10 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
 
         <div className="tab-nav-tabs">
           {/* TWO-WORLD NAV (P1, research/platform_program.md): Trade + Data
-              hover/click drop-downs replace the nine flat tabs; the owner-only
-              AI Engine stays a direct button. Menu leaves run NavActions. */}
-          {NAV_MENUS.map(menu => {
+              hover/click drop-downs replace the nine flat tabs. The owner-only
+              AI Engine is a third drop-down of the same kind (ENGINE_MENU)
+              instead of four direct buttons. Menu leaves run NavActions. */}
+          {(isOwner ? [...NAV_MENUS, ENGINE_MENU] : NAV_MENUS).map(menu => {
             const menuActive = MENU_TABS[menu.id].has(activeTab);
             const isOpen = openMenuId === menu.id;
             return (
@@ -476,54 +506,9 @@ export default function Home({ authenticated, authLoading, isMobile, isOwner }: 
             );
           })}
 
-          {/* Forecast — owner-only weekly calls (SHADOW), direct button beside the AI Engine */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "forecast" ? "active" : ""}`}
-              onClick={() => handleTabClick("forecast")}
-              aria-current={activeTab === "forecast" ? "page" : undefined}
-            >
-              <Target size={14} />
-              Forecast
-            </button>
-          )}
-
-          {/* Brain — owner-only: what is live / shadow / off and the evidence behind each part */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "brain" ? "active" : ""}`}
-              onClick={() => handleTabClick("brain")}
-              aria-current={activeTab === "brain" ? "page" : undefined}
-            >
-              <Brain size={14} />
-              Brain
-            </button>
-          )}
-
-          {/* Dossier — owner-only: one ticker, market → sector → stock → options → events, ranges + trade plan.
-              Human 2026-10-29: it had no desktop button (only the AI Engine look-up box / phone More menu / URL). */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "dossier" ? "active" : ""}`}
-              onClick={() => handleTabClick("dossier")}
-              aria-current={activeTab === "dossier" ? "page" : undefined}
-            >
-              <FileSearch size={14} />
-              Dossier
-            </button>
-          )}
-
-          {/* AI Engine — owner-only, direct button (not part of either world) */}
-          {isOwner && (
-            <button
-              className={`tab-btn ${activeTab === "bot" ? "active" : ""}`}
-              onClick={() => handleTabClick("bot")}
-              aria-current={activeTab === "bot" ? "page" : undefined}
-            >
-              <Bot size={14} />
-              AI Engine
-            </button>
-          )}
+          {/* Forecast, Brain, Dossier and the bot page live in ENGINE_MENU above
+              (owner-only third drop-down). The phone keeps them as tabs in the
+              More sheet via TABS. */}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
