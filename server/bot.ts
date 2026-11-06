@@ -73,6 +73,7 @@ import { todayTile, type TodayTile } from "./todayTile";
 import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
 import { readTaxDecisions, taxBody, taxLimit, taxHoldOf, taxDeferLine, TaxDeferAudit, ltApproachingRows, taxRealizedSnapshot, writeTaxRealized, readHarvestReview, taxHarvestAuditRows, TAX_REALIZED_REFRESH_MS, type TaxBody, type LtApproachingRow } from "./taxAware";
+import { afterTaxSeries } from "./afterTaxSeries";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
@@ -2695,17 +2696,22 @@ print(json.dumps({
     const today = new Date().toISOString().slice(0, 10);
     const sources = { equity: "bot equity curve (Alpaca account portfolio_value, daily snapshot after the close, UTC date)", spy: `SPY daily closes, ${SPY_BENCH_BASIS} (Alpaca bars, adjustment=${SPY_BENCH_ADJUSTMENT}, feed=iex)` };
     try {
-      if (!oldest) return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null };
+      if (!oldest) return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null, afterTax: null, afterTaxReason: "no equity curve yet" };
       const spy = await spyBenchBars(oldest);
       const groups = sleeveCache ? (sleeveCache.body.nonTrade as { groups?: Record<string, number> } | undefined)?.groups : undefined;
       if (!sleeveCache) void sleevesBody().catch(() => {});
       const cashFlows = groups ? { journals: groups.journals ?? 0, transfers: groups.transfers ?? 0, since: sleeveCache?.body.since ?? null } : null;
-      const body = { ...buildScoreboard(equityCurve, spy.bars, today), fetchedAt: new Date(spy.at).toISOString(), computedAt: new Date().toISOString(), sources, cashFlows };
+      // the same comparison AFTER TAX, one point per session (server/afterTaxSeries.ts, 2026-11-06): the bot
+      // page's main chart; it needs the sleeve ledger's realized events, so it is null (with the reason) until
+      // that cache has loaded — and such a body is not cached below, so the next poll fills it in
+      const afterTax = sleeveCache ? afterTaxSeries(equityCurve, spy.bars, { events: sleeveCache.taxInputs.events, fills: sleeveCache.taxInputs.fills }) : null;
+      const afterTaxReason = afterTax ? null : sleeveCache ? "fewer than two session points" : "sleeve ledger not loaded yet; the next poll fills it";
+      const body = { ...buildScoreboard(equityCurve, spy.bars, today), fetchedAt: new Date(spy.at).toISOString(), computedAt: new Date().toISOString(), sources, cashFlows, afterTax, afterTaxReason };
       // a body without the ledger is not cached, so the caveat fills in on the next poll
       if (cashFlows) scoreCache = { at: Date.now(), body };
       return body;
     } catch (err) {
-      return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null, error: String(err instanceof Error ? err.message : err).slice(0, 200) };
+      return { ...buildScoreboard([], [], today), fetchedAt: null, sources, cashFlows: null, afterTax: null, afterTaxReason: "the scoreboard could not be computed", error: String(err instanceof Error ? err.message : err).slice(0, 200) };
     }
   }
   app.get("/api/bot/scoreboard", requireOwner, async (_req, res) => {
