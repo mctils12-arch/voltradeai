@@ -51,10 +51,21 @@ test("overview (2026-11-06): the view defaults to the overview, its grid rows na
     assert.match(t.areas.join(" "), /perf perf/, `${tier}: the chart spans the centre and right columns`);
     assert.match(t.rows, /minmax\(\d{3}px, 1\.3fr\)/, `${tier}: the chart's row keeps a floor`);
   }
-  assert.match(overviewGridStyle("l").gridTemplateAreas, /^"kpi kpi kpi" "left perf perf" "left why picks"$/);
+  // re-pinned 2026-11-06 ([PRODUCT] the daily line card): a fourth row, the daily line across the centre and right columns
+  // (was /^"kpi kpi kpi" "left perf perf" "left why picks"$/)
+  assert.match(overviewGridStyle("l").gridTemplateAreas, /^"kpi kpi kpi" "left perf perf" "left why picks" "left daily daily"$/);
+  // the daily line's row: a floor and a share both below the chart's, at the same width — the chart stays the largest panel
+  for (const [tier, t] of Object.entries(OVERVIEW_TEMPLATES)) {
+    const rows = [...t.rows.matchAll(/minmax\((\d+)px, ([\d.]+)fr\)/g)].map((m) => ({ floor: Number(m[1]), fr: Number(m[2]) }));
+    assert.equal(rows.length, 3, `${tier}: the chart, why/picks and daily rows each keep a floor`);
+    const [chart, , daily] = rows;
+    assert.ok(daily.floor < chart.floor && daily.fr < chart.fr, `${tier}: the daily line's row (${daily.floor}px, ${daily.fr}fr) stays below the chart's (${chart.floor}px, ${chart.fr}fr)`);
+  }
   for (const id of ["issues", "book", "orders"] as const) {
     assert.ok(MODE_PANELS.overview.includes(id) && MODE_PANELS.cockpit.includes(id), `${id} is in both views`);
   }
   for (const id of [...MODE_PANELS.overview, ...MODE_PANELS.cockpit]) assert.ok(PANEL_IDS.includes(id), `${id} is a panel id`);
-  assert.deepEqual([...MODE_PANELS.overview].sort(), ["book", "issues", "orders", "perf", "picks", "why"]);
+  // re-pinned 2026-11-06: + daily (was ["book", "issues", "orders", "perf", "picks", "why"])
+  assert.deepEqual([...MODE_PANELS.overview].sort(), ["book", "daily", "issues", "orders", "perf", "picks", "why"]);
+  assert.ok(!MODE_PANELS.cockpit.includes("daily"), "the cockpit keeps its daily scoreboard; the daily line is the overview's");
 });

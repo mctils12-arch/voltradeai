@@ -51,7 +51,7 @@ import path from "node:path";
 import { evaluateDailyPnl } from "./drawdownGuard";
 import { benchmarkVsSpy, type BenchWindow, type CurvePoint, type DailyClose } from "./spyBenchmark";
 import { spyToday } from "./todayTile";
-import { zonedParts, zonedInstant } from "./jobHeartbeat";
+import { isTradingDay, zonedParts, zonedInstant, type MarketCalendar } from "./jobHeartbeat";
 import { isOptionPosition } from "./reconstructPnl";
 import type { RealizedEvent } from "./sleeveLedger";
 
@@ -661,10 +661,71 @@ export function readJsonFile(p: string): unknown {
 
 /** The stored lines, oldest first ([] when none or unreadable). */
 export function loadDailyLines(dir: string): DailyLine[] {
-  const doc = rec(readJsonFile(path.join(dir, DAILY_LINE_FILENAME)));
+  return readDailyLines(dir).lines;
+}
+
+/** The same read, saying why when the file exists but cannot be read (2026-11-06: the Overview's daily-line card
+ *  tells "unreadable" from "none written yet"). A missing file is no lines and no error. */
+export function readDailyLines(dir: string): { lines: DailyLine[]; error: string | null } {
+  const p = path.join(dir, DAILY_LINE_FILENAME);
+  let doc: Record<string, unknown>;
+  try {
+    doc = rec(JSON.parse(fs.readFileSync(p, "utf8")));
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return { lines: [], error: null };
+    const why = e instanceof Error ? e.message : String(e);
+    console.warn(`[daily-line] ${p} unreadable:`, why);
+    return { lines: [], error: `the daily line file is unreadable (${why.slice(0, 160)})` };
+  }
   const lines = Array.isArray(doc.lines) ? doc.lines : [];
-  return lines.filter((l): l is DailyLine => !!l && typeof l === "object" && typeof (l as { day?: unknown }).day === "string")
-    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  return {
+    lines: lines.filter((l): l is DailyLine => !!l && typeof l === "object" && typeof (l as { day?: unknown }).day === "string")
+      .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0)),
+    error: null,
+  };
+}
+
+// ── what the owner route and the diag probe serve ───────────────────────────
+
+/** The job's last attempt (bot.ts checkDailyLine; in memory, so a restart clears it). */
+export interface DailyLineAttempt { at: string; day: string; status: "written" | "waiting" | "error"; detail: string | null }
+
+/** Today's line by the NYSE calendar (market_calendar.py — the job itself asks the broker's calendar): the ET date,
+ *  whether it has a session, and when its line is due (the close + DAILY_LINE_DELAY_MIN; 13:20 ET on a half day). */
+export interface DailyLineSchedule { day: string; session: boolean; due_at: string | null }
+
+export function dailyLineSchedule(nowMs: number, cal: MarketCalendar): DailyLineSchedule {
+  const day = zonedParts(nowMs, ET).date;
+  if (!isTradingDay(day, cal)) return { day, session: false, due_at: null };
+  const closeMin = cal.halfDays.has(day) ? 13 * 60 : 16 * 60;
+  return { day, session: true, due_at: new Date(zonedInstant(day, closeMin + DAILY_LINE_DELAY_MIN, ET)).toISOString() };
+}
+
+/** GET /api/bot/daily-line and the `daily_line` diag probe (one body, 2026-11-06): the stored lines, newest first
+ *  (`days` of them: 1–60, default 10), the newest, how many are stored, the job's last attempt, today's schedule,
+ *  and the read error when the file could not be read. Nothing is recomputed: the lines are as the job wrote them. */
+export interface DailyLineBody {
+  count: number;
+  latest: DailyLine | null;
+  recent: DailyLine[];
+  lastAttempt: DailyLineAttempt | null;
+  schedule: DailyLineSchedule;
+  keep: number;
+  error: string | null;
+}
+
+export function dailyLineBody(read: { lines: readonly DailyLine[]; error: string | null }, daysRaw: unknown, lastAttempt: DailyLineAttempt | null, nowMs: number, cal: MarketCalendar): DailyLineBody {
+  const days = Math.min(Math.max(parseInt(String(daysRaw || "10"), 10) || 10, 1), 60);
+  const lines = read.lines;
+  return {
+    count: lines.length,
+    latest: lines.length ? lines[lines.length - 1] : null,
+    recent: lines.slice(-days).reverse(),
+    lastAttempt,
+    schedule: dailyLineSchedule(nowMs, cal),
+    keep: DAILY_LINE_KEEP,
+    error: read.error,
+  };
 }
 
 export function lastLineDay(lines: readonly DailyLine[]): string | null {

@@ -32,12 +32,12 @@ import { KILL_BANNER_TEXT } from "../../../shared/haltWords";
 import { ScoreBody } from "./scoreboard";
 import { fmtDay } from "./scoreView";
 import { ShadowBlock, ShadowChip } from "./shadow";
-import { ModeBar, PerfBody, PicksBody, WhyBody } from "./overview";
+import { ModeBar, PerfBody, PicksBody, WhyBody, DailyLineBody } from "./overview";
 import { parseAttribution, whyTitle } from "./whyView";
 
-const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY", perf: "Portfolio vs SPY", why: "Why we're losing money", picks: "Picks" };
+const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY", perf: "Portfolio vs SPY", why: "Why we're losing money", picks: "Picks", daily: "Daily line" };
 /** the overview's own panels: a window popped out with one of them polls the overview's routes */
-const OVERVIEW_PANES: ReadonlySet<PanelId> = new Set<PanelId>(["perf", "why", "picks"]);
+const OVERVIEW_PANES: ReadonlySet<PanelId> = new Set<PanelId>(["perf", "why", "picks", "daily"]);
 /** the view this viewer chose last (zoneModel.BotMode; a per-viewer convenience — storage may be unavailable) */
 function readBotMode(): BotMode {
   try { return botModeFrom(window.localStorage.getItem(BOT_MODE_STORAGE_KEY)); }
@@ -185,7 +185,8 @@ export default function BotPage() {
   const tpl = TEMPLATES[tier];
   const ordersRoomy = flags.zoomed === "orders" || flags.floating.includes("orders") || pane === "orders";
   const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null, score: d.scoreboard.dataUpdatedAt ? now - d.scoreboard.dataUpdatedAt : null,
-    why: d.attribution.dataUpdatedAt ? now - d.attribution.dataUpdatedAt : d.sleeves.dataUpdatedAt ? now - d.sleeves.dataUpdatedAt : null, picks: d.decisions.dataUpdatedAt ? now - d.decisions.dataUpdatedAt : d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null };
+    why: d.attribution.dataUpdatedAt ? now - d.attribution.dataUpdatedAt : d.sleeves.dataUpdatedAt ? now - d.sleeves.dataUpdatedAt : null, picks: d.decisions.dataUpdatedAt ? now - d.decisions.dataUpdatedAt : d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null,
+    daily: d.dailyLine.dataUpdatedAt ? now - d.dailyLine.dataUpdatedAt : null };
   // the overview grid (desktop): the chart fills its slot; in the phone / tablet stack it keeps a fixed height
   const overviewGrid = mode === "overview" && !tpl.scrolls;
   const freshBody: Record<PanelId, ReactNode> = {
@@ -210,6 +211,8 @@ export default function BotPage() {
     perf: <PerfBody q={d.scoreboard} bench={d.benchmark.data} nowMs={now} fill={(overviewGrid && !flags.zoomed) || flags.zoomed === "perf" || flags.floating.includes("perf") || pane === "perf"} />,
     why: <WhyBody attrQ={d.attribution} days={attrDays} onDays={setAttrDays} sleeves={d.sleeves.data} flowsQ={d.flows} taxQ={d.tax} signalsQ={d.signals} regimeQ={d.regime} nowMs={now} />,
     picks: <PicksBody positions={d.positions.data} decisionsQ={d.decisions} nowMs={now} />,
+    // the daily line ([PRODUCT] 2026-11-06): the last sessions' lines, as the job wrote them after each close
+    daily: <DailyLineBody q={d.dailyLine} nowMs={now} />,
   };
   // the hold ledger (engine): a newly held panel keeps this render's body
   const body = layout.heldBodies(freshBody, now);
@@ -230,7 +233,7 @@ export default function BotPage() {
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = layout.chrome(id, now);
-    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "score" || id === "perf" ? ages.score : id === "why" ? ages.why : id === "picks" ? ages.picks : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
+    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "score" || id === "perf" ? ages.score : id === "why" ? ages.why : id === "picks" ? ages.picks : id === "daily" ? ages.daily : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       // the slot carries the column share and the cap (maxHeight); the panel
@@ -253,6 +256,8 @@ export default function BotPage() {
       case "perf": return <Panel {...common} title={d.scoreboard.data?.afterTax ? "Portfolio vs SPY · after tax" : "Portfolio vs SPY"} help="perfChart" meta={d.scoreboard.data?.afterTax ? `since ${fmtDay(d.scoreboard.data.afterTax.from)} · both sold at each close · estimate` : "since the start · buy-and-hold SPY"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "why": return <Panel {...common} title={whyTitle(parseAttribution(d.attribution.data, attrDays)?.total ?? null)} help="why" meta={d.attribution.data && !d.attribution.isError ? `last ${attrDays} days · by signal, sector, instrument, timing` : "where the P&L came from"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "picks": return <Panel {...common} title={`Picks${d.positions.data ? ` · ${d.positions.data.length} held` : ""}`} help="picks" meta="why each was bought · what it passed over" scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
+      // the daily line ([PRODUCT] 2026-11-06): the grid's fourth row (it scrolls inside, like Why and Picks), or the stack
+      case "daily": return <Panel {...common} title="Daily line" help="dailyLine" meta="each session vs SPY · floor · options · 09:30 holds" scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       default: return null;
     }
   };
@@ -301,12 +306,13 @@ export default function BotPage() {
         </div>
       ) : tpl.scrolls && mode === "overview" ? (
         // OVERVIEW, tablet / phone (2026-11-06): the after-tax chart first — the page's one question — then the
-        // strip, why money is being lost, the picks, and the essentials (issues, book, orders)
+        // strip, why money is being lost, the daily line's last sessions, the picks, and the essentials (issues, book, orders)
         <div className="vt-bot-stack" data-tier={tier} data-mode="overview">
           {modeBar}
           {slot("perf", { flex: "0 0 auto" })}
           {kpi}
           {slot("why", { flex: "0 0 auto" })}
+          {slot("daily", { flex: "0 0 auto" })}
           {slot("picks", { flex: "0 0 auto" })}
           {slot("issues", { flex: "0 0 auto" })}
           {slot("book", { flex: "0 0 auto" })}
@@ -337,6 +343,7 @@ export default function BotPage() {
           <div className="vt-bot-col vt-bot-area-perf">{slot("perf", { flex: "1 1 auto" })}</div>
           <div className="vt-bot-col vt-bot-area-why">{slot("why", { flex: "1 1 auto" })}</div>
           <div className="vt-bot-col vt-bot-area-picks">{slot("picks", { flex: "1 1 auto" })}</div>
+          <div className="vt-bot-col vt-bot-area-daily">{slot("daily", { flex: "1 1 auto" })}</div>
         </div>
       ) : (
         <div className="vt-bot-grid" style={gridStyle(tier)}>

@@ -411,6 +411,7 @@ function botFixtures({ latched, between = false }) {
       : { since: null, d30: null, spyLast: null, barsThrough: null, fetchedAt: null },
     // the daily scoreboard (fixture walk above) / not enough history on the idle page
     "/api/bot/scoreboard": latched ? scoreboard : { rows: [], summary: null, barsThrough: null, curveThrough: null, fetchedAt: null, cashFlows: null },
+    "/api/bot/daily-line": dailyLineFixture({ latched, now }),
     // P&L by sleeve (fixture numbers, real shape) / still computing on the idle page
     "/api/bot/sleeves": latched
       ? { since: "2026-05-07T00:00:00.000Z", truncated: false, malformedFills: 0, fetchedAt: new Date(now).toISOString(), firstFill: "2026-03-12T14:02:11.000Z", lastFill: new Date(now).toISOString(), realizedTotal: -2961.4, unrealizedTotal: -4408.9, rows: [
@@ -447,6 +448,59 @@ function botFixtures({ latched, between = false }) {
 // layers, the range bands with backtest + a thin live ledger, no direction
 // call (not in the weekly set — the honest coin-flip state), a trade plan,
 // options with implied vs model, events across three credibility tiers.
+/** GET /api/bot/daily-line ([PRODUCT] 2026-11-06, server/dailyLine.ts dailyLineBody): the lines as the job writes them,
+ *  newest first. Latched page: ten sessions (the weekdays before the run's ET date) — one written partial (its orders
+ *  unreadable, so no option total), one whose option window opens at an older line (a line in between was missed).
+ *  Idle page: the one line the live server held on 2026-11-06 (no previous line, so its option total is not
+ *  computable — the designed note). Both: today's line due after the close, 2 h 22 min from now (the fixture's close is
+ *  2 h 02 min away). */
+function dailyLineFixture({ latched, now }) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const et = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const days = [];
+  for (let d = new Date(`${et(now)}T12:00:00Z`); days.length < (latched ? 11 : 2);) {
+    d = new Date(d.getTime() - 86_400_000);
+    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) days.push(d.toISOString().slice(0, 10));
+  }
+  // 16:22 ET on the day (the job's first tick after the close + 20 min), in EST or EDT
+  const at1622 = (day) => { const est = Date.parse(`${day}T21:22:00Z`); return new Date(new Date(est).toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }) === "17" ? est - 3_600_000 : est).toISOString(); };
+  const basis = "account: Alpaca equity vs last_equity (no dividends in the paper account) · SPY: PRICE-ONLY daily closes (Alpaca bars, adjustment=split, feed iex)";
+  const ACCT = [-4.07, 0.42, -0.95, 1.12, -0.31, 0.08, -1.64, 0.55, -0.22, 0.73];
+  const SPYD = [-4.34, 0.61, -0.71, 0.98, -0.12, 0.21, -1.25, 0.47, -0.05, 0.66];
+  const X = [0.8512, 0.8833, 0.9102, 0.8711, 0.9404, 0.9611, 0.8226, 0.9015, 0.9333, 0.9488];
+  const TOT = [-120.4, 85.2, -310.65, null, 42, -18.3, -455.9, 130.1, -60, 25.5];
+  const FP = [-40.3, -12.5, -88.1, 0, -6.2, -9.9, -102.4, -15, -20.2, -4.4];
+  const FN = [[2, 5], [3, 3], [4, 6], [0, 0], [1, 2], [2, 2], [5, 9], [2, 3], [1, 4], [1, 1]];
+  const HOLDS = [[1, 1, 1], [0, 0, 0], [2, 0, 1], [0, 0, 0], [0, 1, 0], [0, 0, 0], [3, 1, 2], [0, 0, 0], [1, 0, 0], [0, 0, 0]];
+  const line = (i) => {
+    const day = days[i];
+    const live = !latched;
+    const total = live ? null : TOT[i];
+    const [attributed, fills] = live ? [0, 3] : FN[i];
+    const [single, group, posKill] = live ? [0, 0, 0] : HOLDS[i];
+    return {
+      version: 1, day, written_at: at1622(day), session_close: "16:00",
+      account_vs_spy: { basis, day: { account_pct: ACCT[i], spy_pct: SPYD[i], gap_pp: r2(ACCT[i] - SPYD[i]), equity: 90000, last_equity: r2(90000 / (1 + ACCT[i] / 100)), spy_bar_date: day, reason: null }, since: null, d30: null, since_requested: "2026-05-06", windows_reason: null },
+      floor: { mode: "vol_managed_spy", exposure_x: live ? 0 : X[i], basis: "(SPY + 2 x SSO market value) / equity", base_mv: 0, levered_mv: 0, floor_mv: 0, legacy_mv: 26603.7, target_x: live ? null : r2(X[i] + 0.05), target_at: live ? null : at1622(day), reason: null },
+      options: {
+        window: { from: at1622(days[i + 1]), to: at1622(day), from_line: live ? null : i === 6 ? days[i + 2] ?? null : days[i + 1], single_session: live ? true : i !== 6 },
+        realized: live ? 948 : 0, realized_lots: 3, unrealized_start: live ? null : 0, unrealized_end: -18, closed_without_fill: [], total,
+        fills: { fills, attributed, cost: -FP[i], pnl: live ? 0 : FP[i], unattributed: { count: fills - attributed, no_row: fills - attributed, no_mid: 0, mleg_no_leg_fills: 0, notional: 0 }, worst: [], ledger_rows: 0, ledger_malformed: 0 },
+        direction: total === null ? null : r2(total - FP[i]), contracts_end: [],
+        reason: live ? "no previous line within 7 days to start from (the option total starts with the next line)" : i === 3 ? "the window's orders are unreadable (fills not joined)" : null,
+      },
+      opening_window: { total: single + group + posKill, manager_single_leg: single, manager_group: group, pos_kill: posKill, pos_kill_tickers: posKill ? ["AMD"] : [], keys: [], reason: null },
+      missing: !live && i === 3 ? ["orders: the Alpaca orders page timed out"] : [],
+      message: "",
+    };
+  };
+  const lines = days.slice(0, latched ? 10 : 1).map((_, i) => line(i));
+  // today's line is due at 16:20 ET (the close + 20 min); a run after that hour keeps the designed "after the close" state
+  // by placing the due time 2 h 22 min ahead (the fixture's close is 2 h 02 min away)
+  const due1620 = Date.parse(at1622(et(now))) - 2 * 60_000;
+  return { count: lines.length, latest: lines[0], recent: lines, lastAttempt: null,
+    schedule: { day: et(now), session: true, due_at: new Date(now < due1620 ? due1620 : now + (2 * 60 + 22) * 60_000).toISOString() }, keep: 60, error: null };
+}
 function dossierFixture(sym = "RKLB", px = 27.42, opts = {}) {
   const now = Date.now();
   const iso = (msAgo) => new Date(now - msAgo).toISOString();
@@ -3863,7 +3917,7 @@ async function main() {
               const panelText = [...document.querySelectorAll('section.vt-bot-panel[data-panel="perf"], section.vt-bot-panel[data-panel="why"], section.vt-bot-panel[data-panel="picks"]')].map((e) => e.textContent || "").join(" ");
               const perf = q('section.vt-bot-panel[data-panel="perf"]'), svg = q(".vt-perf-plot svg"), plot = q(".vt-perf-plot");
               const pathPts = (k) => { const d = q(`.vt-perf-plot path[data-line="${k}"]`)?.getAttribute("d") || ""; return d ? d.split(/[ML]/).filter((x) => x.trim()).length : 0; };
-              const cols = ["left", "perf", "why", "picks"].map((a) => {
+              const cols = ["left", "perf", "why", "picks", "daily"].map((a) => {
                 const col = q(`.vt-bot-grid[data-mode="overview"] .vt-bot-area-${a}`);
                 if (!col) return { a, missing: true };
                 const ps = [...col.querySelectorAll("section.vt-bot-panel[data-panel]")];
@@ -3876,7 +3930,7 @@ async function main() {
               return {
                 mode: q(".vt-bot-page")?.getAttribute("data-mode"), ids,
                 switchBtns: [...document.querySelectorAll(".vt-bot-modebar button[data-view]")].map((b) => [b.getAttribute("data-view"), b.getAttribute("aria-pressed")]),
-                chromeOk: ["perf", "why", "picks"].every((id) => ["Hold this panel", "Pin this panel", "Open as a window"].every((l) => !!q(`section.vt-bot-panel[data-panel="${id}"] .vt-bot-ctl button[aria-label="${l}"]`))),
+                chromeOk: ["perf", "why", "picks", "daily"].every((id) => ["Hold this panel", "Pin this panel", "Open as a window"].every((l) => !!q(`section.vt-bot-panel[data-panel="${id}"] .vt-bot-ctl button[aria-label="${l}"]`))),
                 bad: (panelText.match(/\bNaN\b|\bundefined\b|Infinity|\bnull\b/) || [])[0] || null,
                 perf: { state: q(".vt-perf")?.getAttribute("data-state"), basis: q(".vt-perf")?.getAttribute("data-basis"), figs: [...document.querySelectorAll(".vt-perf-fig .v")].map((e) => (e.textContent || "").trim()), say: (q(".vt-perf-say")?.textContent || "").trim(), src: (q(".vt-perf-src")?.textContent || "").trim(), empty: (q(".vt-perf")?.textContent || "").trim(),
                   rect: r(perf) && { w: r(perf).width, h: r(perf).height, area: r(perf).width * r(perf).height }, svg: r(svg) && { w: r(svg).width, h: r(svg).height }, plot: r(plot) && { w: r(plot).width, h: r(plot).height },
@@ -3892,7 +3946,8 @@ async function main() {
             console.log(`  overview ${vp.w}px: mode ${ov.mode} · panels ${ov.ids.join(",")} · chart ${ov.perf.state}/${ov.perf.basis ?? "-"} ${ov.perf.rect ? `${Math.round(ov.perf.rect.w)}×${Math.round(ov.perf.rect.h)}` : "-"} · ${ov.picks.cards.length} cards · why ${ov.why.source}`);
             if (ov.mode !== "overview") ovFail(`the page opened on "${ov.mode}", not the overview`);
             if (JSON.stringify(ov.switchBtns) !== JSON.stringify([["overview", "true"], ["cockpit", "false"]])) ovFail(`the view switch reads ${JSON.stringify(ov.switchBtns)}`);
-            if ([...ov.ids].sort().join(",") !== "book,issues,orders,perf,picks,why") ovFail(`the overview shows the panels ${ov.ids.join(",")} (expected perf, why, picks, issues, book, orders — no engine panel)`);
+            // re-pinned 2026-11-06 ([PRODUCT] the daily line card): + daily (was "book,issues,orders,perf,picks,why")
+            if ([...ov.ids].sort().join(",") !== "book,daily,issues,orders,perf,picks,why") ovFail(`the overview shows the panels ${ov.ids.join(",")} (expected perf, why, picks, daily, issues, book, orders — no engine panel)`);
             if (!ov.chromeOk) ovFail("an overview panel lacks the hold / pin / window controls");
             if (ov.bad) ovFail(`a bare "${ov.bad}" reached the overview panels`);
             if (ov.gridOver > 1) ovFail(`the overview grid overflows sideways by ${ov.gridOver}px`);
@@ -4013,6 +4068,69 @@ async function main() {
               if (ov.why.secs.flows !== "No flows estimate: the daily estimate has not been computed yet. Tier 3 computes it once per completed session.") ovFail(`the idle flows line (no estimate yet) reads "${ov.why.secs.flows}"`);
               if (ov.why.secs.regime !== "the regime risk budget is not on this server yet") ovFail(`the idle regime line reads "${ov.why.secs.regime}"`);
             }
+            // ── DAILY LINE CARD ([PRODUCT] 2026-11-06; server/dailyLine.ts via GET /api/bot/daily-line, overview.tsx
+            // DailyLineBody): one row per stored line, newest first, every cell the line's own field — the account's day,
+            // SPY's, the gap in points (the gap must equal account − SPY as printed), the floor, the option total with its
+            // fills / direction split, the 09:30 holds; how old the newest line is and where today's line stands above the
+            // table; a partial line carries its chip; the newest line's missing pieces are spelled out on the card (no hover
+            // on touch). The phone folds each row onto two lines; nothing is cut, nothing leaks NaN / undefined / null.
+            {
+              const dlFx = PAGE_FIXTURES["/api/bot/daily-line"];
+              for (let i = 0; i < 40; i++) { if (await page.locator('.vt-dl[data-state="ready"], .vt-dl[data-state="empty"], .vt-dl[data-state="error"]').count()) break; await page.waitForTimeout(100); }
+              const dl = await page.evaluate(() => {
+                const sec = document.querySelector('section.vt-bot-panel[data-panel="daily"]');
+                const card = document.querySelector(".vt-dl");
+                if (!sec || !card) return null;
+                const rows = [...card.querySelectorAll(".vt-dl-r:not(.vt-dl-h)")].map((r) => {
+                  const cell = (c) => r.querySelector(`.${c}`);
+                  const top = (c) => Math.round(cell(c)?.getBoundingClientRect().top ?? -1);
+                  return { day: r.getAttribute("data-day"), partial: r.getAttribute("data-partial") === "true",
+                    d: (cell("d")?.textContent || "").trim(), a: (cell("a")?.textContent || "").trim(), s: (cell("s")?.textContent || "").trim(), g: (cell("g")?.textContent || "").trim(),
+                    f: (cell("f")?.textContent || "").trim(), o: (cell("o")?.textContent || "").trim(), b: (cell("b")?.textContent || "").trim(),
+                    twoLines: top("f") > top("d") + 4, cut: [...r.querySelectorAll(":scope > span:not(.o)")].filter((x) => x.scrollWidth - x.clientWidth > 1).map((x) => x.textContent) };
+                });
+                return { state: card.getAttribute("data-state"), text: (card.textContent || "").replace(/\s+/g, " ").trim(), hd: (card.querySelector(".vt-dl-hd")?.textContent || "").replace(/\s+/g, " ").trim(),
+                  today: card.querySelector("[data-today]")?.getAttribute("data-today") || null, notes: [...card.querySelectorAll(".vt-dl-notes > span")].map((x) => (x.textContent || "").trim()),
+                  rows, help: !!sec.querySelector('button.vt-help[data-help="dailyLine"]'), over: Math.max(0, sec.scrollHeight - sec.clientHeight), headCut: [...card.querySelectorAll(".vt-dl-h > span")].filter((x) => x.scrollWidth - x.clientWidth > 1).map((x) => x.textContent) };
+              });
+              const dlFail = (m) => checks.failures.push("daily-line: " + m);
+              if (!dl) dlFail("no daily line card on the overview");
+              else {
+                console.log(`  daily line ${vp.w}px: ${dl.state} · ${dl.rows.length} rows · "${dl.hd.slice(0, 140)}"`);
+                const want = (dlFx?.recent ?? []).slice(0, 10);
+                if (dl.state !== "ready") dlFail(`the card reads "${dl.state}" with ${want.length} lines served`);
+                if (dl.rows.length !== want.length) dlFail(`${dl.rows.length} rows (the route served ${want.length})`);
+                if (/NaN|undefined|\bnull\b|Infinity/.test(dl.text)) dlFail(`a bare NaN / undefined / null in "${dl.text.slice(0, 200)}"`);
+                if (!dl.help) dlFail("no help glyph on the card");
+                if (dl.over > 1) dlFail(`the panel clips ${dl.over}px of its own content`);
+                if (dl.headCut.length) dlFail(`a column header is cut short: ${dl.headCut.join(", ")}`);
+                const M = "\u2212";
+                const pct = (v) => `${v < 0 ? M : v > 0 ? "+" : ""}${Math.abs(v).toFixed(2)}%`;
+                const pp = (v) => `${v < 0 ? M : v > 0 ? "+" : ""}${Math.abs(v).toFixed(2)} pp`;
+                const num = (t) => Number(String(t).replace(/\u2212/g, "-").replace(/[%+]|\s*pp$/g, ""));
+                dl.rows.forEach((r, i) => {
+                  const fx = want[i];
+                  if (!fx) return;
+                  if (r.day !== fx.day) dlFail(`row ${i} is ${r.day} (the route's ${i}th newest is ${fx.day})`);
+                  const vs = fx.account_vs_spy.day;
+                  if (r.a !== pct(vs.account_pct) || r.s !== pct(vs.spy_pct) || r.g !== pp(vs.gap_pp)) dlFail(`${r.day} reads ${r.a} / ${r.s} / ${r.g} (the line: ${pct(vs.account_pct)} / ${pct(vs.spy_pct)} / ${pp(vs.gap_pp)})`);
+                  if (Math.abs(num(r.a) - num(r.s) - num(r.g)) > 0.011) dlFail(`${r.day}: ${r.a} − ${r.s} is not ${r.g}`);
+                  if (r.f !== `${fx.floor.exposure_x.toFixed(2)}×${fx.floor.target_x !== null ? ` → ${fx.floor.target_x.toFixed(2)}×` : ""}`) dlFail(`${r.day}: the floor reads "${r.f}"`);
+                  if (fx.options.total === null ? !/^n\/a fills/.test(r.o) : !/^[−+]?\$[\d,]+ fills [−+]?\$[\d,]+ · direction [−+]?\$[\d,]+ \(\d+\/\d+ priced\)$/.test(r.o)) dlFail(`${r.day}: the options cell reads "${r.o}"`);
+                  if (r.b !== String(fx.opening_window.total)) dlFail(`${r.day}: the 09:30 holds read "${r.b}" (the line: ${fx.opening_window.total})`);
+                  if (r.partial !== (fx.missing.length > 0)) dlFail(`${r.day}: the partial chip is ${r.partial ? "on" : "off"} for ${fx.missing.length} missing input(s)`);
+                  if (r.cut.length) dlFail(`${r.day}: a cell is cut short (${r.cut.join(", ")})`);
+                  if (r.twoLines !== (vp.w < 640)) dlFail(`${r.day}: the row is on ${r.twoLines ? "two lines" : "one line"} at ${vp.w}px (the phone folds it, nothing else does)`);
+                });
+                if (!/^newest [A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} · written \d\d:\d\d ET, \d+[smhd] ago/.test(dl.hd)) dlFail(`the header does not say which line is newest and how old it is — "${dl.hd}"`);
+                if (!/Today's line is written after the close, from \d\d:\d\d ET/.test(dl.hd) || dl.today !== "ok") dlFail(`the header does not say where today's line stands — "${dl.hd}"`);
+                if (!/Account = equity when written \(after-hours marks can move it\)/.test(dl.text) || !/\(approximate\)/.test(dl.text) || !/direction = the rest \(an estimate\)/.test(dl.text)) dlFail("the card does not label what is an estimate");
+                if (name === "bot") {
+                  if (dl.notes.length) dlFail(`the newest line is complete, yet the card notes: ${dl.notes.join(" | ")}`);
+                  if (!dl.rows.some((r) => r.partial)) dlFail("the partial line carries no chip");
+                } else if (!dl.notes.some((t) => /options total n\/a — no previous line within 7 days/.test(t))) dlFail(`the newest line's missing option total is not spelled out — ${JSON.stringify(dl.notes)}`);
+              }
+            }
             await page.evaluate(() => document.querySelector(".vt-bot-stack")?.scrollTo(0, 0));
           } catch (e) {
             ovFail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 400)}`);
@@ -4028,7 +4146,7 @@ async function main() {
               await page.waitForTimeout(500);
               const ckIds = await page.$$eval("section.vt-bot-panel[data-panel]", (els) => els.map((e) => e.getAttribute("data-panel")));
               for (const id of ["stages", "issues", "watch", "model", "chart", "book", "orders", "timeline"]) if (!ckIds.includes(id)) ovFail(`the cockpit lacks its ${id} panel`);
-              if (ckIds.some((id) => id === "perf" || id === "why" || id === "picks")) ovFail(`the cockpit shows an overview panel (${ckIds.join(",")})`);
+              if (ckIds.some((id) => id === "perf" || id === "why" || id === "picks" || id === "daily")) ovFail(`the cockpit shows an overview panel (${ckIds.join(",")})`);
               const pressed = await page.evaluate(() => document.querySelector('.vt-bot-modebar button[data-view="cockpit"]')?.getAttribute("aria-pressed"));
               if (pressed !== "true") ovFail("the Cockpit control does not read pressed in the cockpit");
               const saved = await page.evaluate(() => { try { return localStorage.getItem("vt-bot-mode"); } catch { return "storage unavailable"; } });
@@ -4752,7 +4870,7 @@ async function main() {
             }
             // viewport-only shots (a clip inside the viewport, or the viewport itself): the page is a fixed layer with its
             // own scroller, so an element shot taller than the viewport would resize the viewport and draw the shell over it
-            for (const id of ["perf", "why", "picks"]) {
+            for (const id of ["perf", "why", "picks", "daily"]) {
               const el = page.locator(`section.vt-bot-panel[data-panel="${id}"]`).first();
               if (!(await el.count())) continue;
               await el.evaluate((e) => e.scrollIntoView({ block: "start" }));

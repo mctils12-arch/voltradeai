@@ -221,6 +221,8 @@ export interface BotData {
   flows: UseQueryResult<unknown>;
   tax: UseQueryResult<unknown>;
   signals: UseQueryResult<unknown>;
+  /** /api/bot/daily-line ([PRODUCT] 2026-11-06): the daily lines as the job wrote them, parsed by dailyLineView.ts */
+  dailyLine: UseQueryResult<unknown>;
 }
 /** the attribution windows the Why panel offers (days) */
 export const ATTRIBUTION_WINDOWS = [7, 30, 90] as const;
@@ -255,7 +257,9 @@ export function useBotData(opts: { overview?: boolean; attributionDays?: number 
   const tax = useQuery<unknown>({ queryKey: ["/api/bot/tax"], queryFn: () => getJson<unknown>("/api/bot/tax"), refetchInterval: 5 * 60_000, enabled: overview });
   const signals = useQuery<unknown>({ queryKey: ["/api/bot/signals"], queryFn: () => getJson<unknown>("/api/bot/signals"), refetchInterval: 10 * 60_000, enabled: overview });
   const regime = useQuery<unknown>({ queryKey: ["/api/bot/regime"], queryFn: () => getJson<unknown>("/api/bot/regime"), refetchInterval: 10 * 60_000, enabled: overview });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime };
+  // one line a trading day, written after the close: every 10 min is plenty (the card says how old the newest is)
+  const dailyLine = useQuery<unknown>({ queryKey: ["/api/bot/daily-line"], queryFn: () => getJson<unknown>("/api/bot/daily-line?days=10"), refetchInterval: 10 * 60_000, enabled: overview });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime, dailyLine };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {
