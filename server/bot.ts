@@ -444,33 +444,21 @@ const longPythonJobsInFlight = new Set<string>();
 trackSet("bot.longPythonJobsInFlight", longPythonJobsInFlight); // memory audit 2026-11-03 A0
 
 // A6 (2026-11-03, memory audit; server/pyJobQueue.ts): at most ONE heavy Python
-// subprocess at a time. startMlRetrain (around the long lane below) and each
-// overnight research phase take this queue, so the 04:00 / hourly retrain can
-// no longer start while a research scan, backtest or analysis is still running
-// — two 250-600 MB interpreters beside the daemon in one cgroup. Tier 1 and the
-// Tier-2 scans NEVER take it: they must not wait behind research. Every wait is
-// audited (PY-JOB-QUEUED <name> waited_ms=<n>); a holder still there past its
-// own kill budget + grace is force-released (PY-JOB-STALE).
+// subprocess at a time. startMlRetrain (around the long lane below) and the
+// hourly forecast jobs take this queue, so the 04:00 / hourly retrain can no
+// longer start beside another heavy job — two 250-600 MB interpreters beside
+// the daemon in one cgroup. Tier 1 and the Tier-2 scans NEVER take it: they
+// must not wait behind research. Every wait is audited (PY-JOB-QUEUED <name>
+// waited_ms=<n>); a holder still there past its own kill budget + grace is
+// force-released (PY-JOB-STALE). (The overnight research phases that also took
+// it were removed 2026-11-06: the engine was unreachable — rule call "overnight
+// research window off", decided keep-off.)
 // VOLTRADE_SERIALIZE_PY_JOBS=0 runs every job directly, exactly as before.
 const heavyPyJobs = new PyJobQueue(serializePyJobs(), {
   onWait: (name, waitedMs, behind) => audit("PY-JOB-QUEUED", `${name} waited_ms=${waitedMs} behind=${behind}`),
   onStaleRelease: (name, heldMs, budgetMs) =>
     audit("PY-JOB-STALE", `${name} held the heavy-job queue ${Math.round(heldMs / 1000)}s, past its ${Math.round(budgetMs / 1000)}s budget — released so the next job can run`),
 });
-/**
- * An overnight research phase waits at most this long for the queue: a 20 min
- * retrain would otherwise hold the Tier-2 handler (which awaits the research)
- * past the 04:00 ET start of the scan window. Longer = that hour's phase is
- * skipped and audited (PY-JOB-SKIPPED); the retrain itself never gives up.
- */
-const OVERNIGHT_PHASE_MAX_WAIT_MS = 5 * 60_000;
-/**
- * Stale-release budget for one research phase: the longest (20:00-22:00 ET,
- * bot_engine full + up to 5 extreme-mover analyses) is ~7 min of kill timers
- * plus Python-mutex waits; 15 min is 2x that and inside overnight_research's
- * 30 min maxRunMs. Every subprocess inside a phase still has its own SIGKILL.
- */
-const OVERNIGHT_PHASE_BUDGET_MS = 15 * 60_000;
 
 async function runLongPythonJob(
   key: string, cmd: string, timeoutMs: number,
@@ -5869,7 +5857,7 @@ print(json.dumps(result[:20]))
     }
     morningQueue.length = 0;
     morningQueue.push(...freshQueue);
-    audit("MORNING", `Executing ${morningQueue.length} queued trades from overnight research...`);
+    audit("MORNING", `Executing ${morningQueue.length} queued trades from the pre-market scans...`);
 
     // Sort by score descending — best picks first
     morningQueue.sort((a, b) => b.score - a.score);
@@ -6011,7 +5999,7 @@ print(json.dumps(result[:20]))
         });
         registerScaleIn(mqScaleIn.plan, order?.id || null, mqScaleIn.reason);
 
-        audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${mqOrderQty} ${trade.ticker} @ market | Score: ${trade.score} | Queued from overnight research`);
+        audit("MORNING-TRADE", `MARKET ${(trade.side || "BUY").toUpperCase()} ${mqOrderQty} ${trade.ticker} @ market | Score: ${trade.score} | Queued by a pre-market scan`);
         notify("trade", `Morning queue: ${(trade.side || "BUY").toUpperCase()} ${mqOrderQty} ${trade.ticker} (score: ${trade.score})`);
 
         // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation, morning-
@@ -6069,7 +6057,6 @@ print(json.dumps(result[:20]))
 
   // ── Three-Tier Engine ────────────────────────────────────────────────────
 
-  let autoRunning = false; // used by runOvernightResearch
   let lastScanResult: any = null;
   let _shadowBackfilledToday = false;
   let _lookupLedgerFilledToday = false;
@@ -7658,16 +7645,14 @@ else:
         audit("TIER2-ERROR", `Scan failed (code=${code} signal=${signal} ${memStr})${classification}: ${detail}`);
       }
     }
-
-    // Overnight/pre-market research: runs during 8pm-4am ET window
-    const _etHourNow = getETHour();
-    if (!isMarketOpen && (_etHourNow >= 20 || _etHourNow < 4)) {
-      try {
-        await runOvernightResearch(_etHourNow);
-      } catch (researchErr: any) {
-        audit("RESEARCH-ERROR", `Overnight research failed: ${String(researchErr?.message || researchErr).slice(0, 200)}`);
-      }
-    }
+    // REMOVED 2026-11-06 (rule call "overnight research window off", decided
+    // keep-off): the 20:00-04:00 ET overnight research engine called from here
+    // was unreachable from the scheduler (scheduleTier2 only calls this inside
+    // 04:00-20:00 ET or while the market is open; only a manual owner POST to
+    // /api/bot/run-now at night, which no page sends, could reach it), so its
+    // heartbeat read "missing" every night.
+    // Its one trading output — next-day extreme-mover setups queued at fixed
+    // scores 72/68/65 — was never validated. See research/experiments.md.
   }
 
   // ── CASH RESERVE 2026-11-06 (position_mgmt.py, server/positionMgmt.ts) ────
@@ -8765,224 +8750,6 @@ print(json.dumps(run_update()))
     } catch (e: unknown) {
       audit("SCALE-IN-ERROR", `scale-in state not saved: ${e instanceof Error ? e.message : String(e)}`.slice(0, 220));
     }
-  }
-
-  // ── Overnight Research Engine (8pm-4am ET) ───────────────────────────────
-  let lastResearchRun = 0;
-
-  async function runOvernightResearch(etHour: number) {
-    // Only run once per hour to save resources
-    if (Date.now() - lastResearchRun < 55 * 60 * 1000) return;
-    lastResearchRun = Date.now();
-    autoRunning = true;
-    beat("overnight_research", "start");
-
-    try {
-      // A6 (2026-11-03): each phase below is one heavy-job-queue entry
-      // (heavyPyJobs), so it never runs beside the ML retrain; a phase that
-      // cannot start within OVERNIGHT_PHASE_MAX_WAIT_MS is skipped this hour.
-      const researchPhase = async (name: string, phase: () => Promise<void>): Promise<void> => {
-        try {
-          await heavyPyJobs.run(name, OVERNIGHT_PHASE_BUDGET_MS, phase, { maxWaitMs: OVERNIGHT_PHASE_MAX_WAIT_MS });
-        } catch (e: unknown) {
-          if (e instanceof PyJobWaitTimeout) {
-            audit("PY-JOB-SKIPPED", `${name} skipped this hour: waited ${Math.round(e.waitedMs / 1000)}s behind ${e.behind} (max ${Math.round(OVERNIGHT_PHASE_MAX_WAIT_MS / 1000)}s)`);
-            return;
-          }
-          throw e;
-        }
-      };
-
-      // 8pm-10pm: Scan market, find tomorrow's opportunities + analyze today's extreme movers
-      if (etHour >= 20 && etHour < 22) await researchPhase("overnight-evening-scan", async () => {
-        audit("RESEARCH", "Evening scan — analyzing today's movers for tomorrow's plays");
-        const enginePath3 = path.resolve("bot_engine.py");
-        const { stdout: scanOut3 } = await execPythonSerialized(`python3 -W ignore "${enginePath3}" full 2>/dev/null`, { timeout: 300000 });
-        const jsonStart3 = scanOut3.indexOf('{');
-        if (jsonStart3 !== -1) {
-          lastScanResult = JSON.parse(scanOut3.slice(jsonStart3));
-          audit("RESEARCH", `Scanned ${lastScanResult.scanned || 0} stocks — top picks identified for morning`);
-        }
-
-        // Process extreme movers from today — analyze for tomorrow's entry
-        try {
-          const { stdout: emOut } = await execPythonSerialized(`python3 -c "
-import json, os, time
-try:
-    from storage_config import DATA_DIR
-except ImportError:
-    DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
-
-em_path = os.path.join(DATA_DIR, 'extreme_movers_today.json')
-if not os.path.exists(em_path):
-    print(json.dumps({'movers': [], 'analyzed': 0}))
-else:
-    with open(em_path) as f: movers = json.load(f)
-    # Only process from today
-    today = time.strftime('%Y-%m-%d')
-    today_movers = [m for m in movers if m.get('timestamp', '').startswith(today)]
-    print(json.dumps({'movers': today_movers, 'analyzed': len(today_movers)}))
-"`, { timeout: 10000 });
-          const emResult = JSON.parse(emOut.trim());
-          const todayMovers = emResult.movers || [];
-
-          if (todayMovers.length > 0) {
-            audit("RESEARCH", `${todayMovers.length} extreme movers from today — running overnight deep analysis for tomorrow's setups`);
-
-            for (const mover of todayMovers.slice(0, 5)) { // Max 5 extreme movers analyzed
-              try {
-                // Deep analyze each extreme mover for tomorrow's setup
-                const { stdout: deepOut } = await execPythonSerialized(
-                  `python3 -W ignore -c "
-from analyze import quick_scan
-import json
-result = quick_scan('${mover.ticker}')
-print(json.dumps(result))
-" 2>/dev/null`, { timeout: 60000 }
-                );
-                const analysis = JSON.parse(deepOut.trim());
-
-                const vrp = analysis.vrp || 0;
-                const changeToday = mover.change_pct || 0;
-
-                // Determine tomorrow's setup
-                let tomorrowSetup = '';
-                let tomorrowDirection = '';
-                let tomorrowScore = 0;
-
-                if (vrp > 8) {
-                  // IV still elevated → sell premium (put credit spread or cash secured put)
-                  tomorrowSetup = `High VRP ${vrp.toFixed(1)}% — sell puts tomorrow if IV stays elevated`;
-                  tomorrowDirection = 'SELL OPTIONS';
-                  tomorrowScore = 72;
-                } else if (vrp < -3) {
-                  // IV crushed after spike → buy puts cheaply for mean reversion
-                  tomorrowSetup = `IV crushed — cheap puts for mean reversion play`;
-                  tomorrowDirection = 'BUY PUT';
-                  tomorrowScore = 68;
-                } else if (changeToday > 100 && (analysis.recommendation === 'BUY' || analysis.momentum_score > 70)) {
-                  // Rare continuation setup
-                  tomorrowSetup = `Momentum continuation — ran ${changeToday.toFixed(0)}%, still has strength`;
-                  tomorrowDirection = 'BUY';
-                  tomorrowScore = 65;
-                } else {
-                  // No clear setup tomorrow — skip
-                  audit("RESEARCH", `${mover.ticker}: no clear tomorrow setup (VRP ${vrp.toFixed(1)}%, change ${changeToday.toFixed(0)}%) — skipping`);
-                  continue;
-                }
-
-                audit("RESEARCH", `${mover.ticker}: ${tomorrowSetup} → queuing for tomorrow`);
-
-                // Queue for tomorrow morning
-                const tomorrowTrade = {
-                  ticker: mover.ticker,
-                  price: mover.price,
-                  score: tomorrowScore,
-                  side: tomorrowDirection === 'BUY' ? 'buy' : 'sell',
-                  action: tomorrowDirection,
-                  action_label: tomorrowDirection,
-                  shares: Math.max(1, Math.floor(5000 / (mover.price || 10))),
-                  position_value: 5000,
-                  reasons: [tomorrowSetup],
-                  setup_reason: `Extreme mover (+${changeToday.toFixed(0)}% yesterday) — ${tomorrowSetup}`,
-                  vrp: vrp,
-                  use_options: tomorrowDirection !== 'BUY',
-                  options_strategy: tomorrowDirection === 'SELL OPTIONS' ? 'sell_cash_secured_put' : 'buy_put',
-                  queuedAt: new Date().toISOString(),
-                };
-
-                if (!morningQueue.some((q: any) => q.ticker === mover.ticker)) {
-                  morningQueue.push(tomorrowTrade as any);
-                  audit("QUEUE", `${mover.ticker} queued for tomorrow: ${tomorrowSetup}`);
-                }
-
-              } catch (analyzeErr: any) {
-                console.error(`[overnight-extreme-mover] ${mover.ticker}:`, analyzeErr?.message);
-              }
-            }
-
-            // Clear extreme movers file after processing
-            await execPythonSerialized(`python3 -c "
-import os, json
-try:
-    from storage_config import DATA_DIR
-except ImportError:
-    DATA_DIR = '/data/voltrade' if os.path.isdir('/data') else '/tmp'
-em_path = os.path.join(DATA_DIR, 'extreme_movers_today.json')
-if os.path.exists(em_path): os.remove(em_path)
-print('cleared')
-"`, { timeout: 5000 }).catch(() => {});
-          } else {
-            audit("RESEARCH", "No extreme movers from today to analyze");
-          }
-        } catch (emErr: any) {
-          console.error("[overnight-extreme-movers]", emErr?.message);
-        }
-      });
-
-      // 10pm-12am: Run backtests on current strategies to validate they still work
-      if (etHour >= 22 || etHour < 0) await researchPhase("overnight-backtest", async () => {
-        audit("RESEARCH", "Running backtest validation on active strategies...");
-        const btPath = path.resolve("backtest.py");
-        try {
-          const { stdout: btOut } = await execPythonSerialized(
-            `python3 "${btPath}" SPY all 2`, { timeout: 120000 }
-          );
-          const btResult = JSON.parse(btOut.trim());
-          const results = btResult.results || [];
-          for (const r of results) {
-            const status = (r.sharpe || 0) >= 1.0 ? "PASSING" : (r.sharpe || 0) >= 0.5 ? "MARGINAL" : "FAILING";
-            audit("RESEARCH", `Backtest ${r.strategy}: Sharpe ${r.sharpe}, Return ${r.totalReturn}%, Drawdown ${r.maxDrawdown}% — ${status}`);
-          }
-        } catch (err: any) { console.error("[bot]", err?.message || err); }
-      });
-
-      // 12am-2am: Deep analyze earnings reporters for tomorrow
-      if (etHour >= 0 && etHour < 2) await researchPhase("overnight-earnings", async () => {
-        audit("RESEARCH", "Analyzing upcoming earnings and overnight news...");
-        const earningsTickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"];
-        for (const t of earningsTickers) {
-          try {
-            const analysis = await analyzeTickerJson(t);
-            const ei = analysis?.earnings_intel;
-            if (ei && ei.days_to_earnings >= 0 && ei.days_to_earnings <= 5) {
-              audit("RESEARCH", `EARNINGS ALERT: ${t} reports in ${ei.days_to_earnings} days (${ei.timing}). Beat rate: ${ei.beat_pct}%. IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
-              notify("earnings", `${t} earnings in ${ei.days_to_earnings} days — IV crush opportunity: ${ei.options_edge > 0 ? 'YES' : 'NO'}`);
-            }
-          } catch (err: any) { console.error("[bot]", err?.message || err); }
-        }
-      });
-
-      // 2am-4am: Prepare pre-market report
-      if (etHour >= 2 && etHour < 4) await researchPhase("overnight-premarket-scan", async () => {
-        audit("RESEARCH", "Compiling pre-market report...");
-        // Re-scan to get freshest data
-        const enginePath4 = path.resolve("bot_engine.py");
-        try {
-          const { stdout: scanOut } = await execPythonSerialized(`python3 "${enginePath4}" scan`, { timeout: 180000 });
-          lastScanResult = JSON.parse(scanOut.trim());
-          const topTrades = lastScanResult.new_trades || [];
-          if (topTrades.length > 0) {
-            audit("RESEARCH", `PRE-MARKET REPORT: ${topTrades.length} trade opportunities ready. Top pick: ${topTrades[0].ticker} (score ${topTrades[0].score})`);
-            notify("research", `Pre-market report ready: ${topTrades.length} opportunities. Top: ${topTrades[0].ticker} @ $${topTrades[0].price}`);
-          } else {
-            audit("RESEARCH", "PRE-MARKET REPORT: No high-conviction trades found. Bot will monitor during pre-market.");
-          }
-        } catch (err: any) { console.error("[bot]", err?.message || err); }
-      });
-
-      // The 4am daily branch (resets, retrain, backup) moved to
-      // runDailyMaintenance() below: this caller only runs when ET < 4
-      // or ET >= 20, so the old hour-4 check here could never be true
-      // (trading-engine audit D2; server/dailyMaintenance.ts).
-
-    } catch (e: any) {
-      audit("RESEARCH-ERROR", `Overnight research failed: ${e.message}`);
-      noteJobError("overnight_research", e?.message || e);
-    }
-
-    autoRunning = false;
-    beat("overnight_research", "finish", "ok");
   }
 
   // ── Daily maintenance: the once-a-day "4am branch" ─────────────────────────
@@ -11455,7 +11222,7 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
     audit("EXECUTION", `Smart Execution: Regular hours → market orders for instant fill`);
     audit("EXECUTION", `Smart Execution: Stale order sweeper — cancel unfilled limits after ${STALE_ORDER_MINUTES} min`);
     audit("EXECUTION", `Smart Execution: Score-based replacement — better picks replace weaker unfilled orders`);
-    audit("EXECUTION", `Smart Execution: Morning queue — overnight research executed at 9:30am market open`);
+    audit("EXECUTION", `Smart Execution: Morning queue — pre-market scan entries executed at the 9:30am market open`);
     audit("SCHEDULE", `4am-9:30am ET: Pre-market research → queue for market open`);
     audit("SCHEDULE", `9:30am-4pm ET: Full trading (market orders + options)`);
     audit("SCHEDULE", `4pm-8pm ET: After-hours research → queue for next open`);

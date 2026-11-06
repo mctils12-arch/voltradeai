@@ -230,7 +230,8 @@ test("VOLTRADE_SERIALIZE_PY_JOBS=0: run() calls the job directly — jobs overla
 test("bot.ts: one heavy-job queue, built from the flag, auditing PY-JOB-QUEUED <name> waited_ms=<n>", () => {
   assert.ok(/import \{[^}]*PyJobQueue[^}]*\} from "\.\/pyJobQueue";/.test(bot));
   assert.equal(bot.split("new PyJobQueue(").length - 1, 1, "exactly one queue");
-  const decl = slice("const heavyPyJobs = new PyJobQueue(serializePyJobs(), {", "const OVERNIGHT_PHASE_MAX_WAIT_MS");
+  // end marker moved 2026-11-06: the OVERNIGHT_PHASE_* constants that followed the declaration left with the overnight engine
+  const decl = slice("const heavyPyJobs = new PyJobQueue(serializePyJobs(), {", "async function runLongPythonJob(");
   assert.ok(decl.includes('audit("PY-JOB-QUEUED", `${name} waited_ms=${waitedMs} behind=${behind}`)'));
   assert.ok(decl.includes('audit("PY-JOB-STALE"'));
 });
@@ -251,25 +252,33 @@ test("bot.ts: the ML retrain takes the queue around the unchanged long lane, sta
   assert.ok(retrain.includes("queued ${Math.round(waitedMs / 1000)}s"), "the completion line carries the queue wait");
 });
 
-test("bot.ts: every overnight research phase is one queue entry with a bounded wait; a skipped phase is audited", () => {
-  const research = slice("async function runOvernightResearch(etHour: number) {", "// ── Daily maintenance: the once-a-day");
+// 2026-11-06: this test pinned how each overnight research phase took the
+// queue. The engine was removed (unreachable: tier2Intelligence only ran it
+// at 20:00-04:00 ET, but scheduleTier2 only calls tier2Intelligence inside
+// 04:00-20:00 ET or while the market is open — rule call "overnight research
+// window off", decided keep-off). It now pins that nothing of it is left and
+// that the queue's remaining entries are the retrain and the forecast jobs,
+// each with its own bounded wait (the property the old test guarded).
+test("bot.ts: the unreachable overnight research engine is gone; the queue holds only the retrain and the forecast jobs", () => {
+  assert.ok(!bot.includes("async function runOvernightResearch(") && !bot.includes("runOvernightResearch("), "no overnight engine and no caller (only history comments may name it)");
+  assert.ok(!/OVERNIGHT_PHASE_/.test(bot), "no overnight phase budget left behind");
   for (const phase of ["overnight-evening-scan", "overnight-backtest", "overnight-earnings", "overnight-premarket-scan"]) {
-    assert.equal(research.split(`await researchPhase("${phase}", async () => {`).length - 1, 1, `${phase} is wrapped exactly once`);
+    assert.ok(!bot.includes(`"${phase}"`), `${phase} is gone`);
   }
-  assert.ok(research.includes("await heavyPyJobs.run(name, OVERNIGHT_PHASE_BUDGET_MS, phase, { maxWaitMs: OVERNIGHT_PHASE_MAX_WAIT_MS })"));
-  assert.ok(research.includes("if (e instanceof PyJobWaitTimeout) {"));
-  assert.ok(research.includes('audit("PY-JOB-SKIPPED"'));
-  // the phases' own subprocess calls still run under execPythonSerialized's SIGKILL inside the queue
-  assert.ok(research.includes('execPythonSerialized(`python3 -W ignore "${enginePath3}" full 2>/dev/null`, { timeout: 300000 })'));
-  assert.ok(research.includes('execPythonSerialized(`python3 "${enginePath4}" scan`, { timeout: 180000 })'));
-  assert.ok(/const OVERNIGHT_PHASE_MAX_WAIT_MS = 5 \* 60_000;/.test(bot));
-  assert.ok(/const OVERNIGHT_PHASE_BUDGET_MS = 15 \* 60_000;/.test(bot), "inside overnight_research's 30 min maxRunMs");
+  assert.ok(!bot.includes("extreme_movers_today.json"), "nothing reads the overnight watchlist file any more");
+  const runs = [...bot.matchAll(/heavyPyJobs\.run\("([a-z0-9-]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual(runs, ["forecast-generate", "forecast-score", "ml-retrain"]);
+  assert.equal(bot.split("heavyPyJobs.run(").length - 1, 3, "no other (name-variable) queue entry");
+  // the forecast entries keep the bounded wait + audited skip the overnight phases had
+  assert.equal(bot.split("if (!(e instanceof PyJobWaitTimeout)) throw e;").length - 1, 2);
+  assert.equal(bot.split('audit("PY-JOB-SKIPPED"').length - 1, 2);
 });
 
 test("bot.ts: Tier 1 and the Tier-2 scan never enter the heavy-job queue", () => {
   const protectiveFn = slice("async function tier1ProtectiveSync()", "async function tier1HaltedExits(");
   const tier1Reflex = slice("async function tier1Reflex() {", "// Once per day, backfill shadow portfolio outcomes.");
-  const tier2Scan = slice('require("path").resolve(process.cwd(), "bot_engine.py")', "// Overnight/pre-market research");
+  // (end marker moved 2026-11-06: the overnight call that followed the scan's try/catch was removed; its removal note sits there now)
+  const tier2Scan = slice('require("path").resolve(process.cwd(), "bot_engine.py")', '// REMOVED 2026-11-06 (rule call "overnight research window off"');
   for (const [label, text] of [["tier1ProtectiveSync", protectiveFn], ["tier1Reflex", tier1Reflex], ["tier2 scan block", tier2Scan]] as const) {
     assert.ok(!text.includes("heavyPyJobs"), `${label} must not take the heavy-job queue`);
     assert.ok(!text.includes("researchPhase("), `${label} must not be a research phase`);

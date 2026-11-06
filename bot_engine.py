@@ -4192,28 +4192,17 @@ def _scan_market_inner():
             _note_gate(ticker, "rejected_blocked_ticker", "BLOCKED_TICKERS list")
             continue  # Skip — 3-year backtest shows these hurt more than they help
 
-        # Extreme mover check: stock already up 50%+ today
-        # Don't buy OR short the spike — write to watchlist for overnight analysis
-        # Tomorrow's setup (continuation or mean reversion) is a much cleaner entry
+        # Extreme mover check: stock already up 50%+ today — neither bought nor
+        # shorted. 2026-11-06 (rule call "overnight research window off",
+        # decided keep-off): the overnight engine that read the
+        # extreme_movers_today.json watchlist written here was unreachable and
+        # is removed, so the write (and its two silent excepts) went with it.
+        # The gate and its shadow relabel stay: rejected_extreme_mover is
+        # measured at +5/+10/+20d like every other gate.
         if change_pct_val > 50:
-            _em_path = os.path.join(DATA_DIR, 'extreme_movers_today.json')
-            try:
-                try:
-                    with open(_em_path) as _f: _em = json.load(_f)
-                except Exception: _em = []
-                # Add if not already in list
-                if not any(e.get('ticker') == ticker for e in _em):
-                    _em.append({
-                        'ticker': ticker, 'price': stock.get('price', 0),
-                        'change_pct': change_pct_val, 'volume': stock.get('volume', 0),
-                        'score': final_score, 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
-                        'high': stock.get('high', 0), 'setup': 'extreme_mover',
-                    })
-                    with open(_em_path, 'w') as _f: json.dump(_em, _f)
-            except Exception: pass
             _note_gate(ticker, "rejected_extreme_mover",
-                       f"extreme mover {change_pct_val:+.1f}% today — deferred to overnight watchlist")
-            continue  # Skip — will be analyzed tonight for tomorrow
+                       f"extreme mover {change_pct_val:+.1f}% today — not traded")
+            continue
 
         # Stock shorting disabled (backtest: -$419K). Bearish plays use options scanner.
         # [REPAIR] 2026-10-27 (N3): a bearish stock signal (the RSI-overbought
