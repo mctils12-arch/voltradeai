@@ -114667,3 +114667,150 @@ TESTS.
 - Re-run on the committed HEAD: 701 Python tests in 50 files (regime, tiered, floor, shadow, kill-switch, CSP, options and ratchet suites; 1 pre-existing skip), server/regimeReport.test.ts (9) and server/regimeCounterfactual.test.ts (3), and all 92 server test files that read bot.ts. All pass. counter_ratchet OK; tsc at 6 errors (baseline).
 
 STARVED: no.
+
+## 2026-11-06 [RESEARCH] — T-BOT (calendar_effects.py, flows_model.py, scripts/flows_validation.py, floor_vol_managed.py, bot_engine.py, system_config.py, voltrade_daemon.py, server/flowsReport.ts, server/floorAudit.ts, server/bot.ts, server/diag.ts) — Institutional flow model: calendar effects, rebalancing and tax-loss flows, sector rotation, as a daily ESTIMATE the floor and the satellite sizer read
+VERSION: v1.0.1307 (shipped 2026-11-06 by the parent session; main was v1.0.1306)
+
+WHY. Refocus spec 2026-11-05 §3, pipeline steps 2-4 (human): calendar effects,
+a NEW institutional flow model (pension/balanced-fund rebalancing from
+equity-vs-bond drift, mutual-fund tax-loss selling, index reconstitutions,
+13F holdings) and sector rotation, "used to cut exposure ahead of forced
+selling and rotate toward where flows are heading". Nothing in the repo
+modelled any of it.
+
+RESEARCH READ (only these; two abstracts only, said so):
+- Harvey, Mazzoleni & Melone, "The Unintended Consequences of Rebalancing",
+  NBER w33554 (2025, rev. 2026-01): abstract page plus the authors' EDHEC
+  slides of 2026-02-10 (full text). A 60/40 S&P-futures / 10y-note portfolio;
+  the calendar signal is the pre-reset distance of the equity weight from 60%
+  (reset at each month's last business day); in the last week of the month it
+  predicts the next day's S&P return (coefficient -0.27, t -3.5, daily
+  1997-09..2023-03). The threshold signal (reset when the distance reaches
+  delta, averaged over delta 0-2%) predicts the next day too (-0.32, t -3.2).
+  Pressure resolves within about two weeks; their cost estimate is 8 bp/yr.
+- Etula, Rinne, Suominen & Vaittinen (2020), "Dash for Cash", RFS 33(1):75-111
+  (open-access full text): with T+3 settlement, institutions needing cash on
+  the last trading day T sell by the close of T-4; CRSP returns were low
+  T-8..T-4 and high T-3..T+3 (1995-07..2013-12).
+- Gibson, Safieddine & Titman (2000), JFQA 35(3):369-386, ABSTRACT ONLY:
+  after the 1986 Tax Reform Act funds sold losers before October 31; a strong
+  November effect in the first year only, then sales were spread out.
+- Moskowitz & Grinblatt (1999), JF 54(4):1249-1290, ABSTRACT ONLY: industry
+  momentum is strong and explains much of stock momentum.
+- Index dates: FTSE Russell's 2026 schedules (June 26; December 11, the first
+  of the semi-annual reconstitutions), the Nasdaq-100 methodology (after the
+  close of the third Friday of December), S&P 500 quarterly rebalances (after
+  the close of the third Friday of Mar/Jun/Sep/Dec).
+
+VALIDATION (scripts/flows_validation.py, pre-registered in its docstring
+before any run; Yahoo adjusted daily closes, SPY 1993-, IEF 2002-, VFITX
+1991-, sector SPDRs 1998-, SMH 2000-; out of sample = 2014 on; IEF figures
+first, VFITX in brackets):
+- T1a calendar rebalancing, 5-session window T-3..T+1, monthly: corr -0.30
+  t -1.7 in sample [-0.23, t -2.3]; -0.13 t -1.0 out of sample [-0.11,
+  t -0.9]; +0.10 t +0.5 since the paper's data end 2023-04 (n 43). Signal sd
+  2.1 points.
+- T1b same signal daily (their specification): slope t -1.8 [-2.7] in
+  sample, -1.3 [-1.3] out of sample, 0.0 since 2023-04.
+- T2 threshold signal, next day, Newey-West: t -3.0 [-3.7] in sample, -2.6
+  [-2.5] out of sample, -1.0 since 2023-04. The strongest driver. A post-hoc
+  horizon check: next-day only (2-10 sessions mixed).
+- T3 month-end cash windows, settlement-adjusted (T+1 shift is our inference,
+  untested by the paper): -13.2 bp/day t -2.5 in the paper's period (it
+  replicates), -4.3 t -0.8 from 2014, +5.2 t +0.5 in the T+1 era (n 29).
+- T4 tax-loss, sector ETFs, losers vs the sector average: October +1.8% t +1.7
+  (n 18, the OPPOSITE of the prediction); November +1.1% t +1.2; December
+  1-23 -1.3% t -2.25 (right sign); turn of year +0.7% t +1.4 (right sign).
+- T5 sector rotation (6-month momentum z minus a crowding penalty): monthly
+  rank IC -0.016 t -0.5 to 2012, +0.023 t +0.7 from 2013; crowded sectors
+  (1-month z > 2) +0.5%/month next month (wrong sign, n 45); a tilted portfolio
+  vs equal weight +0.01%/yr. No edge.
+- T6 the combined equity estimate vs the next 5 sessions' SPY return
+  (non-overlapping): pre-registered weights corr +0.10 t 3.1 (from 2014 +0.12
+  t 2.9; since 2023-04 +0.02 t 0.3). Shipped weights (set after T1-T5, POST
+  HOC): +0.11 t 3.2 (from 2014 +0.12 t 3.1; since 2023-04 +0.04 t 0.5).
+  The floor hook on a 1x SPY position, cash at 0%, 1 bp per unit traded:
+  log growth 10.284 -> 10.279 %/yr, max drawdown -55.19% -> -55.07% (from
+  2014: 12.412 -> 12.396 %/yr, -33.72% -> -33.66%), cut on 27% of sessions,
+  turnover 0.4x/yr. About nothing either way.
+- Multiple testing: 6 families with several splits; read every single |t| < 3
+  as weak. The post-2023 sample shows almost nothing.
+- Bug the tests found in the tool: spearman() went through ols(), which
+  refuses n < 10, so months with 9 sector ETFs got NaN and were dropped. Fixed
+  (direct rank correlation); T5's verdict is unchanged.
+
+THE CHANGE. Ships ON (human directive: paper, don't gate) with small, one-
+switch effects, every effect logged.
+- calendar_effects.py (new, pure): sessions, holidays (market_calendar.py for
+  2026; standard NYSE rules, labelled estimated, for years it lacks — they
+  reproduce the official 2026 list exactly), month-end phases moved with the
+  settlement cycle, the rebalancing window (signal day in the last 5 sessions,
+  so T-3..T+1 are affected), S&P/Russell/Nasdaq-100 dates, tax and earnings
+  windows (earnings ESTIMATED from the calendar, not an earnings feed), and the
+  calendar list for the UI.
+- flows_model.py (new): the drivers above as equity pressure in [-1, 1] and
+  per-sector pressure (rotation + tax-loss + half the broad estimate), each
+  with value, weight and a plain-English reason, a confidence (the evidence-
+  weighted share of the drivers), labelled ESTIMATE. Weights from the
+  evidence: rebalancing 0.45, threshold 0.35, month-end 0.20; rotation 0.3
+  (crowding at a quarter), tax 0.3 with October/November at a quarter weight.
+  Index events are named with zero direction. 13F not used (server/edgar13f.ts
+  is at ladder gate 1: focused managers <= 250 holdings, no sector rollup, a
+  45-day lag).
+- refresh_daily(): bot.ts Tier 3 runs it hourly as a subprocess (mutex lane,
+  60 s); it recomputes only when a new session has completed (Alpaca's batched
+  bars end at UTC midnight, so the evening's session arrives ~20:00 ET), writes
+  DATA_DIR/voltrade_flows.json and appends voltrade_flows_history.jsonl (the
+  dataset to score every estimate later). Each new estimate is one FLOWS audit
+  row; a failure is FLOWS-ERROR and keeps the last good file.
+- Floor: floor_vol_managed.plan() takes exposure_multiplier, clamped to [0, 1]
+  (never raises the target, never adds leverage); flows_model.floor_multiplier
+  gives 1 - 0.10 x (selling pressure beyond a 0.10 deadband), so 0.90x..1.00x.
+  The floor result and voltrade_floor_vm_state.json carry the flows block and
+  rule_target_exposure; server/floorAudit.ts shows "target X (rule Y x flows
+  m)" and one "flows ESTIMATE:" reason row when the floor trades.
+- Satellites: after the sizer, shares x (1 + 0.10 x sector pressure), a raise
+  capped at position_sizing.ABSOLUTE_MAX_POSITION_PCT; logged on the trade
+  (`flows`), its sizing_reasoning and scalars (flows_sector). Semiconductor
+  names read SMH.
+- GET /api/bot/flows (owner) and diag probe "flows": {asOf, horizonDays,
+  equity:{pressure, direction, confidence, drivers:[{name, value, reason}]},
+  sectors:[...], calendar:[{date, event, effect}], notes: string[]} plus
+  label, computedAt, ageDays, stale, floor, sessions.
+- system_config.py: every FLOWS_* tunable (flows_model.DEFAULTS mirrors them,
+  pinned by a test). Switches: FLOWS_ENABLED, FLOWS_FLOOR_ENABLED,
+  FLOWS_SECTOR_SIZING_ENABLED.
+
+DOWNSTREAM (two steps).
+- Floor: E* x m lowers the SPY/SSO dollar targets. SSO falls first, because
+  it is held only above 1x, so leverage drops first. The 0.10 band means a cut
+  trades on its own only when it moves exposure more than 0.10 (a full 0.90x
+  cut at E* ~1.1); smaller cuts ride along with the volatility rule's own
+  trades. The freed capital stays cash, which leaves a little more room under
+  the invested cap (the tier engine's master cap counts the floor) for
+  satellites and options.
+- Satellites: the adjusted size feeds the volume-share cap, ETF substitution
+  and tonight's tax filter, which all run after it. Stops, targets and sector
+  counts are unchanged. Stock satellites rarely trade today (MAX_POSITIONS 0
+  outside BULL, negative Kelly for the stocks bucket), so this hook will
+  seldom act.
+- Tier 3: one more subprocess an hour. It reads one file on most calls and
+  makes one batched Alpaca bars request on the evening a session completes.
+  It has light imports and no daemon memory.
+
+ROLLBACK. FLOWS_ENABLED False (or one hook's switch). Trigger: the logged
+estimates show a negative correlation with the next 5 sessions' SPY return
+over 60+ estimates, or a floor cut is ever found to raise exposure (the tests
+forbid it). EXPLORATORY, kill date 2027-02-06.
+
+TESTS. New: test_calendar_effects.py (11), test_flows_model.py (26),
+test_flows_validation.py (3), server/flowsReport.test.ts (6),
+server/floorAudit.test.ts (+1, 7 total). test_floor_vol_managed.py and
+test_floor_kill_switch.py gained an autouse fixture that holds the estimate
+neutral, like their other mocked inputs; no assertion changed. Existing
+floor/daemon/scan/config suites pass. tsc 6 errors (baseline 6). The counter
+ratchet is OK; tests_run_in_ci and tests_gating_merge went 764 -> 768 and
+assertions 29147 -> 29397, with the pins not raised to avoid cross-branch
+conflicts.
+
+STARVED: no.
