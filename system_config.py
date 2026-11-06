@@ -160,6 +160,21 @@ BASE_CONFIG = {
     "OPTIONS_PROFIT_TAKING": {"enabled": True, "scale_out_gain": 1.00, "scale_out_fraction": 0.5,
                               "trail_arm_gain": 0.50, "trail_giveback": 0.35,
                               "peak_max_spread": 0.50, "scale_out_work_seconds": 600},
+    # FAIR VALUE BEFORE PAYING 2026-11-06 (human refocus spec §5: "estimate
+    # fair value before paying, do not overpay on IV"; option_fair_value.py).
+    # select_contract judges every entry before it is returned to its caller:
+    # fair vol = rv_short_weight x RV20 + (1 - rv_short_weight) x RV60 (the
+    # underlying's realized vol, an estimate, not a smile model). A bought leg
+    # whose IV is more than max_buy_premium over fair, or a sold leg whose IV
+    # is under min_sell_ratio x fair, is refused in "enforce" mode (logged only
+    # in "flag"; "off" skips the check). Judged legs: a single leg; a debit
+    # structure's bought legs; a credit structure's sold legs (wings and
+    # financing legs are not judged). No realized-vol history or no IV and no
+    # quote: allowed and logged "unpriced". Prior behaviour: no fair-value
+    # check (the limit was the mid walked 30% toward the natural side).
+    # Every verdict: one line in voltrade_options_fair_value_log.jsonl.
+    # Rollback: "mode": "flag" (record only) or "off".
+    "OPTIONS_FAIR_VALUE": {"mode": "enforce", "max_buy_premium": 0.25, "min_sell_ratio": 1.00, "rv_short_weight": 0.5},
 
     # ── PASSIVE SPY FLOOR (v1.0.29) ────────────────────────────────────
     # Problem: in calm bull years (2017, 2019, 2023) momentum signals don't work.

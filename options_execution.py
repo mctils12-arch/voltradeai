@@ -580,6 +580,16 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             result["surface_best_strategy"] = surface_data.get("best_strategy", "")
             result["surface_reasoning"] = surface_data.get("reasoning", "")
 
+        # FAIR VALUE BEFORE PAYING (2026-11-06, option_fair_value.py): the
+        # judged legs' implied vol against a realized-vol fair value; an entry
+        # paying too far over it (bought) or selling under it (sold) comes back
+        # with an `error` (system_config OPTIONS_FAIR_VALUE), every verdict
+        # logged. A failure of the check itself never blocks the entry.
+        try:
+            import option_fair_value
+            result = option_fair_value.apply(result, strategy, ticker, price, surface_data, liquid)
+        except Exception as _fv_err:
+            logger.warning(f"fair-value check failed for {ticker} ({strategy}); entry not judged: {_error_with_frame(_fv_err)}")
         return result
     
     except Exception as e:
