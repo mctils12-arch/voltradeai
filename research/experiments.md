@@ -114559,3 +114559,111 @@ REBASED 2026-11-06 onto the night's exit-path changes: #1644 (POS-KILL backstop 
 Tests: server/dailyLine.test.ts (20): the gate (DST, half day, holiday, restart claim), same-basis math, exposure, the slippage join incl. unattributed, the option total with an expiry, the store, wiring pins, and the real position-sync loop + the REAL backstop-ladder starter (limitLadder.runLadder) writing the ladder order's ledger row; an aged flat option is not time-exited. test_option_fill_ledger.py (24, +3 at the rebase: the first mid-first ladder order at the mid with its quote; a replace under its new id; a refused replace writes nothing): ledger rows from the real order functions with their POST bodies pinned, rotation, never-raises (an accepted mleg close never falls back), and the deferral count through manage_options_positions on a broker clock in the window.
 
 STARVED: no.
+
+## 2026-11-06 [RESEARCH] — T-BOT (regime_engine.py, tiered_strategy.py, system_config.py, bot_engine.py, server/regimeReport.ts, server/bot.ts, scripts/regime_budget_study.py) — Regime risk budget: VIX level, VIX/VIX3M, trend and breadth set one budget in [0, 1]; the tier engine scales its satellite headroom by it
+VERSION: v1.0.1306 (shipped 2026-11-06 by the parent session; main was v1.0.1305)
+
+WHY. Refocus spec section 3 step 1 (human, 2026-11-05): "market regime: VIX level + term structure, broad trend, breadth -> overall risk budget/allowed exposure". The regime engine (docs/regime/FINDINGS.md, live since 2026-10-28) already fetched ^VIX, ^VIX3M and a 13-ETF breadth basket, but used the VIX family only as CSP stress flags and breadth only as a quarter-quantized term inside exposure_multiplier. There was no single continuous budget, and the tier engine's MAX_TOTAL_EXPOSURE came only from the legacy VXX-ratio label. research/open_questions.md "[RESEARCH] Regime detection upgrade: VIX term structure + credit spread composite (2026-10-26)" proposed VIX/VIX3M as the fast lens.
+
+docs/regime/RESEARCH.md sets the design:
+- §3.3: VIX level is not an equity exit signal (forward returns after high readings are higher on average), but outcome dispersion widens with the level. VIX/VIX3M > 1 is a "stress now" state.
+- §2.3: breadth is weak as a leading indicator. Compute it, never sell on it.
+- §2.1 and §5: the slow trend ensemble is the best-supported drawdown filter.
+
+So the budget sizes NEW risk only (risk per dollar). It never sells and never touches the floor.
+
+PRIOR (recorded before the first run):
+- IC(budget, forward 21-session realized vol): -0.5 to -0.7 (90%).
+- IC(budget, forward 21-session max drawdown): +0.3 to +0.5 (80%).
+- IC(budget, forward 21-session return): between -0.10 and +0.05 (65%).
+- Budget-scaled SPY vs buy-and-hold: lower max DD (95%), Sharpe at least as high (55%).
+- Budget-scaled SPY vs a constant exposure at the budget's mean: higher Sharpe (50%).
+
+THE CHANGE.
+- regime_engine.risk_budget_series scores four drivers 0..1 (1 = no reason to cut) and takes their weighted mean. Weights are ex-ante, not fitted: trend 0.30, VIX/VIX3M 0.30, VIX level 0.25, breadth 0.15. Weights are renormalized over the drivers that have a reading.
+  - VIX level = min(1, trailing 10-year median VIX / VIX). The median uses sessions before the day only, 504 to 2520 of them.
+  - VIX/VIX3M: 1 at <= 0.90 (contango), 0 at >= 1.10 (backwardation).
+  - Trend = the engine's trend_score.
+  - Breadth = share of the 11 sector SPDRs + IWM + MDY above their 200-day: 1 at >= 60%, 0 at <= 20%. This is the engine's existing basket, a real source but an ETF proxy. The repo fetches no S&P-member bars.
+- The budget falls at once and rises at most 0.10 a session.
+- Parameters live in BASE_CONFIG REGIME_BUDGET_PARAMS. Off switch: VOLTRADE_REGIME_BUDGET (default on via REGIME_BUDGET_DEFAULT; an env value that is present always wins).
+- Persisted on RegimeState as risk_budget, risk_budget_detail (band, plain-English summary, per-driver value/score/weight/cut/reason) and budget_version. A pre-budget persisted state recomputes once.
+- The labels, exposure_multiplier and PARAMS_VERSION are unchanged.
+- Consumer API: regime_engine.risk_budget_for() / risk_budget_view().
+- Consumer wired: tiered_strategy.get_regime_caps(positions=...), used by master_kill_switch, tier2, tier3 and _enforce_exposure_cap. MAX_TOTAL_EXPOSURE becomes passive + (cap - passive) x budget, where passive = SPY+SSO market value / equity (regime_engine.budget_exposure_cap).
+  - Bounded: floor share <= cap' <= legacy cap. A legacy cap at or below the floor share is untouched.
+  - Prior value: the unscaled cap (0.95 BULL/NEUTRAL, 0.60 CAUTION, 0.50 BEAR, 0.30 PANIC).
+  - Logged as a counterfactual sizing row (sleeve tier_exposure_cap, legacy multiplier 1.0 vs cap'/cap).
+  - A budget-made kill or scale-down carries "[risk budget x cut the cap from A% to B%]" in its reason and in the rejected_masterkill shadow decision_reason.
+- Surfaced:
+  - Scan result field risk_budget.
+  - /api/bot/regime and the regime diag probe: a risk_budget block (budget, raw, band, summary, drivers, missing, stale, enabled, applied, 60-day history, note), plus risk_budget on each history row.
+  - /api/health regime block: risk_budget.
+  - Audit RISK-BUDGET, once per (as_of, band, applied).
+  - ML shadow snapshot: risk_budget.
+
+RESULT. scripts/regime_budget_study.py on Yahoo daily closes 2005-01-03 to 2026-10-23. Study window 2007-01-04 to 2026-09-24 (the first day all four drivers have a reading): 4,962 days, H = 21, t-stats on 237 non-overlapping samples.
+- Budget vs forward realized vol: Spearman -0.60 (t -11.6). Prior met.
+- Budget vs forward max drawdown: +0.37 (t +6.2). Prior met.
+- Budget vs forward return: -0.15 (t -2.3). This is just below the prior range: low-budget states were followed by HIGHER mean returns (the RESEARCH §3.3 effect). The budget forecasts risk, not return.
+
+By band:
+
+| band | share of days | fwd RV | mean fwd max DD | P(DD < -10%) | mean fwd return |
+|---|---|---|---|---|---|
+| minimal (< 0.25) | 4.9% | 42.3% | -10.4% | 32.9% | +1.51% |
+| defensive (0.25-0.50) | 12.0% | 23.9% | -6.1% | 16.5% | +1.28% |
+| reduced (0.50-0.80) | 17.0% | 16.8% | -4.5% | 7.6% | +1.26% |
+| full (>= 0.80) | 66.1% | 12.1% | -3.2% | 2.3% | +0.82% |
+
+Stability across halves (IC vs fwd RV / fwd max DD / fwd return):
+- First half (2007-01 to 2016-11): -0.65 / +0.40 / -0.09.
+- Second half (2016-11 to 2026-09): -0.50 / +0.28 / -0.28. The return cost of cutting risk is larger in the recent V-shaped recoveries.
+
+Diagnostics, not used to re-pick weights:
+- VIX alone: -0.65 / +0.41 / -0.15. That is a slightly better risk forecast than the composite.
+- Each driver alone vs fwd RV: -0.49 to -0.64.
+- Engine exposure_continuous: -0.53 / +0.34 / -0.11.
+- The trend, VIX/VIX3M and breadth drivers add no 21-session risk-forecast power over VIX. They stay as pre-registered: the spec names them, and re-weighting after seeing this would be fishing.
+
+Indicative SPY overlay (decided at close t, held from close t+1, 5 bp per unit turnover, cash 0%):
+
+| arm | CAGR | vol | Sharpe | max DD | mean exposure |
+|---|---|---|---|---|---|
+| budget-scaled | 8.14% | 11.0% | 0.77 | -25.4% | 0.80 |
+| buy-and-hold | 10.91% | 19.5% | 0.63 | -55.2% | 1.00 |
+| constant 0.80 | 8.95% | 15.6% | 0.63 | -46.4% | 0.80 |
+| VIX score alone | 8.87% | 12.3% | 0.76 | -29.7% | 0.84 |
+
+All three overlay priors were met.
+
+CAVEATS.
+- Index level only. The live consumer is the tier engine's satellite headroom, whose P&L this study does not model (backtest_v2 has no tier-engine cap). The change therefore ships as EXPLORATORY (promotion rule 3), kill date 2027-02-06.
+- The breakpoints were set ex ante but with general knowledge of VIX history, so the sample is not truly out-of-sample for the design.
+- Engine inputs here are Yahoo unadjusted closes (production uses Alpaca for equities); outcomes use adjusted closes.
+- The breadth basket has 11 members before 2015-10 and 12 before 2018-06.
+- Cash earns 0% in the overlay; a T-bill rate would favor the de-risked arms.
+
+DOWNSTREAM (two steps).
+1. Budget < 1 lowers the tier engine's cap by (1 - budget) x (cap - floor share).
+   - master_kill_switch fires at a lower invested level, so Tier 1 CSPs are blocked sooner. Each blocked candidate already logs a rejected_masterkill shadow record, and the budget note in its decision_reason splits out budget-made kills.
+   - _enforce_exposure_cap scales T1/T2 proposals into the smaller room.
+2. The result is fewer or smaller new short puts in high-VIX, inverted or weak-breadth states. That means less short-vol exposure entering stress (the drawdown goal), at the cost of premium exactly where it is richest (RESEARCH §3.6).
+   - This stacks on the existing per-position CSP cuts (regime sizing floor 0.5/0.25, inversion and elevated-vol halving, the crisis block). Those set position size; the budget sets total room. When the room is not binding, the budget has no effect.
+   - At budget 1.0 every cap equals the legacy value.
+   - Not touched: the floor, the stock sizer's exposure_multiplier, position_sizing and Node's 30% active heat cap.
+
+Today: the state as of 2026-11-04 (trend 0.75, VIX/VIX3M 0.88, VIX 16.6, breadth 77%) gives a budget of about 0.925. With an 85% floor and the 0.95 cap, the satellite room goes from 10.0% to about 9.25% of equity. The live book on 2026-11-06 holds GLD (a legacy floor ticker being unwound, which counts as satellite) and one short put, at 29.8% invested, so the cap is about 0.88 and does not bind.
+
+KNOWN BROKEN #20 (master_kill_switch counts the floor): the budget scales only the room above the floor, so it never makes the floor itself the kill reason. In low-budget states, though, it makes the existing exposure-ceiling kill fire sooner.
+
+ROLLBACK TRIGGER. Rollback is env VOLTRADE_REGIME_BUDGET=off, no deploy. Turn it off if either:
+- After at least 20 sessions with budget-made kills (decision_reason contains "[risk budget"), their rejected_masterkill +5d/+10d win rate is not below the legacy exposure_ceiling kills' AND the low-band days were not followed by higher realized SPY vol than full-band days.
+- The live budget stays below 0.5 for 10 or more sessions while VIX is below its median (a broken input).
+
+TESTS.
+- test_regime_budget.py (34 tests): driver scores, weighted mean and renormalization, fast-out/slow-in, a causal rolling VIX median, a monotonicity property over 300 random cases, no params means no budget, the state carries the budget and plain-English drivers, an inverted term structure is named in the summary, labels and exposure are unchanged, a pre-budget state recomputes once then caches, the ML snapshot carries the budget (< 1000 bytes), flag default/explicit-off, view staleness rules, risk_budget_for, floor tickers by FLOOR_MODE, the bounded cap, off/stale/missing leave the cap unchanged and log the would-be value, never raises, tier wiring (get_regime_caps, master kill reason and shadow category, allocator headroom), study helpers.
+- server/regimeBudget.test.ts (6 tests).
+- Re-run on the committed HEAD: 701 Python tests in 50 files (regime, tiered, floor, shadow, kill-switch, CSP, options and ratchet suites; 1 pre-existing skip), server/regimeReport.test.ts (9) and server/regimeCounterfactual.test.ts (3), and all 92 server test files that read bot.ts. All pass. counter_ratchet OK; tsc at 6 errors (baseline).
+
+STARVED: no.

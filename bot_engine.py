@@ -4829,6 +4829,9 @@ def _scan_market_inner():
         # transitions; no consumer acts on it until its own flag is set.
         "regime": _regime_state if '_regime_state' in dir() else None,
         "regime_sizing": _regime_sizing_counts if '_regime_sizing_counts' in dir() else None,
+        # REGIME RISK BUDGET 2026-11-06 (regime_engine.risk_budget_view): budget, band,
+        # plain-English summary + drivers, applied?; bot.ts audits it as RISK-BUDGET.
+        "risk_budget": _scan_risk_budget(_regime_state if '_regime_state' in dir() else None),
         "scan_phase_times": _phase_times,
         # ALPHA AUDIT 2026-05-06 batch 11: surface the size-tier metadata
         # so the UI can show "POSITION RULES" card. Read from _slots_params
@@ -5136,6 +5139,17 @@ def _scan_entry_shadow(roll_rows: list, *leg_results) -> dict:
     except Exception as e:
         st = {"error": str(e)[:120]}
     return {"status": st, "entries": rows}
+
+
+def _scan_risk_budget(regime_state):
+    """scan_market's `risk_budget` field (2026-11-06): regime_engine.risk_budget_view of this
+    scan's regime state — budget, band, summary, drivers, stale/applied — or None without one.
+    Never raises (an error is reported in the field, never into the scan)."""
+    try:
+        import regime_engine as _re_rb
+        return _re_rb.risk_budget_view(regime_state)
+    except Exception as e:
+        return {"error": str(e)[:120]}
 
 
 def _run_third_leg(macro: dict) -> dict:

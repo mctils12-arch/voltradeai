@@ -525,6 +525,29 @@ BASE_CONFIG = {
     "REGIME_OPTIONS_DEFAULT": "all",     # VOLTRADE_REGIME_OPTIONS (prior "": shadow labels only)
     "REGIME_SIZING_DEFAULT": "all",      # VOLTRADE_REGIME_SIZING (prior "": legacy scalars)
     "REGIME_LABELS_DEFAULT": True,       # VOLTRADE_REGIME_LABELS (prior False: Markov label)
+    # REGIME RISK BUDGET 2026-11-06 (human refocus spec section 3 step 1:
+    # "market regime: VIX level + term structure, broad trend, breadth ->
+    # overall risk budget/allowed exposure"). regime_engine.risk_budget_series
+    # scores four drivers 0..1 and takes their weighted mean: VIX level vs its
+    # own trailing 10-year median (anchor / VIX), VIX/VIX3M (1 at <= 0.90
+    # contango, 0 at >= 1.10 backwardation), the engine's trend score, and
+    # ETF-basket breadth (1 at >= 60% above the 200-day, 0 at <= 20%). The
+    # budget falls at once and rises at most 0.10 a session. Weights and
+    # breakpoints are ex-ante (docs/regime/RESEARCH.md 2.1, 2.3, 3.3), not
+    # fitted. The labels and exposure_multiplier are unchanged.
+    # Consumer: the tier engine's satellite headroom under MAX_TOTAL_EXPOSURE
+    # (tiered_strategy.get_regime_caps; the floor itself is never scaled).
+    # Prior behaviour: no budget, headroom unscaled. Expected effect: headroom
+    # x budget (about 0.92 on 2026-11-04). Off without a deploy: env
+    # VOLTRADE_REGIME_BUDGET=off (the budget is still computed and logged).
+    "REGIME_BUDGET_DEFAULT": True,       # VOLTRADE_REGIME_BUDGET (new; no prior value)
+    "REGIME_BUDGET_PARAMS": {
+        "weights": {"trend": 0.30, "term_structure": 0.30, "vix_level": 0.25, "breadth": 0.15},
+        "ts_full": 0.90, "ts_zero": 1.10,
+        "breadth_full": 0.60, "breadth_zero": 0.20,
+        "vix_anchor_window": 2520, "vix_anchor_min_obs": 504,
+        "rise_per_session": 0.10,
+    },
     # ENTRY SHADOW MODE (human directive 2026-10-28, paper account: "move the
     # options sleeve and stock entries to shadow mode. Keep the floor basket
     # and all exits live."). Sleeves named here compute and LOG every new

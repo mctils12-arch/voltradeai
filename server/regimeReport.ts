@@ -39,12 +39,17 @@ export type RegimeStateFile = Record<string, unknown> & {
   stale?: boolean;
   error?: string;
   transition?: { from?: string; to?: string; from_as_of?: string; to_as_of?: string } | null;
+  // 2026-11-06 regime risk budget (regime_engine.risk_budget_detail)
+  risk_budget?: number | null;
+  risk_budget_detail?: Record<string, unknown> | null;
+  budget_version?: string;
 };
 
 /**
- * Defaults of the five regime flags — a MIRROR of system_config.py BASE_CONFIG
+ * Defaults of the six regime flags — a MIRROR of system_config.py BASE_CONFIG
  * (REGIME_ENGINE_ENABLED True -> "1", REGIME_SELECTION_DEFAULT / _OPTIONS_ / _SIZING_
- * "all", REGIME_LABELS_DEFAULT True -> "1"; human directive 2026-10-28, prior: all off).
+ * "all", REGIME_LABELS_DEFAULT True -> "1"; human directive 2026-10-28, prior: all off;
+ * REGIME_BUDGET_DEFAULT True -> "1", 2026-11-06 risk budget, new).
  * Read exactly like regime_engine.flag_raw: the env var when it is PRESENT (any value —
  * "off" / "0" / "" included — wins), the default only when it is ABSENT. The Node process
  * and the daemon share one environment, so both sides agree on what is on.
@@ -56,6 +61,7 @@ export const REGIME_FLAG_DEFAULTS: Readonly<Record<string, string>> = Object.fre
   VOLTRADE_REGIME_OPTIONS: "all",
   VOLTRADE_REGIME_SIZING: "all",
   VOLTRADE_REGIME_LABELS: "1",
+  VOLTRADE_REGIME_BUDGET: "1",
 });
 
 export type RegimeFlag = { value: string; source: "env" | "config" };
@@ -172,6 +178,7 @@ export interface RegimeHealthBlock {
   age_market_days?: number | null;
   composite?: string;
   exposure_multiplier?: number;
+  risk_budget?: number | null;   // 2026-11-06: the regime risk budget (null before its first compute)
   alarm?: boolean;
   gates_top_level_status: false;
 }
@@ -201,6 +208,7 @@ export function regimeHealth(state: RegimeStateFile | null, now: Date, enabled: 
     age_market_days: age,
     composite: state.composite_regime,
     exposure_multiplier: state.exposure_multiplier,
+    risk_budget: num(state.risk_budget),
     alarm: Boolean(state.alarm),
     gates_top_level_status: false,
   };
@@ -208,6 +216,107 @@ export function regimeHealth(state: RegimeStateFile | null, now: Date, enabled: 
 
 function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** One driver of the regime risk budget (regime_engine.risk_budget_detail "drivers"). */
+export type RiskBudgetDriver = {
+  name: string;           // trend | term_structure | vix_level | breadth
+  label: string;          // "VIX term structure"
+  value: number | null;   // the reading: trend score, VIX/VIX3M, VIX, breadth share
+  score: number | null;   // 0..1, 1 = no reason to cut
+  weight: number;         // normalized weight
+  cut: number;            // weight x (1 - score): the share of the budget this driver removes
+  short: string;          // "VIX term structure inverted (1.04)"
+  reason: string;         // the full plain-English sentence
+};
+
+/** The report's risk-budget block: what the UI shows as "risk budget 0.60: VIX term structure inverted, breadth 38%". */
+export interface RiskBudgetBlock {
+  budget: number | null;  // [0, 1]; the value consumers apply
+  raw: number | null;     // today's reading before the rise glide
+  band: string | null;    // full | reduced | defensive | minimal
+  summary: string | null; // plain English, names the drivers that cut it
+  drivers: RiskBudgetDriver[];
+  missing: string[];
+  as_of: string | null;
+  age_market_days: number | null;
+  stale: boolean;
+  enabled: boolean;       // engine + VOLTRADE_REGIME_BUDGET on
+  applied: boolean;       // enabled, a budget exists and the state is fresh
+  consumers: string[];
+  history: Array<{ as_of?: string; budget: number; band: string | null }>;
+  note: string;
+}
+
+export const RISK_BUDGET_CONSUMERS: readonly string[] = ["tier_exposure_cap"];   // regime_engine.BUDGET_CONSUMERS
+
+/** Mirrors regime_engine.budget_enabled + engine_allowed (1/true/on/yes; env when present, else the default). */
+export function riskBudgetEnabled(flags: Record<string, RegimeFlag> | null, engineEnabled: boolean): boolean {
+  if (!engineEnabled) return false;
+  const v = (flags?.VOLTRADE_REGIME_BUDGET?.value ?? REGIME_FLAG_DEFAULTS.VOLTRADE_REGIME_BUDGET).trim().toLowerCase();
+  return v === "1" || v === "true" || v === "on" || v === "yes";
+}
+
+function bandOf(detail: unknown): string | null {
+  const b = detail && typeof detail === "object" ? (detail as Record<string, unknown>).band : null;
+  return typeof b === "string" ? b : null;
+}
+
+/** The risk budget as of the latest state plus its recent history (pure; same staleness rule as the sizers). */
+export function regimeRiskBudget(state: RegimeStateFile | null, history: RegimeStateFile[], now: Date, engineEnabled: boolean, flags: Record<string, RegimeFlag> | null = null): RiskBudgetBlock {
+  const det = state?.risk_budget_detail && typeof state.risk_budget_detail === "object" ? state.risk_budget_detail : null;
+  const budget = num(state?.risk_budget);
+  const age = marketDaysBetween(state?.as_of, now);
+  const stale = Boolean(state?.error) || Boolean(state?.stale) || (age !== null && age > REGIME_STALE_MARKET_DAYS);
+  const enabled = riskBudgetEnabled(flags, engineEnabled);
+  const applied = enabled && budget !== null && !stale;
+  const hist: RiskBudgetBlock["history"] = [];
+  for (const h of history) {
+    const b = num(h.risk_budget);
+    if (b !== null) hist.push({ as_of: h.as_of, budget: b, band: bandOf(h.risk_budget_detail) });
+  }
+  const drivers = Array.isArray(det?.drivers) ? (det?.drivers as RiskBudgetDriver[]) : [];
+  const missing = Array.isArray(det?.missing) ? (det?.missing as unknown[]).map(String) : [];
+  let note: string;
+  if (budget === null) note = "no risk budget in the regime state yet (it is computed on the next scan)";
+  else if (applied) note = "applied: the tier engine's room above the passive floor (MAX_TOTAL_EXPOSURE) is multiplied by the budget";
+  else if (stale) note = "not applied: the regime state is stale, so consumers keep their legacy caps";
+  else note = "not applied: VOLTRADE_REGIME_BUDGET is off (computed and logged only)";
+  return {
+    budget,
+    raw: num(det?.raw),
+    band: bandOf(det),
+    summary: typeof det?.summary === "string" ? det.summary : null,
+    drivers,
+    missing,
+    as_of: state?.as_of ?? null,
+    age_market_days: age,
+    stale,
+    enabled,
+    applied,
+    consumers: [...RISK_BUDGET_CONSUMERS],
+    history: hist.slice(-60),
+    note,
+  };
+}
+
+/** The RISK-BUDGET audit line for a scan's `risk_budget` field (regime_engine.risk_budget_view):
+ *  once per (as_of, band, applied) — `{ key, line }`, or null when nothing new. */
+export function regimeBudgetAudit(view: unknown, lastKey: string): { key: string; line: string } | null {
+  if (!view || typeof view !== "object") return null;
+  const v = view as Record<string, unknown>;
+  if (typeof v.error === "string" && v.error) {
+    const key = `error|${v.error}`;
+    return key === lastKey ? null : { key, line: `risk budget view failed: ${v.error.slice(0, 160)}` };
+  }
+  const budget = num(v.budget);
+  if (budget === null) return null;
+  const key = `${String(v.as_of ?? "?")}|${String(v.band ?? "?")}|${v.applied === true ? "applied" : "logged"}`;
+  if (key === lastKey) return null;
+  const summary = typeof v.summary === "string" && v.summary ? v.summary : `Risk budget ${budget.toFixed(2)}.`;
+  const tail = v.applied === true ? "applied to the tier engine's satellite headroom"
+    : v.stale === true ? "not applied: stale regime state" : "not applied: VOLTRADE_REGIME_BUDGET off";
+  return { key, line: `${summary} [${tail}; as_of ${String(v.as_of ?? "?")}]` };
 }
 
 /** The daily regime report: latest state, the recent history, transitions, time at each exposure level. */
@@ -224,6 +333,7 @@ export function regimeReportBody(state: RegimeStateFile | null, history: RegimeS
     core_multiplier: num(h.core_multiplier),
     confidence: num(h.confidence),
     flips_12m: num(h.flips_12m),
+    risk_budget: num(h.risk_budget),
   }));
   const transitions: Array<{ as_of?: string; from?: string; to?: string }> = [];
   for (let i = 1; i < rows.length; i++) {
@@ -248,6 +358,8 @@ export function regimeReportBody(state: RegimeStateFile | null, history: RegimeS
     time_at_levels: timeAtLevels,
     sizing: sizing ?? null,   // step 6: today's applied multipliers by sleeve, stale fallbacks, zero blocks
     flags: flags ?? null,     // every VOLTRADE_REGIME_* flag's effective value and source (env | config default)
+    // 2026-11-06: the regime risk budget, its plain-English drivers and whether a consumer applies it
+    risk_budget: regimeRiskBudget(state, history, now, enabled, flags),
     note: consumersOn.length && enabled
       ? `live: ${consumersOn.join(", ")} act on this state (docs/regime/RUNBOOK.md; rollback = set the env var to off)`
       : "shadow: no consumer reads this state until its own VOLTRADE_REGIME_* flag is set (docs/regime/FINDINGS.md)",

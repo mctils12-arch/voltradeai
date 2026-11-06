@@ -32,9 +32,10 @@ import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { floorAuditRows } from "./floorAudit";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
-import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit } from "./regimeReport";
+import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
 import { regimeCounterfactualBody } from "./regimeCounterfactual";
 let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
+let lastRiskBudgetAuditKey = "";     // 2026-11-06 regime risk budget: one RISK-BUDGET line per (as_of, band, applied)
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
@@ -6937,6 +6938,13 @@ else:
         audit("REGIME-STALE", `sizing fell back to 1.0 on a stale regime state (${staleFallbacks} today; state as_of ${result.regime?.as_of ?? "?"})`);
       }
       lastRegimeStaleFallbacks = staleFallbacks;
+      // 2026-11-06 regime risk budget: the budget the tier engine's satellite headroom used and
+      // the drivers that cut it, once per (as_of, band, applied).
+      const riskBudgetAudit = regimeBudgetAudit(result.risk_budget, lastRiskBudgetAuditKey);
+      if (riskBudgetAudit) {
+        audit("RISK-BUDGET", riskBudgetAudit.line);
+        lastRiskBudgetAuditKey = riskBudgetAudit.key;
+      }
 
     } catch (err: any) {
       tier2LastScanFailed = true;
