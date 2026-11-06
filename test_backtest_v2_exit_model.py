@@ -10,9 +10,11 @@ checkPositionOnTick, mirrored in live_exit_policy.py (same rule set as PR
      stop-first, scale-out -> breakeven, bullish phase-4 trail, bearish TP,
      7-calendar-day time stop from a mid-week entry, regime/ATR refresh with
      no lookahead, integer tranches, partial-fill accounting);
-  2. exit_model="legacy" (the default) is byte-identical to the
-     pre-change engine on identical inputs (sha256 of the full simulate()
-     output, captured from origin/main before the change);
+  2. exit_model="legacy" (the default until 2026-11-06) is byte-identical to
+     the pre-change engine on identical inputs (sha256 of the full simulate()
+     output, captured from origin/main before the change); since 2026-11-06
+     (KNOWN BROKEN #48 close-out) the default is "live", pinned the same way
+     on the same fixtures;
   3. live_exit_policy matches #1355's shadow_portfolio mirror (pinned values
      from that PR's own tests, plus a fuzz comparison whenever
      shadow_portfolio carries the mirror);
@@ -319,8 +321,9 @@ def test_unknown_exit_model_is_refused():
     with pytest.raises(ValueError):
         bt.run_backtest("T", "momentum", 1, bars=synth_bars(50), exit_model="bogus")
     # 2026-10-20: the reconciliation's two control arms joined the list
-    # (test_exit_model_controls.py); legacy stays the default
-    assert bt.DEFAULT_EXIT_MODEL == "legacy" and bt.EXIT_MODELS == ("legacy", "live", "time_only", "wide_stop")
+    # (test_exit_model_controls.py). 2026-11-06 (KB #48 close-out): the
+    # default is "live" (prior "legacy").
+    assert bt.DEFAULT_EXIT_MODEL == "live" and bt.EXIT_MODELS == ("legacy", "live", "time_only", "wide_stop")
 
 
 # ── whole-series runs on the synthetic fixtures ─────────────────────────────
@@ -342,12 +345,42 @@ def test_legacy_exit_model_byte_identical_to_the_pre_change_engine(key):
     spy, vxx = _fixture_set()
     bars = synth_bars(900, seed=seed, vol=0.028)
     sha, n, sharpe, ret, dd, wr = LEGACY_PINS[key]
+    # 2026-11-06: legacy is no longer the default (KB #48 close-out), so it is
+    # pinned by name; the default's own pin is the live test below.
+    r = bt.simulate("SYN", strategy, bars, spy, vxx, exit_model="legacy")
+    assert hashlib.sha256(json.dumps(r, sort_keys=True).encode()).hexdigest() == sha
+    assert (r["n_trades"], r["sharpe"], r["total_return_pct"],
+            r["max_drawdown_pct"], r["win_rate_pct"]) == (n, sharpe, ret, dd, wr)
+    assert "exit_model" not in r
+
+
+# sha256 of json.dumps(simulate(..., exit_model="live"), sort_keys=True) on the
+# same fixtures, captured 2026-11-06 when "live" became the default (KNOWN
+# BROKEN #48 close-out): the default ruler is pinned the way legacy was, so a
+# change to it fails CI instead of silently moving every backtest number.
+LIVE_PINS = {
+    (7, "momentum"): ("567e6e4578a788be9fae2dd2c7a7807370dda2e1d22b1ae8a6e231f4be8aa138", 45, -0.536, -6.03, 10.17, 40.0),
+    (7, "mean_reversion"): ("04a6ba7d858cb8559bb7cbe7739db3406929f6b33ec5c5bc3358a7bde848c0de", 3, 0.004, -0.0, 0.84, 66.7),
+    (21, "momentum"): ("a902765232328668a54636d0781a061ecf65ed80c4993117dd20996884e65f73", 8, -0.404, -2.27, 3.7, 50.0),
+    (21, "mean_reversion"): ("3ecd00c2c4096462a991cb722fd3c1dfc1c005fa5fa15da2ba71c6506118f2e7", 7, 0.264, 1.4, 1.93, 57.1),
+    (99, "momentum"): ("8e82f9cd039467f8e148b4045a5f68061116f31411ffd325043b02ebb8745046", 23, -0.602, -4.93, 6.69, 43.5),
+    (99, "mean_reversion"): ("8b876415c956dad75899355ecb19efc477b3e0e8355b0eaa31154489f508c5e7", 4, 0.218, 0.74, 1.7, 75.0),
+}
+
+
+@pytest.mark.parametrize("key", sorted(LIVE_PINS))
+def test_default_exit_model_is_live_byte_identical(key):
+    seed, strategy = key
+    spy, vxx = _fixture_set()
+    bars = synth_bars(900, seed=seed, vol=0.028)
+    sha, n, sharpe, ret, dd, wr = LIVE_PINS[key]
     for r in (bt.simulate("SYN", strategy, bars, spy, vxx),                       # default
-              bt.simulate("SYN", strategy, bars, spy, vxx, exit_model="legacy")):
+              bt.simulate("SYN", strategy, bars, spy, vxx, exit_model="live")):
         assert hashlib.sha256(json.dumps(r, sort_keys=True).encode()).hexdigest() == sha
         assert (r["n_trades"], r["sharpe"], r["total_return_pct"],
                 r["max_drawdown_pct"], r["win_rate_pct"]) == (n, sharpe, ret, dd, wr)
-        assert "exit_model" not in r
+        assert r["exit_model"] == "live"
+    assert sha != LEGACY_PINS[key][0], "the default must not be the legacy model"
 
 
 @pytest.mark.parametrize("seed", [7, 21, 99])
@@ -371,13 +404,18 @@ def test_live_model_uses_its_own_exit_vocabulary_and_scales_out():
     assert reasons <= {"stop_loss", "trailing_stop", "breakeven_stop", "take_profit",
                        "time_stop", "end_of_backtest"}
     assert "trailing_stop" in reasons and sum(t["scale_outs"] for t in r["trades"]) > 0
-    legacy = bt.simulate("SYN", "momentum", synth_bars(900, seed=7, vol=0.028), spy, vxx)
+    legacy = bt.simulate("SYN", "momentum", synth_bars(900, seed=7, vol=0.028), spy, vxx, exit_model="legacy")
     assert r["n_trades"] != legacy["n_trades"], "the exit model must actually change the run"
 
 
 def test_run_backtest_labels_the_exit_model():
     bars = synth_bars(500, seed=9)
-    assert bt.run_backtest("T", "momentum", 1, bars=bars)["exit_model"] == "legacy"
+    # 2026-11-06 (KB #48 close-out): the default is "live" (prior "legacy");
+    # legacy still labels only the envelope (its per-result output is byte-pinned)
+    out = bt.run_backtest("T", "momentum", 1, bars=bars)
+    assert out["exit_model"] == "live" and out["results"][0]["exit_model"] == "live"
+    legacy = bt.run_backtest("T", "momentum", 1, bars=bars, exit_model="legacy")
+    assert legacy["exit_model"] == "legacy" and "exit_model" not in legacy["results"][0]
     out = bt.run_backtest("T", "momentum", 1, bars=bars, exit_model="live")
     assert out["exit_model"] == "live" and out["results"][0]["exit_model"] == "live"
 

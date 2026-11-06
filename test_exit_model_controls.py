@@ -24,10 +24,14 @@ def _run(monkeypatch, path, model, **kw):
     return out["trades"][0], out
 
 
-def test_controls_are_known_models_and_legacy_stays_the_default():
+def test_controls_are_known_models_and_live_is_the_default():
+    # 2026-11-06 (KNOWN BROKEN #48 close-out): the default exit model is
+    # "live" (prior "legacy", which this test was named after); the controls
+    # stay opt-in only.
     assert bt.CONTROL_MODELS == ("time_only", "wide_stop")
     assert set(bt.CONTROL_MODELS) <= set(bt.EXIT_MODELS)
-    assert bt.DEFAULT_EXIT_MODEL == "legacy"
+    assert bt.DEFAULT_EXIT_MODEL == "live"
+    assert bt.DEFAULT_EXIT_MODEL not in bt.CONTROL_MODELS
     assert bt.WIDE_STOP_ATR_MULT == 3.0
 
 

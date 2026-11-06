@@ -160,8 +160,15 @@ TAKE_PROFIT_RR = 2.0       # target = 2R (asymmetry over accuracy)
 # ambiguous bar, the same priority the legacy close-only check gives stops),
 # gaps filling at the open. Entries, universe, costs and regime gating are
 # untouched — only the exit block differs.
-# DEFAULT stays "legacy" until the before/after is judged (research/
-# experiments.md); every stored backtest number to date is legacy-model.
+# DEFAULT ([RULE-REVIEW] 2026-11-06, KNOWN BROKEN #48 close-out): "live", so
+# every backtest that does not name a model — bot.ts's POST /api/bot/backtest
+# and overnight scheduler, PROMOTION RULE 3 runs — scores the exits the bot
+# executes. Prior value "legacy"; every backtest number stored before
+# 2026-11-06 is legacy-model. Same inputs, before -> after (research/
+# experiments.md 2026-11-06 and exit_model_reconciliation_2026-10-20.md):
+# Sharpe and per-trade expectancy are LOWER under live on every input
+# measured, so the change cannot flatter a strategy. exit_model="legacy"
+# reproduces the old numbers exactly.
 # CONTROL ARMS (research/bot_logic_research_2026-10-20.md Q1, test 1;
 # [RULE-REVIEW] 2026-10-20): the two arms the exit-model reconciliation
 # compares the legacy and live models against, both close-checked like
@@ -171,7 +178,7 @@ TAKE_PROFIT_RR = 2.0       # target = 2R (asymmetry over accuracy)
 #   wide_stop — 3xATR stop (unclamped), no target, regime time stop.
 # Neither is selectable by bot.ts; both are opt-in from the runner/CLI.
 EXIT_MODELS = ("legacy", "live", "time_only", "wide_stop")
-DEFAULT_EXIT_MODEL = "legacy"
+DEFAULT_EXIT_MODEL = "live"   # 2026-11-06 (prior "legacy"), see DEFAULT above
 WIDE_STOP_ATR_MULT = 3.0
 CONTROL_MODELS = ("time_only", "wide_stop")
 
@@ -664,7 +671,8 @@ def run_backtest(ticker: str = "SPY", strategy: str = "all", years: float = 3,
                  vxx: dict | None = None,
                  exit_model: str = DEFAULT_EXIT_MODEL) -> dict:
     """Entry point. bars/spy/vxx are injectable for offline tests.
-    exit_model: "legacy" (default) | "live" — see EXIT_MODELS."""
+    exit_model: "live" (default since 2026-11-06) | "legacy" | a control arm
+    — see EXIT_MODELS."""
     if exit_model not in EXIT_MODELS:
         raise ValueError(f"unknown exit_model {exit_model!r}; expected one of {EXIT_MODELS}")
     ticker = ticker.upper()
