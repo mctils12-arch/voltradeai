@@ -128,8 +128,9 @@ print("\n▸ FUNCTION VERIFICATION")
 CRITICAL_FUNCTIONS = {
     "bot_engine": ["score_stock", "deep_score", "scan_market", "manage_positions",
                    "check_sector_correlation", "garch_vol_estimate", "ewma_vol"],
-    "ml_model": ["ml_score", "train_model", "predict_exit", "track_fill",
-                 "update_weights", "load_weights", "get_fill_recommendation"],
+    # ml_model.py (the v1 sklearn model) was deleted 2026-11-06 as dead code;
+    # ml_model_v2 is the live model and keeps the v1 names it replaced.
+    "ml_model_v2": ["ml_score", "train_model", "track_fill"],
     "position_sizing": ["calculate_position", "size_portfolio", "check_halt_status"],
     "manipulation_detect": ["scan_for_manipulation", "is_ticker_flagged"],
     "intelligence": ["classify_news", "get_full_intelligence", "get_insider_activity"],
