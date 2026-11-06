@@ -1,4 +1,5 @@
 import { Express } from "express";
+import { killSwitchBannerLine, satelliteExposureBannerLine, minScoreBannerLine } from "./rulesBanner";
 import { requireAuth, requireOwner } from "./auth";
 import { execFile, type ExecOptions } from "child_process";
 import path from "path";
@@ -11430,18 +11431,18 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
     audit("RULES", `Max positions: ${MAX_POSITIONS} ceiling (dynamic sizing uses portfolio heat)`);
     audit("RULES", `Position sizing: DYNAMIC — Kelly Criterion × volatility × confidence × VIX × earnings × liquidity × time`);
     audit("RULES", `Position range: 1-${MAX_POSITION_SIZE * 100}% per trade (sized by conviction + risk)`);
-    audit("RULES", `Max active satellite exposure: ${MAX_TOTAL_EXPOSURE * 100}% (QQQ floor + VRP excluded) | Total portfolio cap: 95% (regime-adaptive)`);
+    audit("RULES", satelliteExposureBannerLine(MAX_TOTAL_EXPOSURE));
     audit("RULES", `Stop loss: ATR-based (1.5-8% dynamic) | Emergency backstop: ${STOP_LOSS_PCT * 100}%`);
     audit("RULES", `Take profit: ATR-based (4-15% dynamic) | Ceiling: ${TAKE_PROFIT_PCT * 100}%`);
     audit("RULES", `Earnings proximity: auto-reduces position size near earnings dates`);
     audit("RULES", `Exchange halt check: blocks orders on halted stocks`);
     audit("RULES", `Daily loss limit: ${DAILY_LOSS_LIMIT}% — all trading halts if hit`);
-    audit("RULES", `Kill switch: OFF (manual emergency stop available)`);
+    audit("RULES", killSwitchBannerLine(state.killSwitch, killSwitchMeta.reason, state.maxDrawdownPct));
     audit("RULES", `Options: Regular hours only (9:30am-4pm ET)`);
     audit("RULES", `Stocks: Extended hours OK (4am-8pm ET, limit orders only)`);
     audit("RULES", `Extended hours: No fractional shares, no market orders, no short selling`);
     audit("RULES", `PDT: If account < $25K, max 3 day trades per 5 business days`);
-    audit("RULES", `Minimum score to trade: 65/100 combined edge score`);
+    audit("RULES", minScoreBannerLine(state.minScoreThreshold));
     audit("RULES", `Minimum stock price: $5 | Minimum volume: 500K daily`);
     audit("RULES", `Strategy scoring: Momentum 25%, VRP 25%, MeanRev 20%, Squeeze 15%, Volume 15%`);
     audit("RULES", `Correlation check: Max ${2} stocks per sector`);
