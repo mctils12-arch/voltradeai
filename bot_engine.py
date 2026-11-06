@@ -5445,6 +5445,8 @@ def _resolve_third_leg_dwell(macro: dict, vxx_ratio: float, regime: str, cfg: di
         "zone": confirmed, "raw_zone": raw, "confirmed_by": how,
         "pending": pending, "pending_count": pending_count,
         "vxx_fallback": fallback, "in_cooldown": in_cooldown,
+        # 2026-11-06: when the re-entry cooldown ends (epoch s), for the audit row
+        "cooldown_until": (last_exit + cooldown_s) if in_cooldown else None,
         "spike": raw == "SPIKE",
         "buy_ok": confirmed == "BAND" and raw == "BAND" and not in_cooldown,
         "recovery_exit_ok": confirmed == "RECOVERY",
@@ -5456,6 +5458,13 @@ def _leg3_record_protective_exit() -> None:
     state = _leg3_load_state()
     state["last_protective_exit_ts"] = time.time()
     _leg3_save_state(state)
+
+
+def _leg3_order_ok(resp):
+    """True/False from a requests.Response's `ok`; None when the object is not
+    a real response (the audit then says "result unknown", never "accepted")."""
+    ok = getattr(resp, "ok", None)
+    return ok if isinstance(ok, bool) else None
 
 
 def _scan_entry_shadow(roll_rows: list, *leg_results) -> dict:
@@ -5558,7 +5567,13 @@ def _run_third_leg(macro: dict) -> dict:
         vrp_pct = min(LEG3_VRP_PCT, remaining_capacity * 0.6)
         # DWELL 2026-10-27 (N20): buy only on a CONFIRMED band zone (and
         # never inside the post-stop/spike re-entry cooldown).
-        if vrp_pct > 0 and band_low <= vxx_ratio <= band_high and leg3_dwell["buy_ok"]:
+        # RULE CALL 2026-11-06 (10% stop + 24h cooldown kept): a buy that ONLY
+        # the cooldown blocks is recorded with the price it would have paid
+        # (leg3_cooldown_block -> a LEG3-COOLDOWN-BLOCK audit row), so the
+        # cooldown earns a measurable prevention-P&L like every other gate.
+        _cooldown_only = (bool(leg3_dwell.get("in_cooldown")) and leg3_dwell.get("zone") == "BAND"
+                          and leg3_dwell.get("raw_zone") == "BAND")
+        if vrp_pct > 0 and band_low <= vxx_ratio <= band_high and (leg3_dwell["buy_ok"] or _cooldown_only):
             # Check VXX trend: fetch last 5 days
             vxx_r = _req.get("https://data.alpaca.markets/v2/stocks/bars",
                 params={"symbols":"VXX","timeframe":"1Day","limit":6,"feed": bars_feed()},
@@ -5572,7 +5587,14 @@ def _run_third_leg(macro: dict) -> dict:
                 svxy_r = _req.get("https://data.alpaca.markets/v2/stocks/snapshots",
                     params={"symbols":"SVXY","feed": data_feed()}, headers=headers, timeout=8)
                 svxy_price = float(svxy_r.json().get("SVXY",{}).get("latestTrade",{}).get("p", 0) or 0)
-                if svxy_price > 0:
+                if svxy_price > 0 and _cooldown_only:
+                    actions.append({
+                        "type": "leg3_cooldown_block", "symbol": "SVXY", "price": svxy_price,
+                        "vxx_ratio": round(vxx_ratio, 4), "cooldown_until": leg3_dwell.get("cooldown_until"),
+                        "reason": f"VXX ratio {vxx_ratio:.3f} (elevated+declining) — buy blocked by the "
+                                  f"{float(BASE_CONFIG.get('LEG3_VRP_REENTRY_COOLDOWN_HOURS', 24)):g}h re-entry cooldown",
+                    })
+                elif svxy_price > 0:
                     alloc  = equity * vrp_pct
                     # CASH RESERVE 2026-11-06: SVXY is a satellite — the buy fits
                     # inside the room above the regime's cash reserve or is cut.
@@ -5622,10 +5644,16 @@ def _run_third_leg(macro: dict) -> dict:
                                 "reason": f"VXX ratio {vxx_ratio:.3f} (elevated+declining) — VRP harvest",
                                 "regime": regime,
                                 "order_id": o.json().get("id", "?"),
+                                "ok": _leg3_order_ok(o),
                             })
                             _log.info(f"[LEG3-VRP] Bought {shares} SVXY @ {svxy_price:.2f} (VRP harvest, regime={regime})")
+                        except broker_clock.OrderBlocked as e:
+                            _log.info(f"[LEG3-VRP] buy deferred: {e}")
                         except Exception as e:
-                            _log.debug(f"[LEG3-VRP] Order failed: {e}")
+                            # 2026-11-06: no longer silent (debug only) — the audit shows it
+                            _log.warning(f"[LEG3-VRP] Order failed: {e}")
+                            actions.append({"type": "third_leg_error", "stage": "buy", "symbol": "SVXY",
+                                            "error": str(e)[:160]})
 
         # ── Leg 3C: Sector Rotation — DISABLED (pro-level overhaul) ────
         # Backtest: -$92K total P&L, 20.7% WR, 124% max DD. Replaced by convexity overlay.
@@ -5669,20 +5697,35 @@ def _run_third_leg(macro: dict) -> dict:
                           "type": "market", "time_in_force": "day"},
                     headers=headers, timeout=10)
                 pnl = pnl_frac * 100
+                try:
+                    _px = float(pos.get("current_price") or 0) or None
+                except (TypeError, ValueError):
+                    _px = None
                 actions.append({
                     "type": "third_leg_exit",
                     "trigger": trigger,
                     "symbol": sym,
                     "reason": reason,
                     "pnl_pct": round(pnl, 2),
+                    # 2026-11-06 (rule call: stop/cooldown kept): the exit's price,
+                    # size and broker answer, so the stop's rollback trigger
+                    # (SVXY +5% within 5 sessions of a protective exit) is checkable
+                    "price": _px,
+                    "qty": qty,
+                    "ok": _leg3_order_ok(o),
                 })
                 if trigger != "regime_recovery":
                     _leg3_record_protective_exit()
                     _log.warning(f"[LEG3-PROTECT] Sold {sym} ({trigger}: {reason})")
                 else:
                     _log.info(f"[LEG3-EXIT] Sold {sym} (regime={regime}, P&L={pnl:.1f}%)")
+            except broker_clock.OrderBlocked as e:
+                _log.info(f"[LEG3-EXIT] exit deferred for {sym}: {e}")
             except Exception as e:
-                _log.debug(f"[LEG3-EXIT] Sell failed for {sym}: {e}")
+                # 2026-11-06: no longer silent (debug only) — the audit shows it
+                _log.warning(f"[LEG3-EXIT] Sell failed for {sym}: {e}")
+                actions.append({"type": "third_leg_error", "stage": f"exit ({trigger})", "symbol": sym,
+                                "error": str(e)[:160]})
 
     except Exception as e:
         _log.debug(f"[LEG3] Third leg error: {e}")
