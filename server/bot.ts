@@ -680,7 +680,9 @@ const LEGACY_DEFENSIVE_CANDIDATE_TICKERS = new Set(["VTI", "IWM", "TLT", "IEF", 
 // bars stream, which doesn't exist for options on this feed anyway).
 // (Since 2026-10-13 option positions are judged by an option-scaled POS-KILL
 // backstop instead of the stock -25% stop — see isPosKillExemptOption below;
-// POS-WARN and time-exit still apply.)
+// POS-WARN still applies; since 2026-11-06 TIME-EXIT does not: it closes with a
+// market order and has no opening-window rule, and options_manager.py owns
+// option exits, its own 21-DTE time exit included.)
 function isOptionSymbol(ticker: string): boolean {
   const t = String(ticker).toUpperCase();
   return t.length > 10 || /^[A-Z]+\d{6}[CP]\d{8}$/.test(t);
@@ -8501,7 +8503,14 @@ except: print('{}')
           // IEF/SCHP) that were evaluated and rejected in favor of GLD
           // (system_config.py DEFENSIVE_FLOOR_TICKER) but are kept here in
           // case one is ever held again.
-          if (!LEGACY_DEFENSIVE_CANDIDATE_TICKERS.has(ticker)) {
+          //
+          // OPTIONS EXEMPT 2026-11-06: an option position is never time-exited
+          // here. This close is a MARKET order with no 09:30-09:45 opening-window
+          // rule (a market order on an option is the widest fill there is), and
+          // options_manager.py owns option exits: its 21-DTE time exit, profit
+          // targets, stops, the earnings close and the mid-first ladder. Prior:
+          // options older than 14 days with P&L in [-5%, +2%] were closed here.
+          if (!LEGACY_DEFENSIVE_CANDIDATE_TICKERS.has(ticker) && !isPosKillExemptOption(ticker, pos.asset_class)) {
             const entryTime = pos.created_at || pos.submitted_at;
             // BROKER CLOCK ORDER GATE 2026-11-05: TIME-EXIT is a market order,
             // which the gate refuses while the clock says closed — judged
