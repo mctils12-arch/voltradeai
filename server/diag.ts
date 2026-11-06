@@ -416,6 +416,15 @@ export const DIAG_PROBES = [
   // bucket means, first_sufficient_run. Derived statistics only: no price, no
   // URL; no network; no Python; no query parameters.
   "github_gate2",
+  // ADDED 2026-11-06 ([RESEARCH], human "fix all of this"): read-only status of
+  // the weekly re-run of the pre-registered event-reaction study on the
+  // delisting-inclusive panel (server/eventStudy.ts eventStudyStatus) — flag,
+  // schedule, panel build, study-code hash, the result's prior, deviations,
+  // per-type verdicts and headline cells (n, mean, t, halves, spread proxy)
+  // for the panel run and its survivor subset, run counts, last_run.json.
+  // Aggregates only: no ticker, price, per-event row or URL; no network; no
+  // Python; no query parameters.
+  "event_study",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job
