@@ -40,6 +40,7 @@ import order_ladder
 # 2026-11-05 (daily line, measurement only): the quote each close was priced
 # from and the order id Alpaca returned — see option_fill_ledger.py.
 import option_fill_ledger as _fill_ledger
+import mleg_ladder
 from datetime import datetime, timedelta
 
 try:
@@ -628,7 +629,7 @@ def _attempt_roll(occ_symbol: str, qty: int, current_side: str,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _close_strategy_mleg(legs: list, ticker: str, units: int = None) -> dict:
+def _close_strategy_mleg(legs: list, ticker: str, units: int = None, ladder_ok: bool = True) -> dict:
     """
     Close a multi-leg strategy using a single mleg order.
     Each leg is reversed: bought legs are sold_to_close, sold legs are bought_to_close.
@@ -652,6 +653,14 @@ def _close_strategy_mleg(legs: list, ticker: str, units: int = None) -> dict:
     only. A partial close is never split into per-leg orders, which could
     leave part of a sold leg uncovered: a refused mleg returns the error and
     the caller re-arms its rule.
+
+    MID-FIRST (2026-11-06, mleg_ladder.py; human: "work limits near mid"):
+    with the ladder on and `ladder_ok`, the close is first a LIMIT mleg at the
+    combination's net mid (signed: a debit positive, a credit negative), its
+    plan in the result's "ladder"; the pursuit steps it toward the natural
+    (_work_mleg_ladder). With no usable quote, a refused limit, or `ladder_ok`
+    False (the previous ladder ran out), today's MARKET mleg goes out as
+    before, then the per-leg fallback.
     """
     mleg_legs = []
     qty = 0
@@ -674,43 +683,81 @@ def _close_strategy_mleg(legs: list, ticker: str, units: int = None) -> dict:
         return {"status": "error", "detail": "No legs to close"}
     if units is not None:
         qty = int(units)
+    # MID-FIRST (2026-11-06): first a limit mleg at the net mid (the broker
+    # clock is asked before any quote is read); anything short of an accepted
+    # order falls through to today's market mleg, sent by the same POST below.
+    ladder_note = ""
+    attempts = []                       # (payload overrides, ladder plan or None), in order
+    ladder_cfg = mleg_ladder.settings(ALPACA_BASE)
+    if ladder_ok and ladder_cfg["on"]:
+        try:
+            broker_clock.check_order_allowed(ticker, "strategy close (mleg)")
+        except broker_clock.OrderBlocked as blocked:
+            return {"status": "deferred", "method": "none", "detail": str(blocked)[:200]}
+        p = mleg_ladder.plan(_mleg_leg_quotes(legs), ladder_cfg["steps"])
+        if "prices" in p:
+            attempts.append(({"type": "limit", "limit_price": str(mleg_ladder.signed_limit(p["side"], p["prices"][0]))}, p))
+        else:
+            ladder_note = f"no mid limit ({p['skip'][:120]}); "
+    elif not ladder_ok:
+        ladder_note = "the mid-first ladder ran out; "
+    attempts.append(({}, None))
     # Try mleg close first
     mleg_error = ""
-    try:
-        broker_clock.check_order_allowed(ticker, "strategy close (mleg)")
-        payload = {
-            "order_class": "mleg",
-            "qty": str(max(qty, 1)),
-            "type": "market",  # Use market for closing to ensure execution
-            "time_in_force": "day",
-            "legs": mleg_legs,
-        }
-        resp = requests.post(
-            f"{ALPACA_BASE}/v2/orders",
-            headers={**_alpaca_headers(), "Content-Type": "application/json"},
-            json=payload,
-            timeout=15,
-        )
-        if resp.status_code in (200, 201):
-            order = resp.json()
-            # 2026-11-05 (daily line): one ledger row per leg AFTER the POST
-            # returned (a market close: no quote is read here, so the legs'
-            # mids are null unless a fresh one was noted; measurement only).
-            _fill_ledger.record_mleg_order(order.get("id", ""), mleg_legs, max(qty, 1),
-                                           "options_manager._close_strategy_mleg")
-            return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg", "detail": f"mleg close: {len(mleg_legs)} legs"}
-        mleg_error = f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
-    except broker_clock.OrderBlocked as blocked:
-        # BROKER CLOCK ORDER GATE 2026-11-05: while the broker's clock says
-        # closed no leg can be sent either, so the whole close is reported as
-        # deferred (the shape _request_group_close uses for a closed market)
-        # and pursued on a later tick; the per-leg fallback is not attempted.
-        return {"status": "deferred", "method": "none", "detail": str(blocked)[:200]}
-    except Exception as e:
-        mleg_error = str(e)[:160]
+    for overrides, p in attempts:
+        try:
+            broker_clock.check_order_allowed(ticker, "strategy close (mleg)")
+            payload = {
+                "order_class": "mleg",
+                "qty": str(max(qty, 1)),
+                "type": "market",  # Use market for closing to ensure execution
+                "time_in_force": "day",
+                "legs": mleg_legs,
+            }
+            payload.update(overrides)   # the mid-first attempt: a signed limit at the net mid
+            resp = requests.post(
+                f"{ALPACA_BASE}/v2/orders",
+                headers={**_alpaca_headers(), "Content-Type": "application/json"},
+                json=payload,
+                timeout=15,
+            )
+            if resp.status_code in (200, 201):
+                order = resp.json()
+                # 2026-11-05 (daily line): one ledger row per leg AFTER the POST
+                # returned (the limit's legs carry the quotes just read for it;
+                # a market close's mids are null unless a fresh one was noted).
+                _fill_ledger.record_mleg_order(order.get("id", ""), mleg_legs, max(qty, 1),
+                                               "options_manager._close_strategy_mleg")
+                if p is None:
+                    return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg",
+                            "detail": f"{ladder_note}mleg close: {len(mleg_legs)} legs"}
+                now = time.time()
+                natural = p["ask"] if p["side"] == "buy" else p["bid"]
+                what = "debit" if p["side"] == "buy" else "credit"
+                return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg_limit",
+                        "detail": (f"mleg close: {len(mleg_legs)} legs, limit at the net mid ${p['prices'][0]:.2f} {what} "
+                                   f"(step 1/{len(p['prices'])}; natural ${natural:.2f})"),
+                        "ladder": {"side": p["side"], "steps": len(p["prices"]), "step": 1, "price": p["prices"][0],
+                                   "plan": p["prices"], "natural": natural, "units": max(qty, 1),
+                                   "started_at": now, "step_at": now}}
+            if p is not None:
+                ladder_note = f"mid limit refused (HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:120]}); "
+                continue
+            mleg_error = f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
+        except broker_clock.OrderBlocked as blocked:
+            # BROKER CLOCK ORDER GATE 2026-11-05: while the broker's clock says
+            # closed no leg can be sent either, so the whole close is reported as
+            # deferred (the shape _request_group_close uses for a closed market)
+            # and pursued on a later tick; the per-leg fallback is not attempted.
+            return {"status": "deferred", "method": "none", "detail": str(blocked)[:200]}
+        except Exception as e:
+            if p is not None:
+                ladder_note = f"mid limit failed ({str(e)[:120]}); "
+                continue
+            mleg_error = str(e)[:160]
     if units is not None:
         return {"status": "error", "method": "mleg", "mleg_error": mleg_error,
-                "detail": f"partial mleg close of {qty} unit(s) refused ({mleg_error}); not split into per-leg orders"}
+                "detail": f"{ladder_note}partial mleg close of {qty} unit(s) refused ({mleg_error}); not split into per-leg orders"}
     # Fallback: close legs individually, in the order the broker accepts —
     # short legs first (buy_to_close at the ask); long wings only once no
     # short leg is left (sell_to_close at the bid).
@@ -741,7 +788,7 @@ def _close_strategy_mleg(legs: list, ticker: str, units: int = None) -> dict:
     status = "submitted" if submitted and not deferred else ("partial" if submitted else "error")
     return {
         "status": status, "method": "individual_legs", "mleg_error": mleg_error,
-        "detail": (f"mleg rejected ({mleg_error}); {submitted}/{len(batch)} leg close(s) submitted"
+        "detail": (f"{ladder_note}mleg rejected ({mleg_error}); {submitted}/{len(batch)} leg close(s) submitted"
                    + (f", {len(deferred)} deferred (shorts first / no quote)" if deferred else "")),
         "leg_results": results, "deferred": deferred,
     }
@@ -817,6 +864,212 @@ def _open_orders_for(symbols) -> list:
     return []
 
 
+# ── MID-FIRST MLEG ORDERS (2026-11-06): the broker side of mleg_ladder.py ──
+# A group close (and a debit group's partial scale-out) goes out as a limit
+# mleg at the combination's net mid; each later tick the pursuit re-prices it
+# one step toward the natural (Alpaca replace of the whole mleg order), no
+# sooner than step_seconds; once the natural has rested touch_seconds unfilled
+# the order is canceled and the next tick sends today's market mleg. Steps are
+# taken only in regular hours after 09:45 ET. Every step is a LADDER action
+# (an OPTIONS-LADDER audit row). Rollback: env VOLTRADE_OPTIONS_MLEG_LADDER=off
+# or system_config OPTIONS_MLEG_LADDER mode "off" (today's market mleg).
+_WORKING_ORDER_STATUSES = ("new", "accepted", "pending_new", "partially_filled", "accepted_for_bidding",
+                           "pending_replace", "pending_cancel", "held")
+
+
+def _mleg_leg_quotes(legs: list) -> list:
+    """Each leg's quote on the side the order takes: a leg's own "order_side"
+    (an entry), else the side a CLOSE takes (a bought leg is sold, a sold leg bought)."""
+    out = []
+    for pos in legs:
+        snap = _get_option_snapshot(pos.get("symbol", "")) or {}
+        side = pos.get("order_side") or ("sell" if pos.get("side", "long") == "long" else "buy")
+        out.append({"side": side, "bid": snap.get("bid"), "ask": snap.get("ask"), "ratio": 1})
+    return out
+
+
+def _live_order(order_id: str):
+    """The order (following one replace) while it is still working at the broker, else None."""
+    order = _get_order(order_id) if order_id else None
+    if order and str(order.get("status", "")).lower() == "replaced" and order.get("replaced_by"):
+        order = _get_order(str(order["replaced_by"]))
+    if order and str(order.get("status", "")).lower() in _WORKING_ORDER_STATUSES:
+        return order
+    return None
+
+
+def _set_group_ladder(state: dict, occs: list, order_id: str, ladder: dict) -> None:
+    for occ in occs:
+        st = state.get(occ)
+        if isinstance(st, dict) and isinstance(st.get("close_last_result"), dict):
+            st["close_last_result"]["order_id"] = order_id
+            st["close_last_result"]["ladder"] = dict(ladder)
+
+
+def _mleg_ladder_action(group: dict, occs: list, event: str, reason: str, status: str, order_id: str, ladder: dict) -> dict:
+    return {"action": "LADDER", "ticker": group["ticker"], "strategy": group["strategy"], "legs": occs,
+            "type": f"mleg_ladder_{event}", "reason": reason,
+            # "mleg_ladder", not "ladder": the audit formatter's "exit ladder step" suffix is the
+            # single-leg exit ladder's; this row's reason already names its own step
+            "order": {"status": status, "order_id": order_id, "detail": reason,
+                      "mleg_ladder": {"step": int(ladder.get("step") or 0), "of": int(ladder.get("steps") or 0),
+                                      "price": ladder.get("price")}}}
+
+
+def _step_mleg_order(group: dict, order_id: str, ladder: dict, rest_at_natural: bool = False):
+    """One tick of a working mid-first mleg order: (event, reason, status,
+    new order id) after re-pricing / holding / canceling it, or None when
+    nothing is due. Mutates `ladder` (step, price, step_at, done). An entry
+    (rest_at_natural) is never canceled at the natural: it rests there like
+    today's entry order."""
+    if not (_market_is_open() and not _in_opening_window()):
+        return None
+    cfg = mleg_ladder.settings(ALPACA_BASE)
+    now = time.time()
+    d = mleg_ladder.next_step(ladder, _mleg_leg_quotes(group["legs"]), now, cfg)
+    n = int(ladder.get("steps") or 0)
+    what = "debit" if ladder.get("side") == "buy" else "credit"
+    if d["do"] == "wait" or (d["do"] == "cancel" and rest_at_natural):
+        return None
+    if d["do"] == "hold":
+        ladder.update(step=d["step"], step_at=now)
+        return "step", f"mleg ladder step {d['step']}/{n}: limit stays ${float(d['price']):.2f} {what}", "working", order_id
+    if d["do"] == "step":
+        new, detail = _replace_order_price(order_id, mleg_ladder.signed_limit(ladder["side"], d["price"]))
+        if new and new.get("id"):
+            ladder.update(step=d["step"], price=d["price"], step_at=now)
+            return ("step", f"mleg ladder step {d['step']}/{n}: limit ${float(d['price']):.2f} {what} "
+                            f"(combination {d['bid']:.2f} / {d['ask']:.2f})", "replaced", str(new["id"]))
+        canceled = _cancel_order(order_id)
+        ladder.update(done="replace_refused", done_at=now)
+        return ("ended", f"mleg ladder: replace refused ({str(detail)[:120]}); order {'canceled' if canceled else 'cancel requested'}"
+                         f" — today's market mleg goes out next tick", "cancel_requested", order_id)
+    canceled = _cancel_order(order_id)
+    ladder.update(done="touch_timeout", done_at=now)
+    return ("ended", f"mleg ladder: {d['why']}; order {'canceled' if canceled else 'cancel requested'} — today's market mleg "
+                     f"goes out next tick", "cancel_requested", order_id)
+
+
+def _work_mleg_ladder(group: dict, state: dict, occs: list, last: dict, ladder: dict) -> list:
+    """The pursued group close's ladder tick: [LADDER action] or []."""
+    order_id = str(last.get("order_id") or "")
+    out = _step_mleg_order(group, order_id, ladder)
+    if not out:
+        return []
+    event, reason, status, new_id = out
+    _set_group_ladder(state, occs, new_id, ladder)
+    return [_mleg_ladder_action(group, occs, event, reason, status, new_id, ladder)]
+
+
+# ── MID-FIRST MULTI-LEG ENTRIES (2026-11-06): a debit vertical opened by
+# options_execution.evaluate_and_execute goes out at its net mid
+# (_mid_first_entry) and is registered here; each tick, before any rule, the
+# working order is re-priced one step toward the natural (no sooner than
+# step_seconds, regular hours after 09:45 only) and rests there, as today's
+# entry did. A ladder whose order is no longer working is finished: one line
+# in DATA_DIR/voltrade_options_entry_ladder_log.jsonl (filled / ended, the
+# step and the fill price). One entry per order id in
+# DATA_DIR/voltrade_options_entry_ladder.json; one older than a session is
+# dropped (its DAY order is gone).
+ENTRY_LADDER_FILE = "voltrade_options_entry_ladder.json"
+ENTRY_LADDER_LOG_FILE = "voltrade_options_entry_ladder_log.jsonl"
+
+
+def _entry_ladders_path() -> str:
+    return os.path.join(DATA_DIR, ENTRY_LADDER_FILE)
+
+
+def _load_entry_ladders() -> dict:
+    try:
+        with open(_entry_ladders_path()) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        logger.warning(f"entry ladder state unreadable, treated as empty: {e}")
+        return {}
+
+
+def _save_entry_ladders(data: dict) -> None:
+    try:
+        with open(_entry_ladders_path(), "w") as f:
+            json.dump(data, f, indent=1, default=str)
+    except OSError as e:
+        logger.error(f"entry ladder state not saved: {e}")
+
+
+def register_entry_ladder(order_id: str, ladder: dict) -> None:
+    """Called by evaluate_and_execute once a mid-first multi-leg entry is accepted."""
+    if not order_id or not isinstance(ladder, dict):
+        return
+    data = _load_entry_ladders()
+    now = time.time()
+    data[str(order_id)] = {**ladder, "order_id": str(order_id), "first_order_id": str(order_id),
+                           "started_at": now, "step_at": now}
+    _save_entry_ladders(data)
+
+
+def _pursue_entry_ladders() -> list:
+    """Step or finish every working mid-first entry; [LADDER action, ...]. Never raises."""
+    try:
+        data = _load_entry_ladders()
+        if not data:
+            return []
+        actions, changed = [], False
+        for key in list(data.keys()):
+            lad = data[key]
+            if not isinstance(lad, dict):
+                data.pop(key, None)
+                changed = True
+                continue
+            oid = str(lad.get("order_id") or "")
+            legs = [l for l in (lad.get("legs") or []) if isinstance(l, dict)]
+            occs = [l.get("symbol", "") for l in legs]
+            group = {"legs": legs, "ticker": (_parse_occ_symbol(occs[0]) if occs else {}).get("ticker", ""),
+                     "strategy": lad.get("strategy") or "multi-leg entry"}
+            if not oid or not legs or time.time() - float(lad.get("started_at") or 0) > order_ladder.MAX_LADDER_AGE_SECONDS:
+                data.pop(key, None)
+                changed = True
+                continue
+            order = _get_order(oid)
+            if order is None:
+                continue                      # read failed: judged again next tick
+            status = str(order.get("status", "")).lower()
+            if status == "replaced" and order.get("replaced_by"):
+                lad["order_id"] = str(order["replaced_by"])
+                changed = True
+                continue
+            if status not in _WORKING_ORDER_STATUSES:
+                data.pop(key, None)
+                changed = True
+                rec = {"at": datetime.now().isoformat(), "outcome": status, "order_id": oid, "strategy": group["strategy"],
+                       "legs": occs, "step": lad.get("step"), "steps": lad.get("steps"), "price": lad.get("price"),
+                       "plan": lad.get("plan"), "fill_price": order.get("filled_avg_price"),
+                       "seconds": round(time.time() - float(lad.get("started_at") or time.time()), 1)}
+                try:
+                    with open(os.path.join(DATA_DIR, ENTRY_LADDER_LOG_FILE), "a") as f:
+                        f.write(json.dumps(rec, default=str) + "\n")
+                except OSError as e:
+                    logger.warning(f"entry ladder log line not written: {e}")
+                reason = (f"mleg entry ladder ended ({status}) at step {lad.get('step')}/{lad.get('steps')}"
+                          + (f", filled at ${abs(float(order['filled_avg_price'])):.2f}" if status == "filled" and order.get("filled_avg_price") else ""))
+                actions.append(_mleg_ladder_action(group, occs, "entry_end", reason, status, oid, lad))
+                continue
+            stepped = _step_mleg_order(group, oid, lad, rest_at_natural=True)
+            if stepped:
+                event, reason, ostatus, new_id = stepped
+                lad["order_id"] = new_id
+                changed = True
+                actions.append(_mleg_ladder_action(group, occs, f"entry_{event}", f"ENTRY {reason}", ostatus, new_id, lad))
+        if changed:
+            _save_entry_ladders(data)
+        return actions
+    except Exception as e:
+        logger.error(f"entry ladder pursuit failed this tick: {e}")
+        return []
+
+
 def _stamp_group_close(state: dict, occ_symbols: list, rule: str, reason: str, result: dict) -> None:
     """Record the close request on every leg WITHOUT dropping the leg's
     strategy/entry fields — the grouping must survive a failed close."""
@@ -831,10 +1084,10 @@ def _stamp_group_close(state: dict, occ_symbols: list, rule: str, reason: str, r
         st["close_reason"] = str(reason)[:200]
         st["close_attempts"] = int(st.get("close_attempts", 0) or 0) + (1 if result.get("status") != "deferred" else 0)
         st["close_last_at"] = now_iso
-        st["close_last_result"] = {k: result.get(k) for k in ("status", "method", "order_id", "mleg_error", "detail", "deferred") if k in result}
+        st["close_last_result"] = {k: result.get(k) for k in ("status", "method", "order_id", "mleg_error", "detail", "deferred", "ladder") if k in result}
 
 
-def _request_group_close(legs: list, ticker: str, state: dict, rule: str, reason: str) -> dict:
+def _request_group_close(legs: list, ticker: str, state: dict, rule: str, reason: str, ladder_ok: bool = True) -> dict:
     """The one path every strategy exit takes: submit the group close during
     regular hours (deferred otherwise), and stamp the request on the legs —
     the legs' state is never popped here; the end-of-run cleanup removes a
@@ -845,7 +1098,8 @@ def _request_group_close(legs: list, ticker: str, state: dict, rule: str, reason
     elif _in_opening_window():
         result = {"status": "deferred", "method": "none", "detail": "opening window — close requested, submitted after 09:45 ET"}
     else:
-        result = _close_strategy_mleg(legs, ticker)
+        # (the default call stays two-argument: callers that stub this function keep working)
+        result = _close_strategy_mleg(legs, ticker) if ladder_ok else _close_strategy_mleg(legs, ticker, ladder_ok=False)
     _stamp_group_close(state, occs, rule, reason, result)
     return result
 
@@ -863,7 +1117,19 @@ def _pursue_group_close(group: dict, state: dict) -> list:
     attempts = max(int((state.get(o) or {}).get("close_attempts", 0) or 0) for o in occs)
     last_at = max((str((state.get(o) or {}).get("close_last_at", "")) for o in occs), default="")
     working = _open_orders_for(occs)
+    last = first.get("close_last_result") or {}
+    ladder = last.get("ladder") if last.get("method") == "mleg_limit" and isinstance(last.get("ladder"), dict) else None
+    if ladder and not working and last.get("order_id"):
+        # a resting mleg order is read by its id (the symbols filter is not relied on for it)
+        live = _live_order(last["order_id"])
+        if live:
+            working = [live]
+            last["order_id"] = str(live.get("id") or last["order_id"])
     if working:
+        if ladder and not ladder.get("done"):
+            acts = _work_mleg_ladder(group, state, occs, last, ladder)
+            if acts:
+                return acts
         return [{"action": "WAIT", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_close_working",
                  "reason": f"{len(working)} close order(s) working at the broker for {strategy} — not resubmitting", "attempts": attempts}]
     try:
@@ -873,7 +1139,8 @@ def _pursue_group_close(group: dict, state: dict) -> list:
     if since < CLOSE_RETRY_SECONDS and (first.get("close_last_result") or {}).get("status") in ("submitted", "partial"):
         return [{"action": "WAIT", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_close_settling",
                  "reason": f"close submitted {int(since)}s ago — giving it {CLOSE_RETRY_SECONDS}s before resubmitting", "attempts": attempts}]
-    result = _request_group_close(legs, ticker, state, rule, reason)
+    # a ladder that ran out (its natural rested unfilled, or a step was refused) is followed by today's market mleg
+    result = _request_group_close(legs, ticker, state, rule, reason, ladder_ok=not (ladder and ladder.get("done")))
     return [{"action": "CLOSE_STRATEGY", "ticker": ticker, "strategy": strategy, "legs": occs,
              "reason": f"{rule}: retry #{attempts + 1} — {reason}"[:220], "type": rule, "retry": attempts + 1, "order": result}]
 
@@ -2122,6 +2389,28 @@ def _settle_group_scale_out(group: dict, state: dict, cfg: dict) -> list:
     closed = min((max(0, before.get(o, 0) - qtys.get(o, 0)) for o in occs), default=0)
     age = _seconds_since(so.get("submitted_at"))
     working = _open_orders_for(occs)
+    lad = so.get("ladder") if isinstance(so.get("ladder"), dict) else None
+    if lad and not working and so.get("order_id"):
+        live = _live_order(str(so["order_id"]))     # a resting mleg order is read by its id
+        if live:
+            working = [live]
+            so["order_id"] = str(live.get("id") or so["order_id"])
+    if working and lad and not lad.get("done"):
+        # MID-FIRST (2026-11-06): the partial mleg walks from the net mid to the
+        # natural like a group close; its own touch timeout cancels it (then it
+        # settles as unfilled and re-arms), so the work window does not apply.
+        stepped = _step_mleg_order(group, str(so.get("order_id") or ""), lad)
+        if stepped:
+            event, reason, status, new_id = stepped
+            so["order_id"] = new_id
+            for p in pts:
+                p["scale_out"] = dict(so)
+            return [_mleg_ladder_action(group, occs, event, f"SCALE-OUT {reason}", status, new_id, lad)]
+        for p in pts:
+            p["scale_out"] = dict(so)
+        return [{"action": "WAIT", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_scale_out_working",
+                 "reason": f"SCALE-OUT: closing {so.get('units')} unit(s) of {strategy} — mleg ladder step "
+                           f"{lad.get('step')}/{lad.get('steps')} working"}]
     wait = [{"action": "WAIT", "ticker": ticker, "strategy": strategy, "legs": occs, "type": "strategy_scale_out_working",
              "reason": f"SCALE-OUT: closing {so.get('units')} unit(s) of {strategy} — {len(working)} order(s) working, "
                        f"{closed} unit(s) filled so far"}]
@@ -2217,7 +2506,8 @@ def _debit_group_profit_taking(group: dict, state: dict, net_debit: float, cfg: 
     result = _close_strategy_mleg(legs, ticker, units=n)
     accepted = result.get("status") == "submitted"
     record = ({"status": "submitted", "units": n, "qty_before": qtys, "order_id": result.get("order_id", ""),
-               "submitted_at": now_iso, "ratio": round(ratio, 4), "value": round(value, 2), "net_debit": round(net_debit, 2)}
+               "submitted_at": now_iso, "ratio": round(ratio, 4), "value": round(value, 2), "net_debit": round(net_debit, 2),
+               "ladder": result.get("ladder")}
               if accepted else {"status": "refused", "at": now_iso, "detail": str(result.get("detail", ""))[:200]})
     for p in pts:
         p["scale_out"] = dict(record)
@@ -2305,6 +2595,8 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
 
     # MID-FIRST EXIT LADDER (2026-11-05): step or finish working ladders before any rule runs.
     actions.extend(_pursue_exit_ladders(options_positions))
+    # MID-FIRST MULTI-LEG ENTRIES (2026-11-06): walk working entries toward the natural.
+    actions.extend(_pursue_entry_ladders())
 
     if not options_positions:
         # Clean stale state entries — but NEVER the convexity overlay's

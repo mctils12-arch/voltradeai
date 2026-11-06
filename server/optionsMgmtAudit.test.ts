@@ -118,3 +118,18 @@ test("bot.ts audits the scan's options_management rows", () => {
   const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
   assert.ok(/for \(const row of formatOptionsMgmt\(result\.options_management\)\) audit\(row\.type, row\.message\);/.test(bot));
 });
+
+// 2026-11-06 MID-FIRST MULTI-LEG ORDERS (mleg_ladder.py): a group close's or a
+// multi-leg entry's step is a LADDER action whose reason names its own step;
+// it carries "mleg_ladder" (not "ladder"), so no single-leg "exit ladder" suffix.
+test("a multi-leg ladder step is one OPTIONS-LADDER row in its own words, never an exit", () => {
+  const step = {
+    action: "LADDER", ticker: "MLGC", strategy: "iron_condor", legs: ["a", "b", "c", "d"], type: "mleg_ladder_step",
+    reason: "mleg ladder step 2/3: limit $3.05 debit (combination 2.60 / 3.20)",
+    order: { status: "replaced", order_id: "ord-2", detail: "", mleg_ladder: { step: 2, of: 3, price: 3.05 } },
+  };
+  const rows = formatOptionsMgmt({ actions: [step] });
+  assert.deepEqual(rows.map((r) => r.type), ["OPTIONS-LADDER"]);
+  assert.equal(rows[0].message, "MLGC iron_condor: mleg ladder step 2/3: limit $3.05 debit (combination 2.60 / 3.20) · 4 legs · order replaced");
+  assert.ok(!rows[0].message.includes("exit ladder step"));
+});
