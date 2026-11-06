@@ -1,0 +1,12 @@
+# ops/branch_keep.txt — remote branches the weekly branch cleanup never touches.
+# Read by scripts/branch_hygiene.py: one fnmatch glob per line (the first
+# whitespace-delimited token); `#` starts a comment.
+#
+# Taken from the human-approved 2026-10-28 plan (ops/branch_cleanup_plan_2026-10-28.tsv),
+# whose permanent skip rows were these. Open-PR heads, tips younger than 24 h and
+# branches named in tracked code are kept by rule, not listed here.
+
+main                     # the default branch
+celestial-catalog-data   # live CelesTrak mirror, force-pushed every 6 h by celestial-catalog-mirror.yml
+gridvision-pod-result*   # GRID VISION RunPod result pushes: the only copies of the gv_best.pt weights (experiments.md 2026-10-21)
+gv-res-*                 # the same RunPod result branches under their short names

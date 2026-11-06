@@ -1,0 +1,45 @@
+# BRANCH HYGIENE — human-approved frozen-path ADDITION (2026-11-06, "fix all of
+# this", replying to "Run the branch cleanup and turn on GitHub's auto-delete
+# setting"; the cleanup policy itself was approved 2026-10-28).
+#
+# WHY: no merged branch was ever deleted, so the remote held 1,056 branches on
+# 2026-11-06 (986 claude/*). Agent sessions cannot delete refs (the proxy
+# refuses) and the repository's auto-delete setting is a human-only toggle, so
+# GITHUB_TOKEN does it here. Merges now pass --delete-branch themselves
+# (scripts/automerge.sh); this weekly run catches the rest: closed PRs, branches
+# that never had a PR, merges made by hand.
+#
+# WHAT: scripts/branch_hygiene.py classifies every remote branch from live state
+# (kept: main and ops/branch_keep.txt, open-PR heads, tips under 24 h old,
+# branches named in tracked code; merged -> delete; unique -> archive tag, then
+# delete) and scripts/branch_cleanup_apply.sh --apply carries the plan out:
+# each archive tag reads back from the remote before its branch is deleted, and
+# every delete is leased on the planned tip. Both scripts default to read-only /
+# dry-run; --apply is given here on purpose. Only branch refs and archive/* tags
+# change, never main, so nothing deploys.
+name: branch-hygiene
+on:
+  schedule:
+    - cron: "41 14 * * 6"   # Saturdays 14:41 UTC
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  pull-requests: read
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: false
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - name: Plan from live state (read-only)
+        run: python3 scripts/branch_hygiene.py --out "$RUNNER_TEMP/branch_plan.tsv"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply the plan (archive tags first, then leased deletes)
+        run: PLAN="$RUNNER_TEMP/branch_plan.tsv" bash scripts/branch_cleanup_apply.sh --apply
