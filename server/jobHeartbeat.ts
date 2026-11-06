@@ -172,6 +172,14 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     graceMs: 60 * MIN, maxRunMs: 5 * MIN, tradingDaysOnly: false,
   },
   {
+    // bot.ts checkShadowBackfill's fourth slot (same hour, its own flag): the
+    // instrument counterfactual's outcome job (instrument_counterfactual.backfill,
+    // 2026-11-06) — the passed-over instrument priced at +1/+5/+20 trading days.
+    id: "instrument_cf_backfill", label: "Instrument counterfactual outcome backfill (22:00 UTC)",
+    source: "server/bot.ts", kind: "daily", tz: "UTC", dueMin: 22 * 60,
+    graceMs: 60 * MIN, maxRunMs: 5 * MIN, tradingDaysOnly: false,
+  },
+  {
     // bot.ts checkShadowBackfillExitAligned: 5-min poll, UTC hour 22 (after
     // the old ruler succeeds) or 23, max 3 attempts a night.
     id: "shadow_backfill_exit_aligned", label: "Exit-aligned shadow backfill (22-23 UTC)",

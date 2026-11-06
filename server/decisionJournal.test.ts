@@ -181,9 +181,18 @@ test("entry (stock): the stages, the instrument alternatives and their reasons, 
   assert.deepEqual(r.stages.selection?.dominant, { name: "momentum", label: "momentum", points: 7.5 });
   assert.equal(r.stages.flows, null);
   assert.equal(r.stages.tax, null);
+  // EXACT PIN UPDATED 2026-11-06 (instrument counterfactual): the option alternative
+  // now carries its would-be entry — built from the trade dict, since this fixture
+  // has no option_alternative block from the selector (instrumentCounterfactual.test.ts).
   assert.deepEqual(r.rejected, [
     { instrument: "etf", reason: "ruled out: Below 200d MA — bull leveraged ETFs avoid below-trend entries" },
-    { instrument: "option", reason: "ruled out: score 58 < 65" },
+    { instrument: "option", reason: "ruled out: score 58 < 65", would_be: {
+      instrument: "option", strategy: null, selector_score: null, scored: false, chosen_by_selector: false,
+      selector_reason: "options were ruled out: score 58 < 65", contract: null,
+      contract_reason: "the selector's option block was not on the trade, so the ATM proxy is resolved and priced afterwards from Alpaca's contract list and daily option bars",
+      source: "the scan trade (no option_alternative from the selector)",
+      proxy: { kind: "atm_call", right: "C", side: "buy", dte_min: 30, dte_max: 45, underlying: "AMD", underlying_price: 150.2 },
+    } },
   ]);
   assert.equal(r.sizing?.pct_equity, 1.8);
   assert.equal(r.signal, "deep_score scan, momentum-led");

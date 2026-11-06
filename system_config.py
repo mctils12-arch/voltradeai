@@ -890,6 +890,24 @@ BASE_CONFIG = {
     # rows a day (~50 KB). Off switch: enabled False, or env
     # VOLTRADE_DECISION_JOURNAL=off (wins whenever present, no deploy).
     "DECISION_JOURNAL": {"enabled": True, "max_bytes": 5_000_000},
+    # INSTRUMENT COUNTERFACTUAL 2026-11-06 (human refocus spec §3 step 7
+    # "instrument choice: stock vs options vs both; log why the rejected
+    # instrument lost"; instrument_counterfactual.py, Node mirror
+    # server/instrumentCounterfactual.ts): for every ENTERED trade the
+    # instrument selector decided, the instrument it passed over (the option
+    # alternative of a stock / ETF buy, the stock alternative of an options
+    # entry) is written to DATA_DIR/voltrade_instrument_counterfactual.jsonl
+    # (rotated to .1 above max_bytes) and to the decision journal row's
+    # `rejected` entry as `would_be`; a nightly job prices both legs at +1 /
+    # +5 / +20 trading days from daily bars. An option the selector never
+    # built a contract for is priced as a bought ATM call (put for a bearish
+    # idea) expiring proxy_dte_min..proxy_dte_max days after the entry — a
+    # labelled proxy. Logging only — no order, size or gate reads it. Prior
+    # behaviour: none (no key). Expected effect: a few rows per entry (~3 KB).
+    # Off switch: enabled False, or env VOLTRADE_INSTRUMENT_COUNTERFACTUAL=off
+    # (wins whenever present, no deploy).
+    "INSTRUMENT_COUNTERFACTUAL": {"enabled": True, "max_bytes": 5_000_000,
+                                  "proxy_dte_min": 30, "proxy_dte_max": 45},
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

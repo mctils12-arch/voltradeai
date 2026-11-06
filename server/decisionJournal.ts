@@ -25,6 +25,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { attachCounterfactualOutcomes, contractLegs, wouldBeFor } from "./instrumentCounterfactual";
 
 export const DECISIONS_FILENAME = "voltrade_decisions.jsonl";
 export const DECISIONS_BACKFILL_FILENAME = "voltrade_decisions_backfill.jsonl";
@@ -43,7 +44,10 @@ export const STAGE_KEYS = ["regime", "calendar", "flows", "sector", "selection",
 export type StageKey = (typeof STAGE_KEYS)[number];
 type Obj = Record<string, unknown>;
 
-export interface RejectedAlt { instrument: string; reason: string }
+/** `would_be` (2026-11-06, server/instrumentCounterfactual.ts): on an entry the
+ *  instrument selector decided, the would-be entry of the instrument passed over
+ *  across the stock/options line, plus its settled outcomes when read. */
+export interface RejectedAlt { instrument: string; reason: string; would_be?: Obj }
 export interface DecisionRow {
   v: number; id: string; ts: string; ticker: string; action: DecisionAction;
   instrument: string; chosen: string; rejected: RejectedAlt[];
@@ -351,7 +355,11 @@ export function normalizeDecision(raw: unknown): DecisionRow | null {
   for (const [k, v] of Object.entries(stIn)) if (!(k in stages) && v && typeof v === "object" && !Array.isArray(v)) stages[k.slice(0, 30)] = clean(v) as Obj;
   const rejected: RejectedAlt[] = (Array.isArray(r.rejected) ? r.rejected : [])
     .map(rec).filter((x) => text(x.instrument)).slice(0, 6)
-    .map((x) => ({ instrument: text(x.instrument, 40), reason: text(x.reason, 300) }));
+    .map((x) => {
+      const alt: RejectedAlt = { instrument: text(x.instrument, 40), reason: text(x.reason, 300) };
+      if (Object.keys(rec(x.would_be)).length) alt.would_be = clean(x.would_be) as Obj;
+      return alt;
+    });
   const out: DecisionRow = {
     v: num(r.v) ?? 1, id: text(r.id, 40) || newDecisionId(), ts: text(r.ts, 40) || new Date().toISOString(),
     ticker, action, instrument: text(r.instrument || "stock", 40),
@@ -376,7 +384,7 @@ function fit(row: DecisionRow): string {
   if (sel) { delete sel.reasons; delete sel.subscores; }
   const cut: DecisionRow = {
     ...row, summary: row.summary.slice(0, 400), truncated: true,
-    rejected: row.rejected.slice(0, 4).map((x) => ({ instrument: x.instrument, reason: x.reason.slice(0, 160) })),
+    rejected: row.rejected.slice(0, 4).map((x) => ({ instrument: x.instrument, reason: x.reason.slice(0, 160), ...(x.would_be ? { would_be: x.would_be } : {}) })),
     stages: { ...row.stages, selection: sel },
   };
   s = JSON.stringify(cut);
@@ -494,7 +502,8 @@ export function readDecisions(dir: string, q: DecisionQuery = {}): DecisionRow[]
   const back: DecisionRow[] = [];
   scanFileBackwards(path.join(dir, DECISIONS_BACKFILL_FILENAME), q, limit, back);
   const ms = (r: DecisionRow) => { const t = Date.parse(r.ts); return Number.isFinite(t) ? t : 0; };
-  return [...live, ...back].sort((a, b) => ms(b) - ms(a)).slice(0, limit);
+  // 2026-11-06: an entry's passed-over instrument gains its settled outcomes (instrumentCounterfactual.ts)
+  return attachCounterfactualOutcomes([...live, ...back].sort((a, b) => ms(b) - ms(a)).slice(0, limit), dir);
 }
 
 /** ?ticker=&limit= -> a DecisionQuery for the API (limit 1..DECISIONS_MAX_LIMIT). */
@@ -573,8 +582,11 @@ function optionStage(t: Obj, o: EntryOutcome): Obj | null {
   if (o.instrument !== "option") return null;
   const c = rec(o.contract);
   const occ = text(c.occ_symbol || (OCC_RE.test(o.symbol) ? o.symbol : ""), 30);
+  const legs = contractLegs(c, o.side);
   return clean({
     strategy: o.chosen || null, setup: text(t.setup, 60) || null, occ_symbol: occ || null,
+    // 2026-11-06: every leg of the structure (instrument_counterfactual.py prices them)
+    legs: legs.length ? legs : (occ ? [{ symbol: occ, side: o.side }] : null),
     contract: occ ? describeOcc(occ) : null, side: o.side, qty: o.qty,
     limit_price: num(c.limit_price) ?? o.price, credit: num(c.net_credit ?? c.credit),
     max_loss: num(c.max_loss), cash_required: num(c.cash_required), delta: num(c.delta),
@@ -593,6 +605,13 @@ function buildEntryDecision(trade: unknown, o: EntryOutcome, nowMs = Date.now())
   };
   const fallback = fallbackAlternatives(t, o);
   const rejected = [...fallback, ...rejectedAlternatives(t, o.instrument).filter((r) => !fallback.some((f) => f.instrument === r.instrument))];
+  // INSTRUMENT COUNTERFACTUAL 2026-11-06: the passed-over instrument's would-be entry
+  const wb = wouldBeFor(t, o);
+  if (wb) {
+    const i = rejected.findIndex((r) => r.instrument === wb.instrument);
+    if (i >= 0) rejected[i] = { ...rejected[i], would_be: wb.would_be };
+    else rejected.push({ instrument: wb.instrument, reason: `the ${wb.instrument} alternative was not scored by the instrument selector`, would_be: wb.would_be });
+  }
   const shadow = o.mode === "shadow" ? "Shadow mode, no order placed: " : "";
   let what: string;
   if (o.instrument === "option") {

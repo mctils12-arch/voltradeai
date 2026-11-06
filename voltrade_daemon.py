@@ -397,6 +397,11 @@ class RPCDispatcher:
             # subprocess (it fetches bars); registered so an RPC caller resolves it.
             "ticker_dossier": ("ticker_dossier", "build"),
             "ticker_dossier_score": ("ticker_dossier", "score_ledger"),
+            # Instrument counterfactual (2026-11-06): each entry's passed-over
+            # instrument priced at +1/+5/+20 trading days. Like the dossier
+            # scorer it fetches bars, so bot.ts runs it nightly as a python3 -c
+            # subprocess; registered so an RPC caller resolves the same entry point.
+            "instrument_cf_backfill": ("instrument_counterfactual", "backfill"),
 
             # REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md step 2): the
             # single owner of regime state. args {"gating": "SPY", "force": false,

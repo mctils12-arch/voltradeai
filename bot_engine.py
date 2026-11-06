@@ -4446,6 +4446,9 @@ def _scan_market_inner():
             "instrument_reasoning": instrument_decision.get("reasoning", ""),
             "instrument_ticker": instrument_decision.get("ticker", ticker),  # Could be ETF ticker
             "instrument_scores": instrument_decision.get("scores", {}),
+            # INSTRUMENT COUNTERFACTUAL 2026-11-06: the option the selector passed
+            # over (instrument_selector.option_alternative) — logging only.
+            "option_alternative": instrument_decision.get("option_alternative"),
             # ETF order inputs for server/bot.ts (None unless instrument=="etf")
             **_etf_fields,
             "use_options": options_decision.get("use_options", False),

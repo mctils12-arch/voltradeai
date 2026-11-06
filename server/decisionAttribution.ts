@@ -32,6 +32,11 @@
 //                option fill ledger (no second slippage formula here). Fills
 //                with no recorded mid are counted as unattributed; their
 //                slippage stays inside the other buckets.
+// INSTRUMENT CHOICE (byInstrumentChoice, 2026-11-06; refocus spec §3 step 7):
+// not P&L — each entry the instrument selector decided against the instrument
+// it passed over (server/instrumentCounterfactual.ts + the nightly job in
+// instrument_counterfactual.py), per choice and horizon: both legs' mean
+// return, the mean difference, and the dollars at equal capital.
 // Pure (node:test safe); bot.ts gathers the inputs and caches the body.
 import fs from "node:fs";
 import path from "node:path";
@@ -40,6 +45,7 @@ import type { FillRow, PositionRow } from "./killSwitchAutoResume";
 import { fillsSlippage, optionFillsInWindow, type LedgerRow, type OptionFill } from "./dailyLine";
 import { money, type DecisionRow } from "./decisionJournal";
 import { inferOptionStructure, openings, STRUCTURE_GROUP_MS } from "./decisionBackfill";
+import { INSTRUMENT_CF_HORIZONS, PROXY_DTE_MAX, PROXY_DTE_MIN, type CfHorizon, type InstrumentChoice } from "./instrumentCounterfactual";
 
 export const ATTRIBUTION_DEFAULT_DAYS = 30;
 export const ATTRIBUTION_MAX_DAYS = 365;
@@ -127,6 +133,8 @@ export interface AttributionInputs {
   floorTickers: ReadonlySet<string>;
   /** bot_engine's sector cache (ticker -> sector) */
   sectors: Readonly<Record<string, string>>;
+  /** the instrument counterfactual ledger, folded (readInstrumentCounterfactuals); omitted = no byInstrumentChoice */
+  instrumentChoices?: readonly InstrumentChoice[];
 }
 
 export interface Lot {
@@ -144,10 +152,26 @@ export interface Bucket {
   pnl: number; realized: number; unrealized: number; n: number; open: number; wins: number; losses: number; reason: string;
 }
 
+/** One choice ("stock over options" ...) at one horizon. Not P&L: percentages are each leg's return on its own
+ *  capital; edgeDollars puts the chosen leg's dollars into the alternative ("at equal capital"). */
+export interface InstrumentChoiceBucket {
+  choice: string; horizon: CfHorizon;
+  /** decisions of this choice in the window; n = settled with both legs priced */
+  decisions: number; n: number; pending: number; unpriced: number;
+  chosenPct: number | null; rejectedPct: number | null;
+  /** mean (chosen - rejected), percentage points */
+  edgePct: number | null;
+  edgeDollars: number | null;
+  chosenBetter: number; rejectedBetter: number;
+  reason: string;
+  examples: Array<{ ticker: string; ts: string; line: string; diffPp: number }>;
+}
+
 export interface AttributionReport {
   window: { days: number; from: string; to: string; label: string };
   total: number; realized: number; unrealized: number; lots: number; openPositions: number;
   bySignal: Bucket[]; bySector: Bucket[]; byInstrument: Bucket[]; byTiming: Bucket[]; byExecution: Bucket[];
+  byInstrumentChoice: InstrumentChoiceBucket[];
   worstTrades: Array<{ symbol: string; root: string; pnl: number; open: boolean; signal: string; instrument: string; closedAt: string | null }>;
   notes: string[];
   sources: Record<string, unknown>;
@@ -383,6 +407,74 @@ function bucketLabel(key: string, v: string): string {
 }
 function capitalize(s: string): string { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
+// ── instrument choice: the chosen leg vs the one passed over ─────────────────
+const CHOICE_WORDS: ReadonlyArray<readonly [string, { label: string; chosen: string; rejected: string; noun: string }]> = [
+  ["stock_over_option", { label: "stock over options", chosen: "the stock bought", rejected: "the option alternatives passed over", noun: "stock" }],
+  ["etf_over_option", { label: "leveraged ETF over options", chosen: "the leveraged ETFs bought", rejected: "the option alternatives passed over", noun: "the ETF" }],
+  ["option_over_stock", { label: "options over stock", chosen: "the options opened", rejected: "the stock passed over", noun: "options" }],
+];
+const HORIZON_WORDS: Readonly<Record<CfHorizon, string>> = { "+1d": "1 trading day", "+5d": "5 trading days", "+20d": "20 trading days" };
+export const INSTRUMENT_CHOICE_EXAMPLES = 3;
+function fin(x: unknown): number | null {
+  return typeof x === "number" && Number.isFinite(x) ? x : null;
+}
+const signedPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+
+/** The decisions entered in [fromMs, toMs], per choice (stock over options, ETF over options, options over stock)
+ *  and horizon: settled / pending / unpriced counts, each leg's mean return, the mean difference (points), the
+ *  dollars at equal capital (the chosen leg's notional x the difference), how often each leg did better, a
+ *  plain-English reason, and the largest differences as examples. A choice with no decision in the window has no row. */
+export function instrumentChoiceBuckets(choices: readonly InstrumentChoice[], fromMs: number, toMs: number): InstrumentChoiceBucket[] {
+  const inWindow = choices.filter((c) => c.ms >= fromMs && c.ms <= toMs);
+  const out: InstrumentChoiceBucket[] = [];
+  for (const [key, w] of CHOICE_WORDS) {
+    const group = inWindow.filter((c) => c.choice === key);
+    if (!group.length) continue;
+    for (const h of INSTRUMENT_CF_HORIZONS) {
+      let pending = 0, unpriced = 0, chosenBetter = 0, rejectedBetter = 0, proxies = 0;
+      let sumC = 0, sumR = 0, sumD = 0, dollars = 0, dollarsN = 0;
+      const settled: Array<{ c: InstrumentChoice; diff: number; line: string }> = [];
+      for (const c of group) {
+        const o = c.outcomes[h];
+        if (!o) { pending++; continue; }
+        const cp = fin(o.chosen.pct), rp = fin(o.rejected.pct), diff = fin(o.diffPp);
+        if (!o.chosen.priced || !o.rejected.priced || cp === null || rp === null || diff === null) { unpriced++; continue; }
+        sumC += cp; sumR += rp; sumD += diff;
+        if (diff > 0) chosenBetter++; else if (diff < 0) rejectedBetter++;
+        if (o.proxy) proxies++;
+        const notional = fin(c.chosen.notional);
+        if (notional !== null && notional > 0) { dollars += (notional * diff) / 100; dollarsN++; }
+        settled.push({ c, diff, line: o.line });
+      }
+      const n = settled.length;
+      const mean = (s: number) => (n ? Math.round((s / n) * 100) / 100 : null);
+      const b: InstrumentChoiceBucket = {
+        choice: w.label, horizon: h, decisions: group.length, n, pending, unpriced,
+        chosenPct: mean(sumC), rejectedPct: mean(sumR), edgePct: mean(sumD), edgeDollars: dollarsN ? r2(dollars) : null,
+        chosenBetter, rejectedBetter, reason: "",
+        examples: [...settled].sort((a, x) => Math.abs(x.diff) - Math.abs(a.diff) || a.c.ms - x.c.ms).slice(0, INSTRUMENT_CHOICE_EXAMPLES)
+          .map((s) => ({ ticker: s.c.ticker, ts: s.c.ts, line: s.line, diffPp: s.diff })),
+      };
+      const extra = [pending ? `${pending} still pending` : "", unpriced ? `${unpriced} could not be priced` : ""].filter(Boolean).join(", ");
+      const label = capitalize(w.label);
+      if (!n) {
+        b.reason = `${label}: ${group.length} ${group.length === 1 ? "decision" : "decisions"} in the window, none settled at ${HORIZON_WORDS[h]} yet${extra ? ` (${extra})` : ""}.`;
+      } else {
+        const edge = b.edgePct as number;
+        const verdict = edge > 0 ? `choosing ${w.noun} gained ${edge.toFixed(1)} points on average`
+          : edge < 0 ? `choosing ${w.noun} cost ${(-edge).toFixed(1)} points on average` : "the choice broke even on average";
+        const proxyNote = key === "option_over_stock" || !proxies ? "" : proxies === n ? " (ATM option proxies)" : ` (${proxies} of them ATM option proxies)`;
+        const atEqual = b.edgeDollars === null ? "" : `; at equal capital the choice ${b.edgeDollars >= 0 ? "made" : "cost"} ${money(Math.abs(b.edgeDollars))}`;
+        b.reason = `${label} at ${HORIZON_WORDS[h]}: ${n} ${n === 1 ? "decision" : "decisions"} settled${extra ? ` (${extra})` : ""}. `
+          + `${capitalize(w.chosen)} averaged ${signedPct(b.chosenPct as number)}; ${w.rejected}${proxyNote} averaged ${signedPct(b.rejectedPct as number)}`
+          + ` — ${verdict}${atEqual}; ${w.noun} did better in ${chosenBetter} of ${n}.`;
+      }
+      out.push(b);
+    }
+  }
+  return out;
+}
+
 // ── the report ───────────────────────────────────────────────────────────────
 export function attributionReport(i: AttributionInputs): AttributionReport {
   const fromMs = i.nowMs - i.days * DAY;
@@ -446,6 +538,9 @@ export function attributionReport(i: AttributionInputs): AttributionReport {
       : `Execution is unavailable for this window: the broker's orders could not be read (${i.ordersError || "unknown error"}).`,
     "Sector for an option is its underlying's; an index or commodity ETF is named by what it holds. Paper account: no fees, no dividends.",
   ];
+  if (i.instrumentChoices) {
+    notes.push(`Instrument choice is not P&L: each entry the instrument selector decided is set against the instrument it passed over (stock vs options), both legs close-to-close from the entry day's close at +1, +5 and +20 trading days (the nightly job); an option the selector never built a contract for is priced as a bought ATM call (put for a bearish idea) expiring ${PROXY_DTE_MIN}-${PROXY_DTE_MAX} days out — a proxy, labelled so. Each leg's percent is on its own capital (share price, premium paid, or capital at risk); "at equal capital" puts the chosen leg's dollars into the alternative.`);
+  }
   return {
     window: { days: i.days, from: new Date(fromMs).toISOString(), to: new Date(i.nowMs).toISOString(), label: i.days === 1 ? "the last day" : `the last ${i.days} days` },
     total: tot.pnl, realized: tot.realized, unrealized: tot.unrealized, lots: tot.n, openPositions: tot.open,
@@ -454,12 +549,14 @@ export function attributionReport(i: AttributionInputs): AttributionReport {
     byInstrument: group(lots, "instrument", "instrument", (l) => l.instrument, execOf),
     byTiming: timing,
     byExecution: execution,
+    byInstrumentChoice: instrumentChoiceBuckets(i.instrumentChoices ?? [], fromMs, i.nowMs),
     worstTrades,
     notes,
     sources: {
       events: i.events.length, positions: i.positions.length, decisions: i.decisions.length,
       backfilledDecisions: i.decisions.filter((d) => d.backfilled).length, unmatchedLots: unmatched,
       orders: i.orders ? i.orders.length : null, optionFills: win.fills.length, ledgerRows: i.ledger.rows.length,
+      instrumentChoices: i.instrumentChoices ? i.instrumentChoices.length : null,
       generatedAt: new Date(i.nowMs).toISOString(),
     },
   };
