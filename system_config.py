@@ -671,6 +671,69 @@ BASE_CONFIG = {
     "CIRCUIT_BREAKER_STOPS":  3,    # 3 consecutive stops = circuit breaker
     "CIRCUIT_BREAKER_HOURS":  1,    # Pause 1 hour after circuit breaker
 
+    # ── POSITION MANAGEMENT 2026-11-06 (refocus spec section 4, human
+    # 2026-11-05; position_mgmt.py) ─────────────────────────────────────────
+    # CASH RESERVE: this share of equity stays in cash, rising as the regime
+    # turns risk-off. Applied where new satellite capital is decided
+    # (position_sizing.size_portfolio, the scan's stock/ETF loop, the third
+    # leg, the tier engine's allocator, server/bot.ts executeTrades / morning
+    # queue / SELL_CSP dispatch). It only blocks or trims NEW entries: it never
+    # sells, and the floor (its own 85% sleeve) is never sold for it. New keys,
+    # no prior values (prior behaviour: no reserve beyond the regime exposure
+    # caps). Expected effect with the vol-managed floor near its sleeve: ~10%
+    # of equity for satellites in BULL, ~7% in NEUTRAL; in risk-off regimes the
+    # floor's own de-risked cash counts toward the reserve. Every trim/block is
+    # logged (voltrade_position_mgmt.jsonl) and a blocked candidate's shadow
+    # record moves to rejected_cash_reserve (its prevention P&L is measured).
+    # Off switch: CASH_RESERVE_ENABLED False.
+    "CASH_RESERVE_ENABLED":     True,
+    "CASH_RESERVE_PCT_BULL":    0.05,
+    "CASH_RESERVE_PCT_NEUTRAL": 0.08,
+    "CASH_RESERVE_PCT_CAUTION": 0.15,
+    "CASH_RESERVE_PCT_BEAR":    0.25,
+    "CASH_RESERVE_PCT_PANIC":   0.35,
+    # A trim that would leave less than this share of equity is a block (the
+    # sizer's own floor, position_sizing.ABSOLUTE_MIN_POSITION_PCT).
+    "CASH_RESERVE_MIN_ENTRY_PCT": 0.01,
+    # DRAWDOWN RISK BUDGET: from START to END (= DRAWDOWN_HALT_PCT, the entry
+    # halt) satellite sizing scales linearly 1.0x -> MIN_SCALAR. Where a sizer
+    # already had a stepped drawdown ladder (position_sizing 5/10/15% ->
+    # 0.8/0.6/0.4; Tier 1 10/15% -> 0.75/0.5) the TIGHTER of the two applies,
+    # so no sizer is looser than before (RULE REVIEW: no risk loosening without
+    # evidence); the options sizers had no drawdown rule at all and get the
+    # budget. REPLACES_LADDERS True = the linear budget alone (looser than the
+    # ladders between 5% and 18%). The Node -20% kill and the 18% halt are
+    # unchanged. Off switch: DD_RISK_BUDGET_ENABLED False.
+    "DD_RISK_BUDGET_ENABLED":   True,
+    "DD_RISK_BUDGET_START_PCT": 10.0,
+    "DD_RISK_BUDGET_END_PCT":   18.0,
+    "DD_RISK_BUDGET_MIN_SCALAR": 0.5,
+    "DD_RISK_BUDGET_REPLACES_LADDERS": False,
+    # CAPITAL ROTATION (server/bot.ts runUpgradeCandidates, revived): sell a
+    # held stock/ETF satellite that has run its course (P&L >= NEAR_TARGET_FRAC
+    # of its take-profit width or peak >= 2R, AND >= FADE_ATR_MULT x ATR off its
+    # high) or is a loser, for a candidate that could not get capital, when the
+    # after-tax value at the HORIZON beats holding by MIN_EDGE_PCT after costs.
+    # Never the floor, options, a covered-call stock, or a position held under
+    # MIN_HOLD_DAYS (the stop's dormant window: 1-3 day holds had 0-5% win
+    # rate, position_sizing SHORT-HOLD FIX). Expected value per trade = the
+    # bucket's realized average (position_sizing._get_historical_stats); a held
+    # position that ran its course is assumed to have none left, a loser keeps
+    # its bucket average scaled to the days left. Tax: tax_filter.estimate_tax
+    # when present, else the rates below (= server/taxLedger.ts
+    # DEFAULT_TAX_RATES). Off switch: ROTATION_ENABLED False.
+    "ROTATION_ENABLED":           True,
+    "ROTATION_MIN_HOLD_DAYS":     4,
+    "ROTATION_HORIZON_DAYS":      10,     # = TIME_STOP_DAYS, the system's planned hold
+    "ROTATION_COST_PCT_PER_SIDE": 0.10,   # % per side: SLIPPAGE_PCT 0.05 + ~half a 0.1% spread
+    "ROTATION_MIN_EDGE_PCT":      0.25,   # % of the held position, after costs and tax
+    "ROTATION_MAX_PER_SCAN":      1,      # one swap per scan keeps each one attributable
+    "ROTATION_MAX_CANDIDATES":    3,      # capital-starved candidates carried per scan
+    "ROTATION_NEAR_TARGET_FRAC":  0.8,
+    "ROTATION_FADE_ATR_MULT":     1.0,
+    "ROTATION_TAX_RATE_SHORT_TERM": 0.24,
+    "ROTATION_TAX_RATE_LONG_TERM":  0.15,
+
     # ── BLOCKED TICKERS (backtest-confirmed underperformers) ──────────────────
     # 3-year backtest: these had 20-25% WR with consistent negative EV
     "BLOCKED_TICKERS": [

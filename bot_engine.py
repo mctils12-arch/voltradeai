@@ -3105,6 +3105,24 @@ def _resolve_etf_execution(instrument_decision: dict, ticker: str,
     return downgraded, empty
 
 
+def _rotation_candidate(stock: dict, ticker: str, score, wanted_value: float,
+                        instrument_decision: dict, fetch_quote=None) -> dict:
+    """2026-11-06: a candidate the cash reserve starved, in the shape
+    position_mgmt.plan_rotations reads. An ETF substitution is priced as the
+    ETF itself (the order rotation would place); otherwise the stock, in the
+    sizing bucket position_sizing would size it in."""
+    buy_ticker, buy_price, bucket, instrument = ticker, float(stock.get("price") or 0), None, "stock"
+    if isinstance(instrument_decision, dict) and instrument_decision.get("chosen") == "etf":
+        _dec, _etf = _resolve_etf_execution(instrument_decision, ticker, wanted_value, fetch_quote=fetch_quote)
+        if _etf.get("etf_shares") and _etf.get("etf_price"):
+            buy_ticker, buy_price, bucket, instrument = str(_dec.get("ticker") or ticker), float(_etf["etf_price"]), "etf", "etf"
+    if bucket is None:
+        from position_sizing import _infer_strategy
+        bucket = _infer_strategy({**stock, "instrument": "stock"})
+    return {"ticker": ticker, "buy_ticker": buy_ticker, "buy_price": round(buy_price, 4), "score": score,
+            "bucket": bucket, "wanted_value": round(float(wanted_value or 0), 2), "instrument": instrument}
+
+
 def _infer_bucket_for_block(stock: dict, side: str = "") -> str:
     """Best-effort bucket name for a sizing block row (mirrors
     position_sizing._infer_strategy's vocabulary without importing it)."""
@@ -3883,6 +3901,29 @@ def _scan_market_inner():
     def _note_gate(_t, _decision, _reason):
         _gate_relabels.append({"ticker": _t, "decision": _decision, "reason": str(_reason)[:200]})
 
+    # CASH RESERVE 2026-11-06 (position_mgmt, refocus spec section 4): the room
+    # above the regime's cash reserve for NEW satellite capital this scan. Each
+    # accepted stock/ETF entry spends from it; a candidate that no longer fits
+    # is trimmed or blocked (rejected_cash_reserve), and the starved ones are
+    # offered to capital rotation after the loop.
+    import logging as _rsv_log  # a function-local alias: `logging` is a late-bound local in this function
+    _reserve, _reserve_left, _rotation_pool, _pm = None, None, [], None
+    _rotation_max = int(BASE_CONFIG.get("ROTATION_MAX_CANDIDATES", 3))
+    try:
+        import position_mgmt as _pm
+        try:
+            _scan_orders = _open_order_rows()
+        except (requests.RequestException, ValueError) as _oo_err:
+            _rsv_log.getLogger("bot_engine").warning(f"[CASH-RESERVE] open orders unreadable, not counted: {_oo_err}")
+            _scan_orders = []
+        _reserve = _pm.live_headroom(
+            portfolio_value, current_positions if isinstance(current_positions, list) else [],
+            _pm.current_regime_label(_macro), open_orders=_scan_orders, source="bot_engine.scan")
+        if _reserve.get("enabled"):
+            _reserve_left = float(_reserve["headroom_dollars"])
+    except (ImportError, KeyError, TypeError, ValueError) as _rsv_err:
+        _rsv_log.getLogger("bot_engine").warning(f"[CASH-RESERVE] unavailable this scan, entries not reserve-gated: {_rsv_err}")
+
     for _di, stock in enumerate(deep_scored):
         if len(trades) >= slots_available:
             for _rest in deep_scored[_di:]:
@@ -4272,6 +4313,30 @@ def _scan_market_inner():
             import logging as _vl2
             _vl2.getLogger("bot_engine").warning(f"vol_share check failed for {ticker}: {_vol_err}")
 
+        # CASH RESERVE 2026-11-06 (position_mgmt.fit_entry): the entry fits the
+        # room left above the regime's cash reserve, is trimmed to it (whole
+        # shares), or is blocked. A starved candidate is offered to rotation.
+        if _reserve_left is not None:
+            _fit = _pm.fit_entry(position_value, stock["price"], _reserve_left, portfolio_value)
+            _pm.log_reserve_decision(_fit, ticker, position_value, _reserve, "bot_engine.scan", score=final_score)
+            if _fit["action"] != "allow" and len(_rotation_pool) < _rotation_max:
+                try:
+                    _rotation_pool.append(_rotation_candidate(stock, ticker, final_score, position_value,
+                                                              instrument_decision))
+                except (ImportError, KeyError, TypeError, ValueError) as _rc_err:
+                    _rsv_log.getLogger("bot_engine").warning(f"[ROTATION] {ticker} not offered for rotation: {_rc_err}")
+            if _fit["action"] == "block":
+                _note_gate(ticker, "rejected_cash_reserve", f"cash reserve: {_fit['reason']}")
+                continue
+            if _fit["action"] == "trim":
+                shares = int(_fit["shares"])
+                position_value = round(shares * stock["price"], 2)
+                sizing_reasoning = f"{sizing_reasoning} | Cash reserve: {_fit['reason']} ({_reserve.get('reserve_reason')})"
+        if _pm is not None and float((sizing_scalars or {}).get("drawdown_scalar", 1.0) or 1.0) < 1.0:
+            _pm.log_dd_budget(ticker, "bot_engine.scan", abs(float(sizing_scalars.get("drawdown_pct", 0) or 0)),
+                              float(sizing_scalars["drawdown_scalar"]), str(sizing_scalars.get("drawdown_rule", "ladder")),
+                              ladder=sizing_scalars.get("drawdown_ladder"))
+
         # ETF substitution: dollar-size and price the ETF itself, or trade the
         # stock (audit §6.8 N6 — see _resolve_etf_execution).
         instrument_decision, _etf_fields = _resolve_etf_execution(
@@ -4347,6 +4412,29 @@ def _scan_market_inner():
         trades[-1]["tax"] = _tf.summary(_tax)
         if not _tax.get("allowed", True):
             trades[-1]["trade_type"] = "options"   # the stock fallback failed the tax filter
+        if _reserve_left is not None:
+            _reserve_left -= float(_etf_fields.get("etf_position_value") or position_value)
+
+    # CAPITAL ROTATION 2026-11-06 (position_mgmt.plan_rotations): candidates the
+    # cash reserve starved, set against held satellites that have run their
+    # course or are losing; every pair is logged. server/bot.ts
+    # runUpgradeCandidates executes a planned swap through the existing calls.
+    _rotation_plan = None
+    if _rotation_pool and _pm is not None:
+        try:
+            from position_sizing import _get_historical_stats as _rot_stats
+            try:
+                with open(os.path.join(DATA_DIR, "voltrade_stop_state.json")) as _ssf:
+                    _rot_stop_state = json.load(_ssf)
+            except (OSError, ValueError):
+                _rot_stop_state = {}
+            _rotation_plan = _pm.plan_rotations(
+                current_positions if isinstance(current_positions, list) else [],
+                _rot_stop_state if isinstance(_rot_stop_state, dict) else {},
+                _rotation_pool, _rot_stats())
+        except (ImportError, KeyError, TypeError, ValueError) as _rot_err:
+            _rsv_log.getLogger("bot_engine").warning(f"[ROTATION] plan skipped this scan: {_rot_err}")
+            _rotation_plan = {"rotations": [], "rejected": [], "error": str(_rot_err)[:200]}
 
     # One relabel call per scan (see _gate_relabels above). Counts travel in
     # the scan result so bot.ts can audit the wiring's liveness.
@@ -4887,6 +4975,11 @@ def _scan_market_inner():
         "options_slots_available": options_slots if 'options_slots' in locals() else MAX_OPTIONS_POSITIONS,
         "new_trades": trades,
         "sizing_blocks": _sizing_blocks[:20] if '_sizing_blocks' in locals() else [],
+        # 2026-11-06 position management (position_mgmt): the scan's cash-reserve
+        # snapshot (what was left after this scan's entries) and the rotation plan.
+        "cash_reserve": ({**_reserve, "remaining_dollars": None if _reserve_left is None else round(_reserve_left, 2)}
+                         if locals().get("_reserve") else None),
+        "rotation_plan": locals().get("_rotation_plan"),
         "shadow_gate_relabels": _shadow_gate_relabels if '_shadow_gate_relabels' in locals() else None,
         "options_trades_added": options_trade_count,
         "position_actions": mgmt.get("actions", []),
@@ -5336,6 +5429,7 @@ def _run_third_leg(macro: dict) -> dict:
 
         # Also check pending/open orders to prevent duplicate buys
         # (fixes GLD flooding: bot bought 13x before position registered)
+        open_orders = []  # 2026-11-06: bound even when the fetch fails (the cash reserve reads it)
         try:
             open_orders = _req.get(f"{base_url}/v2/orders",
                 params={"status": "open", "limit": 50}, headers=headers, timeout=8).json()
@@ -5373,6 +5467,17 @@ def _run_third_leg(macro: dict) -> dict:
                 svxy_price = float(svxy_r.json().get("SVXY",{}).get("latestTrade",{}).get("p", 0) or 0)
                 if svxy_price > 0:
                     alloc  = equity * vrp_pct
+                    # CASH RESERVE 2026-11-06: SVXY is a satellite — the buy fits
+                    # inside the room above the regime's cash reserve or is cut.
+                    _l3_fit = _reserve_fit(alloc, svxy_price, equity, positions_raw,
+                                           open_orders if isinstance(open_orders, list) else [],
+                                           regime, "bot_engine._run_third_leg", "SVXY")
+                    if _l3_fit["action"] == "block":
+                        actions.append({"type": "cash_reserve_block", "symbol": "SVXY", "reason": _l3_fit["reason"]})
+                        alloc = 0.0
+                    elif _l3_fit["action"] == "trim":
+                        actions.append({"type": "cash_reserve_trim", "symbol": "SVXY", "reason": _l3_fit["reason"]})
+                        alloc = float(_l3_fit["value"])
                     shares = int(alloc / svxy_price)
                     _es_stocks = False
                     if shares > 0 and alloc > 100:
@@ -6174,12 +6279,38 @@ def _latest_quote(symbol: str) -> tuple:
     return bid, ask
 
 
-def _open_order_symbols() -> set:
-    """Symbols with an order still working: never stack a second order on one."""
+def _open_order_rows() -> list:
+    """Every order still working at the broker (status=open, up to 500)."""
     alpaca_throttle.acquire()
     rows = requests.get(f"{ALPACA_BASE_URL}/v2/orders", params={"status": "open", "limit": 500},
                         headers=_alpaca_headers(), timeout=10).json()
-    return {str(o.get("symbol", "")) for o in (rows if isinstance(rows, list) else [])}
+    return rows if isinstance(rows, list) else []
+
+
+def _open_order_symbols() -> set:
+    """Symbols with an order still working: never stack a second order on one."""
+    return {str(o.get("symbol", "")) for o in _open_order_rows()}
+
+
+def _reserve_fit(value: float, price: float, equity: float, positions: list, open_orders: list,
+                 regime: str, source: str, ticker: str, score=None) -> dict:
+    """CASH RESERVE 2026-11-06 (position_mgmt): one entry from a path with its
+    own sizing (the third leg) fitted into the room above the regime's cash
+    reserve. Returns position_mgmt.fit_entry's verdict; logs a trim or block.
+    A reserve that cannot be computed allows the entry (logged), like every
+    other pre-trade check here."""
+    try:
+        import position_mgmt as _pm
+        snap = _pm.live_headroom(equity, positions or [], regime, open_orders=open_orders or [], source=source)
+        if not snap.get("enabled"):
+            return {"action": "allow", "value": value, "shares": None, "reason": "cash reserve off"}
+        fit = _pm.fit_entry(value, price, snap["headroom_dollars"], equity)
+        _pm.log_reserve_decision(fit, ticker, value, snap, source, score=score)
+        return fit
+    except (ImportError, KeyError, TypeError, ValueError) as _rf_err:
+        import logging as _rf_log
+        _rf_log.getLogger("bot_engine").warning(f"[CASH-RESERVE] {source} {ticker}: reserve unavailable, entry allowed: {_rf_err}")
+        return {"action": "allow", "value": value, "shares": None, "reason": f"reserve unavailable: {_rf_err}"}
 
 
 FLOOR_VM_MIN_MINUTES_TO_CLOSE = 6

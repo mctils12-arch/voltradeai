@@ -30,6 +30,7 @@ SITES = [
     ("rejected_sizing_error", "continue"),
     ("rejected_zero_shares", "continue"),
     ("rejected_volume_share", "continue"),
+    ("rejected_cash_reserve", "continue"),  # cash reserve 2026-11-06 (position_mgmt)
     ("rejected_stock_slots", "break"),
     ("rejected_tax", "continue"),  # tax filter 2026-11-06 (tax_filter.py)
 ]

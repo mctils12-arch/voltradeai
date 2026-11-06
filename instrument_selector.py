@@ -1179,6 +1179,14 @@ def _dynamic_options_size(trade: dict, equity: float,
     OPTIONS_LEVERAGE_DISCOUNT = 0.50
     dynamic_pct = (kelly_base * s_vol * s_conf * s_reg * s_earn
                    * s_time * s_heat * s_liq * OPTIONS_LEVERAGE_DISCOUNT)
+    # DD RISK BUDGET 2026-11-06: the same linear drawdown budget as
+    # options_execution._dynamic_options_size (this mirror had no drawdown rule).
+    try:
+        import position_mgmt as _pm_dd
+        dynamic_pct *= _pm_dd.dd_risk_scalar(_pm_dd.current_drawdown_pct(equity))
+    except ImportError as _pm_dd_err:
+        import logging as _pm_dd_log
+        _pm_dd_log.getLogger("voltrade.instrument_selector").warning(f"drawdown budget unavailable: {_pm_dd_err}")
     return max(0.01, min(dynamic_pct, MAX_OPTIONS_PCT_CEILING))
 
 
