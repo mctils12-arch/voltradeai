@@ -17,7 +17,8 @@ Pins:
 - the decision journal's selection stage text, and its parity with
   server/decisionJournal.ts;
 - the attribution table lists the earnings row: logged, not used by the score,
-  untested (no forward source is registered for it here);
+  untested until labels accrue (its forward test, source_validation's
+  logged-only source, is pinned in test_source_validation_logged.py);
 - config parity with system_config, the env off switch, the daemon route.
 
 Run: bash pytest_locked.sh -q test_earnings_history.py

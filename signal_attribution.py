@@ -123,13 +123,12 @@ SIGNAL_REGISTRY: Tuple[dict, ...] = (
     {"id": "contrarian", "label": "Contrarian sentiment flags", "group": "sentiment",
      "role": "adds 4, 8 or 10 points", "fw": "adj.contrarian", "lt": None, "lt_nm": "contrarian"},
     # EARNINGS HISTORY (2026-11-06, earnings_history.py): logged on every
-    # deep-scored shadow record since then (earnings_history.beats_last_3);
-    # not measured yet: source_validation has no forward source for it, so
-    # `fw` stays None (test_registry_points_at_real_harness_names) and the
-    # row reads untested.
+    # deep-scored shadow record since then (earnings_history.beats_last_3),
+    # measured forward by source_validation's logged-only source once its +5d
+    # labels accrue; until then the row reads untested.
     {"id": "earnings_beats", "label": "Earnings beats, last 3 quarters", "group": "earnings",
      "role": "logged on every deep-scored candidate since 2026-11-06 (Finnhub EPS actual vs estimate); not used by the score",
-     "fw": None, "lt": None,
+     "fw": "earn.beats_last_3", "lt": None,
      "lt_reason": "Finnhub's last-4-quarters endpoint carries no report dates, so no point-in-time history exists"},
 )
 # Composite rows (reference: outside both families).
@@ -137,12 +136,10 @@ COMPOSITE_ROWS: Tuple[dict, ...] = (
     {"id": "composite_legacy", "label": "Composite score (legacy)", "lt": "price_composite"},
     {"id": "composite_v2", "label": "Composite score v2", "lt": "price_composite_v2"},
 )
-# Forward sentence for a signal with no forward source (fw None).
-NOT_LOGGED_REASON = {
-    "earnings_beats": ("Forward: logged on every deep-scored shadow record since 2026-11-06 "
-                       "(earnings_history.beats_last_3), not measured yet: source_validation has no forward "
-                       "source for it (earn.beats_last_3)."),
-}
+# Forward sentence for a signal with no forward source (fw None). Empty since
+# 2026-11-06: earnings_beats, the one signal that had none, has a logged-only
+# forward source now (source_validation v2.1, earn.beats_last_3).
+NOT_LOGGED_REASON: Dict[str, str] = {}
 
 
 # ── small helpers ────────────────────────────────────────────────────────────
@@ -246,6 +243,8 @@ def forward_block(sources: Optional[dict], name: Optional[str]) -> dict:
     out = {"logged": True, "verdict": r.get("verdict") or "INSUFFICIENT", "n": r.get("n", 0), "n_days": r.get("n_days", 0),
            "ic": _r(ic), "t": _r(ic / se, 3) if ic is not None and se else None, "ci95": r.get("ci95"),
            "q_bh": _r(r.get("q_bh")), "distinct_values": r.get("distinct_values")}
+    if r.get("population_rule"):     # a logged-only source's own population (source_validation v2.1)
+        out["population_rule"] = r["population_rule"]
     terc = r.get("terciles") or {}
     out["top_minus_bottom_tercile_pct"] = _r(terc.get("spread"), 3)
     sb = r.get("sign_buckets") or {}
@@ -365,14 +364,17 @@ def _fw_sentence(fw: dict, pop: dict) -> str:
     if not fw.get("logged"):
         return "Forward: not logged on the shadow record."
     v, n = fw.get("verdict"), fw.get("n") or 0
+    own = bool(fw.get("population_rule"))     # logged-only: the first record per ticker-day that carries it
     if v == "INSUFFICIENT":
         last = pop.get("last_day")
-        return (f"Forward (shadow log): {n} labeled first-seen records, fewer than the 100 a verdict needs"
+        what = "labeled records (the first per ticker-day that carries it)" if own else "labeled first-seen records"
+        return (f"Forward (shadow log): {n} {what}, fewer than the 100 a verdict needs"
                 f"{' (labels so far run to ' + last + ')' if last else ''}.")
     if v == "CONSTANT":
         return f"Forward (shadow log): the value never changed across {n} live candidates — the input is not reaching the score."
     word = {"PASS": "predictive", "FAIL_INVERTED": "anti-predictive", "FAIL": "not significant"}.get(v, v)
-    return (f"Forward (shadow log, {n} first-seen candidates over {fw.get('n_days')} days): "
+    what = "candidates (the first record per ticker-day that carries it)" if own else "first-seen candidates"
+    return (f"Forward (shadow log, {n} {what} over {fw.get('n_days')} days): "
             f"+5-day rank IC {_signed(fw.get('ic'))} (t {_signed(fw.get('t'), 2)}, BH q {fw.get('q_bh')}) — {word}.")
 
 
@@ -605,7 +607,9 @@ def build_attribution(records: Sequence[dict], walkforward: Optional[dict] = Non
         headline += (f" The universe pre-rank's top-10 picks {'trailed' if h5['top10_vs_random_pct'] < 0 else 'beat'} random "
                      f"entry by {_pts(h5['top10_vs_random_pct'])} points per 5 days over the walk-forward.")
     tests_lt = int(mt.get("ic_tests") or 0)
-    tests_fw = len([nm for nm, r in sources.items() if isinstance(r, dict) and "q_bh" in r])
+    # the family's own size: a logged-only source (source_validation v2.1) is
+    # corrected against it plus itself, outside the family's own correction
+    tests_fw = len([nm for nm, r in sources.items() if isinstance(r, dict) and "q_bh" in r and r.get("kind") != "logged"])
     return {
         "verdict_version": VERDICT_VERSION,
         "generated_at": now.isoformat(),
@@ -632,10 +636,12 @@ def build_attribution(records: Sequence[dict], walkforward: Optional[dict] = Non
         "multiple_testing": {
             "long_term": {"family": "walkforward inputs x horizons, Bonferroni", "tests": tests_lt,
                           "bonferroni_z": round(z_bonf, 3), "alpha": FAMILY_ALPHA},
-            "forward": {"family": "source_validation sources (score components + model features), Benjamini-Hochberg",
+            "forward": {"family": "source_validation sources (score components + model features), Benjamini-Hochberg; "
+                                  "a logged-only input is corrected against this family plus itself and never moves it",
                         "tests": tests_fw, "fdr": sv.FDR_Q},
             "note": ("A verdict needs the harness's own correction: Bonferroni over every walk-forward input x horizon, "
-                     "BH at FDR 0.10 over every forward source. Top-10 vs random entry is flagged only beyond the same "
+                     "BH at FDR 0.10 over every forward source (a logged-only input against all of them plus itself, "
+                     "outside the family's own correction). Top-10 vs random entry is flagged only beyond the same "
                      "Bonferroni bar. Composites and the ML probability are reference rows outside both families."),
         },
         "sources": {

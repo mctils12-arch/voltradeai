@@ -14,7 +14,8 @@ on the production volume), deep-scored records only (non-empty `features` —
 the tier-1 masterkill CSP rows carry score 0 and no features), deduplicated
 to ONE first-seen record per (ticker, ET entry day)
 (shadow_portfolio._first_seen_per_ticker_day, the same rule as the
-shadow_bands_dedup probe), separately per outcome.
+shadow_bands_dedup probe), separately per outcome. A logged-only source
+(v2.1) uses the first record per ticker-day that carries its value.
 
 Outcomes: "+5d"/"+10d"/"+20d" = the old ruler's path-dependent return_pct
 (+2% target / -4% stop / timeout close — a capped path return, NOT a raw
@@ -33,6 +34,10 @@ say why):
     bootstrap SE (two-sided normal).
   * Family = every SOURCE below (score components + model features) on the
     primary outcome; Benjamini-Hochberg at FDR_Q = 0.10 across the family.
+    A v2.1 LOGGED-ONLY source (LOGGED_SOURCES) is insulated from it: its q is
+    its BH q in the full family (every tested source, itself included — the
+    whole multiple-testing penalty), and the family's own correction never
+    includes it, so no existing q-value or verdict can move because of it.
     The composite scores (final score, rules-only, ML) are REFERENCE rows,
     outside the family.
   * Verdicts need n >= MIN_N unique ticker-days (else INSUFFICIENT) and a
@@ -42,7 +47,8 @@ say why):
       and top-minus-bottom spread > 0; FAIL_INVERTED iff IC <= -IC_MIN,
       q <= FDR_Q and CI < 0 (it predicts, backwards — the + it adds hurts);
       FAIL otherwise.
-    - feature sources (no intended sign; the model may use either):
+    - feature sources (no intended sign; the model may use either) and
+      logged-only sources (v2.1; not scored, so no intended sign either):
       PASS iff |IC| >= IC_MIN, q <= FDR_Q, CI excludes 0 and the spread
       has the IC's sign; FAIL otherwise.
   * By regime (5-level classify_regime_5level from the record's vxx_ratio
@@ -69,7 +75,15 @@ import numpy as np
 
 # v2 (same day, before any production run): + the four deep_score terms the
 # breakdown did not persist (logged from 2026-10-27), + selection/ablation.
-PREREG_VERSION = "source_validation_v2 (2026-10-27)"
+# v2.1 (2026-11-06, before any record carried it): + one LOGGED-ONLY source,
+# earn.beats_last_3 (earnings_history.py, logged from 2026-11-06). v2's rules
+# are unchanged; it is tested alone with the two-sided feature rule on its own
+# population (one record per ticker-day: the first that carries the value).
+# Once it has MIN_N labeled ticker-days its q is its BH q in the full family
+# (itself included), while the family's own q-values never include it
+# (insulated: no existing verdict moves because of it). It never enters the
+# selection arms (it is not a score term or a model input).
+PREREG_VERSION = "source_validation_v2.1 (2026-11-06)"
 PRIMARY_OUTCOME = "+5d"
 SECONDARY_OUTCOMES = ("+10d", "+20d", "xa")
 MIN_N = 100            # unique ticker-days for a verdict
@@ -130,6 +144,19 @@ MARKET_WIDE_FEATURES = frozenset({
     "credit_spread", "market_breadth", "put_call_ratio",
 })
 
+# LOGGED-ONLY inputs (v2.1): a value deep_score logs on the shadow record but
+# neither scores nor feeds the model — (record key, field, group). Kind
+# "logged": the two-sided feature verdict rule, outside both selection arms and
+# outside the family's own BH correction (its q is computed against the full
+# family; see validate_sources).
+# EARNINGS HISTORY (2026-11-06): quarters of the last 3 that beat the EPS
+# estimate (0-3; None unless all 3 are on record — such records drop out).
+LOGGED_SOURCES: Tuple[Tuple[str, str, str], ...] = (
+    ("earnings_history", "beats_last_3", "earnings"),
+)
+LOGGED_PREFIX = {"earnings_history": "earn"}
+LOGGED_POPULATION_RULE = "first record per (ticker, ET day) that carries the value"
+
 
 def _num(v) -> Optional[float]:
     if v is None or isinstance(v, bool):
@@ -162,6 +189,13 @@ def _ml_getter(key: str) -> Callable[[dict], Optional[float]]:
     return g
 
 
+def _logged_getter(block: str, key: str) -> Callable[[dict], Optional[float]]:
+    def g(rec: dict) -> Optional[float]:
+        b = rec.get(block)
+        return _num(b.get(key)) if isinstance(b, dict) else None
+    return g
+
+
 # Composite scores: reported for reference, outside the BH family.
 REFERENCE_SOURCES: Tuple[Tuple[str, Callable[[dict], Optional[float]]], ...] = (
     ("score", lambda r: _num(r.get("score"))),
@@ -180,6 +214,9 @@ def source_registry() -> List[dict]:
     for key, group in FEATURE_SOURCES:
         reg.append({"name": f"feat.{key}", "group": group, "kind": "feature",
                     "market_wide": key in MARKET_WIDE_FEATURES, "get": _feat_getter(key)})
+    for block, key, group in LOGGED_SOURCES:
+        reg.append({"name": f"{LOGGED_PREFIX[block]}.{key}", "group": group, "kind": "logged",
+                    "market_wide": False, "get": _logged_getter(block, key)})
     return reg
 
 
@@ -215,12 +252,19 @@ def is_deep_scored(rec: dict) -> bool:
     return isinstance(f, dict) and len(f) > 0
 
 
-def build_population(records: Sequence[dict], outcome: str) -> List[dict]:
+def build_population(records: Sequence[dict], outcome: str,
+                     require: Optional[Callable[[dict], Optional[float]]] = None) -> List[dict]:
     """Deduped first-seen (ticker, ET day) deep-scored records labeled by
-    `outcome`, oldest first, as rows {rec, y, day, regime}."""
+    `outcome`, oldest first, as rows {rec, y, day, regime}. With `require`
+    (a logged-only source's getter, v2.1): the first record of each ticker-day
+    that ALSO carries that source's value."""
     from shadow_portfolio import _first_seen_per_ticker_day
     deep = [r for r in records if isinstance(r, dict) and is_deep_scored(r)]
-    dd = _first_seen_per_ticker_day(deep, lambda r: outcome_value(r, outcome) is not None)
+
+    def has(r: dict) -> bool:
+        return outcome_value(r, outcome) is not None and (require is None or require(r) is not None)
+
+    dd = _first_seen_per_ticker_day(deep, has)
     rows = []
     for r in dd:
         day = _entry_day(r)
@@ -437,22 +481,42 @@ def validate_sources(records: Sequence[dict]) -> dict:
     prim_rows, prim_boot = pops[PRIMARY_OUTCOME], boots[PRIMARY_OUTCOME]
     results: Dict[str, dict] = {}
     for s in reg:
-        res = _test_source(prim_rows, prim_boot, s["get"], s["kind"])
+        s_pops, s_boots = pops, boots
+        if s["kind"] == "logged":
+            # v2.1, pre-registered before any record carried one: a logged-only
+            # value can be missing on a ticker-day's FIRST record by
+            # construction (earnings_history's cache fills after a name's first
+            # deep score), so its population is the first record of each
+            # ticker-day that carries it — still one per ticker-day, each with
+            # its own entry and outcome (point in time). Its own day bootstrap.
+            s_pops = {o: build_population(records, o, require=s["get"]) for o in pops}
+            s_boots = {o: DayBootstrap([r["day"] for r in rows]) for o, rows in s_pops.items()}
+        res = _test_source(s_pops[PRIMARY_OUTCOME], s_boots[PRIMARY_OUTCOME], s["get"], s["kind"])
         res.update({"group": s["group"], "kind": s["kind"]})
         if s["market_wide"]:
             res["market_wide"] = True
+        if s["kind"] == "logged":
+            res["population_rule"] = LOGGED_POPULATION_RULE
         sec = {}
         for o in SECONDARY_OUTCOMES:
-            x, y, d, _ = _extract(pops[o], s["get"])
-            st = ic_stats(x, y, d, boots[o])
+            x, y, d, _ = _extract(s_pops[o], s["get"])
+            st = ic_stats(x, y, d, s_boots[o])
             sec[o] = {k: st[k] for k in ("n", "ic", "ci95") if k in st}
         res["secondary"] = sec
         results[s["name"]] = res
 
-    # BH across the family: every source with a computable p.
-    tested = [nm for nm, r in results.items() if "p" in r and r.get("n", 0) >= MIN_N]
-    qs = benjamini_hochberg([results[nm]["p"] for nm in tested])
-    qmap = dict(zip(tested, qs))
+    # BH across the family: every score-component / model-feature source with a
+    # computable p. v2.1 INSULATION: a logged-only source never enters that
+    # correction, so no existing q-value or verdict can move because of it; its
+    # own q is its BH q in the FULL family (every tested source, itself
+    # included), so it still pays the whole multiple-testing penalty.
+    tested_all = [nm for nm, r in results.items() if "p" in r and r.get("n", 0) >= MIN_N]
+    tested = [nm for nm in tested_all if results[nm]["kind"] != "logged"]
+    logged_tested = [nm for nm in tested_all if results[nm]["kind"] == "logged"]
+    qmap = dict(zip(tested, benjamini_hochberg([results[nm]["p"] for nm in tested])))
+    if logged_tested:
+        full = dict(zip(tested_all, benjamini_hochberg([results[nm]["p"] for nm in tested_all])))
+        qmap.update({nm: full[nm] for nm in logged_tested})
     summary: Dict[str, List[str]] = {"PASS": [], "FAIL_INVERTED": [], "FAIL": [],
                                      "INSUFFICIENT": [], "CONSTANT": []}
     for nm, r in results.items():
@@ -479,7 +543,9 @@ def validate_sources(records: Sequence[dict]) -> dict:
             "secondary_outcomes": list(SECONDARY_OUTCOMES),
             "ic": "Spearman, pooled over the deduped first-seen (ticker, ET day) deep-scored population",
             "ci": f"day-clustered bootstrap, {N_BOOT} replicates, seed {SEED}",
-            "multiple_testing": f"Benjamini-Hochberg across {len(tested)} sources at FDR {FDR_Q}",
+            "multiple_testing": f"Benjamini-Hochberg across {len(tested)} sources at FDR {FDR_Q}" + (
+                f"; {len(logged_tested)} logged-only source(s) corrected against all {len(tested_all)}, "
+                "outside the family's own correction" if logged_tested else ""),
             "thresholds": {"MIN_N": MIN_N, "MIN_N_REGIME": MIN_N_REGIME, "MIN_DAYS": MIN_DAYS,
                            "MIN_BUCKET": MIN_BUCKET, "IC_MIN": IC_MIN, "FDR_Q": FDR_Q},
             "outcome_note": "+Nd = old ruler path return (+2% target / -4% stop / timeout close); "
@@ -806,7 +872,8 @@ def selection_and_ablation(records: Sequence[dict], validation: Optional[dict] =
     bd_rows = [r for r in rows if isinstance(r["rec"].get("score_breakdown"), dict)]
     # adjustments enter the breakdown arm only where (almost) every breakdown
     # row carries them — the 2026-10-27 extras are absent on older rows.
-    bd_cands = [s for s in reg if s["kind"] == "feature" or (
+    # Logged-only sources (v2.1) never enter either arm.
+    bd_cands = [s for s in reg if s["kind"] == "feature" or (s["kind"] == "adjustment" and
         bd_rows and sum(1 for r in bd_rows if s["get"](r["rec"]) is not None) >= 0.95 * len(bd_rows))]
     bd_rows = complete(bd_rows, bd_cands)
     return {
