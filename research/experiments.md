@@ -116301,3 +116301,11 @@ TESTS:
 - On the committed tree: Python 471 passed (+9 subtests) across 34 files (test_brain_evidence.py included); TS 81 passed across 7 files.
 - tsc reports 6 errors (unchanged). The counter ratchet is OK. test_ts_code_only.py passes 11.
 STARVED: no.
+
+## 2026-11-06 [RESEARCH] — research/open_questions.md only — the refocus build night's findings filed: five open with ladder paths, five closed the same night
+VERSION: v1.0.1341 (shipped 2026-11-06 by the parent session; main was v1.0.1340)
+WHY: MEMORY PROTOCOL / ACTIVE ANGLE-HUNTING. Every finding has to land in open_questions.md with its testable form, or it is lost with the session's scratchpad. These came from the night's audits: the live sleeve ledger, the ML audit walk-forward, the memory cleanup audit, and the UI build.
+CHANGE: appends one open_questions.md section. Open: (1) HONESTY METRIC, live short-option lots won 20.6% (n=316) against a 71.6% prior, with a pre-registered re-measure on lots opened from 11-06 (n ≥ 30, Wilson 95% interval) and a stated prior of 45–65%; (2) the quick-score pre-rank trails random entry by 1.63 points per 5 days, with a pre-registered pre-rank experiment; (3) ML v2's training set is about 50 copies of 209 candidate-days, so dedupe and purge CV by date; (4) the DTCC seen-ID dual mode costs about 481 MB because its database never opened; (5) two UI gaps. Closed the same night: #1679, #1672, #1680, #1682 plus #1683, and the wishlist mleg proposal (#1671).
+DEPLOY: one docs-only deploy at about 06:00 ET, pre-market, with no runtime effect. Version bumped per PROMOTION RULE 4, so live results under this version are those of v1.0.1340's code.
+TESTS: test_research_state_check.py (open_questions.md still parses: the KNOWN BROKEN classifier and the register).
+STARVED: no (the after-close queue is in the open items above).

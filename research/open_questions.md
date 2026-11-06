@@ -23489,3 +23489,26 @@ Fix: write a ledger row from each ladder's "submitted" event. A replace gets the
 **[CONVEXITY] The overlay's order sides are invalid.** It posts buy_to_open and sell_to_close, and its roll close is a market order. Fix both before the switch is ever turned on.
 
 **[RULE-REVIEW candidate] The daily −3% circuit breaker is the next gate.** It blocks the tier engine for the rest of a −3% day, which an SPY-like core sees 5–10 times a year. Log counterfactuals first. Change one threshold at a time; the Node kill moved 11-05.
+
+## 2026-11-06 — findings from the refocus build night: five still open, five closed the same night (filed by the parent session)
+
+Still open, each its own future PR:
+
+**[HONESTY METRIC, top priority] Live short-option lots vs the prior the sizers and the tax filter use.** The sleeve ledger's 316 closed short-option lots won 20.6% and returned −19.2% of premium per lot. The csp prior in position_sizing reads 71.6% and +0.36%. Most of those lots predate this night's exit fixes: the POS-KILL churn before 10-13, market buy-backs at the open, the earnings close (#1642), the ladders (#1644, #1645, #1655), the opening-window block (#1635). Pre-registered re-measure: only lots OPENED on or after 2026-11-06. At n ≥ 30 closed new lots, if the Wilson 95% interval of their win rate excludes 71.6%, rebuild the csp prior from live lots in its own [RULE-REVIEW] PR. Prior, stated before the data: the new lots win 45–65%, above the old 20.6% because the churn exits are gone, but still below 71.6%. GET /api/bot/tax already shows the live figure beside the prior.
+
+**[SELECTION] The quick-score pre-rank picks yesterday's biggest movers.** Over 2017–2026 its top 10 trailed random entry with the same holding period by 1.63 points per 5 days (ML audit, walk-forward). Deep-scoring more names from the same pre-rank cannot help. Next experiment, pre-registered before it runs: a different pre-rank, either residual momentum or the earnings-beat streak once #1682 has logged about 60 trading days. Ladder: gate 2 (rank IC and top-10 excess over the random-entry base rate, out of sample), then gate 3 (pre-rank ablation in backtest_v2).
+
+**[ML] v2's training set is about 50 copies of 209 candidate-days.** Its last-10,000-row window is all shadow rows, each candidate logged once per scan, so its reported accuracy and calibration are in-sample. Composite v2 (#1660) already holds the ML input neutral. The fix is to dedupe to one row per ticker-day and split CV by date (purged), then re-measure against the base rate. The ML input stays neutral until it beats the base rate out of sample.
+
+**[MEMORY] The DTCC seen-ID set is still in dual mode, about 481 MB, because its SQLite database never opened** (the A1 dual-run). Find why the open fails and fix it. Flip to SQLite-only only after a clean dual-run window with zero DTCC-IDS-MISMATCH rows.
+
+**[UI] Two gaps.**
+- The daily line (#1648) is diag-only; the Overview could show it.
+- The Today tile labels the overnight "today" with the last session's move, a stale prior close overnight.
+
+Closed the same night (kept for the record):
+- Wash-sale losses were held back forever in taxLedger.ts. Fixed in #1679 (v1.0.1336): they are now recognized when the replacement lot closes (IRC §1091(d)).
+- Debit verticals from evaluate_and_execute were never grouped (`long_leg` / `short_leg` missing from the leg walk). Fixed in #1672 (v1.0.1329): both legs are registered and managed as one group.
+- `/api/scan` launched up to 20 analyze.py processes, and boot launched 10. Removed in #1680 (v1.0.1337): no caller existed.
+- Earnings beats over the last 3 quarters were not logged forward. #1682 (v1.0.1339) adds a Tier-3 cache fill with a cache-only read in deep_score, and #1683 (v1.0.1340) adds the logged-only source-validation entry.
+- Credit multi-leg entries are sent without a working limit (frozen `_submit_mleg_order` sends `abs(limit_price)`, and Alpaca's mleg limit is signed). Filed in research/wishlist.md (#1671) for human approval; nothing changed in the frozen path.
