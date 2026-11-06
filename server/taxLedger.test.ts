@@ -85,3 +85,42 @@ test("the window start excludes earlier closes; rates parse from query strings w
   const { events: walked } = realizedEvents(fills, []);
   assert.deepEqual(walked.map((e) => [e.qty, e.closeDir, e.pnl]), [[4, -1, 40], [6, -1, -60]]);
 });
+
+// 2026-11-06 [RULE-REVIEW] wash-sale RELEASE (IRC §1091(d)): a disallowed loss is deferred into the
+// replacement lot and recognized when that lot next closes. Before, it was added back forever: live
+// 11-06, 809 wash sales held back $22,086, turning a realized −$15,892 into a taxable +$6,194.
+test("wash sale release: the replacement's close recognizes the deferred loss, so a fully round-tripped wash nets to zero", () => {
+  const events = [
+    ev("D", 30, -400, 2, 10, -1),   // loss, washed by the day-35 re-buy
+    ev("D", 60, 100, 35, 10, -1),   // the replacement closes: the deferred $400 is recognized here
+  ];
+  const fills = [fill("D", 1, 10, 100, 2), fill("D", -1, 10, 60, 30), fill("D", 1, 10, 58, 35), fill("D", -1, 10, 68, 60)];
+  const w = washSalesFor(events, fills);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].releasedAt, new Date(T0 + 60 * D).toISOString());
+  assert.equal(w[0].releaseTerm, "short");
+  const l = taxLedger(events, fills, { rates: { shortTerm: 0.3, longTerm: 0.2, state: 0, niit: 0 } });
+  const short = l.byTerm.find((r) => r.term === "short")!;
+  close(short.washDisallowed, 0, 1e-9);
+  close(l.washSales.gross, 400); close(l.washSales.released, 400); close(l.washSales.disallowed, 0);
+  assert.equal(l.washSales.deferredCount, 0);
+  // realized −300 is a loss: nothing taxable, −300 carries forward (before the fix: +100 taxed at 30 %)
+  close(l.netting.shortNet, -300); close(l.netting.carryforward, -300); close(l.estimatedTax.total, 0);
+  assert.ok(l.notes.some((n) => n.includes("IRC §1091(d)")));
+});
+
+test("wash sale release: a replacement still open keeps the loss deferred; a release in the next year moves it there", () => {
+  const open = taxLedger([ev("D", 30, -400, 2, 10, -1)], [fill("D", 1, 10, 100, 2), fill("D", -1, 10, 60, 30), fill("D", 1, 10, 58, 35)]);
+  close(open.washSales.disallowed, 400); close(open.washSales.released, 0); assert.equal(open.washSales.deferredCount, 1);
+  assert.equal(washSalesFor([ev("D", 30, -400, 2, 10, -1)], [fill("D", 1, 10, 58, 35)])[0].releasedAt, null);
+  // a December loss washed in December, the replacement closed in January
+  const dec = Date.parse("2026-12-10T15:00:00Z"), DAY = 86_400_000;
+  const e1: RealizedEvent = { symbol: "Q", t: dec, pnl: -500, openedAt: dec - 20 * DAY, qty: 5, closeDir: -1, basis: 500 };
+  const e2: RealizedEvent = { symbol: "Q", t: dec + 40 * DAY, pnl: 0, openedAt: dec + 5 * DAY, qty: 5, closeDir: -1, basis: 500 };
+  const f: FillRow[] = [{ symbol: "Q", dir: 1, qty: 5, price: 90, t: dec + 5 * DAY }];
+  const y = taxLedger([e1, e2], f);
+  const y26 = y.byYear.find((r) => r.year === 2026)!, y27 = y.byYear.find((r) => r.year === 2027)!;
+  close(y26.washDisallowed, 500);   // held back at the 2026 year end
+  close(y27.washDisallowed, -500);  // recognized in 2027 when the replacement closed
+  close(y.washSales.disallowed, 0); close(y.washSales.gross, 500);
+});
