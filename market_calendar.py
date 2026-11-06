@@ -1,7 +1,7 @@
 """
 Market Calendar Utility (v1.0.34)
 
-NYSE/NASDAQ holiday and half-day schedule for 2026.
+NYSE/NASDAQ holiday and half-day schedule for 2026 and 2027.
 Used by the options scanner to:
   1. Skip opening new options positions on half-days (reduced liquidity)
   2. Adjust theta decay expectations around long weekends
@@ -9,7 +9,7 @@ Used by the options scanner to:
      is unmonitored
 
 Source: https://www.nasdaqtrader.com/trader.aspx?id=calendar
-Updated annually — add 2027 dates when available.
+Updated annually — add 2028 dates each December (CLAUDE.md CALENDAR YEAR-ADD).
 """
 
 from datetime import date, timedelta
@@ -36,9 +36,35 @@ HALF_DAYS_2026 = {
     date(2026, 12, 24),  # Christmas Eve
 }
 
+# ── 2027 NYSE/NASDAQ Full Closures ──────────────────────────────────────────
+# CALENDAR YEAR-ADD (CLAUDE.md AUDITS & DEBT 3 / FROZEN PATHS exception), added
+# 2026-11-06 on the human's "fix all of this". Source: the official NYSE
+# "Holidays & Trading Hours" table, https://www.nyse.com/markets/hours-calendars,
+# 2027 column, read 2026-11-06; every date cross-checked against the weekday.
+MARKET_HOLIDAYS_2027 = {
+    date(2027, 1, 1),    # New Year's Day
+    date(2027, 1, 18),   # Martin Luther King, Jr. Day
+    date(2027, 2, 15),   # Washington's Birthday
+    date(2027, 3, 26),   # Good Friday
+    date(2027, 5, 31),   # Memorial Day
+    date(2027, 6, 18),   # Juneteenth (observed — June 19 is Saturday)
+    date(2027, 7, 5),    # Independence Day (observed — July 4 is Sunday)
+    date(2027, 9, 6),    # Labor Day
+    date(2027, 11, 25),  # Thanksgiving
+    date(2027, 12, 24),  # Christmas (observed — December 25 is Saturday)
+}
+
+# ── 2027 Early Close Days (1:00 PM ET) ──────────────────────────────────────
+# The NYSE table lists one 2027 early close (its *** footnote). It lists no
+# 2027 Christmas Eve or July 3 early close: Christmas itself is observed on
+# Friday December 24, and July 3 is a Saturday.
+HALF_DAYS_2027 = {
+    date(2027, 11, 26),  # Day after Thanksgiving
+}
+
 # Combine all non-standard days
-ALL_HOLIDAYS = MARKET_HOLIDAYS_2026
-ALL_HALF_DAYS = HALF_DAYS_2026
+ALL_HOLIDAYS = MARKET_HOLIDAYS_2026 | MARKET_HOLIDAYS_2027
+ALL_HALF_DAYS = HALF_DAYS_2026 | HALF_DAYS_2027
 
 
 def is_market_holiday(d: Optional[date] = None) -> bool:
