@@ -47,6 +47,11 @@ import os
 import time
 import subprocess
 import requests
+# 2026-11-06 (ML audit): deep_score's regime-label and regime-ML-snapshot error
+# handlers call logging.getLogger(...) with no import in scope; when regime_engine
+# raised, the handler itself raised NameError (skipping the ML block / losing the
+# shadow record). Module-level import so every bare logging.* call resolves.
+import logging
 # BROKER CLOCK ORDER GATE 2026-11-05: every order POST below first calls
 # broker_clock.check_order_allowed() (no order while Alpaca's clock says closed)
 import broker_clock
