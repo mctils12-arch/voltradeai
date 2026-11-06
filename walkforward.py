@@ -26,6 +26,9 @@ source lines by test_walkforward.py):
                   at its neutral value (VRP 50, squeeze 50, macro/news/intel/alt/
                   social/fundamental/recommendation/contrarian 0), clamped 0..100
                   — its ranking is the ranking of the measurable terms only.
+  price_composite_v2  the same with V2_NEUTRALIZED (volume, vol-premium, relative
+                  strength) held neutral — the composite v2 candidate, pre-
+                  registered 2026-11-06 before any run that includes it.
 
 NOT MEASURABLE LONG-TERM (no point-in-time history exists in the repo; they
 stay "not measurable long-term" honestly): VRP (implied vol), squeeze (short
@@ -35,7 +38,8 @@ contrarian boosts, the macro adjustments (VIX regime, sector momentum, risk
 on/off), the ML blend. See NOT_MEASURABLE.
 
 HOW. Outcome = enter at the NEXT bar's open, exit at the close h trading days
-after the decision (h = 5, 20), net of the cost model below; plus, for each
+after the decision (h = 1, 5, 20; verdicts on 5, the others descriptive), net
+of the cost model below; plus, for each
 input's top-N, the LIVE exit model (live_exit_policy via backtest_v2's
 live_atr_pct, walked O->L->H->C, the same ladder backtest_v2 exit_model="live"
 uses). Per input: rank IC (Spearman, per date, then averaged; Newey-West t),
@@ -107,7 +111,9 @@ SCHEMA = "walkforward/v1"
 
 # ── configuration (measurement settings, not trading parameters) ────────────
 START = "2017-01-01"            # first rebalance: one year of warm-up for 12-1 momentum
-HORIZONS = (5, 20)              # trading days
+HORIZONS = (1, 5, 20)           # trading days. 1 added 2026-11-06 (human refocus spec section 7 asks
+                                # +1/+5/+20d): descriptive like 20 — verdicts stay on PRIMARY_HORIZON; every
+                                # horizon's IC test counts in the Bonferroni family (more conservative).
 PRIMARY_HORIZON = 5             # the live exits' ~7-calendar-day time stop
 TOP_N = 10
 MIN_NAMES_PER_DATE = 30         # fewer -> no IC that date
@@ -134,7 +140,14 @@ HIST_DAYS = 365
 SPY_RS_DAYS = 30
 
 INPUTS = ("quick_score", "momentum", "mean_reversion", "volume", "vol_premium", "adx", "obv",
-          "rel_strength", "price_composite")
+          "rel_strength", "price_composite", "price_composite_v2")
+# PRE-REGISTERED 2026-11-06 (before any run that includes it): the composite v2
+# candidate = price_composite with the three inputs this harness's 2026-11-01
+# run found significantly NEGATIVE at 5 days (Bonferroni) held at their neutral
+# values (volume sub-score 50, vol-premium bonus 0, relative-strength bonus 0).
+# The live composite v2 (bot_engine.deep_score, BASE_CONFIG["SCORE_COMPOSITE_V2"])
+# must neutralize exactly this set — pinned by test once it ships.
+V2_NEUTRALIZED = ("volume", "vol_premium", "rel_strength")
 INPUT_INFO = {
     "quick_score": ("Quick score (pre-rank)", "bot_engine quick score: min(|chg|,15)*3 + min(vol/1M,5)*2 + direction bonus + extreme-move penalty"),
     "momentum": ("Momentum sub-score (25%)", "strategies.momentum.score(12-1 momentum, 1-month return, day share volume) on deep_score's 400-day bars"),
@@ -145,6 +158,7 @@ INPUT_INFO = {
     "obv": ("OBV bonus", "deep_score: +5/-5 when the last-5 OBV mean is >1.05x/<0.95x the previous 5"),
     "rel_strength": ("Relative-strength bonus", "deep_score: +6 when analyze's 19-day return minus SPY's exceeds 5 pts"),
     "price_composite": ("Rules composite, price-measurable part", "0.25 momentum + 0.20 mean reversion + 0.15 volume + 0.25x50 (VRP) + 0.15x50 (squeeze) + vol-premium + ADX + OBV + rel-strength, clamped 0..100"),
+    "price_composite_v2": ("Composite v2 candidate, price-measurable part", "price_composite with volume held at 50, the vol-premium bonus at 0 and the relative-strength bonus at 0 (V2_NEUTRALIZED, pre-registered 2026-11-06)"),
 }
 NOT_MEASURABLE = {
     "vrp": "Needs implied volatility (options chains): no point-in-time history before the forward-only chain archive.",
@@ -165,7 +179,11 @@ PRIOR = ("Stated 2026-10-29, before any real-panel run: most price-based inputs'
          "(|mean IC| < 0.02, none surviving Bonferroni); momentum is slightly positive in the least liquid tercile "
          "outside crash regimes; short-horizon inputs that reward large recent moves (quick_score, volume, "
          "rel_strength) are flat to negative at 5 days (short-term reversal); the price composite's top-N does "
-         "not beat the random-entry base rate net of costs.")
+         "not beat the random-entry base rate net of costs. "
+         "Added 2026-11-06, before any run that includes it: price_composite_v2 (V2_NEUTRALIZED held neutral) has a "
+         "5d mean IC at least as high as price_composite's and a smaller top-10 shortfall vs random entry, but its "
+         "top-10 still does not beat random entry net of costs (momentum, mean reversion, ADX and OBV measured null); "
+         "+1d ICs are small and mostly negative (short-term reversal).")
 
 CAVEATS = [
     "Survivorship-REDUCED, not free: the panel universe is Alpaca assets + corporate actions from 2016; delisted names in neither are missing (optimistic).",
@@ -402,11 +420,13 @@ def series_features(s: pp.Series, spy_days: np.ndarray, spy_c: np.ndarray,
                                                                               np.where(vol_ratio > 1, 50.0, 35.0))))
     composite = (mom_score * 0.25 + mr_score * 0.20 + 50 * 0.25 + 50 * 0.15 + vol_score * 0.15) + vol_premium
     composite = np.clip(composite + adx_adj + obv_adj + rs_bonus, 0, 100)
+    # composite v2 candidate: V2_NEUTRALIZED at their neutral values
+    composite_v2 = np.clip(mom_score * 0.25 + mr_score * 0.20 + 50 * 0.25 + 50 * 0.15 + 50 * 0.15 + adx_adj + obv_adj, 0, 100)
 
     return {
         "quick_score": quick, "momentum": mom_score, "mean_reversion": mr_score, "volume": vol_score,
         "vol_premium": vol_premium, "adx": adx_adj, "obv": obv_adj, "rel_strength": rs_bonus,
-        "price_composite": composite,
+        "price_composite": composite, "price_composite_v2": composite_v2,
         # intermediates, pinned against the live functions by the tests
         "_rsi": rsi, "_vol_ratio": vol_ratio, "_rv20": rv20, "_ewma": ewma, "_dx": dx, "_rs": rs,
         "_mom_12_1": mom_12_1, "_mom_1m": mom_1m, "_chg5": chg5, "_v_raw": v_raw, "_change_pct": change_pct,

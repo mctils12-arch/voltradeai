@@ -271,6 +271,31 @@ def test_quick_score_and_composite_arithmetic(tst):
         assert f["volume"][t] == vs and f["price_composite"][t] == pytest.approx(comp)
 
 
+def test_composite_v2_holds_the_preregistered_inputs_neutral(tst):
+    """2026-11-06: price_composite_v2 = price_composite with exactly V2_NEUTRALIZED
+    (volume -> 50, vol-premium bonus -> 0, relative-strength bonus -> 0); every
+    other term identical. Pre-registered before any run includes it."""
+    s, rows, spy, f = tst
+    assert wf.V2_NEUTRALIZED == ("volume", "vol_premium", "rel_strength")
+    assert "price_composite_v2" in wf.INPUTS and "price_composite_v2" in wf.INPUT_INFO
+    moved = 0
+    for t in range(1, len(rows)):
+        v2 = f["momentum"][t] * 0.25 + f["mean_reversion"][t] * 0.20 + 50 * 0.25 + 50 * 0.15 + 50 * 0.15
+        v2 = max(0, min(100, v2 + f["adx"][t] + f["obv"][t]))
+        assert f["price_composite_v2"][t] == pytest.approx(v2), t
+        legacy_terms = (f["volume"][t] - 50) * 0.15 + f["vol_premium"][t] + f["rel_strength"][t]
+        if legacy_terms != 0:
+            moved += 1
+        elif 0 < f["price_composite"][t] < 100:
+            assert f["price_composite_v2"][t] == pytest.approx(f["price_composite"][t]), t
+    assert moved > 0, "fixture never exercised a neutralized term"
+
+
+def test_horizons_include_a_descriptive_one_day_and_verdicts_stay_on_five():
+    assert wf.HORIZONS == (1, 5, 20) and wf.PRIMARY_HORIZON == 5
+    assert wf._nw_lags(1) == 1
+
+
 def test_raw_share_volume_undoes_the_split_adjustment():
     s, rows = _series(raw_ratio=4.0, gaps=False, n=60)
     v_raw = wf.raw_share_volume(s)
@@ -466,7 +491,8 @@ def test_end_to_end_finds_a_planted_momentum_signal_and_writes_the_contract(tmp_
     assert set(d["brain_long_term"]) == set(wf.INPUTS)
     for f in wf.INPUTS:
         r = d["inputs"][f]
-        assert set(r["horizons"]) == {"5", "20"} and "live_exit" in r and r["verdict"] in ("positive", "negative", "null", "insufficient")
+        # exact pin moved 2026-11-06: {"5", "20"} -> {"1", "5", "20"} (descriptive +1d, human spec section 7)
+        assert set(r["horizons"]) == {"1", "5", "20"} and "live_exit" in r and r["verdict"] in ("positive", "negative", "null", "insufficient")
         for hz in r["horizons"].values():
             for k in ("ic", "quintiles", "top_n", "by_regime", "by_spy_200d", "by_year", "by_liquidity"):
                 assert k in hz

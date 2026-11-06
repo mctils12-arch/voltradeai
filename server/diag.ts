@@ -438,6 +438,14 @@ export const DIAG_PROBES = [
   // (1..60, default 10). Account values and option symbols per the 2026-07-07
   // widening; no keys.
   "daily_line",
+  // ADDED 2026-11-06 ([RULE-REVIEW] measurement, human refocus spec section 7
+  // "which signals add return and which are noise"): the SAME body as the
+  // owner's GET /api/bot/signals (server/signals.ts over signal_attribution.py)
+  // — one row per stock-score signal with its long-term walk-forward and
+  // forward shadow-log IC, verdict, action and reason; the ML evidence; the
+  // composite comparison. Aggregate-only (no ticker, price or timestamp of a
+  // record), read-only, no query parameters.
+  "signals",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 

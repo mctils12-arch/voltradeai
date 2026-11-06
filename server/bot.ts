@@ -45,6 +45,7 @@ import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch }
 import { cachedBarsCoverage } from "./barsCoverage";
 import { pricePanelStatus } from "./pricePanel";
 import { brainBody, BRAIN_CACHE_MS, BRAIN_EVIDENCE_CMD, type EvidencePayload } from "./brain";
+import { makeSignalsReader, SIGNALS_CMD, SIGNALS_EXEC_OPTS, SIGNALS_DAEMON_TIMEOUT_MS } from "./signals";
 import { readFilingHistory } from "./edgarForm4";
 import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
 import { walkforwardStatus } from "./walkforward";
@@ -2752,6 +2753,22 @@ print(json.dumps({
     }
   });
 
+  // ── Signal attribution (2026-11-06, [RULE-REVIEW] measurement; human spec
+  // section 7): one row per stock-score signal — long-term walk-forward +
+  // forward shadow-log test, a pre-registered verdict, what the served score
+  // does with it, a plain-English reason (server/signals.ts,
+  // signal_attribution.py). Same body for the owner route and the diag probe
+  // "signals"; cached 10 min, daemon first, python3 -c fallback.
+  const readSignals = makeSignalsReader(() =>
+    pythonCall("signal_attribution", {}, SIGNALS_CMD, { ...SIGNALS_EXEC_OPTS }, SIGNALS_DAEMON_TIMEOUT_MS));
+  app.get("/api/bot/signals", requireOwner, async (_req, res) => {
+    try {
+      res.json(await readSignals());
+    } catch (e: unknown) {
+      res.status(500).json({ error: String(e instanceof Error ? e.message : e).slice(0, 200) });
+    }
+  });
+
   // ── Look-up (2026-10-22, human-asked): what the bot thinks of ONE symbol
   // right now, through the scan's own path — lookup_ticker.py via the
   // daemon ("lookup_ticker", registered in voltrade_daemon.py) with the
@@ -4144,6 +4161,11 @@ print(json.dumps(get_source_validation_report()))
 "`, { timeout: 20000 });
           return res.json(sanitizeDiag({ probe: "source_validation", ...JSON.parse(stdout.toString().trim() || "{}") }));
         }
+        case "signals": {
+          // ADDED 2026-11-06 — see diag.ts. The owner's /api/bot/signals body
+          // (readSignals, server/signals.ts): aggregate-only attribution table.
+          return res.json(sanitizeDiag({ probe: "signals", ...(await readSignals()) }));
+        }
         case "portdwell_window": {
           // ADDED 2026-08-18 (scheduled-routine session): see the
           // "portdwell_window" entry in diag.ts's DIAG_PROBES for why —
@@ -5100,10 +5122,11 @@ print(json.dumps(result[:20]))
     }
   }
 
-  // Signals endpoint
-  app.get("/api/bot/signals", requireOwner, (_req, res) => {
-    res.json(signals);
-  });
+  // Signals endpoint — RETIRED 2026-11-06: GET /api/bot/signals now serves the
+  // signal attribution table (registered above, server/signals.ts). This
+  // handler returned the in-memory per-ticker `signals` list; no client, script
+  // or test read it (grep of client/, scripts/, server/), and the earlier
+  // registration already won every request (Express matches the first route).
 
   // Manual signal refresh
   app.post("/api/bot/refresh-signals", requireOwner, async (_req, res) => {
