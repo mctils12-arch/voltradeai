@@ -453,6 +453,13 @@ export const DIAG_PROBES = [
   // alternatives, sizing) and a plain-English summary. Symbols and sizes are
   // within the 2026-07-07 widening; read-only; ?ticker, ?limit (1..200).
   "decisions",
+  // ADDED 2026-11-06 (refocus spec §8 "why are we losing money"): loss
+  // attribution (server/decisionAttribution.ts) — the SAME body as the owner's
+  // /api/bot/attribution: the window's realized + open P&L by signal, sector,
+  // instrument, timing and execution (option fills vs the recorded mid), each
+  // with a plain-English reason. Aggregates plus the ten worst lots' symbols
+  // (the 2026-07-07 widening); read-only; ?days (1..365, default 30).
+  "attribution",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
