@@ -531,3 +531,228 @@ def test_no_panel_is_skipped_and_memory_budget_aborts_cleanly(tmp_path, monkeypa
     assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["status"] == "error"
     assert json.load(open(out / "latest.json")) == {"keep": True}, "a failed run never overwrites the last good result"
     assert "memory budget" in json.load(open(out / "last_run.json"))["reason"]
+
+
+# ── pre-rank candidates (PRE-REGISTERED 2026-11-06, research/open_questions.md [SELECTION]) ──
+def _closes_series(symbol, days, closes, v=3e6):
+    rows = [{"d": d, "o": float(x), "h": float(x) * 1.001, "l": float(x) * 0.999, "c": float(x), "v": int(v), "rc": float(x)}
+            for d, x in zip(days, closes)]
+    return pp.series_from_lines([ws.line(symbol, rows)])[0]
+
+
+def _ref_resid_momentum(s, spy, t):
+    """Reference: np.linalg.lstsq on the window's own returns (stock bar to bar,
+    SPY over the same days), residual sum incl. the intercept / (floored sd x sqrt n)."""
+    k_of = [spy.index_on(int(d)) for d in s.days]
+    r, m = [], []
+    for k in range(t - (wf.MOM_LOOKBACK - 1), t - wf.MOM_SKIP + 1):
+        r.append(s.c[k] / s.c[k - 1] - 1.0)
+        m.append(spy.c[k_of[k]] / spy.c[k_of[k - 1]] - 1.0)
+    r, m = np.array(r), np.array(m)
+    (alpha, beta), *_ = np.linalg.lstsq(np.column_stack([np.ones(len(m)), m]), r, rcond=None)
+    e = r - alpha - beta * m
+    sd = max(math.sqrt(float(e @ e) / (len(r) - 2)), wf.RESID_SIGMA_FLOOR)
+    return float((r - beta * m).sum() / (sd * math.sqrt(len(r)))), float(beta)
+
+
+def test_prerank_candidates_are_preregistered_and_grow_the_bonferroni_family():
+    assert wf.PRERANK_CANDIDATES == ("momentum_12_1", "resid_momentum_12_1", "quick_score_no_move")
+    assert wf.PRERANK_LIVE == "quick_score" and wf.PRERANK_LIVE in wf.INPUTS
+    assert wf.INPUTS[-3:] == wf.PRERANK_CANDIDATES, "appended after the live mirrors: every existing column keeps its place"
+    for f in wf.PRERANK_CANDIDATES:
+        assert f in wf.INPUT_INFO and wf.INPUT_INFO[f][1].startswith("NOT live"), f
+        assert f in wf.PRIOR, f"no prior stated for {f}"
+    assert "before any run that includes them" in wf.PRIOR and "Gate-2 reading, fixed now" in wf.PRIOR
+    assert (wf.MOM_LOOKBACK, wf.MOM_SKIP, wf.RESID_MIN_OBS, wf.RESID_SIGMA_FLOOR) == (252, 21, 200, 0.005)
+    # family pin: 30 (10 inputs x 3 horizons) before the candidates, 39 with them — every
+    # existing p_bonferroni is the same raw p x 39 instead of x 30 (more conservative)
+    assert len(wf.INPUTS) * len(wf.HORIZONS) == 39
+    # nothing in the bot reads them (measurement only)
+    for f in ("bot_engine.py", "system_config.py", "score_composite.py", "server/bot.ts", "server/routes.ts"):
+        src = open(os.path.join(HERE, f), encoding="utf-8").read()
+        for name in wf.PRERANK_CANDIDATES:
+            assert name not in src, (f, name)
+
+
+def test_momentum_12_1_is_the_skip_month_total_return(tst):
+    s, rows, spy, f = tst
+    for t in range(len(s.c)):
+        if t >= wf.MOM_LOOKBACK:
+            assert f["momentum_12_1"][t] == pytest.approx(s.c[t - wf.MOM_SKIP] / s.c[t - wf.MOM_LOOKBACK] - 1.0, rel=1e-12), t
+        else:
+            assert f["momentum_12_1"][t] == wf.NO_VALUE and f["resid_momentum_12_1"][t] == wf.NO_VALUE, t
+    # the 231 daily returns of the residual window compound to exactly this return
+    t = len(s.c) - 1
+    win = s.c[t - wf.MOM_LOOKBACK + 1:t - wf.MOM_SKIP + 1] / s.c[t - wf.MOM_LOOKBACK:t - wf.MOM_SKIP]
+    assert len(win) == 231 and np.prod(win) - 1 == pytest.approx(f["momentum_12_1"][t], rel=1e-9)
+
+
+def test_residual_momentum_matches_a_reference_regression_across_gaps(tst):
+    """The fixture has holidays and an 8-bar halt: SPY's return must span the same days."""
+    s, rows, spy, f = tst
+    checked = 0
+    for t in range(wf.MOM_LOOKBACK, len(s.c), 3):
+        ref, _ = _ref_resid_momentum(s, spy, t)
+        assert f["resid_momentum_12_1"][t] == pytest.approx(ref, rel=1e-8, abs=1e-10), (t, ref, f["resid_momentum_12_1"][t])
+        checked += 1
+    assert checked > 80
+
+
+def test_planted_momentum_ranks_first_and_the_skip_month_is_not_read():
+    rng = np.random.default_rng(12)
+    days = ws.bdays("2016-01-04", "2017-06-30")
+    t = 300
+    spy = _closes_series("SPY", days, 200 * np.cumprod(1 + rng.normal(0.0003, 0.01, len(days))))
+    noise = [_closes_series(f"N{i:02d}", days, 40 * np.cumprod(1 + rng.normal(0, 0.015, len(days)))) for i in range(15)]
+    path = np.empty(len(days))                  # +0.4%/day through the window, then -1.5%/day for the skipped month
+    for k in range(len(days)):
+        path[k] = 0.004 if k <= t - wf.MOM_SKIP else -0.015
+    path += rng.normal(0, 0.004, len(days))
+    planted = _closes_series("PLNT", days, 30 * np.cumprod(1 + path))
+    at = np.array([t])
+    vals = {x.symbol: wf.series_features(x, spy.days, spy.c, at=at) for x in noise + [planted]}
+    for name in ("momentum_12_1", "resid_momentum_12_1"):
+        ranked = sorted(vals, key=lambda k: -vals[k][name][0])
+        assert ranked[0] == "PLNT", (name, [(k, round(float(vals[k][name][0]), 3)) for k in ranked[:3]])
+    # the live momentum sub-score's 12-1 (deep_score) is scaled by the last month's return; this one is not
+    assert vals["PLNT"]["momentum_12_1"][0] > vals["PLNT"]["_mom_12_1"][0] / 100
+    # nothing after bar t-21 is read; bar t-21 itself is
+    base = {n_: vals["PLNT"][n_][0] for n_ in ("momentum_12_1", "resid_momentum_12_1")}
+    for mode in ("after", "at"):
+        cut = pp.Series(**{**planted.__dict__, "_dates": None})
+        cc = planted.c.copy()
+        sc_ = spy.c.copy()
+        if mode == "after":
+            cc[t - wf.MOM_SKIP + 1:] *= rng.uniform(0.3, 3.0, len(cc) - (t - wf.MOM_SKIP + 1))
+            sc_[t - wf.MOM_SKIP + 1:] *= 3.0
+        else:
+            cc[t - wf.MOM_SKIP] *= 1.5
+        cut.c = cc
+        g = wf.series_features(cut, spy.days, sc_, at=at)
+        for n_, v in base.items():
+            assert (g[n_][0] == v) == (mode == "after"), (mode, n_, g[n_][0], v)
+
+
+def test_residual_and_raw_momentum_disagree_when_beta_explains_the_move():
+    """A high-beta name with no alpha rides a strong market to the top of raw
+    momentum; a low-beta name with steady alpha is first on residual momentum."""
+    rng = np.random.default_rng(31)
+    days = ws.bdays("2016-01-04", "2017-03-31")
+    m = rng.normal(0.002, 0.01, len(days))
+    spy = _closes_series("SPY", days, 200 * np.cumprod(1 + m))
+    hi_beta = _closes_series("HIB", days, 50 * np.cumprod(1 + 2.5 * m + rng.normal(0, 0.01, len(days))))
+    alpha = _closes_series("ALF", days, 50 * np.cumprod(1 + 0.3 * m + 0.0015 + rng.normal(0, 0.005, len(days))))
+    t = len(days) - 1
+    fa = wf.series_features(hi_beta, spy.days, spy.c, at=np.array([t]))
+    fb = wf.series_features(alpha, spy.days, spy.c, at=np.array([t]))
+    assert fa["momentum_12_1"][0] > fb["momentum_12_1"][0] + 0.5
+    assert fb["resid_momentum_12_1"][0] > fa["resid_momentum_12_1"][0] + 2.0
+    assert abs(fa["resid_momentum_12_1"][0]) < 2.5                      # no alpha: a t-like score near 0
+    _, beta_a = _ref_resid_momentum(hi_beta, spy, t)
+    _, beta_b = _ref_resid_momentum(alpha, spy, t)
+    assert beta_a == pytest.approx(2.5, abs=0.2) and beta_b == pytest.approx(0.3, abs=0.1)
+
+
+def test_residual_momentum_floor_and_degenerate_markets():
+    rng = np.random.default_rng(5)
+    days = ws.bdays("2016-01-04", "2017-03-31")
+    t = len(days) - 1
+    at = np.array([t])
+    m = rng.normal(0.0004, 0.01, len(days))
+    spy = _closes_series("SPY", days, 200 * np.cumprod(1 + m))
+    # a T-bill-like series: 5%/yr, residual sd ~0.002%/day; without the floor its score would be ~150
+    bill = _closes_series("BILL", days, 100 * np.cumprod(1 + 0.0002 + rng.normal(0, 0.00002, len(days))))
+    got = wf.series_features(bill, spy.days, spy.c, at=at)["resid_momentum_12_1"][0]
+    ref, _ = _ref_resid_momentum(bill, spy, t)
+    assert got == pytest.approx(ref, rel=1e-6) and 0 < got < 1.0
+    # SPY against itself: zero residual, finite score ~0 (the floor keeps the denominator away from 0)
+    own = wf.series_features(spy, spy.days, spy.c, at=at)["resid_momentum_12_1"][0]
+    assert math.isfinite(own) and abs(own) < 1e-6
+    # a flat market has no market model: NO_VALUE, while the raw return still has a value
+    flat = np.full(len(days), 100.0)
+    fl = wf.series_features(bill, spy.days, flat, at=at)
+    assert fl["resid_momentum_12_1"][0] == wf.NO_VALUE and math.isfinite(fl["momentum_12_1"][0])
+
+
+def test_quick_score_no_move_is_the_quick_score_minus_every_move_term(tst):
+    s, rows, spy, f = tst
+    for t in range(1, len(s.c), 4):
+        chg = float(f["_change_pct"][t])
+        move = min(abs(chg), 15.0) * 3 + (5 if abs(chg) > 10 else (2 if abs(chg) > 5 else 0)) \
+            + (-30 if abs(chg) > 50 else (-15 if abs(chg) > 30 else 0))
+        assert f["quick_score_no_move"][t] == min(f["_v_raw"][t] / 1_000_000, 5.0) * 2, t
+        assert f["quick_score"][t] - f["quick_score_no_move"][t] == pytest.approx(move, rel=1e-12, abs=1e-12), t
+    # the live quick score is exactly these four terms, and only _vol_score does not read change_pct
+    src = open(os.path.join(HERE, "bot_engine.py"), encoding="utf-8").read()
+    assert "\"quick_score\": _capped_change * 3 + _vol_score + _direction_bonus + _extreme_penalty," in src
+    for ln in ("_capped_change = min(abs(change_pct), 15.0)",
+               "_direction_bonus = 5 if abs(change_pct) > 10 else (2 if abs(change_pct) > 5 else 0)",
+               "_extreme_penalty = -30 if abs(change_pct) > 50 else (-15 if abs(change_pct) > 30 else 0)"):
+        assert ln in src and "change_pct" in ln
+    assert "_vol_score = min(v / 1_000_000, 5.0) * 2" in src
+    # a different move on the decision bar moves the quick score, not this candidate
+    t = 300
+    cut = pp.Series(**{**s.__dict__, "_dates": None})
+    cut.c, cut.raw_close = s.c.copy(), s.raw_close.copy()
+    cut.c[t] *= 1.2
+    cut.raw_close[t] *= 1.2                                       # raw share volume (c x v / raw close) unchanged
+    g = wf.series_features(cut, spy.days, spy.c, at=np.array([t]))
+    assert g["quick_score"][0] != f["quick_score"][t] and g["quick_score_no_move"][0] == f["quick_score_no_move"][t]
+
+
+def test_no_value_rows_sit_out_their_input_only():
+    rng = np.random.default_rng(8)
+    n_dates, per = 3, 60
+    N = n_dates * per
+    rows = {"sid": np.arange(N, dtype=np.int32), "j": np.repeat(np.arange(n_dates), per).astype(np.int32),
+            "dv": rng.uniform(3e6, 9e7, N).astype(np.float32)}
+    for f in wf.INPUTS:
+        rows[f] = rng.normal(size=N).astype(np.float32)
+    for h in wf.HORIZONS:
+        rows[f"net{h}"] = rng.normal(0, 0.03, N).astype(np.float32)
+        rows[f"gross{h}"] = (rows[f"net{h}"] + 0.002).astype(np.float32)
+    missing = rng.random(N) < 1 / 3
+    rows["momentum_12_1"][missing] = wf.NO_VALUE
+    spy = np.full(100, 100.0)
+    labels = {"regime": ["NEUTRAL"] * n_dates, "spy_200d": ["above_200d"] * n_dates}
+    res, _ = wf.evaluate(rows, np.array([30, 40, 50]), np.arange(100), spy, spy, labels, {}, {f: {} for f in wf.INPUTS}, {})
+    for f, mask in (("momentum_12_1", ~missing), ("quick_score", np.ones(N, dtype=bool))):
+        ics, names = [], []
+        for d in range(n_dates):
+            sel = (rows["j"] == d) & mask
+            x, y = rows[f][sel].astype(np.float64), rows["net5"][sel].astype(np.float64)
+            ics.append(wf.spearman(x, y))
+            names.append(sel.sum())
+        h5 = res[f]["horizons"]["5"]
+        assert h5["ic"]["mean"] == round(float(np.mean(ics)), 4) and h5["ic"]["n_dates"] == n_dates, f
+        assert sum(h5["quintiles"]["mean_names"]) == pytest.approx(np.mean(names), abs=0.3), f
+        assert res[f]["coverage"]["rows_with_value"] == int(mask.sum())
+    assert res["momentum_12_1"]["coverage"]["share"] == round(1 - missing.mean(), 4) < 1
+    for d in range(n_dates):
+        sel = np.nonzero(rows["j"] == d)[0]
+        top = wf.pick_top(rows, "momentum_12_1", sel, wf.TOP_N)
+        assert len(top) == wf.TOP_N and np.isfinite(rows["momentum_12_1"][top]).all()
+        assert set(top) == set(wf.pick_top(rows, "momentum_12_1", sel[~missing[sel]], wf.TOP_N))
+    # fewer valued names than TOP_N: only those are picked, never a NO_VALUE row to fill the ten
+    sel = np.nonzero(rows["j"] == 0)[0]
+    rows["momentum_12_1"][sel[4:]] = wf.NO_VALUE
+    assert list(np.sort(wf.pick_top(rows, "momentum_12_1", sel, wf.TOP_N))) == list(sel[:4][np.isfinite(rows["momentum_12_1"][sel[:4]])])
+
+
+def test_end_to_end_reports_the_candidates_with_their_coverage(tmp_path):
+    m = ws.synthetic_panel(str(tmp_path / "p"), n_names=45, signal=0.003, seed=17, ipo=4)
+    assert wf.run(str(tmp_path / "p"), str(tmp_path / "o"))["status"] == "ok"
+    d = json.load(open(tmp_path / "o" / "latest.json"))
+    assert d["multiple_testing"]["ic_tests"] == 39
+    assert d["multiple_testing"]["bonferroni_alpha"] == round(wf.ALPHA / 39, 6)
+    for f in wf.INPUTS:
+        cov = d["inputs"][f]["coverage"]
+        if f in ("momentum_12_1", "resid_momentum_12_1"):
+            assert 0.8 < cov["share"] < 1.0, (f, cov)          # the late listings lack a year of history at first
+        else:
+            assert cov["share"] == 1.0, (f, cov)                # every live mirror always has a value
+    for f in ("momentum_12_1", "resid_momentum_12_1"):
+        r = d["inputs"][f]
+        assert r["horizons"]["20"]["ic"]["mean"] > 0.05, f       # the planted persistent drift
+        assert r["live_exit"]["n_picks"] > 0 and r["label"] == wf.INPUT_INFO[f][0]
+    assert set(m["ipo"]) and "S00" not in json.dumps(d)

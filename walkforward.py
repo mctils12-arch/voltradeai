@@ -30,6 +30,20 @@ source lines by test_walkforward.py):
                   strength) held neutral — the composite v2 candidate, pre-
                   registered 2026-11-06 before any run that includes it.
 
+PRE-RANK CANDIDATES (PRERANK_CANDIDATES, pre-registered 2026-11-06 before any run
+that includes them). NOT live inputs — nothing in the bot reads them; they are
+alternatives to the live quick-score pre-rank, measured with the same rulers:
+
+  momentum_12_1        total return from the close MOM_LOOKBACK (252) bars back to
+                       the close MOM_SKIP (21) bars back (Jegadeesh & Titman 1993)
+  resid_momentum_12_1  the same window on market-model residuals: the stock's
+                       daily returns regressed on SPY's over the same days (OLS with
+                       an intercept, estimated over exactly that window), residual
+                       sum / (residual sd x sqrt(n)), the sd floored at
+                       RESID_SIGMA_FLOOR (Blitz, Huij & Martens 2011)
+  quick_score_no_move  the quick score with every term that depends on today's
+                       move removed: what is left is its day-volume term
+
 NOT MEASURABLE LONG-TERM (no point-in-time history exists in the repo; they
 stay "not measurable long-term" honestly): VRP (implied vol), squeeze (short
 interest, sentiment, Reddit), news, intel/insider (Form 4, MSPR, analyst),
@@ -61,6 +75,13 @@ would put old, later-split names in cheaper tiers: optimistic). Bias: the
 tiers are mid-points of the live fill haircut; no market impact at size (the
 top-N is equal-weight, notional-free) -> costs are OPTIMISTIC for the
 thinnest names.
+
+NO VALUE. A name without the history an input needs (the two momentum
+candidates need MOM_LOOKBACK + 1 bars) carries NO_VALUE (-inf) for that input:
+it is left out of that input's IC, quintiles and liquidity splits, never picked
+for its top-N, and counted in the input's `coverage`. The random-entry base rate
+stays the whole universe for every input. Every live-mirror input always has a
+value, so this changes nothing for them.
 
 DELISTING ASSUMPTION (research/price_panel_coverage.md caveat 3): a series that
 stops trading before an exit and before the panel's as_of exits at its last
@@ -139,8 +160,31 @@ DEEP_LIMIT = 300
 HIST_DAYS = 365
 SPY_RS_DAYS = 30
 
+# PRE-RANK CANDIDATES — PRE-REGISTERED 2026-11-06, before any run that includes
+# them (research/open_questions.md 2026-11-06 [SELECTION]). The live pre-rank
+# (PRERANK_LIVE, bot_engine.scan_market: only its top ~5 names reach deep_score)
+# rewards the size of today's move; its top-10 trailed random entry by 1.63 pts
+# per 5 days in the 2026-11-01 run (short-term reversal: Jegadeesh 1990,
+# Lehmann 1990). Three alternatives, each computable at the decision close from
+# daily closes alone. NOT live inputs: nothing in the bot reads them. Same
+# panel, universe, costs, horizons, random-entry base rate and Bonferroni
+# family as every other input; their priors are in PRIOR.
+PRERANK_LIVE = "quick_score"
+PRERANK_CANDIDATES = ("momentum_12_1", "resid_momentum_12_1", "quick_score_no_move")
+MOM_LOOKBACK = 252              # bars: the 12-1 window runs from the close 252 bars before the decision bar ...
+MOM_SKIP = 21                   # ... to the close 21 bars before it (the last month is skipped): 231 daily returns
+RESID_MIN_OBS = 200             # valid daily returns (of the window's 231) the market-model fit needs
+# Floor on the daily residual sd in resid_momentum_12_1's denominator (0.5%/day,
+# about 8% a year): below the idiosyncratic volatility of essentially every
+# common stock, above cash-like and index-tracking ETFs (a T-bill ETF's residual
+# sd is ~0.01%/day, so without a floor its steady yield would be the top
+# "residual momentum" score in the universe). Chosen before any run.
+RESID_SIGMA_FLOOR = 0.005
+NO_VALUE = float("-inf")        # not enough history for the input (see NO VALUE in the module docstring);
+                                # -inf, not NaN, so a value still compares equal to itself (the no-lookahead pins)
+
 INPUTS = ("quick_score", "momentum", "mean_reversion", "volume", "vol_premium", "adx", "obv",
-          "rel_strength", "price_composite", "price_composite_v2")
+          "rel_strength", "price_composite", "price_composite_v2") + PRERANK_CANDIDATES
 # PRE-REGISTERED 2026-11-06 (before any run that includes it): the composite v2
 # candidate = price_composite with the three inputs this harness's 2026-11-01
 # run found significantly NEGATIVE at 5 days (Bonferroni) held at their neutral
@@ -159,6 +203,9 @@ INPUT_INFO = {
     "rel_strength": ("Relative-strength bonus", "deep_score: +6 when analyze's 19-day return minus SPY's exceeds 5 pts"),
     "price_composite": ("Rules composite, price-measurable part", "0.25 momentum + 0.20 mean reversion + 0.15 volume + 0.25x50 (VRP) + 0.15x50 (squeeze) + vol-premium + ADX + OBV + rel-strength, clamped 0..100"),
     "price_composite_v2": ("Composite v2 candidate, price-measurable part", "price_composite with volume held at 50, the vol-premium bonus at 0 and the relative-strength bonus at 0 (V2_NEUTRALIZED, pre-registered 2026-11-06)"),
+    "momentum_12_1": ("12-1 momentum return (pre-rank candidate)", "NOT live: close 21 bars back / close 252 bars back - 1, on the series' own bars (Jegadeesh & Titman 1993; pre-registered 2026-11-06)"),
+    "resid_momentum_12_1": ("Residual 12-1 momentum (pre-rank candidate)", "NOT live: over the same 231 daily returns, OLS of the stock's return on SPY's (same days, with an intercept); sum of (return - beta x SPY return) / (max(residual sd, 0.5%) x sqrt(n)) (Blitz, Huij & Martens 2011; pre-registered 2026-11-06)"),
+    "quick_score_no_move": ("Quick score without its move terms (pre-rank candidate)", "NOT live: the quick score minus min(|chg|,15)*3, the size bonus and the extreme-move penalty = min(day raw shares/1M, 5)*2 (pre-registered 2026-11-06)"),
 }
 NOT_MEASURABLE = {
     "vrp": "Needs implied volatility (options chains): no point-in-time history before the forward-only chain archive.",
@@ -183,7 +230,24 @@ PRIOR = ("Stated 2026-10-29, before any real-panel run: most price-based inputs'
          "Added 2026-11-06, before any run that includes it: price_composite_v2 (V2_NEUTRALIZED held neutral) has a "
          "5d mean IC at least as high as price_composite's and a smaller top-10 shortfall vs random entry, but its "
          "top-10 still does not beat random entry net of costs (momentum, mean reversion, ADX and OBV measured null); "
-         "+1d ICs are small and mostly negative (short-term reversal).")
+         "+1d ICs are small and mostly negative (short-term reversal). "
+         "Added 2026-11-06 for the pre-rank candidates (PRERANK_CANDIDATES), before any run that includes them; the "
+         "comparison is the live pre-rank, quick_score (2026-11-01 run: 5d IC -0.0113, null; top-10 1.63 pts per 5 days "
+         "below random entry). momentum_12_1: 5d mean IC small and positive (+0.005 to +0.015), not surviving "
+         "Bonferroni over 39 tests, with several negative years (momentum crashes in rebounds and rotations, Daniel & "
+         "Moskowitz 2016; 2020-2022 here); its top-10 (the year's most extreme winners) between -0.6 and +0.3 pts per "
+         "5 days vs random entry: far above quick_score's -1.63, not reliably above random. resid_momentum_12_1: 5d IC "
+         "similar or a little higher (+0.005 to +0.02), with a higher t and more positive years than momentum_12_1 "
+         "(steadier: Blitz, Huij & Martens 2011); its top-10 (steady outperformers rather than extreme movers) within "
+         "-0.3 to +0.4 pts per 5 days of random entry, above momentum_12_1's. quick_score_no_move is the ablation "
+         "control for the move terms: it ranks by day share volume, which the cost model also prices (cheaper tiers "
+         "above 1M / 5M / 20M shares), so its NET 5d IC is pushed up mechanically (net 0.000 to +0.015; gross, "
+         "ic.mean_on_gross, -0.01 to +0.005), and its top-10 lands within -0.3 to +0.3 pts per 5 days of random "
+         "entry, i.e. removing the move terms alone removes most of quick_score's shortfall. About 20% that any "
+         "candidate's 5d IC survives Bonferroni (most likely resid_momentum_12_1). Gate-2 reading, fixed now: a "
+         "candidate passes only with a 'positive' 5d verdict AND a positive 5d top-10 excess vs random entry AND a "
+         "gross 5d IC of the same sign (the cost tiers alone cannot carry it); a top-10 that is merely less negative "
+         "than quick_score's is a reason for the pre-rank ablation (gate 3), not a pass.")
 
 CAVEATS = [
     "Survivorship-REDUCED, not free: the panel universe is Alpaca assets + corporate actions from 2016; delisted names in neither are missing (optimistic).",
@@ -192,6 +256,7 @@ CAVEATS = [
     "Live deep_score uses an intraday partial bar and analyze.py split-only bars; here every input is computed at the close on dividend-adjusted bars.",
     "Costs are the backtest_v2 liquidity tiers + half-tick floor per side; no market impact at size (optimistic for the thinnest names).",
     "Only the price-derivable parts of the stock score are measurable; see not_measurable.",
+    "Pre-rank candidates (momentum_12_1, resid_momentum_12_1, quick_score_no_move) are NOT live inputs; the two momentum candidates need 253 bars of history, and a name without them is left out of their statistics (see each input's coverage).",
     "Alpaca market data: derived statistics only — no price leaves this file.",
 ]
 
@@ -271,7 +336,9 @@ def series_features(s: pp.Series, spy_days: np.ndarray, spy_c: np.ndarray,
       compute_relative_strength on the 365-day history (analyze_ticker);
       bot_engine.deep_score ADX / OBV / 12-1 momentum / 5-day change on the
       400-day bars; the bot_engine quick score on the day bar; the strategy
-      modules themselves (momentum.score, mean_reversion.score)."""
+      modules themselves (momentum.score, mean_reversion.score). Plus the
+      pre-rank candidates (not live; PRERANK_CANDIDATES), NO_VALUE where a
+      name lacks their history."""
     from strategies import mean_reversion, momentum
 
     c, h, lo = s.c, s.h, s.l
@@ -423,10 +490,60 @@ def series_features(s: pp.Series, spy_days: np.ndarray, spy_c: np.ndarray,
     # composite v2 candidate: V2_NEUTRALIZED at their neutral values
     composite_v2 = np.clip(mom_score * 0.25 + mr_score * 0.20 + 50 * 0.25 + 50 * 0.15 + 50 * 0.15 + adx_adj + obv_adj, 0, 100)
 
+    # ── pre-rank candidates (PRE-REGISTERED 2026-11-06, PRERANK_CANDIDATES) ──
+    # Both momentum candidates use the same window, on the series' own bars:
+    # the daily returns INTO bars t-(MOM_LOOKBACK-1) .. t-MOM_SKIP (231 of them),
+    # i.e. from the close of bar t-252 to the close of bar t-21. Nothing at or
+    # after bar t-20 is read. Fewer than MOM_LOOKBACK + 1 bars -> NO_VALUE.
+    has_year = idx >= MOM_LOOKBACK
+    c_look, c_skip = _shift(c, MOM_LOOKBACK)[sel], _shift(c, MOM_SKIP)[sel]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mom_12_1_ret = np.where(has_year & (c_look > 0), c_skip / c_look - 1.0, NO_VALUE)
+
+    # resid_momentum_12_1: per-day OLS sums over the window via prefix sums
+    # (exact: the same estimates np.linalg.lstsq gives on the window, pinned
+    # by test). SPY's return spans the same days as the stock's (a halt's
+    # multi-day return is matched with SPY over the same days).
+    kd = np.searchsorted(spy_days, days)
+    kc = np.minimum(kd, len(spy_days) - 1)
+    on_spy = (kd < len(spy_days)) & (spy_days[kc] == days)
+    r_d, m_d, w_d = np.zeros(n), np.zeros(n), np.zeros(n)        # [k] = the return INTO bar k
+    if n > 1:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r_ = c[1:] / c[:-1] - 1.0
+            m_ = spy_c[kc[1:]] / spy_c[kc[:-1]] - 1.0
+            ok_ = on_spy[1:] & on_spy[:-1] & (c[:-1] > 0) & (spy_c[kc[:-1]] > 0) & np.isfinite(r_) & np.isfinite(m_)
+        w_d[1:] = ok_
+        r_d[1:] = np.where(ok_, r_, 0.0)
+        m_d[1:] = np.where(ok_, m_, 0.0)
+    lo_w = np.where(has_year, idx - (MOM_LOOKBACK - 1), 0)
+    hi_w = np.where(has_year, idx - MOM_SKIP, 0)
+
+    def _win(x):
+        csx = np.concatenate([[0.0], np.cumsum(x)])
+        return csx[hi_w + 1] - csx[lo_w]
+
+    n_obs = _win(w_d)
+    s_r, s_m, s_rm, s_mm, s_rr = _win(r_d), _win(m_d), _win(r_d * m_d), _win(m_d * m_d), _win(r_d * r_d)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sxx = s_mm - s_m * s_m / n_obs
+        sxy = s_rm - s_r * s_m / n_obs
+        syy = s_rr - s_r * s_r / n_obs
+        beta = sxy / sxx
+        resid_sd = np.maximum(np.sqrt(np.maximum(syy - beta * sxy, 0.0) / (n_obs - 2)), RESID_SIGMA_FLOOR)
+        rmom = (s_r - beta * s_m) / (resid_sd * np.sqrt(n_obs))      # sum of (alpha + residual) over the window
+        fit_ok = has_year & (n_obs >= RESID_MIN_OBS) & (sxx > 1e-9 * s_mm) & np.isfinite(rmom)
+    resid_mom = np.where(fit_ok, rmom, NO_VALUE)
+
+    # quick_score_no_move: the quick score's only term that does not depend on
+    # today's move (the same expression as inside `quick` above)
+    quick_no_move = np.minimum(v_raw / 1_000_000, 5.0) * 2
+
     return {
         "quick_score": quick, "momentum": mom_score, "mean_reversion": mr_score, "volume": vol_score,
         "vol_premium": vol_premium, "adx": adx_adj, "obv": obv_adj, "rel_strength": rs_bonus,
         "price_composite": composite, "price_composite_v2": composite_v2,
+        "momentum_12_1": mom_12_1_ret, "resid_momentum_12_1": resid_mom, "quick_score_no_move": quick_no_move,
         # intermediates, pinned against the live functions by the tests
         "_rsi": rsi, "_vol_ratio": vol_ratio, "_rv20": rv20, "_ewma": ewma, "_dx": dx, "_rs": rs,
         "_mom_12_1": mom_12_1, "_mom_1m": mom_1m, "_chg5": chg5, "_v_raw": v_raw, "_change_pct": change_pct,
@@ -691,9 +808,11 @@ def tie_break(sid: np.ndarray, j: np.ndarray) -> np.ndarray:
 
 
 def pick_top(rows: Dict[str, np.ndarray], f: str, sel: np.ndarray, n: int) -> np.ndarray:
-    """Row indices of the top-n by input f among `sel` (row indices of one date)."""
+    """Row indices of the top-n by input f among `sel` (row indices of one date).
+    A row without a value for f (NO_VALUE) is never picked."""
     if len(sel) == 0:
         return sel
+    sel = sel[np.isfinite(rows[f][sel])]
     order = np.lexsort((-tie_break(rows["sid"][sel], rows["j"][sel]), -rows[f][sel].astype(np.float64)))
     return sel[order[:n]]
 
@@ -833,7 +952,7 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
             ic_liq = {b: np.full(n_dates, np.nan) for b in range(3)}
             for d, sel in enumerate(by_date):
                 y = net[sel]
-                ok = np.isfinite(y)
+                ok = np.isfinite(y) & np.isfinite(x_all[sel])     # NO_VALUE rows sit out this input only
                 sel_ok = sel[ok]
                 if len(sel_ok) < MIN_NAMES_PER_DATE:
                     continue
@@ -920,6 +1039,8 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
         results[f]["horizons"][str(hz)]["top_n"]["dsr"] = _round(deflated_sharpe(st["sr"], st["n"], st["skew"], st["kurt"], sr0_ann / ann[hz]), 4)
     for f in INPUTS:
         results[f]["live_exit"] = _live_block(f, picks_by.get(f, {}), live, random_live, rows)
+        has = np.isfinite(rows[f])
+        results[f]["coverage"] = {"rows_with_value": int(has.sum()), "share": _round(float(has.mean()) if len(has) else None)}
     mt = {"ic_tests": m_ic_tests, "bonferroni_alpha": round(ALPHA / m_ic_tests, 6), "sharpe_trials": len(srs_ann),
           "sharpe_trials_var_annualized": _round(var_sr, 6), "expected_max_sharpe_annualized": _round(sr0_ann, 4),
           "note": "IC p-values are Bonferroni-adjusted over every input x horizon; DSR deflates each top-N excess-vs-random Sharpe by the expected maximum of the trials run."}
