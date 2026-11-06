@@ -16,6 +16,7 @@ import {
   countObservations, countFileLines, platformStats, listArchiveDirs,
   _resetPlatformStatsCache, _setLineCounterForTests, PLATFORM_STATS_CACHE_FILE, FIRST_COUNT_WAIT_MS,
 } from "./platformStats";
+import { setColdDayFileSource, type ColdDayFile } from "./datacoreArchive";
 
 const LAYERS = [{ id: "aircraft", status: "live" }, { id: "vessels", status: "live" }, { id: "tank_fill", status: "planned" }];
 const TTL_PLUS = 11 * 60_000;
@@ -177,6 +178,61 @@ test("the cache file is a dotfile at the archive root that no directory-enumerat
     assert.ok(PLATFORM_STATS_CACHE_FILE.startsWith("."));
     assert.deepEqual(listArchiveDirs(base).sort(), ["aircraft", "vessels", "waitlist"]);
   } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a day file held only in the permanent R2 tier keeps its count; a MISSING or never-counted one does not; local deletes still leave the total", async () => {
+  const base = makeArchive(); // 6 countable lines (aircraft 4, vessels 2; waitlist excluded)
+  _resetPlatformStatsCache();
+  fs.mkdirSync(path.join(base, "occvolume"));
+  fs.writeFileSync(path.join(base, "occvolume", "2026-10-01.jsonl.gz"), zlib.gzipSync('{"o":1}\n{"o":2}\n'));
+  fs.writeFileSync(path.join(base, "occvolume", "2026-10-02.jsonl.gz"), zlib.gzipSync('{"o":3}\n'));
+  const held: ColdDayFile[] = [];
+  setColdDayFileSource({ resolve: async () => [], heldOnlyInR2: () => held });
+  try {
+    assert.equal(await countObservations(base), 9);
+    // the tier deletes 2026-10-01 locally after its read-back: still archived, the total holds
+    fs.rmSync(path.join(base, "occvolume", "2026-10-01.jsonl.gz"));
+    held.push({ stream: "occvolume", file: "2026-10-01.jsonl.gz", bytes: 30, lines: 2 });
+    assert.equal(await countObservations(base), 9, "moved to R2 is not lost");
+    // the in-memory counts are gone (as after a lost cache file): the tier's own count stands in
+    _resetPlatformStatsCache();
+    assert.equal(await countObservations(base), 9);
+    // reported MISSING (no longer held) -> leaves the total, like any vanished file
+    held.length = 0;
+    assert.equal(await countObservations(base), 7);
+    // adopted from a listing with no count, and this cache never saw it: unknown, not guessed
+    _resetPlatformStatsCache();
+    held.push({ stream: "occvolume", file: "2026-10-01.jsonl.gz", bytes: 30, lines: null });
+    assert.equal(await countObservations(base), 7);
+    // the same exclusions as local files: _tracks rollups and operational dirs never count
+    held.push({ stream: "vessels_tracks", file: "2026-09-01.jsonl.gz", bytes: 9, lines: 5 },
+      { stream: "waitlist", file: "2026-09-01.jsonl", bytes: 3, lines: 1 });
+    assert.equal(await countObservations(base), 7);
+    // a pruned local file NOT held in R2 still leaves the total (pre-existing rule)
+    fs.rmSync(path.join(base, "aircraft", "2026-11-04-02.jsonl"));
+    assert.equal(await countObservations(base), 6);
+  } finally {
+    setColdDayFileSource(null);
+    _resetPlatformStatsCache();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("streams_recording keeps a stream whose day files now sit only in the permanent R2 tier", async () => {
+  const base = makeArchive();
+  _resetPlatformStatsCache();
+  fs.mkdirSync(path.join(base, "occvolume")); // every local file evicted: an empty dir
+  setColdDayFileSource(null);
+  try {
+    const before = await platformStats(LAYERS, base, Date.now(), { firstWaitMs: 2000 });
+    setColdDayFileSource({ resolve: async () => [], heldOnlyInR2: () => [{ stream: "occvolume", file: "2026-10-01.jsonl.gz", bytes: 30, lines: 2 }] });
+    const after = await platformStats(LAYERS, base, Date.now(), { firstWaitMs: 2000 });
+    assert.equal(after.streams_recording, before.streams_recording + 1);
+  } finally {
+    setColdDayFileSource(null);
+    _resetPlatformStatsCache();
     fs.rmSync(base, { recursive: true, force: true });
   }
 });

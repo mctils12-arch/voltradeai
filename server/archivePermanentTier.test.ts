@@ -176,7 +176,8 @@ test("evict: the local copy goes only when its date is more than 7 days old AND 
   const go = writeDay(base, "aircraft_tracks", dateAgo(PERMANENT_LOCAL_DAYS + 1));
   const goBytes = fs.readFileSync(go);
   const logs: string[] = [];
-  const s = await tierFor(base, r2, { logs }).tick();
+  const tier = tierFor(base, r2, { logs });
+  const s = await tier.tick();
   assert.equal(s.uploaded, 2);
   assert.equal(s.evicted, 1);
   assert.equal(s.bytesEvicted, goBytes.length);
@@ -188,6 +189,9 @@ test("evict: the local copy goes only when its date is more than 7 days old AND 
   const e = loadPermanentManifest(base).entries[k];
   assert.equal(e.evictedAt, NOW);
   assert.match(logs.join("\n"), /evicted local aircraft_tracks\/.* sha256 match/);
+  assert.deepEqual(tier.coldSource.heldOnlyInR2(), [
+    { stream: "aircraft_tracks", file: `${dateAgo(8)}.jsonl.gz`, bytes: goBytes.length, lines: 2 },
+  ], "only the evicted file is held only in R2");
 });
 
 test("byte-safety: a failed or unverifiable upload records nothing and deletes nothing; the next good tick finishes the job", async () => {
@@ -457,6 +461,7 @@ test("reconcile: a lost manifest re-adopts listed objects (evicted days stay rea
   assert.equal(s3.reconciled!.missing, 1);
   assert.deepEqual(t3.status().missing, [key("vessels_tracks", dateAgo(9))]);
   assert.ok(loadPermanentManifest(base).entries[key("vessels_tracks", dateAgo(9))], "the entry is kept as evidence");
+  assert.deepEqual(t3.coldSource.heldOnlyInR2().map((f) => f.file), [`${dateAgo(10)}.jsonl.gz`], "a MISSING object is not reported as held");
   assert.match(errors.join("\n"), /MISSING permanent\/vessels_tracks\//);
   // a later listing that FAILS cannot clear the alarm: the key stays MISSING
   r2.ctl.down = true;

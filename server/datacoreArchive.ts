@@ -973,13 +973,29 @@ export function rowInBbox(row: Record<string, unknown>, bbox: ArchiveBbox): bool
  * readArchiveDay only when the day has NO local file, so every local read is
  * unchanged. Boot wiring: archiveOffload.registerArchiveOffloadRoutes.
  */
+export interface ColdDayFile { stream: string; file: string; bytes: number; lines: number | null }
 export interface ColdDayFileSource {
   /** local cache paths of `stream`'s files for `day` held only in R2 ([] if none) */
   resolve(stream: string, day: string, signal?: AbortSignal): Promise<string[]>;
+  /** every day file whose ONLY copy is now in R2 (local copy deleted after a
+   *  read-back match; objects the last listing found missing are excluded) */
+  heldOnlyInR2(): ColdDayFile[];
 }
 let coldDaySource: ColdDayFileSource | null = null;
 export function setColdDayFileSource(src: ColdDayFileSource | null): void {
   coldDaySource = src;
+}
+/** ACCOUNTING (2026-11-06): the archive's own counters (platformStats'
+ *  observations, the streams inventory's files/bytes) count these as held —
+ *  moving a file to R2 is not losing it. [] without a cold source. */
+export function coldDayFilesHeldInR2(): ColdDayFile[] {
+  if (!coldDaySource) return [];
+  try {
+    return coldDaySource.heldOnlyInR2();
+  } catch (e: unknown) {
+    console.error("[archive] cold day files listing:", e instanceof Error ? e.message : e);
+    return [];
+  }
 }
 
 export async function readArchiveDay(

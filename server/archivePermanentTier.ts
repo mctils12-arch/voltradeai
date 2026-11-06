@@ -543,6 +543,13 @@ export function createPermanentTier(deps: PermanentTierDeps) {
       const fp = await cache.fetchKey(key, signal);
       return fp ? [fp] : [];
     },
+    heldOnlyInR2() {
+      // like resolve(): every recorded entry counts, whatever the stream list says now
+      const missing = new Set(manifest.missing);
+      return Object.entries(manifest.entries)
+        .filter(([k, e]) => e.evictedAt != null && !missing.has(k))
+        .map(([, e]) => ({ stream: e.stream, file: e.file, bytes: e.bytes, lines: e.lines }));
+    },
   };
 
   function status() {
