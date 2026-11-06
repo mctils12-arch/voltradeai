@@ -14,6 +14,7 @@ import {
   readArchivedDay, occDeepBackfillEnabled, occDeepBackfillIfEnabled,
   _resetOccForTests,
 } from "./occVolume";
+import { setColdDayFileSource } from "./datacoreArchive";
 
 const HEADER = "quantity,underlying,symbol,actype,porc,exchange,actdate";
 const DAY_CSV = [
@@ -165,4 +166,34 @@ test("deep backfill: default-on (2026-07-07 approval) with opt-out, walks oldest
   const before = ymds.length;
   await occDeepBackfillIfEnabled(fake as any, NOW, base, env, 10, 0);
   assert.equal(ymds.length, before, "done-marker prevents a second pass");
+});
+
+test("a report day held only in the permanent R2 tier counts as archived: refresh and the deep backfill never re-download it", async () => {
+  _resetOccForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "occ-"));
+  fs.mkdirSync(path.join(base, "occvolume"), { recursive: true });
+  setColdDayFileSource({
+    resolve: async () => [],
+    heldOnlyInR2: () => [{ stream: "occvolume", file: "2026-07-02.jsonl.gz", bytes: 100, lines: 5 },
+                         { stream: "vessels_tracks", file: "2026-07-01.jsonl.gz", bytes: 9, lines: 1 }],
+  });
+  try {
+    assert.equal(isDayArchived("2026-07-02", base), true, "R2-held day");
+    assert.equal(isDayArchived("2026-07-01", base), false, "another stream's file is not an OCC day");
+    const asked: string[] = [];
+    const fake = async (url: string) => {
+      asked.push(url.match(/reportDate=(\d{8})/)![1]);
+      return { ok: true, status: 200, text: async () => "No record(s) found" };
+    };
+    await refreshOcc(fake as any, Date.parse("2026-07-06T23:00:00Z"), base);
+    assert.ok(asked.length > 0, "the other recent days are still checked");
+    assert.ok(!asked.includes("20260702"), "the R2-held day is not fetched");
+    asked.length = 0;
+    await occDeepBackfillIfEnabled(fake as any, Date.parse("2026-07-06T23:00:00Z"), base, { OCC_DEEP_BACKFILL: "1" } as any, 10, 0);
+    assert.ok(!asked.includes("20260702"), "nor by the deep backfill");
+    assert.equal(fs.existsSync(path.join(base, "occvolume", "2026-07-02.jsonl.gz")), false, "nothing re-written locally");
+  } finally {
+    setColdDayFileSource(null);
+    _resetOccForTests();
+  }
 });

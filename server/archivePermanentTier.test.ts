@@ -7,7 +7,7 @@ import zlib from "zlib";
 import crypto from "crypto";
 import {
   createPermanentTier, permanentTierFlag, permanentKey, gzipLineCount, loadPermanentManifest, listPermanentLocalFiles,
-  PERMANENT_STREAMS, PERMANENT_LOCAL_DAYS, PERMANENT_MANIFEST_NAME,
+  PERMANENT_STREAMS, PERMANENT_LOCAL_DAYS, PERMANENT_MANIFEST_NAME, permanentLocalDays,
 } from "./archivePermanentTier";
 import { createArchiveOffloadService } from "./archiveOffload";
 import { createR2Client, r2ConfigFromEnv } from "./r2Client";
@@ -115,8 +115,11 @@ test("flag: default ON; a present env value of 0/off/false/no/empty turns it off
   assert.equal(permanentTierFlag({ ARCHIVE_PERMANENT_TIER: "1" } as NodeJS.ProcessEnv).on, true);
 });
 
-test("keys and scope: permanent/<stream>/<file>; only the three _tracks streams, only <date>.jsonl.gz", () => {
-  assert.deepEqual([...PERMANENT_STREAMS], ["vessels_tracks", "aircraft_tracks", "trains_tracks"]);
+test("keys and scope: permanent/<stream>/<file>; the three _tracks streams + occvolume, only <date>.jsonl.gz", () => {
+  // pin updated 2026-11-06 (volume-space-4): occvolume joined with a 30-day local window
+  assert.deepEqual([...PERMANENT_STREAMS], ["vessels_tracks", "aircraft_tracks", "trains_tracks", "occvolume"]);
+  assert.equal(permanentLocalDays("vessels_tracks"), PERMANENT_LOCAL_DAYS);
+  assert.equal(permanentLocalDays("occvolume"), 30);
   assert.equal(permanentKey("vessels_tracks", "2026-07-03.jsonl.gz"), "permanent/vessels_tracks/2026-07-03.jsonl.gz");
   const base = tmp();
   writeDay(base, "vessels_tracks", dateAgo(9));
@@ -523,4 +526,22 @@ test("integration: the offload service runs the tier each tick and reports it; t
   assert.match(st.notes[0], /permanent\/ prefix/);
   assert.ok(st.permanentTier.r2Bytes > 0);
   assert.ok(st.estimatedMonthlyCost.atCurrentGrowth.storedBytes >= st.permanentTier.r2Bytes, "the cost estimate counts the never-expiring objects");
+});
+
+test("occvolume keeps 30 days local (its readers need the newest 5 trading days); older report days go after a read-back, counted as held", async () => {
+  const base = tmp();
+  const r2 = fakeR2();
+  const keep = writeDay(base, "occvolume", dateAgo(30), ['{"qty":1}', '{"qty":2}', '{"qty":3}']);
+  const go = writeDay(base, "occvolume", dateAgo(31), ['{"qty":4}']);
+  fs.writeFileSync(path.join(base, "occvolume", "backfill_done.json"), "{}"); // the backfill marker is never touched
+  const tier = tierFor(base, r2);
+  const s = await tier.tick();
+  assert.equal(s.uploaded, 2);
+  assert.equal(s.evicted, 1);
+  assert.ok(fs.existsSync(keep), "day 30: kept");
+  assert.ok(!fs.existsSync(go), "day 31: evicted");
+  assert.ok(fs.existsSync(path.join(base, "occvolume", "backfill_done.json")));
+  assert.equal(r2.store.has("permanent/occvolume/backfill_done.json"), false);
+  assert.deepEqual(tier.coldSource.heldOnlyInR2(), [{ stream: "occvolume", file: `${dateAgo(31)}.jsonl.gz`, bytes: r2.store.get(key("occvolume", dateAgo(31)))!.length, lines: 1 }]);
+  assert.equal(tier.status().byStream.occvolume.localDays, 30);
 });
