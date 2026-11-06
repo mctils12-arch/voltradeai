@@ -42,6 +42,7 @@ except ImportError:
 from datetime import datetime, timezone
 from typing import Optional
 from alpaca_feed import data_feed, bars_feed  # [REPAIR 2026-07-06/2026-07-18] central feed w/ SIP-403 + bars-endpoint fallback
+import broker_clock
 
 # UNIT FIX 2026-05-03: Stops were broken because ewma_rv (annualized × 100)
 # was multiplied by 1.5 and clamped at 8% — every stop pinned at 8%.
@@ -171,12 +172,22 @@ _INTEL_CACHE_TTL = 300  # 5 minutes
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _is_regular_hours() -> bool:
-    """Return True if currently within US regular trading hours (9:30–16:00 ET)."""
+    """Return True if currently within US regular trading hours (9:30–16:00 ET).
+
+    2026-11-06 (N17, the half of orphan PR #1506 that #1641 did not cover): the
+    time of day alone passed weekends, exchange holidays and half-day
+    afternoons (the Tier 2 scan runs 04:00-20:00 ET every day), so inside
+    09:30-16:00 the broker's clock must also say open: the rule of
+    bot_engine._is_regular_hours (broker_clock.orders_allowed: Alpaca
+    /v2/clock, cached; an unreadable clock with no usable last reading counts
+    as open, i.e. the time-of-day test alone, as before)."""
     try:
         from zoneinfo import ZoneInfo
         now_et = datetime.now(ZoneInfo("America/New_York"))
         et_time = now_et.hour + now_et.minute / 60.0
-        return 9.5 <= et_time < 16.0
+        if not 9.5 <= et_time < 16.0:
+            return False
+        return broker_clock.orders_allowed()[0]
     except Exception:
         return False
 
