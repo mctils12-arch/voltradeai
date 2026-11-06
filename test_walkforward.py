@@ -756,3 +756,74 @@ def test_end_to_end_reports_the_candidates_with_their_coverage(tmp_path):
         assert r["horizons"]["20"]["ic"]["mean"] > 0.05, f       # the planted persistent drift
         assert r["live_exit"]["n_picks"] > 0 and r["label"] == wf.INPUT_INFO[f][0]
     assert set(m["ipo"]) and "S00" not in json.dumps(d)
+
+
+def test_random_entry_base_is_the_names_the_input_can_rank():
+    """REASONING STANDARD 3 (same universe): a coverage < 1 input's top-N is
+    compared with random entry among the names it can rank. Young names (no
+    value) carry a planted +5% net return the seasoned names do not have."""
+    rng = np.random.default_rng(23)
+    n_dates, n_old, n_young = 4, 40, 20
+    per = n_old + n_young
+    N = n_dates * per
+    j = np.repeat(np.arange(n_dates), per).astype(np.int32)
+    young = np.tile(np.r_[np.zeros(n_old, dtype=bool), np.ones(n_young, dtype=bool)], n_dates)
+    rows = {"sid": np.arange(N, dtype=np.int32), "j": j, "dv": rng.uniform(3e6, 9e7, N).astype(np.float32)}
+    for f in wf.INPUTS:
+        rows[f] = rng.normal(size=N).astype(np.float32)
+    for h in wf.HORIZONS:
+        rows[f"net{h}"] = (rng.normal(0, 0.01, N) + np.where(young, 0.05, 0.0)).astype(np.float32)
+        rows[f"gross{h}"] = (rows[f"net{h}"] + 0.002).astype(np.float32)
+    for f in ("momentum_12_1", "resid_momentum_12_1"):
+        rows[f][young] = wf.NO_VALUE
+    spy = np.full(100, 100.0)
+    labels = {"regime": ["NEUTRAL"] * n_dates, "spy_200d": ["above_200d"] * n_dates}
+    res, _ = wf.evaluate(rows, np.array([30, 40, 50, 60]), np.arange(100), spy, spy, labels, {}, {f: {} for f in wf.INPUTS}, {})
+    net = rows["net5"].astype(np.float64)
+    top, old_mean, uni_mean, old_hit = [], [], [], []
+    for d in range(n_dates):
+        sel = np.nonzero(j == d)[0]
+        top.append(net[wf.pick_top(rows, "momentum_12_1", sel, wf.TOP_N)].mean())
+        old = sel[~young[sel]]
+        old_mean.append(net[old].mean())
+        old_hit.append((net[old] > 0).mean())
+        uni_mean.append(net[sel].mean())
+    top, old_mean, uni_mean = np.array(top), np.array(old_mean), np.array(uni_mean)
+    tn = res["momentum_12_1"]["horizons"]["5"]["top_n"]
+    assert tn["random_entry_net_pct"] == pytest.approx(old_mean.mean() * 100, abs=1e-4)
+    assert tn["random_entry_net_pct_universe"] == pytest.approx(uni_mean.mean() * 100, abs=1e-4)
+    assert tn["excess_vs_random_pct"] == pytest.approx((top - old_mean).mean() * 100, abs=1e-4)
+    assert tn["random_hit_rate"] == pytest.approx(float(np.mean(old_hit)), abs=1e-4)
+    assert res["momentum_12_1"]["horizons"]["5"]["by_year"]["1970"]["top_n_excess_vs_random_pct"] \
+        == pytest.approx((top - old_mean).mean() * 100, abs=1e-4)
+    # the bias removed: against the whole universe the same picks would read ~1.67 pts worse
+    assert (top - uni_mean).mean() * 100 < tn["excess_vs_random_pct"] - 1.0
+    # a full-coverage input keeps the whole universe as its base and gets no extra key
+    q = res["quick_score"]["horizons"]["5"]["top_n"]
+    assert "random_entry_net_pct_universe" not in q
+    assert q["random_entry_net_pct"] == pytest.approx(uni_mean.mean() * 100, abs=1e-4)
+
+
+def test_end_to_end_young_names_do_not_move_a_candidates_random_base(tmp_path):
+    """New listings that never reach 253 bars earn a planted +0.6%/day the
+    seasoned names do not: the whole-universe random-entry mean rises, the
+    momentum candidate's base (the seasoned names it can rank) does not."""
+    rng = random.Random(41)
+    days = ws.bdays("2016-01-04", "2017-12-29")
+    lines = [ws.line("SPY", ws.path_rows(days, 200.0, 0.0003, 0.01, 8e7, rng))]
+    for i in range(34):
+        lines.append(ws.line(f"S{i:03d}", ws.path_rows(days, rng.uniform(20, 80), 0.0, 0.015, rng.uniform(2e6, 8e6), rng)))
+    first = days.index("2017-02-01")
+    for i in range(10):
+        lines.append(ws.line(f"Y{i:03d}", ws.path_rows(days[first + 2 * i:], 20.0, 0.006, 0.015, 4e6, rng)))
+    ws.write_panel(str(tmp_path / "p"), lines, as_of=days[-1])
+    assert wf.run(str(tmp_path / "p"), str(tmp_path / "o"))["status"] == "ok"
+    d = json.load(open(tmp_path / "o" / "latest.json"))
+    m = d["inputs"]["momentum_12_1"]
+    assert m["coverage"]["share"] < 0.9
+    tn = m["horizons"]["5"]["top_n"]
+    assert tn["random_entry_net_pct_universe"] - tn["random_entry_net_pct"] > 0.4, tn
+    assert tn["excess_vs_random_pct"] == pytest.approx(tn["mean_net_pct"] - tn["random_entry_net_pct"], abs=3e-4)
+    q = d["inputs"]["quick_score"]["horizons"]["5"]["top_n"]
+    assert "random_entry_net_pct_universe" not in q
+    assert q["random_entry_net_pct"] == pytest.approx(tn["random_entry_net_pct_universe"], abs=1e-4)

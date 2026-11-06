@@ -59,8 +59,9 @@ live_atr_pct, walked O->L->H->C, the same ladder backtest_v2 exit_model="live"
 uses). Per input: rank IC (Spearman, per date, then averaged; Newey-West t),
 quintile means and the Q5-Q1 long-short spread net of both legs' costs, a
 top-N portfolio vs SPY and vs the RANDOM-ENTRY BASE RATE (same universe, same
-dates, same holding: the equal-weight universe mean is the exact expectation of
-random entry; for live exits, seeded random draws), hit rates, by regime
+dates, same holding: the equal-weight mean of the names the input can rank is
+the exact expectation of random entry among them; for live exits, seeded random
+draws from the whole universe), hit rates, by regime
 (regime_util.classify_regime_5level on panel SPY + VXX, the backtest_v2 rules)
 and by SPY-vs-200d proxy, by year, by liquidity tercile. Multiple testing:
 Bonferroni over every IC test; Deflated Sharpe (Bailey & Lopez de Prado 2014)
@@ -79,9 +80,14 @@ thinnest names.
 NO VALUE. A name without the history an input needs (the two momentum
 candidates need MOM_LOOKBACK + 1 bars) carries NO_VALUE (-inf) for that input:
 it is left out of that input's IC, quintiles and liquidity splits, never picked
-for its top-N, and counted in the input's `coverage`. The random-entry base rate
-stays the whole universe for every input. Every live-mirror input always has a
-value, so this changes nothing for them.
+for its top-N, and counted in the input's `coverage`. Its top-N is compared
+with random entry among the names that input CAN rank (a value and a matured
+outcome), not the whole universe: a pick that can only come from seasoned
+names is judged against seasoned names (REASONING STANDARD 3). An input with
+coverage < 1 also reports the whole-universe figure on the same dates
+(top_n.random_entry_net_pct_universe). Every live-mirror input always has a
+value, so for them the eligible names ARE the universe and nothing changes.
+The live-exit pass's seeded random draws stay shared, from the whole universe.
 
 DELISTING ASSUMPTION (research/price_panel_coverage.md caveat 3): a series that
 stops trading before an exit and before the panel's as_of exits at its last
@@ -245,9 +251,9 @@ PRIOR = ("Stated 2026-10-29, before any real-panel run: most price-based inputs'
          "ic.mean_on_gross, -0.01 to +0.005), and its top-10 lands within -0.3 to +0.3 pts per 5 days of random "
          "entry, i.e. removing the move terms alone removes most of quick_score's shortfall. About 20% that any "
          "candidate's 5d IC survives Bonferroni (most likely resid_momentum_12_1). Gate-2 reading, fixed now: a "
-         "candidate passes only with a 'positive' 5d verdict AND a positive 5d top-10 excess vs random entry AND a "
-         "gross 5d IC of the same sign (the cost tiers alone cannot carry it); a top-10 that is merely less negative "
-         "than quick_score's is a reason for the pre-rank ablation (gate 3), not a pass.")
+         "candidate passes only with a 'positive' 5d verdict AND a positive 5d top-10 excess vs random entry among the "
+         "names it can rank AND a gross 5d IC of the same sign (the cost tiers alone cannot carry it); a top-10 that "
+         "is merely less negative than quick_score's is a reason for the pre-rank ablation (gate 3), not a pass.")
 
 CAVEATS = [
     "Survivorship-REDUCED, not free: the panel universe is Alpaca assets + corporate actions from 2016; delisted names in neither are missing (optimistic).",
@@ -257,6 +263,7 @@ CAVEATS = [
     "Costs are the backtest_v2 liquidity tiers + half-tick floor per side; no market impact at size (optimistic for the thinnest names).",
     "Only the price-derivable parts of the stock score are measurable; see not_measurable.",
     "Pre-rank candidates (momentum_12_1, resid_momentum_12_1, quick_score_no_move) are NOT live inputs; the two momentum candidates need 253 bars of history, and a name without them is left out of their statistics (see each input's coverage).",
+    "A coverage < 1 input's top-N excess is vs random entry among the names it can rank (whole-universe figure alongside: random_entry_net_pct_universe); its live-exit excess is vs the shared whole-universe random draws, which include names it cannot pick (new listings).",
     "Alpaca market data: derived statistics only — no price leaves this file.",
 ]
 
@@ -941,6 +948,7 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
                               "random_entry_minus_spy_pct": _pct(newey_west_t(uni - spy_f, _nw_lags(hz))[0]) if has.any() else None}
         for f in INPUTS:
             x_all = rows[f].astype(np.float64)
+            partial = not bool(np.isfinite(x_all).all())          # some rows carry NO_VALUE (coverage < 1)
             ic = np.full(n_dates, np.nan)
             ic_g = np.full(n_dates, np.nan)
             qmeans = np.full((n_dates, 5), np.nan)
@@ -949,6 +957,13 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
             ls_gross = np.full(n_dates, np.nan)
             top = np.full(n_dates, np.nan)
             top_hit = []
+            # RANDOM ENTRY AMONG THE NAMES THIS INPUT CAN RANK (its eligible rows:
+            # a value and a matured outcome — the same rows its IC and top-N use),
+            # REASONING STANDARD 3's "same universe". For every input with a value
+            # on every row (each live mirror) these are exactly the universe's rows,
+            # so rnd equals `uni` bit for bit.
+            rnd = np.full(n_dates, np.nan)
+            rnd_hit = np.full(n_dates, np.nan)
             ic_liq = {b: np.full(n_dates, np.nan) for b in range(3)}
             for d, sel in enumerate(by_date):
                 y = net[sel]
@@ -957,6 +972,8 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
                 if len(sel_ok) < MIN_NAMES_PER_DATE:
                     continue
                 x, y, yg = x_all[sel_ok], net[sel_ok], gross[sel_ok]
+                rnd[d] = y.mean()
+                rnd_hit[d] = (y > 0).mean()
                 ic[d] = spearman(x, y)
                 ic_g[d] = spearman(x, yg)
                 q = quintile_of(x)
@@ -981,7 +998,7 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
             m_ic, t_ic = newey_west_t(ic, lags)
             p_ic = two_sided_p(t_ic)
             m_ls, t_ls = newey_west_t(ls_net, lags)
-            ex_rand = top - uni
+            ex_rand = top - rnd
             m_ex, t_ex = newey_west_t(ex_rand, lags)
             m_spy, t_spy = newey_west_t(top - spy_f, lags)
             step = _nw_lags(hz) if hz > 5 else 1
@@ -1001,6 +1018,20 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
             for d in range(n_dates):
                 if np.isfinite(ic[d]):
                     by_year.setdefault(years[d], []).append(d)
+            top_ok = np.isfinite(top)
+            top_n = {"n": TOP_N, "mean_net_pct": _pct(np.nanmean(top)) if top_ok.any() else None,
+                     "random_entry_net_pct": _pct(np.nanmean(rnd[top_ok])) if top_ok.any() else None,
+                     "spy_pct": _pct(np.nanmean(spy_f[top_ok])) if top_ok.any() else None,
+                     "excess_vs_spy_pct": _pct(m_spy), "t_nw_vs_spy": _round(t_spy, 3),
+                     "excess_vs_random_pct": _pct(m_ex), "t_nw_vs_random": _round(t_ex, 3),
+                     "hit_rate": _round(float(np.mean(top_hit))) if top_hit else None,
+                     "random_hit_rate": _round(np.nanmean(rnd_hit[top_ok])) if top_ok.any() else None,
+                     "sharpe_excess_vs_random_ann": _round(st["sr"] * math.sqrt(252 / hz), 3) if st else None,
+                     "sharpe_obs": st["n"] if st else 0}
+            if partial and top_ok.any():
+                # transparency: random entry over the WHOLE date universe on the same
+                # dates, including names this input cannot rank (e.g. new listings)
+                top_n["random_entry_net_pct_universe"] = _pct(np.nanmean(uni[top_ok]))
             results.setdefault(f, {"horizons": {}})["horizons"][str(hz)] = {
                 "ic": {"mean": _round(m_ic), "t_nw": _round(t_ic, 3), "p": _round(p_ic, 6),
                        "p_bonferroni": _round(bonferroni(p_ic, m_ic_tests), 6), "hit_rate": _round(np.nanmean(ic > 0) if n_ok else None),
@@ -1011,15 +1042,7 @@ def evaluate(rows: Dict[str, np.ndarray], rebal: np.ndarray, spy_days: np.ndarra
                               "mean_names": [_round(qcount[:, b][qcount[:, b] > 0].mean(), 1) if (qcount[:, b] > 0).any() else None for b in range(5)],
                               "spread_gross_pct": _pct(np.nanmean(ls_gross)) if np.isfinite(ls_gross).any() else None,
                               "spread_net_long_short_pct": _pct(m_ls), "t_nw_long_short": _round(t_ls, 3)},
-                "top_n": {"n": TOP_N, "mean_net_pct": _pct(np.nanmean(top)) if np.isfinite(top).any() else None,
-                          "random_entry_net_pct": _pct(np.nanmean(uni[np.isfinite(top)])) if np.isfinite(top).any() else None,
-                          "spy_pct": _pct(np.nanmean(spy_f[np.isfinite(top)])) if np.isfinite(top).any() else None,
-                          "excess_vs_spy_pct": _pct(m_spy), "t_nw_vs_spy": _round(t_spy, 3),
-                          "excess_vs_random_pct": _pct(m_ex), "t_nw_vs_random": _round(t_ex, 3),
-                          "hit_rate": _round(float(np.mean(top_hit))) if top_hit else None,
-                          "random_hit_rate": _round(np.nanmean(uni_hit[np.isfinite(top)])) if np.isfinite(top).any() else None,
-                          "sharpe_excess_vs_random_ann": _round(st["sr"] * math.sqrt(252 / hz), 3) if st else None,
-                          "sharpe_obs": st["n"] if st else 0},
+                "top_n": top_n,
                 "by_regime": split.get("regime", {}),
                 "by_spy_200d": split.get("spy_200d", {}),
                 "by_year": {y: _split_block(ic, ls_net, ex_rand, ds, lags) for y, ds in sorted(by_year.items())},
