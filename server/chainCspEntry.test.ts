@@ -147,7 +147,8 @@ test("archive reading + derived cache: gz and plain day files, write-once for fi
   fs.writeFileSync(path.join(dir, "2026-10-02.jsonl"), lines([rec("AAA", 35, "P", 90, -0.3)]));
   const c = await cspEntryForDays(["2026-10-02"], base, now);
   assert.equal(c.rows[0].strike, 95);
-  assert.equal(derivedDir(base).endsWith(path.join("optionchains", "derived", "csp_entry")), true, "its own cache dir, beside iv30");
+  // 2026-11-06 (server/chainSession.ts): session-keyed caches moved to derived/session/<kind>/ (pin updated to the new exact path)
+  assert.equal(derivedDir(base).endsWith(path.join("optionchains", "derived", "session", "csp_entry")), true, "its own cache dir, beside iv30");
 });
 
 test("the probe is whitelisted and wired with the iv30 query shape", () => {

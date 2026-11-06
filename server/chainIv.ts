@@ -22,14 +22,18 @@
 // spot, which the archive does not carry.
 //
 // DERIVED CACHE: a day's result is written once under
-// optionchains/derived/iv30/<day>.json — only for days strictly before the
-// current UTC day (a day file can still be appended by a retry until its
-// day is over). Source files are never modified.
+// optionchains/derived/session/iv30/<day>.json — only for days strictly before
+// the current UTC day (a day file can still be appended by a retry until its
+// day is over). Source files are never modified. A "day" is the trading
+// SESSION the quotes belong to (server/chainSession.ts, 2026-11-06): the
+// label-keyed caches written before that under derived/iv30/ hold the
+// one-session-late values for 07-06..10-27 and are left untouched.
 
 import fs from "fs";
 import path from "path";
-import { parseOcc, chainDir, type ChainRecord } from "./optionsChainArchive";
-import { archiveBaseDir, archiveDayFiles, streamJsonlLines } from "./datacoreArchive";
+import { parseOcc, type ChainRecord } from "./optionsChainArchive";
+import { archiveBaseDir, streamJsonlLines } from "./datacoreArchive";
+import { sessionIndex, sessionDerivedDir } from "./chainSession";
 
 export const IV30_TARGET_DAYS = 30;
 export const IV30_DELTA_BAND: readonly [number, number] = [0.35, 0.65];
@@ -136,26 +140,22 @@ export function atmIv30ForDay(records: readonly ChainRecord[], day: string): Iv3
  *  archive base (the Railway volume: archiveBaseDir() → DATA_DIR/datacore_archive),
  *  so it is DURABLE like the archive itself (server/durability.test.ts). */
 export function derivedDir(baseDir?: string): string {
-  return path.join(chainDir(baseDir ?? archiveBaseDir()), "derived", "iv30");
+  return sessionDerivedDir("iv30", baseDir ?? archiveBaseDir());
 }
 
-/** Days with a chain day-file, ascending ("YYYY-MM-DD"). */
+/** Trading SESSIONS with archived quotes, ascending ("YYYY-MM-DD"). Since
+ *  2026-11-06 (server/chainSession.ts) a day is the session whose quotes a
+ *  file holds, not the file's label: the pre-fix files labelled 07-06..10-27
+ *  hold the previous session and are read under it (read time only). */
 export function listChainDays(baseDir?: string): string[] {
-  let names: string[] = [];
-  try { names = fs.readdirSync(chainDir(baseDir)); } catch { return []; }
-  const days = new Set<string>();
-  for (const f of names) {
-    const m = /^(\d{4}-\d{2}-\d{2})\.jsonl(?:\.gz)?$/.exec(f);
-    if (m) days.add(m[1]);
-  }
-  return [...days].sort();
+  return [...sessionIndex(baseDir).sessions.keys()].sort();
 }
 
-/** The day's records (every file for the day, .jsonl or .gz), minimally validated. */
+/** The session's records (its mapped file(s), .jsonl or .gz), minimally validated. */
 export async function readChainDay(day: string, baseDir?: string): Promise<ChainRecord[]> {
   const out: ChainRecord[] = [];
-  for (const fp of archiveDayFiles(chainDir(baseDir), day)) {
-    await streamJsonlLines(fp, fp.endsWith(".gz"), (line) => {
+  for (const fp of sessionIndex(baseDir).sessions.get(day)?.files ?? []) {
+    await streamJsonlLines(fp, /\.gz(?:\.\d+)?$/.test(fp), (line) => {
       const r = parseJsonLine(line);
       if (r && typeof r === "object" && typeof (r as ChainRecord).s === "string" && typeof (r as ChainRecord).u === "string") out.push(r as ChainRecord);
     });

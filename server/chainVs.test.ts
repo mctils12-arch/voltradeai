@@ -110,7 +110,8 @@ test("derived cache: write-once for finished days, never for today, pending beyo
   fs.writeFileSync(path.join(dir, "2026-10-02.jsonl"), body(0.09));
   const c = await vsForDays(["2026-10-02"], base, now);
   assert.equal(c.rows[0].vs, 0.02, "write-once: a changed source does not change the derived row");
-  assert.equal(derivedDir(base).endsWith(path.join("optionchains", "derived", "vs")), true);
+  // 2026-11-06 (server/chainSession.ts): session-keyed caches moved to derived/session/<kind>/ (pin updated to the new exact path)
+  assert.equal(derivedDir(base).endsWith(path.join("optionchains", "derived", "session", "vs")), true);
 });
 
 test("the probe is whitelisted and wired with the iv30 query shape plus the gate-1 summary", () => {
