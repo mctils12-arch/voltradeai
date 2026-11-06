@@ -1,5 +1,34 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ SQUEEZEMETRICS DATA TERMS 2026-11-06 — the dealer-gamma filter reads an archive their terms may not allow; human decision needed
+
+WHAT: the dealer-gamma short-premium filter (shipped 2026-11-06, ON in paper:
+no new iron condors while SqueezeMetrics' GEX 252-day rank is below 0.2;
+cash-secured puts only logged, because gate 3 found skipping them hurt) reads
+the server's `squeeze_gex` archive, which has compiled SqueezeMetrics' public
+DIX.csv every day since 2026-10-29. The filter fetches nothing itself.
+
+THE TERMS: SqueezeMetrics' Terms of Service (squeezemetrics.com/monitor/terms)
+grant no licence and say users may not "systematically retrieve data … to
+create or compile … a collection, compilation, database, or directory without
+written permission". No CSV-specific terms are published. Paid plan: $720/month.
+The archive is arguably such a compilation, independent of the filter.
+
+BUILD-FIRST (CLAUDE.md): (1) raw material — we already receive daily option
+open interest (the OI sidecar, since 2026-10-29) and chains, so our own GEX is
+computable: scripts/edge_p1_gate1.py checks it against SqueezeMetrics (gate 1
+needs 40 overlapping days, about late December 2026); (2) accumulation — a
+252-day rank of our own GEX needs about a year of our own history, so a filter
+on our own data would be inactive until then unless older open interest can
+be rebuilt; (3) inference — SPY-only, a proxy for their SPX number.
+
+OPTIONS: (a) ask SqueezeMetrics for written permission to keep the daily file
+for internal, non-redistributed use (support@sqzme.co) — cheapest, recommended;
+(b) pay $720/month; (c) stop the archive and run the filter on our own GEX once
+gate 1 passes (inactive meanwhile; switch: DEALER_GAMMA_FILTER_ENABLED False).
+Until you decide, nothing is redistributed: the rank stays inside the bot and
+the UI shows only a plain-English "low / normal" label.
+
 ## ⚠ CI CHECKOUT BUDGET 2026-11-03 — `changes` job cancelled twice at `actions/checkout` (frozen `.github/workflows/ci.yml`); human decision needed, deploy-gating risk
 
 WHAT HAPPENED: PR #1588 (memory A0, the Wave-1 baseline) had both CI runs
