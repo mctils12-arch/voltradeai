@@ -208,9 +208,10 @@ test("no exit path consults the switch", () => {
 
 test("the gate set is exactly the reviewed entry sites", () => {
   // stock: morning queue, T3 BUY, ETF, stock, capital rotation's buy (2026-11-06,
-  // runUpgradeCandidates; pin 4 -> 5); plus the two sleeve lookups
+  // runUpgradeCandidates; pin 4 -> 5), a scale-in tranche (2026-11-06,
+  // executeScaleInTranches; pin 5 -> 6); plus the two sleeve lookups
   // (executeTrades repeat check, tier repeat check)
-  assert.equal((bot.match(/isEntryShadowed\("stocks"\)/g) || []).length, 5);
+  assert.equal((bot.match(/isEntryShadowed\("stocks"\)/g) || []).length, 6);
   assert.equal((bot.match(/isEntryShadowed\(tradeSleeve\)/g) || []).length, 1);
   assert.equal((bot.match(/isEntryShadowed\(tierSleeve\)/g) || []).length, 1);
   // options opens are gated in the Python each one passes through

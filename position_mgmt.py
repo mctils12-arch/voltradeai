@@ -82,6 +82,7 @@ LOG_MAX_BYTES = 5_000_000            # rotated to .1 above this (one generation 
 FLOOR_VM_STATE_FILE = "voltrade_floor_vm_state.json"   # = bot_engine.FLOOR_VM_STATE_FILE
 FLOOR_PLAN_MAX_AGE_S = 4 * 86_400    # an older plan is ignored (covers a weekend + holiday)
 EQUITY_PEAK_FILE = "voltrade_equity_peak.json"         # server/bot.ts saveEquityPeak
+SCALE_IN_STATE_FILE = "voltrade_scale_in_state.json"   # server/scaleIn.ts SCALE_IN_STATE_FILE
 
 
 def _cfg(cfg: Optional[dict] = None) -> dict:
@@ -545,12 +546,37 @@ def current_regime_label(macro: Optional[dict] = None) -> str:
         return DEFAULT_REGIME
 
 
+def pending_scale_in_dollars(path: Optional[str] = None) -> float:
+    """Dollars of scale-in tranches not yet bought (server/scaleIn.ts plans:
+    status "active", tranche status "pending", qty x the first fill's price).
+    The reserve holds their room so later entries cannot spend it. A missing or
+    unreadable file is 0."""
+    path = path or os.path.join(DATA_DIR, SCALE_IN_STATE_FILE)
+    try:
+        with open(path) as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        return 0.0
+    plans = state.get("plans") if isinstance(state, dict) else None
+    total = 0.0
+    for plan in (plans.values() if isinstance(plans, dict) else []):
+        if not isinstance(plan, dict) or plan.get("status") != "active":
+            continue
+        for t in plan.get("tranches") or []:
+            if isinstance(t, dict) and t.get("status") == "pending":
+                total += max(0.0, _f(t.get("qty"))) * max(0.0, _f(plan.get("ref_price")))
+    return total
+
+
 def live_headroom(equity: float, positions: Iterable[dict], regime, open_orders: Iterable[dict] = (),
-                  pending_dollars: float = 0.0, source: str = "", cfg: Optional[dict] = None) -> dict:
+                  pending_dollars: Optional[float] = None, source: str = "", cfg: Optional[dict] = None) -> dict:
     """satellite_headroom with its live inputs read here — the floor's latest
-    plan and the regime engine's risk budget — and, when the budget applies,
-    one counterfactual row (regime_engine.log_counterfactual kind "sizing", key
+    plan, the scale-in tranches still to buy (when pending_dollars is None) and
+    the regime engine's risk budget — and, when the budget applies, one
+    counterfactual row (regime_engine.log_counterfactual kind "sizing", key
     "satellite_reserve": the label-only reserve vs the budgeted one)."""
+    if pending_dollars is None:
+        pending_dollars = pending_scale_in_dollars()
     rb = regime_budget()
     snap = satellite_headroom(equity, positions, regime, cfg=cfg, open_orders=open_orders,
                               pending_dollars=pending_dollars, floor_plan_ratio=floor_plan_target_ratio(),
@@ -581,7 +607,8 @@ def snapshot_rpc(equity=None, positions=None, open_orders=None, regime=None,
     if not regime:
         regime = current_regime_label()
     return live_headroom(_f(equity), positions or [], regime, open_orders=open_orders or [],
-                         pending_dollars=_f(pending_dollars), source="server/bot.ts cash_reserve_snapshot")
+                         pending_dollars=None if pending_dollars is None else _f(pending_dollars),
+                         source="server/bot.ts cash_reserve_snapshot")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
