@@ -14,7 +14,9 @@ import { portDwellFoldStats } from "./portDwell";
 import { gnssFoldStats } from "./gnssIntegrityFold";
 
 /** Rough per-ID retained cost of a 10-20 char string in a Set (header +
- *  one-byte chars + hash-table slot). Audit anchor: 6.56M IDs ≈ 0.4-0.5 GB. */
+ *  one-byte chars + hash-table slot). Audit anchor: 6.56M IDs ≈ 0.4-0.5 GB.
+ *  Since 2026-11-06 (dtcc-compact) it prices only the compact set's fallback
+ *  strings; the numeric IDs are measured exactly (their typed-array bytes). */
 export const DTCC_SEEN_ID_BYTES_EST = 72;
 
 export function registerBuiltinHeapGauges(): void {
@@ -29,8 +31,13 @@ export function registerBuiltinHeapGauges(): void {
     const entries = st.memoryCount ?? 0;
     return {
       entries,
-      bytes: entries * DTCC_SEEN_ID_BYTES_EST,
-      estimate: "memoryCount*72B",
+      // 2026-11-06 (dtcc-compact): the set's true cost — its typed-array table,
+      // exact, plus any fallback strings (IDs that are not canonical decimals;
+      // none live) at the per-string estimate
+      bytes: (st.memoryTableBytes ?? 0) + (st.memoryFallbackCount ?? 0) * DTCC_SEEN_ID_BYTES_EST,
+      estimate: "table bytes exact + fallbackCount*72B",
+      tableBytes: st.memoryTableBytes,
+      fallbackCount: st.memoryFallbackCount,
       mode: st.mode,
       memoryCount: st.memoryCount,
       // 2026-11-06: the Set now loads without blocking the loop; while it does,

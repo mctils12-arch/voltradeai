@@ -63,7 +63,8 @@ import fs from "fs";
 import path from "path";
 import { archiveBaseDir } from "./datacoreArchive";
 import { guardedRefresh } from "./crashSafeRefresh";
-import { DtccIdsStore, dtccIdsMode, DTCC_IDS_DB_FILE, type DtccIdsBackfill, type DtccIdsMode } from "./dtccIdsStore";
+import { DtccIdsStore, dtccIdsMode, DTCC_IDS_DB_FILE, countBufferLines, countNonEmptyLines, type DtccIdsBackfill, type DtccIdsMode } from "./dtccIdsStore";
+import { CompactIdSet } from "./dtccIdSet";
 import { MIN_FREE_BYTES as ARCHIVE_GUARD_FREE_BYTES, readFreeBytes } from "./globalScopes";
 
 const BASE_URL = "https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod";
@@ -361,7 +362,12 @@ function dtccDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "dtccswaps");
 }
 
-let seenIds: Set<string> | null = null;
+/** Every Dissemination Identifier ever archived (the memory path's dedup set).
+ *  A CompactIdSet (2026-11-06 dtcc-compact REPAIR): the canonical decimal IDs
+ *  — all of the live ones — in a typed-array hash table at ~11.4 B/ID instead
+ *  of a Set<string> at 64-76 B/ID; anything else in a plain Set. Exactly the
+ *  same membership as a Set<string> (server/dtccIdSet.ts). */
+let seenIds: CompactIdSet | null = null;
 
 // ── Compact seenIds index (boot-burst fix, KNOWN BROKEN #41 leak-audit
 //    NEXT(1), 2026-09-18) ────────────────────────────────────────────────
@@ -389,16 +395,24 @@ function seenIdsIndexPath(dir: string): string {
 /** Fast path: one ID per line, gzip-compressed. Returns null (not an empty
  *  Set) when the index doesn't exist yet or fails to read, so the caller
  *  can tell "no index" from "index exists and is empty" apart and fall
- *  back to the full scan instead of silently starting from zero. */
-function readSeenIdsIndex(dir: string): Set<string> | null {
+ *  back to the full scan instead of silently starting from zero.
+ *  (2026-11-06: the lines are counted first so the set is sized once, then
+ *  walked in the buffer — the same lines `toString().split("\n")` + `if
+ *  (line)` gave, with no 139 MB string and no 6.94M-element array.) */
+function readSeenIdsIndex(dir: string): CompactIdSet | null {
   const file = seenIdsIndexPath(dir);
   if (!fs.existsSync(file)) return null;
   try {
-    const raw = zlib.gunzipSync(fs.readFileSync(file)).toString("utf8");
-    const seen = new Set<string>();
-    for (const line of raw.split("\n")) {
-      if (line) seen.add(line);
+    const raw = zlib.gunzipSync(fs.readFileSync(file));
+    const seen = new CompactIdSet(countBufferLines(raw));
+    let start = 0;
+    for (;;) {
+      const nl = raw.indexOf(10, start);
+      if (nl === -1) break;
+      if (nl > start) seen.addBytes(raw, start, nl);
+      start = nl + 1;
     }
+    if (start < raw.length) seen.addBytes(raw, start, raw.length);
     return seen;
   } catch (e) {
     console.error("[datacore] dtccswaps readSeenIdsIndex:", e);
@@ -409,7 +423,7 @@ function readSeenIdsIndex(dir: string): Set<string> | null {
 /** Full rewrite from a Set — used once, right after the legacy full-archive
  *  scan below (first boot after this fix, or any future from-scratch
  *  rebuild). Never called on the routine append path. */
-function writeSeenIdsIndex(dir: string, ids: Set<string>): void {
+function writeSeenIdsIndex(dir: string, ids: CompactIdSet): void {
   try {
     fs.mkdirSync(dir, { recursive: true });
     const payload = Array.from(ids).join("\n") + (ids.size ? "\n" : "");
@@ -527,15 +541,34 @@ async function forEachLine(input: AsyncIterable<Buffer>, onLine: (buf: Buffer, s
   }
 }
 
+/** Non-empty lines of a gzipped file, streamed — the number countBufferLines
+ *  gives the synchronous reader, so both size the set identically. */
+async function countIndexLines(file: string): Promise<number> {
+  const state = { lineHasBytes: false };
+  let n = 0;
+  let sliceStart = performance.now();
+  for await (const chunk of fileByteStream(file, true)) {
+    n += countNonEmptyLines(chunk as Buffer, state);
+    if (performance.now() - sliceStart >= DTCC_ASYNC_SLICE_MS) {
+      await yieldToLoop();
+      sliceStart = performance.now();
+    }
+  }
+  return n + (state.lineHasBytes ? 1 : 0);
+}
+
 /** Non-blocking twin of readSeenIdsIndex: same null-vs-Set contract (null =
  *  no index, or it failed to read — the caller falls back to the day-file
- *  scan exactly as before), same lines, streamed. */
-async function readSeenIdsIndexAsync(dir: string): Promise<Set<string> | null> {
+ *  scan exactly as before), same lines, streamed. A first streamed pass
+ *  counts the lines so the set is allocated once at its final size (no
+ *  resize, no second table, during the boot load); the second adds each
+ *  line straight from the bytes. */
+async function readSeenIdsIndexAsync(dir: string): Promise<CompactIdSet | null> {
   const file = seenIdsIndexPath(dir);
   if (!fs.existsSync(file)) return null;
   try {
-    const seen = new Set<string>();
-    await forEachLine(fileByteStream(file, true), (buf, start, end) => { seen.add(buf.toString("utf8", start, end)); });
+    const seen = new CompactIdSet(await countIndexLines(file));
+    await forEachLine(fileByteStream(file, true), (buf, start, end) => { seen.addBytes(buf, start, end); });
     return seen;
   } catch (e) {
     console.error("[datacore] dtccswaps readSeenIdsIndex:", e);
@@ -547,7 +580,7 @@ async function readSeenIdsIndexAsync(dir: string): Promise<Set<string> | null> {
  *  one ID per line, a trailing "\n" when non-empty) streamed through gzip
  *  into a temp file, then renamed over the index in one step, so a crash
  *  mid-write never leaves a half-written index behind. */
-async function writeSeenIdsIndexAsync(dir: string, ids: Set<string>): Promise<void> {
+async function writeSeenIdsIndexAsync(dir: string, ids: CompactIdSet): Promise<void> {
   const file = seenIdsIndexPath(dir);
   const tmp = `${file}.rebuild.tmp`;
   try {
@@ -576,17 +609,18 @@ async function writeSeenIdsIndexAsync(dir: string, ids: Set<string>): Promise<vo
   }
 }
 
-/** Non-blocking twin of loadSeenIds — the identical Set (same members, same
- *  insertion order), the identical fallback (no readable index -> scan the
- *  name-anchored day files in readdir order, stop at the first unreadable
- *  one, count malformed lines, persist the index), with every file streamed
- *  and the loop yielded to between slices. Never touches `seenIds`: the
- *  caller installs the result once it is complete. */
-export async function loadSeenIdsAsync(dir: string): Promise<Set<string>> {
+/** Non-blocking twin of loadSeenIds — the identical set (same members; same
+ *  iteration order, since both size and fill it the same way), the identical
+ *  fallback (no readable index -> scan the name-anchored day files in readdir
+ *  order, stop at the first unreadable one, count malformed lines, persist
+ *  the index), with every file streamed and the loop yielded to between
+ *  slices. Never touches `seenIds`: the caller installs the result once it
+ *  is complete. */
+export async function loadSeenIdsAsync(dir: string): Promise<CompactIdSet> {
   const indexed = await readSeenIdsIndexAsync(dir);
   if (indexed) return indexed;
 
-  const seen = new Set<string>();
+  const seen = new CompactIdSet();
   let malformedLines = 0;
   try {
     for (const f of fs.readdirSync(dir)) {
@@ -615,7 +649,7 @@ let seenIdsLoad: { epoch: number; promise: Promise<void> } | null = null;
  *  Concurrent callers await the same load; the Set is installed only when
  *  complete, and never over a Set someone loaded synchronously meanwhile
  *  (that one may already hold newer IDs). */
-async function ensureSeenIdsLoaded(dir: string): Promise<Set<string>> {
+async function ensureSeenIdsLoaded(dir: string): Promise<CompactIdSet> {
   for (;;) {
     const loaded = seenIds;
     if (loaded) return loaded;
@@ -645,11 +679,11 @@ async function ensureSeenIdsLoaded(dir: string): Promise<Set<string>> {
  *  pattern fdicBanks.ts's `seedSeen` already uses) so a corrupt/unreadable
  *  index file sitting in the same directory is never itself misread as a
  *  day file during the fallback scan. */
-export function loadSeenIds(dir: string): Set<string> {
+export function loadSeenIds(dir: string): CompactIdSet {
   const indexed = readSeenIdsIndex(dir);
   if (indexed) return indexed;
 
-  const seen = new Set<string>();
+  const seen = new CompactIdSet();
   let malformedLines = 0;
   try {
     for (const f of fs.readdirSync(dir)) {
@@ -875,6 +909,12 @@ export interface DtccIdsStats {
   /** true while the non-blocking load (loadSeenIdsAsync) is building the Set;
    *  memoryCount stays null until it is complete and installed. */
   memoryLoading: boolean;
+  /** Exact bytes of the set's typed-array table (every canonical numeric ID),
+   *  or null when the set has not been built. */
+  memoryTableBytes: number | null;
+  /** Members held in the set's plain-Set fallback (IDs that are not canonical
+   *  decimals; 0 for every live ID seen so far), or null when not built. */
+  memoryFallbackCount: number | null;
   /** DB distinct-id count, or null when no DB has been opened (memory mode). */
   dbCount: number | null;
   /** dual-mode disagreements (decision or count) since boot. */
@@ -900,6 +940,8 @@ export function dtccIdsStats(): DtccIdsStats {
     mode: dtccIdsMode(),
     memoryCount: seenIds ? seenIds.size : null,
     memoryLoading: seenIdsLoad !== null,
+    memoryTableBytes: seenIds ? seenIds.tableBytes() : null,
+    memoryFallbackCount: seenIds ? seenIds.fallbackSize : null,
     dbCount: open ? open.count() : null,
     mismatches: idsMismatches,
     lastMismatch: idsLastMismatch,
@@ -939,8 +981,8 @@ let seenIdsMutations = 0;
  *  in one go at 6.94M IDs, measured 2026-11-06), the loop yielded to between
  *  slices. Claims nothing: decideFresh records the IDs, in one turn, and only
  *  uses this verdict if the Set is still the same object and unmutated. */
-interface SlicedVerdict { set: Set<string>; mutations: number; fresh: DtccSwapRow[] }
-async function freshInSlices(rows: DtccSwapRow[], set: Set<string>): Promise<SlicedVerdict> {
+interface SlicedVerdict { set: CompactIdSet; mutations: number; fresh: DtccSwapRow[] }
+async function freshInSlices(rows: DtccSwapRow[], set: CompactIdSet): Promise<SlicedVerdict> {
   const mutations = seenIdsMutations;
   const fresh: DtccSwapRow[] = [];
   let sliceStart = performance.now();
@@ -1081,7 +1123,14 @@ async function archiveNewRowsOnce(rows: DtccSwapRow[], observedDate: string, bas
   await fs.promises.mkdir(dir, { recursive: true });
   const mode = dtccIdsMode();
   const store = mode === "memory" ? null : await readyIdsStoreAsync(dir);
-  const sliced = mode !== "sqlite" || !store ? await freshInSlices(rows, await ensureSeenIdsLoaded(dir)) : undefined;
+  let sliced: SlicedVerdict | undefined;
+  if (mode !== "sqlite" || !store) {
+    const set = await ensureSeenIdsLoaded(dir);
+    // room for every row's ID BEFORE the claim, so recording the fresh ones
+    // never resizes the table in one block (a resize, when due, runs in slices)
+    await set.reserveAsync(rows.length, DTCC_ASYNC_SLICE_MS);
+    sliced = await freshInSlices(rows, set);
+  }
   const d = decideFresh(rows, dir, mode, store, sliced);
   if (!d.fresh.length) { d.dualCountCheck(); return { newRows: 0, seenTotal: d.total() }; }
   try {

@@ -117,8 +117,9 @@ export interface DtccIdsStoreOpts {
   dir?: string;
   /** Full path of the compact index (`_seen_ids_index.jsonl.gz`). */
   indexPath: string;
-  /** Self-heal when the index is absent/unreadable — dtccSwaps.loadSeenIds. */
-  rebuildIds?: () => Set<string>;
+  /** Self-heal when the index is absent/unreadable — dtccSwaps.loadSeenIds
+   *  (a CompactIdSet since 2026-11-06; any sized iterable of IDs works). */
+  rebuildIds?: () => Iterable<string> & { readonly size: number };
   log?: (line: string) => void;
   logError?: (line: string) => void;
 }
@@ -397,7 +398,18 @@ export class DtccIdsStore {
       return this.failBackfill(dbBefore, new Error("compact index absent/unreadable and no rebuildIds fallback configured"), t0);
     }
     const ids = this.opts.rebuildIds();
-    const imported = dbBefore < ids.size ? this.insertMany(Array.from(ids)) : 0;
+    let imported = 0;
+    if (dbBefore < ids.size) {
+      // batched straight off the iterator (2026-11-06): the rebuilt set is a
+      // CompactIdSet whose ids are decoded on iteration, so never materialize
+      // all of them at once — same INSERT OR IGNORE batches, same count
+      let batch: string[] = [];
+      for (const id of ids) {
+        batch.push(id);
+        if (batch.length >= DTCC_IDS_INSERT_BATCH) { imported += this.insertMany(batch); batch = []; }
+      }
+      if (batch.length) imported += this.insertMany(batch);
+    }
     return this.finishBackfill(dbBefore, ids.size, imported, "rebuilt", t0);
   }
 
