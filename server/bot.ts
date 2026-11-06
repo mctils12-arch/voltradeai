@@ -21,7 +21,7 @@ import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail } from "./mlRetrainStatus";
 import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS, latestEtDate } from "./dailyMaintenance";
 import {
-  DAILY_LINE_CHECK_MS, DAILY_LINE_SINCE, FLOOR_VM_STATE_FILENAME, OPENING_DEFERRALS_FILENAME,
+  DAILY_LINE_CHECK_MS, DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS, FLOOR_VM_STATE_FILENAME, OPENING_DEFERRALS_FILENAME,
   appendOptionFillLedger, buildDailyLine, dailyLineDir, dailyLineDue, dailyLinePrecheck, lastLineDay, loadDailyLines,
   optionLedgerRow, optionWindowStart, parseCalendarSession, parseFloorConfig, parsePositionsLite, readJsonFile,
   readOptionFillLedger, saveDailyLine, type DailyLineGate, type DailyLineSession,
@@ -2578,8 +2578,9 @@ print(json.dumps({
   let spyBenchCache: { at: number; from: string; bars: DailyClose[] } | null = null;
   // the SPY series every benchmark reader shares (one fetch, one cache): the
   // benchmark + its after-tax leg, the daily scoreboard, the TODAY tile
-  async function spyBenchBars(oldest: string): Promise<NonNullable<typeof spyBenchCache>> {
-    if (!spyBenchCache || Date.now() - spyBenchCache.at > SPY_BENCH_CACHE_MS || spyBenchCache.from > oldest) {
+  // maxAgeMs: the daily line asks for a cache young enough that the day's bar is its final close.
+  async function spyBenchBars(oldest: string, maxAgeMs: number = SPY_BENCH_CACHE_MS): Promise<NonNullable<typeof spyBenchCache>> {
+    if (!spyBenchCache || Date.now() - spyBenchCache.at > maxAgeMs || spyBenchCache.from > oldest) {
       const from = new Date(Date.parse(`${oldest}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
       spyBenchCache = { at: Date.now(), from, bars: await fetchDailyBarsRange("SPY", from, new Date().toISOString(), SPY_BENCH_ADJUSTMENT) };
     }
@@ -8389,8 +8390,10 @@ print(json.dumps(out))
     } catch (e: unknown) { missing.push(`positions: ${why(e)}`); }
     let spyBars: DailyClose[] | null = null;
     try {
-      const from = new Date(Date.parse(`${DAILY_LINE_SINCE}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
-      spyBars = await fetchDailyBarsRange("SPY", from, new Date(startMs).toISOString(), "split");
+      // the benchmark's own SPY series (one fetch, one cache: spyBenchmark.test.ts's ratchet), price
+      // only like the account; no older than DAILY_LINE_SPY_MAX_AGE_MS, so with the line due from the
+      // close + 20 min the day's bar is its final close, never an intraday one cached before the bell
+      spyBars = (await spyBenchBars(DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS)).bars;
       const lastBar = spyBars.length ? spyBars[spyBars.length - 1].date : null;
       if (lastBar !== gate.day) missing.push(`spy bars: no ${gate.day} bar yet (last ${lastBar ?? "none"})`);
     } catch (e: unknown) { missing.push(`spy bars: ${why(e)}`); }

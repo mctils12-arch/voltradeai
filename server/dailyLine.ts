@@ -106,6 +106,11 @@ function msOf(x: unknown): number | null {
 
 // ── 0. the once-a-day gate ──────────────────────────────────────────────────
 
+/** The line reads the benchmark's shared SPY cache (server/bot.ts spyBenchBars: one fetch, one
+ *  cache) but no older than this: the line is due from the close + 20 min, so a cache this young
+ *  was fetched after the close and holds the day's final bar. */
+export const DAILY_LINE_SPY_MAX_AGE_MS = 5 * 60_000;
+
 export interface DailyLineSession { date: string; closeMin: number }
 export interface DailyLineGate { due: boolean; partialOk: boolean; day: string; reason: string }
 

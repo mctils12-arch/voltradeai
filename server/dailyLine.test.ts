@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { transformSync } from "esbuild";
 import {
-  DAILY_LINE_KEEP, OPTION_FILL_LEDGER_FILENAME,
+  DAILY_LINE_KEEP, DAILY_LINE_SPY_MAX_AGE_MS, OPTION_FILL_LEDGER_FILENAME,
   appendOptionFillLedger, buildDailyLine, dailyLineDue, dailyLineMessage, dailyLinePrecheck, fillsSlippage, floorExposure,
   lastLineDay, loadDailyLines, openingWindowBlocks, optionFillsInWindow, optionLedgerRow, optionPnl, optionWindowStart,
   parseCalendarSession, parseFloorConfig, parseLedger, parsePositionsLite, readOptionFillLedger, realizedOptionPnl,
@@ -389,7 +389,10 @@ test("wiring: once per day — saved BEFORE the one DAILY-LINE audit row; SPY pr
     "the line is the claim: saved before its audit row");
   assert.ok(check.includes("dailyLineDue(Date.now(), session, written)"));
   const compute = slice("async function computeDailyLine(", "async function checkDailyLine(");
-  assert.ok(compute.includes('fetchDailyBarsRange("SPY", from, new Date(startMs).toISOString(), "split")'), "SPY is price-only (adjustment=split)");
+  assert.ok(compute.includes("spyBars = (await spyBenchBars(DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS)).bars;"),
+    "SPY is the benchmark's own price-only series (one fetch, one cache), fresh enough for the day's final bar");
+  assert.ok(!compute.includes('fetchDailyBarsRange("SPY"'), "no second SPY fetch");
+  assert.ok(DAILY_LINE_SPY_MAX_AGE_MS > 0 && DAILY_LINE_SPY_MAX_AGE_MS <= 20 * 60_000, "younger than the gate's close + 20 min");
   assert.ok(compute.indexOf("if (missing.length && !gate.partialOk) return { line: null, missing };") < compute.indexOf("refreshSleeves()"),
     "a missing cheap input never costs the full fill walk");
   assert.ok(bot.includes("setInterval(() => { checkDailyLine()") && bot.includes("}, DAILY_LINE_CHECK_MS);"));
