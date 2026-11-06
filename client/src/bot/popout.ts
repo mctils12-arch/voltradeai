@@ -7,13 +7,17 @@
 // one BroadcastChannel: the focus symbol (a Book click on either side charts
 // the same ticker everywhere) and a pane's goodbye, so the main page restores
 // the slot the moment the window closes (a 1 s `closed` poll is the fallback
-// for a window killed without pagehide). Pure helpers; pinned by popout.test.ts.
+// for a window killed without pagehide). 2026-10-29: the mechanics are the
+// shared client/src/cockpit/popout.ts; this module binds the bot's prefix,
+// channel, window names and ids and keeps its exports (pinned by popout.test.ts).
 import { PANEL_IDS, type PanelId } from "./zoneModel";
+import { paneIdFromHash as paneIdFromHashOf, paneUrl as paneUrlOf, paneName as paneNameOf, parseChannelMsg, paneLifecycleMsg } from "../cockpit/popout";
+export { PANE_MIN, paneFeatures, windowId, type SlotRect } from "../cockpit/popout";
 
 export const PANE_PREFIX = "#/bot/pane/";
 export const PANE_CHANNEL = "vt-bot-panes";
-/** the smallest useful pane; a slot smaller than this opens at this size */
-export const PANE_MIN = { w: 480, h: 360 };
+/** one named window per panel (`vt-pane-<id>`): opening it twice focuses the existing pane */
+export const PANE_WINDOW_PREFIX = "vt-pane";
 
 export type PaneMsg =
   | { t: "focus"; sym: string | null; from: string }
@@ -22,41 +26,19 @@ export type PaneMsg =
 
 /** "#/bot/pane/chart" → "chart"; anything else (other hashes, unknown ids) → null */
 export function paneIdFromHash(hash: string): PanelId | null {
-  if (!hash.startsWith(PANE_PREFIX)) return null;
-  const id = hash.slice(PANE_PREFIX.length).split(/[/?&#]/)[0];
-  return (PANEL_IDS as readonly string[]).includes(id) ? (id as PanelId) : null;
+  return paneIdFromHashOf(hash, PANE_PREFIX, PANEL_IDS);
 }
 
 export function paneUrl(id: PanelId, loc: { origin: string; pathname: string }): string {
-  return `${loc.origin}${loc.pathname}${PANE_PREFIX}${id}`;
+  return paneUrlOf(id, PANE_PREFIX, loc);
 }
 
-/** one named window per panel: opening it twice focuses the existing pane */
-export function paneName(id: PanelId): string { return `vt-pane-${id}`; }
-
-export interface SlotRect { x: number; y: number; w: number; h: number }
-
-/** window.open features: a popup sized from the slot (a little larger — the
- *  panel gains the window's whole height), never smaller than PANE_MIN nor
- *  larger than the screen, placed over the slot so it appears where the
- *  panel was and can be dragged to another monitor from there. */
-export function paneFeatures(slot: SlotRect | null, screen: { w: number; h: number }): string {
-  const w = Math.round(Math.min(Math.max(PANE_MIN.w, screen.w > 0 ? Math.min(screen.w, slot ? slot.w * 1.15 : 760) : 760), Math.max(screen.w, PANE_MIN.w)));
-  const h = Math.round(Math.min(Math.max(PANE_MIN.h, screen.h > 0 ? Math.min(screen.h, slot ? slot.h * 1.3 : 520) : 520), Math.max(screen.h, PANE_MIN.h)));
-  const left = Math.round(Math.max(0, Math.min(Math.max(0, screen.w - w), slot ? slot.x : (screen.w - w) / 2)));
-  const top = Math.round(Math.max(0, Math.min(Math.max(0, screen.h - h), slot ? slot.y : (screen.h - h) / 2)));
-  return `popup=yes,width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=yes`;
-}
+export function paneName(id: PanelId): string { return paneNameOf(id, PANE_WINDOW_PREFIX); }
 
 /** a message from the channel, or null for anything that is not ours */
 export function parsePaneMsg(data: unknown): PaneMsg | null {
-  if (!data || typeof data !== "object") return null;
-  const m = data as Record<string, unknown>;
-  if (typeof m.from !== "string") return null;
+  const m = parseChannelMsg(data);
+  if (!m) return null;
   if (m.t === "focus" && (m.sym === null || typeof m.sym === "string")) return { t: "focus", sym: m.sym as string | null, from: m.from };
-  if ((m.t === "pane-closed" || m.t === "pane-open") && typeof m.id === "string" && (PANEL_IDS as readonly string[]).includes(m.id)) return { t: m.t, id: m.id as PanelId, from: m.from };
-  return null;
+  return paneLifecycleMsg(m, PANEL_IDS);
 }
-
-/** this window's id on the channel (a sender ignores its own echoes) */
-export function windowId(): string { return Math.random().toString(36).slice(2, 10); }

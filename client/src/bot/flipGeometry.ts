@@ -1,11 +1,3 @@
-/** Where a FLIP slot sits in its scroll host's CONTENT coordinates. Viewport
- *  rects move when the host scrolls even though no slot moved, so a float
- *  toggle that follows a scroll would otherwise spring every slot by the
- *  scroll delta. Content coordinates are scroll-invariant. */
-export interface Box { left: number; top: number }
-export interface Host extends Box { scrollLeft: number; scrollTop: number }
-
-export function contentPos(rect: Box, host: Host | null): Box {
-  if (!host) return { left: rect.left, top: rect.top };
-  return { left: rect.left - host.left + host.scrollLeft, top: rect.top - host.top + host.scrollTop };
-}
+// Moved to client/src/cockpit/flipGeometry.ts with useFlip (2026-10-29, the
+// shared engine); this path stays for the bot's importers and its test.
+export * from "../cockpit/flipGeometry";
