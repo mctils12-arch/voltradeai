@@ -123,9 +123,13 @@ function WatchlistRow({
   );
 }
 
-// ── Watchlist Page ────────────────────────────────────────────────────────────
+// ── Watchlist Body ────────────────────────────────────────────────────────────
+// 2026-10-29: the list (add / remove / prices / jump to analysis) is its own
+// component so the cockpit can place it in a panel; the page below is the
+// header + this body. The body owns the data, so the ticker count lives in
+// its footer line rather than the page subtitle.
 
-export default function WatchlistPage({ onSelectTicker, authenticated }: { onSelectTicker: (ticker: string) => void; authenticated?: boolean }) {
+export function WatchlistBody({ onSelectTicker, authenticated }: { onSelectTicker: (ticker: string) => void; authenticated?: boolean }) {
   const [tickers, setTickers] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const isLoggedIn = !!authenticated;
@@ -199,24 +203,6 @@ export default function WatchlistPage({ onSelectTicker, authenticated }: { onSel
 
   return (
     <div>
-      {/* Page header */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <h1 style={{
-          fontSize: '1.4rem',
-          fontWeight: 700,
-          letterSpacing: '-0.02em',
-          color: 'var(--text-primary)',
-          marginBottom: '0.25rem'
-        }}>
-          Watchlist
-        </h1>
-        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-          {tickers.length > 0
-            ? `Tracking ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''} · ${isLoggedIn ? 'Saved to your account' : 'Sign in to save'}`
-            : `Add tickers to track · ${isLoggedIn ? 'Saved to your account' : 'Sign in to save'}`}
-        </p>
-      </div>
-
       {/* Sign up reminder */}
       {!isLoggedIn && (
         <div style={{
@@ -412,8 +398,35 @@ export default function WatchlistPage({ onSelectTicker, authenticated }: { onSel
         marginTop: '1.25rem',
         textAlign: 'center',
       }}>
+        {tickers.length > 0 ? `Tracking ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''} · ` : ''}
         {isLoggedIn ? 'Watchlist saved to your account · Persists across sessions' : 'Sign in to save your watchlist · Click Analyze to open full analysis'}
       </p>
+    </div>
+  );
+}
+
+// ── Watchlist Page ────────────────────────────────────────────────────────────
+
+export default function WatchlistPage({ onSelectTicker, authenticated }: { onSelectTicker: (ticker: string) => void; authenticated?: boolean }) {
+  const isLoggedIn = !!authenticated;
+  return (
+    <div>
+      {/* Page header */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <h1 style={{
+          fontSize: '1.4rem',
+          fontWeight: 700,
+          letterSpacing: '-0.02em',
+          color: 'var(--text-primary)',
+          marginBottom: '0.25rem'
+        }}>
+          Watchlist
+        </h1>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          {`Prices and one-click analysis for the names you follow · ${isLoggedIn ? 'Saved to your account' : 'Sign in to save'}`}
+        </p>
+      </div>
+      <WatchlistBody onSelectTicker={onSelectTicker} authenticated={authenticated} />
     </div>
   );
 }

@@ -1044,60 +1044,6 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   .three-col { grid-template-columns: 1fr 1fr 1fr; }
 }
 
-/* ── Market scanner panel ── */
-.scanner-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 1rem 1.125rem;
-  margin-bottom: 1.5rem;
-  backdrop-filter: blur(20px);
-}
-.scanner-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  margin-bottom: 0.625rem;
-  flex-wrap: wrap;
-}
-.scanner-row-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: 0.25rem;
-}
-.scanner-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.45rem 0.5rem;
-  border-radius: 8px;
-  text-align: left;
-  transition: background 120ms ease;
-}
-.scanner-row:hover {
-  background: var(--bg-card-hover);
-}
-.scanner-loading {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.25rem 0;
-}
-
 /* ── Live price bar ── */
 .live-price-bar {
   background: var(--bg-card);

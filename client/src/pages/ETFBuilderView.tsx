@@ -1088,7 +1088,7 @@ function ETFErrorPanel({
 // Main
 // ────────────────────────────────────────────────────────────────────────────
 
-interface ETFBuilderViewProps {
+export interface ETFBuilderViewProps {
   /** The shared ticker from the parent analyze page. ETF Builder is now a
    *  result view driven by the parent's search bar — no separate searcher. */
   ticker?: string | null;
