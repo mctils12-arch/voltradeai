@@ -65,6 +65,13 @@ class _Leg3Base(unittest.TestCase):
         e = patch.dict(os.environ, {"VOLTRADE_SHADOW_ENTRIES": "off"})
         e.start()
         self.addCleanup(e.stop)
+        # CASH RESERVE (2026-11-06, position_mgmt): a separate gate on the SVXY
+        # buy, pinned in test_position_mgmt.py. Off here so these pin the SVXY
+        # rules alone (this fixture has no floor plan, so the reserve would
+        # protect the whole 85% floor sleeve and leave no room).
+        r = patch.dict(system_config.BASE_CONFIG, {"CASH_RESERVE_ENABLED": False})
+        r.start()
+        self.addCleanup(r.stop)
         self.ts = 1_000_000
 
     def seed(self, **state):

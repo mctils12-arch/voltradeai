@@ -313,6 +313,12 @@ class RPCDispatcher:
             # tickers; never a buy). bot.ts lists it in HEAVY_DAEMON_ONLY: a
             # bot_engine import in a fresh interpreter is the ~300 MB cold start.
             "floor_reduce_only": ("bot_engine", "floor_reduce_only_pass"),
+            # CASH RESERVE (2026-11-06, position_mgmt.py): the room above the
+            # regime's cash reserve for new satellite capital. args {"equity",
+            # "positions", "open_orders", "regime"?}; bot.ts calls it before
+            # executeTrades, the morning queue and the SELL_CSP dispatch, with
+            # the python3 -c fallback reading the same payload from a temp file.
+            "cash_reserve_snapshot": ("position_mgmt", "snapshot_rpc"),
 
             # Regime / macro
             "macro_snapshot": ("macro_data", "get_macro_snapshot"),

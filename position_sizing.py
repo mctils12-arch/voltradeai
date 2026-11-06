@@ -1048,6 +1048,7 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
                  * s_liquidity)
 
     # DD-SIZING 2026-04-22: drawdown-conditional scaling.
+    _dd_ladder, _dd_budget, _dd_rule = 1.0, 1.0, "none"  # 2026-11-06: reported in scalars
     # As account drawdown grows, shrink new positions predictively.
     # DD 0-5%: full. 5-10%: 80%. 10-15%: 60%. 15-20%: 40%.
     try:
@@ -1071,6 +1072,17 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
                     _dd_scalar = 0.8
                 else:
                     _dd_scalar = 1.0
+                # DD RISK BUDGET 2026-11-06 (position_mgmt.dd_risk_scalar,
+                # refocus spec section 4): the linear 10% -> 18% budget joins
+                # this ladder as ONE drawdown multiplier — the tighter of the
+                # two (never a product, never looser than the ladder above).
+                _dd_ladder = _dd_scalar
+                try:
+                    import position_mgmt as _pm_dd
+                    _dd_budget = _pm_dd.dd_risk_scalar(-_dd_pct * 100.0)
+                    _dd_scalar, _dd_rule = _pm_dd.combine_drawdown_scalars(_dd_ladder, _dd_budget)
+                except ImportError as _pm_dd_err:
+                    logger.warning(f"drawdown budget unavailable, ladder only: {_pm_dd_err}")
                 final_pct = final_pct * _dd_scalar
                 s_dd = _dd_scalar
                 _dd_applied_pct = _dd_pct
@@ -1199,6 +1211,10 @@ def calculate_position(trade: dict, equity: float, current_positions: list = Non
         "liquidity": round(s_liquidity, 3),
         "drawdown_scalar": round(s_dd, 3) if 's_dd' in dir() else 1.0,
         "drawdown_pct": round(_dd_applied_pct * 100, 2) if '_dd_applied_pct' in dir() else 0,
+        # 2026-11-06: the older ladder, the linear budget, and which one bound
+        "drawdown_ladder": round(_dd_ladder, 3),
+        "drawdown_budget": round(_dd_budget, 3),
+        "drawdown_rule": _dd_rule,
         "stress": round(s_stress, 3) if 's_stress' in dir() else 1.0,
         "stress_level": _stress_level if '_stress_level' in dir() else "unknown",
         "stress_value": _stress_value if '_stress_value' in dir() else 0,
@@ -1381,15 +1397,33 @@ def _infer_strategy(trade: dict) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def size_portfolio(trades: list, equity: float, current_positions: list = None,
-                   macro: dict = None) -> list:
+                   macro: dict = None, open_orders: list = None, regime: str = None) -> list:
     """
     Size a batch of trades together, ensuring total deployment stays safe.
     Redistributes leftover cash from rounding to the highest-conviction trade.
+
+    CASH RESERVE 2026-11-06 (position_mgmt.satellite_headroom): the batch may
+    spend at most the room left above the regime's cash reserve, after the
+    floor's commitment, current satellites and working orders. A trade that no
+    longer fits is trimmed (whole shares) or blocked, with the reason in its
+    reasoning / block_reason and a row in the position-management log.
+    `regime` defaults to macro["regime"], then the live macro snapshot.
 
     Returns list of sized trades (same order, with shares/values filled in).
     """
     if not trades:
         return []
+
+    _reserve, _reserve_left = None, None
+    try:
+        import position_mgmt as _pm
+        _reserve = _pm.live_headroom(
+            equity, current_positions or [], regime or _pm.current_regime_label(macro),
+            open_orders=open_orders or [], source="position_sizing.size_portfolio")
+        if _reserve.get("enabled"):
+            _reserve_left = float(_reserve["headroom_dollars"])
+    except (ImportError, KeyError, TypeError, ValueError) as _rsv_err:
+        logger.warning(f"size_portfolio: cash reserve unavailable, batch not reserve-gated: {_rsv_err}")
 
     # ALPHA AUDIT 2026-05-06 batch 11: respect size-tier max_positions instead
     # of the hardcoded ABSOLUTE_MAX_POSITIONS=8. At $1M+ accounts the user
@@ -1432,7 +1466,21 @@ def size_portfolio(trades: list, equity: float, current_positions: list = None,
             continue
         
         result = calculate_position(trade, equity, current_positions, macro)
-        
+
+        # CASH RESERVE 2026-11-06: fit the trade into the room above the reserve.
+        if not result["blocked"] and _reserve_left is not None:
+            _fit = _pm.fit_entry(result["position_value"], result["price"], _reserve_left, equity)
+            _pm.log_reserve_decision(_fit, result["ticker"], result["position_value"], _reserve,
+                                     "position_sizing.size_portfolio", score=trade.get("score"))
+            if _fit["action"] == "block":
+                result = _blocked(trade.get("ticker", "?"), result["price"],
+                                  f"Cash reserve: {_fit['reason']} ({_reserve.get('reserve_reason')})")
+            elif _fit["action"] == "trim":
+                result["shares"] = int(_fit["shares"])
+                result["position_value"] = round(result["shares"] * result["price"], 2)
+                result["position_pct"] = round(result["position_value"] / equity, 4)
+                result["reasoning"] += f" | Cash reserve: {_fit['reason']} ({_reserve.get('reserve_reason')})"
+
         # Cap at remaining budget
         if not result["blocked"] and result["position_value"] > remaining_budget:
             new_shares = int(math.floor(remaining_budget / result["price"]))
@@ -1449,10 +1497,14 @@ def size_portfolio(trades: list, equity: float, current_positions: list = None,
         if not result["blocked"]:
             total_deployed += result["position_value"]
             positions_used += 1
-    
+            if _reserve_left is not None:
+                _reserve_left -= result["position_value"]
+
     # Redistribute leftover cash from rounding to top pick
     total_used = sum(r["position_value"] for r in sized if r and not r["blocked"])
     leftover = max_deploy - total_deployed
+    if _reserve_left is not None:
+        leftover = min(leftover, _reserve_left)  # the leftover may not dip into the reserve either
     
     if leftover > 0 and sized:
         # Find highest-scored non-blocked trade

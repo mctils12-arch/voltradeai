@@ -30,6 +30,9 @@ REGIME_COUNTERFACTUAL_PATH = os.path.join(DATA_DIR, "voltrade_regime_counterfact
 EVENT_MEMORY_PATH = os.path.join(DATA_DIR, "voltrade_event_memory.json")
 EARNINGS_MEMORY_PATH = os.path.join(DATA_DIR, "voltrade_earnings_memory.json")
 FILLS_PATH = os.path.join(DATA_DIR, "voltrade_fills.json")
+# 2026-11-06 position management (position_mgmt.py + server/positionMgmt.ts): append-only
+# JSONL of cash-reserve trims/blocks, drawdown-budget cuts and rotation decisions.
+POSITION_MGMT_LOG_PATH = os.path.join(DATA_DIR, "voltrade_position_mgmt.jsonl")
 WEIGHTS_PATH = os.path.join(DATA_DIR, "voltrade_weights.json")
 HEALTH_LOG_PATH = os.path.join(DATA_DIR, "voltrade_health_log.json")
 BLEND_TRACKER_PATH = os.path.join(DATA_DIR, "voltrade_blend_tracker.json")

@@ -249,9 +249,25 @@ def _dynamic_options_size(trade: dict, equity: float, existing_positions: list =
     # So we use ~50% of what the stock sizer would give
     OPTIONS_LEVERAGE_DISCOUNT = 0.50
     
-    dynamic_pct = (kelly_base * s_vol * s_conf * s_regime * s_earn 
+    dynamic_pct = (kelly_base * s_vol * s_conf * s_regime * s_earn
                    * s_time * s_heat * s_liq * OPTIONS_LEVERAGE_DISCOUNT)
-    
+
+    # DD RISK BUDGET 2026-11-06 (position_mgmt.dd_risk_scalar, refocus spec
+    # section 4): this sizer had no drawdown rule (full size until the 18%
+    # halt). It now scales linearly 1.0x -> 0.5x between a 10% and an 18%
+    # account drawdown (system_config DD_RISK_BUDGET_*); 1.0 with no peak on file.
+    try:
+        import position_mgmt as _pm_dd
+        _dd_now = _pm_dd.current_drawdown_pct(equity)
+        _s_dd = _pm_dd.dd_risk_scalar(_dd_now)
+        if _s_dd < 1.0:
+            dynamic_pct *= _s_dd
+            _pm_dd.log_dd_budget(trade.get("ticker", ""), "options_execution._dynamic_options_size",
+                                 _dd_now, _s_dd, "budget")
+    except ImportError as _pm_dd_err:
+        import logging as _pm_dd_log
+        _pm_dd_log.getLogger("voltrade.options_execution").warning(f"drawdown budget unavailable: {_pm_dd_err}")
+
     # Clamp to absolute ceiling
     dynamic_pct = max(0.01, min(dynamic_pct, MAX_OPTIONS_PCT_CEILING))
     

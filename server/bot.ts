@@ -109,6 +109,7 @@ import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
 import { decideMorningQueueEntry } from "./morningQueueEntry";
+import { ReserveBudget, parseReserveSnapshot, reserveAuditLine, fitTradeToReserve, parseRotationPlan, rotationPreflight, appendPositionMgmtLog, type ReserveFit, type RotationRow } from "./positionMgmt"; // position management 2026-11-06
 // PROCESS-GROUP KILL (2026-10-27, trading-engine audit D1): child_process.exec
 // semantics (shell, env, maxBuffer, utf8, exec's error shape), but the child
 // leads its own process group and a timeout/maxBuffer kill takes every
@@ -5575,6 +5576,11 @@ print(json.dumps(result[:20]))
       const positions = await alpaca("/v2/positions");
       slotsUsed = Array.isArray(positions) ? positions.length : 0;
     } catch (err: any) { console.error("[bot]", err?.message || err); }
+    // CASH RESERVE 2026-11-06: queued entries spend from the room above the reserve too.
+    const mqPositions = await alpaca("/v2/positions").catch(() => []);
+    const mqOrders = await alpaca("/v2/orders?status=open").catch(() => []);
+    const mqReserve = await fetchReserveBudget(Array.isArray(mqPositions) ? mqPositions : [],
+      Array.isArray(mqOrders) ? mqOrders : [], equity, "morning queue");
 
     // Track sectors of current positions for correlation check
     const positionSectors: Record<string, number> = {};
@@ -5642,6 +5648,14 @@ print(json.dumps(result[:20]))
           }
         }
       } catch (err: any) { console.error("[bot]", err?.message || err); }
+
+      // CASH RESERVE 2026-11-06: fitted to the room above the regime's cash
+      // reserve first (a trim lowers trade.shares; the qty guard below still runs).
+      const mqFit = mqReserve.fitShares(Number(trade.price) || 0, Math.floor(trade.shares));
+      noteReserve(String(trade.ticker), mqFit, mqReserve, "morning queue", Math.floor(trade.shares) * (Number(trade.price) || 0));
+      if (mqFit.action === "block") continue;
+      if (mqFit.action === "trim") trade.shares = mqFit.qty;
+      mqReserve.spend(mqFit.value);
 
       // ALPHA AUDIT 2026-05-04 batch 5: guard against qty=0 orders.
       // When trade.position_value is small (e.g. $50) and currentPrice is
@@ -6593,6 +6607,8 @@ print(json.dumps(check_weekly_loss(history)))
 
       if (isMarketOpen) {
         await executeTrades(result.new_trades || [], equity);
+        // CAPITAL ROTATION 2026-11-06: this scan's planned swaps (position_mgmt.plan_rotations).
+        await runUpgradeCandidates(parseRotationPlan(result.rotation_plan));
       } else {
         // Queue for morning
         for (const trade of (result.new_trades || []).slice(0, MAX_POSITIONS)) {
@@ -6698,6 +6714,14 @@ print(json.dumps(check_weekly_loss(history)))
         // instead of ordering (SELL_CSP / BUY_PUT are recorded by their
         // Python gate); one shadow-log write after the loop.
         const tierShadowEntries: NodeShadowEntry[] = [];
+        // CASH RESERVE 2026-11-06: this batch's SELL_CSP collateral is also capped by
+        // the room above the regime's cash reserve (both decrement per CSP below).
+        const tierReserve = await fetchReserveBudget(Array.isArray(freshPositionsForTiers) ? freshPositionsForTiers : [],
+          Array.isArray(freshOpenOrdersForTiers) ? freshOpenOrdersForTiers : [], equity, "tier dispatcher");
+        if (tierReserve.active && tierReserve.remaining < tierCashAvailable) {
+          noteReserve("SELL_CSP", { action: "trim", qty: 0, value: tierReserve.remaining, reason: `collateral capped at $${Math.round(tierReserve.remaining)} (the room above the cash reserve) instead of $${Math.round(tierCashAvailable)} of options buying power` }, tierReserve, "tier dispatcher", tierCashAvailable);
+          tierCashAvailable = tierReserve.remaining;
+        }
         for (const action of result.tier_actions) {
           if (state.killSwitch) {
             for (const rest of result.tier_actions.slice(result.tier_actions.indexOf(action))) {
@@ -6752,6 +6776,13 @@ print(json.dumps(check_weekly_loss(history)))
               // in this payload but never handed to select_contract, so tier
               // sizing (T1 stress/DD scalars, T2 leverage) never reached
               // execution. Now passed; select_contract caps at MAX_OPTIONS_PCT.
+              // CASH RESERVE 2026-11-06: no room above the reserve -> skipped (shadow-logged).
+              const cspFit: ReserveFit = tierReserve.fitOpen();
+              if (cspFit.action === "block") {
+                noteReserve(String(action.ticker), cspFit, tierReserve, "tier dispatcher", tierCashAvailable);
+                noteCspGate(action, "rejected_cash_reserve", cspFit.reason);
+                continue;
+              }
               const cspPayload = {
                 ticker: action.ticker,
                 strategy: "sell_cash_secured_put",  // matches options_execution.select_contract
@@ -6827,10 +6858,12 @@ else:
                   }, null);
                   tierOptionsSlotsUsed++;
                   tierCashAvailable -= (parseFloat(r.cash_required) || 0);
+                  tierReserve.spend(parseFloat(r.cash_required) || 0);
                 } else if (r.status === "submitted" || r.status === "filled") {
                   audit("T" + action.tier, `SELL_CSP ${action.ticker} | ${action.reason}`);
                   tierOptionsSlotsUsed++;
                   tierCashAvailable -= (parseFloat(r.cash_required) || 0);
+                  tierReserve.spend(parseFloat(r.cash_required) || 0);
                   // STALE-ORDER-SWEEP FIX 2026-08-22: options entries were never
                   // registered in `openOrders`, so sweepStaleOrders() (tier1Reflex,
                   // every ~45s) had nothing to cancel — a resting DAY limit CSP
@@ -7278,6 +7311,40 @@ else:
     }
   }
 
+  // ── CASH RESERVE 2026-11-06 (position_mgmt.py, server/positionMgmt.ts) ────
+  // The room above the regime's cash reserve for new satellite capital, from
+  // the caller's fresh positions + open orders. Python computes it (daemon
+  // route cash_reserve_snapshot, python3 -c fallback); the regime is the last
+  // scan's label. Unreadable -> an inactive budget that gates nothing (the
+  // fail-open rule of every pre-trade check here), audited.
+  async function fetchReserveBudget(positions: unknown[], openOrders: unknown[], equity: number, where: string): Promise<ReserveBudget> {
+    const args = { equity, positions, open_orders: openOrders, regime: lastScanResult?.cash_reserve?.regime || null };
+    const tmp = `/tmp/cash_reserve_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`;
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(args));
+      const call = await pythonCall("cash_reserve_snapshot", args,
+        `python3 -c "import json; from position_mgmt import snapshot_rpc; d = json.load(open('${tmp}')); print(json.dumps(snapshot_rpc(**d)))"`,
+        { timeout: 20000 });
+      const snap = call.success ? parseReserveSnapshot(call.result) : null;
+      if (!snap) audit("CASH-RESERVE-ERROR", `${where}: reserve snapshot unavailable (via ${call.via}) — entries not reserve-gated this pass`);
+      return new ReserveBudget(snap, equity);
+    } catch (e: unknown) {
+      audit("CASH-RESERVE-ERROR", `${where}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 220));
+      return new ReserveBudget(null, equity);
+    } finally {
+      try { fs.unlinkSync(tmp); } catch (unlinkErr) { console.warn(`[cash-reserve] temp file not removed: ${tmp}`); }
+    }
+  }
+  // One CASH-RESERVE audit line + a position-management log row per trim/block (6 h dedup per ticker).
+  function noteReserve(ticker: string, fit: ReserveFit, budget: ReserveBudget, where: string, wantedValue: number): void {
+    if (fit.action === "allow") return;
+    const line = reserveAuditLine(ticker, fit, budget.snapshot);
+    if (appendPositionMgmtLog({ kind: "cash_reserve", action: fit.action, ticker, summary: line, source: where,
+      wanted_value: Math.round(wantedValue * 100) / 100, allowed_value: Math.round(fit.value * 100) / 100,
+      regime: budget.snapshot?.regime ?? null, reserve_pct: budget.snapshot?.reservePct ?? null },
+      { dedupKey: `${where}|${ticker}|${fit.action}`, dedupMs: 6 * 3600_000 })) audit("CASH-RESERVE", line);
+  }
+
   // ── Tier 2 trade execution helper ─────────────────────────────────────────
 
   async function executeTrades(trades: any[], equity: number) {
@@ -7316,6 +7383,10 @@ else:
         }, 0)
       : 0;
     const pendingOrderIds: Array<{orderId: string; trade: any; side: string; qty: number}> = [];
+    // CASH RESERVE 2026-11-06: every entry below spends from the room above the
+    // regime's cash reserve (fetchReserveBudget); trims/blocks are audited.
+    const reserve = await fetchReserveBudget(Array.isArray(positions) ? positions : [],
+      Array.isArray(openOptionsOrdersForExec) ? openOptionsOrdersForExec : [], equity, "executeTrades");
     // ENTRY SHADOW MODE (2026-10-28): would-be stock/ETF entries gated below
     // (one shadow-log write after the loop; options opens are recorded by the
     // Python gate in select_contract's caller / evaluate_and_execute).
@@ -7472,6 +7543,17 @@ else:
         await new Promise(r => setTimeout(r, 1000));
       }
 
+      // CASH RESERVE 2026-11-06 (positionMgmt.fitTradeToReserve): the last gate
+      // before an order — the entry fits the room above the reserve, is cut to
+      // it, or is skipped (rejected_cash_reserve; later, smaller trades still run).
+      const wantedValue = Number(trade.etf_position_value || trade.position_value) || 0;
+      const reserveFit = fitTradeToReserve(reserve, trade, isOptionsTrade);
+      noteReserve(String(trade.ticker), reserveFit, reserve, "executeTrades", wantedValue);
+      if (reserveFit.action === "block") {
+        noteGate(trade, "rejected_cash_reserve", reserveFit.reason);
+        continue;
+      }
+
       // Track order attempt count per ticker (Fix 2026-04-10)
       orderAttemptCounts[trade.ticker] = (orderAttemptCounts[trade.ticker] || 0) + 1;
 
@@ -7576,6 +7658,7 @@ else:
               const scannerPayload = {
                 ticker: trade.ticker, strategy: trade.options_strategy || trade.instrument_strategy,
                 price: trade.price, equity, setup: trade.setup || "",
+                cash: reserve.active ? reserve.remaining : null, // CASH RESERVE 2026-11-06: a CSP's collateral cap
               };
               const scanTmpPath = `/tmp/opt_scan_${trade.ticker}_${Date.now()}.json`;
               fs.writeFileSync(scanTmpPath, JSON.stringify(scannerPayload));
@@ -7584,7 +7667,7 @@ else:
 import json, sys; sys.path.insert(0, '.')
 from options_execution import select_contract, submit_options_order
 data = json.load(open('${scanTmpPath}'))
-contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'])
+contract = select_contract(data['ticker'], data['strategy'], data['price'], data['equity'], cash_available=data.get('cash'))
 if contract.get('error'):
     print(json.dumps({'instrument':'stock','order':None,'contract':None,'reasoning':contract['error']}))
 else:
@@ -7689,6 +7772,7 @@ else:
               }, null);
               optionsSlotsUsed++;
               totalDeployed += optExec.contract?.max_cost || trade.position_value;
+              reserve.spend(Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0);
               continue;
             }
             if (optExec.instrument === "options" && ["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status)) {
@@ -7696,6 +7780,7 @@ else:
               notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${(trade.options_edge_pct || 0).toFixed?.(1) || '?'}%)`);
               optionsSlotsUsed++;
               totalDeployed += optExec.contract?.max_cost || trade.position_value;
+              reserve.spend(Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0);
               // Options positions use the OCC symbol but monitor via underlying ticker
               addPositionToMonitor(trade.ticker, trade.side === "short" ? "short" : "long", trade.price || 0, trade.shares || 1);
               continue; // Skip stock execution
@@ -8074,27 +8159,58 @@ print(json.dumps(run_update()))
     audit("TIER3", "Strategic scan complete");
   }
 
-  // ── Upgrade logic: sell weak positions if much better picks available ──────
-  // (kept for compatibility with runOvernightResearch and manual calls)
-  async function runUpgradeCandidates(upgradeCandidates: any[], newTrades: any[]) {
-    if (upgradeCandidates.length === 0 || newTrades.length === 0) return;
-
-    upgradeCandidates.sort((a: any, b: any) => (a.score || 0) - (b.score || 0));
-    const sortedNew = [...newTrades].sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
-
-    for (const candidate of upgradeCandidates) {
-      if (state.killSwitch) break;
-      const betterPick = sortedNew.find((t: any) =>
-        t.score >= (candidate.score || 50) + 20 &&
-        !upgradeCandidates.some((uc: any) => uc.ticker === t.ticker)
-      );
-      if (betterPick) {
+  // ── CAPITAL ROTATION (revived 2026-11-06, refocus spec section 4) ─────────
+  // This function had no caller (dead code). position_mgmt.plan_rotations
+  // (Python, every scan) now decides WHICH held stock/ETF satellite to swap
+  // for WHICH candidate the cash reserve starved: after-tax expected value net
+  // of trading costs, never the floor, options, a covered-call stock or a
+  // position under its minimum hold — and it logs every rejected pair. This
+  // places a planned swap with the same calls the function always used (the
+  // position DELETE, Alpaca's own close, then one entry order built by
+  // getOrderParams), after re-checking it against the live book
+  // (positionMgmt.rotationPreflight). One swap per scan, each one logged.
+  async function runUpgradeCandidates(rotations: RotationRow[]) {
+    if (rotations.length === 0) return;
+    const livePositions = await alpaca("/v2/positions").catch(() => []);
+    const liveOrders = await alpaca("/v2/orders?status=open").catch(() => []);
+    for (const rot of rotations) {
+      if (state.killSwitch || !haltAllows(currentHaltState(), "entry")) break;
+      const pre = rotationPreflight(rot, {
+        positions: Array.isArray(livePositions) ? livePositions : [],
+        openOrders: Array.isArray(liveOrders) ? liveOrders : [],
+        floorTickers: FLOOR_AND_LEG_TICKERS,
+        monitored: monitoredPositions[rot.sell.ticker],
+        exiting: exitingTickers.has(rot.sell.ticker),
+        etHour: getETHour(),
+        marketOpen: true, // called only from tier2Intelligence's market-open branch
+      });
+      const skipReason = !pre.ok ? pre.reason : isEntryShadowed("stocks") ? "stock entries are in shadow mode (VOLTRADE_SHADOW_ENTRIES)" : "";
+      if (skipReason) {
+        if (appendPositionMgmtLog({ kind: "rotation", action: "skipped", ticker: rot.sell.ticker, summary: `Planned swap of ${rot.sell.ticker} for ${rot.buy.ticker} not placed: ${skipReason}.`, sell: rot.sell.ticker, buy: rot.buy.ticker },
+          { dedupKey: `rot-skip|${rot.sell.ticker}|${rot.buy.ticker}|${skipReason}`, dedupMs: 3600_000 })) {
+          audit("ROTATE-SKIP", `${rot.sell.ticker} → ${rot.buy.ticker}: ${skipReason}`);
+        }
+        continue;
+      }
+      const candidate = { ticker: rot.sell.ticker, market_value: pre.buyValue };
+      const betterPick = { ticker: rot.buy.ticker, price: rot.buy.price, score: rot.buy.score };
+      let swapPlaced = false;
+      { // the function's original sell/buy transmission block (calls unchanged; bookkeeping added)
         try {
-          await alpaca(`/v2/positions/${candidate.ticker}`, { method: "DELETE" });
+          const closeOrder = await alpaca(`/v2/positions/${candidate.ticker}`, { method: "DELETE" });
+          const soldEntryDate = monitoredPositions[candidate.ticker]?.entryDate;
           removePositionFromMonitor(candidate.ticker);
-          audit("UPGRADE", `Sold ${candidate.ticker} → upgrading to ${betterPick.ticker} (score ${betterPick.score})`);
-          notify("upgrade", `Upgraded: sold ${candidate.ticker} → buying ${betterPick.ticker}`);
-          betterPick._consumed = true;
+          audit("ROTATE", rot.summary.slice(0, 480));
+          notify("upgrade", `Rotated: sold ${candidate.ticker} → buying ${betterPick.ticker}`);
+          // REAL BROKER FILLS: the sale's outcome is recorded at its confirmed fill
+          // by the sweep (resolvePendingExitFill), like every other exit.
+          if (closeOrder?.id) {
+            openOrders.push({
+              orderId: closeOrder.id, ticker: candidate.ticker, score: 0, placedAt: Date.now(),
+              side: "sell", qty: pre.sellQty, limitPrice: 0, isExit: true,
+              pendingExitFill: { ticker: candidate.ticker, exitSide: "sell", pnlPct: pre.pnlPct, exitReason: "rotation", entryDate: soldEntryDate, codeVersion: pkgVersion },
+            });
+          }
           await new Promise(r => setTimeout(r, 1000));
           const upgradeQty = Math.floor(candidate.market_value / betterPick.price);
           if (upgradeQty > 0) {
@@ -8123,10 +8239,27 @@ print(json.dumps(run_update()))
                 qty: upgradeQty,
                 limitPrice: Number(upgradeOrderParams.limit_price) || 0,
               });
+              // REAL BROKER FILLS (entryFill.ts): the new position's entry record waits for its fill.
+              settleEntryFill(upgradeOrderResult.id, upgradeOrderResult, {
+                ticker: betterPick.ticker, side: "buy", expectedPrice: betterPick.price, qtyRequested: upgradeQty,
+                orderId: upgradeOrderResult.id, session: "regular", score: betterPick.score,
+                instrument: rot.buy.instrument, codeVersion: pkgVersion,
+              });
             }
           }
+          appendPositionMgmtLog({ kind: "rotation", action: "rotate", ticker: candidate.ticker, summary: rot.summary,
+            sell: candidate.ticker, buy: betterPick.ticker, buy_qty: upgradeQty, sell_value: pre.sellValue,
+            gain_pct: rot.gainPct, ev_hold_pct: rot.evHoldPct, ev_candidate_pct: rot.evCandidatePct,
+            tax_now: rot.taxNow, cost_dollars: rot.costDollars });
+          swapPlaced = true;
         } catch (e: any) { audit("UPGRADE-ERROR", `Failed to upgrade: ${e.message}`); }
       }
+      if (!swapPlaced) {
+        appendPositionMgmtLog({ kind: "rotation", action: "failed", ticker: candidate.ticker,
+          summary: `Swap of ${candidate.ticker} for ${betterPick.ticker} did not complete (the UPGRADE-ERROR audit line has the broker's reason).`,
+          sell: candidate.ticker, buy: betterPick.ticker });
+      }
+      break; // one swap per scan (ROTATION_MAX_PER_SCAN): each one stays attributable
     }
   }
 

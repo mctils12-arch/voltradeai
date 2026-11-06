@@ -273,6 +273,11 @@ class TestThirdLeg(_TempShadowLog):
         p = patch.object(bot_engine, "DATA_DIR", self.tmp)
         p.start()
         self.addCleanup(p.stop)
+        # CASH RESERVE (2026-11-06): its own gate on the SVXY buy, pinned in
+        # test_position_mgmt.py; off here so the shadow flag is tested alone.
+        r = patch.dict(bot_engine.BASE_CONFIG, {"CASH_RESERVE_ENABLED": False})
+        r.start()
+        self.addCleanup(r.stop)
 
     def _run(self, env, held_plpc=None, zone="BAND", vxx=1.10):
         self.env(env)

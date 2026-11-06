@@ -750,6 +750,13 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     # Additional drawdown-based reduction
     dd = ctx.drawdown_pct
     _dd_factor = 0.50 if dd <= -0.15 else (0.75 if dd <= -0.10 else 1.00)
+    # DD RISK BUDGET 2026-11-06 (position_mgmt): the linear 10% -> 18% budget
+    # and this ladder are ONE drawdown factor — the tighter of the two.
+    try:
+        import position_mgmt as _pm_dd
+        _dd_factor, _ = _pm_dd.combine_drawdown_scalars(_dd_factor, _pm_dd.dd_risk_scalar(-dd * 100.0))
+    except ImportError as _pm_dd_err:
+        logger.warning(f"T1 drawdown budget unavailable, ladder only: {_pm_dd_err}")
     _vxx_rung = size_scalar
     size_scalar *= _dd_factor
 
@@ -1205,6 +1212,22 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
     current_invested_pct = sum(abs(float(p.get("market_value", 0))) for p in ctx.positions) / max(ctx.equity, 1)
     headroom = max(0.0, max_invested_pct - current_invested_pct)
 
+    # CASH RESERVE 2026-11-06 (position_mgmt.satellite_headroom): the room the
+    # regime's cash reserve leaves after the floor's commitment, current
+    # satellites (short puts at their collateral) and working orders also caps
+    # the tiers' new capital. The tighter of the two caps applies.
+    reserve_bound, reserve = False, None
+    try:
+        import position_mgmt as _pm
+        reserve = _pm.live_headroom(ctx.equity, ctx.positions, caps.get("regime") or ctx.regime,
+                                    source="tiered_strategy._enforce_exposure_cap")
+        if reserve.get("enabled") and ctx.equity > 0:
+            reserve_pct = float(reserve["headroom_dollars"]) / ctx.equity
+            if reserve_pct < headroom:
+                headroom, reserve_bound = reserve_pct, True
+    except (ImportError, KeyError, TypeError, ValueError) as _rsv_err:
+        logger.warning(f"[TIERS] cash reserve unavailable, regime cap only: {_rsv_err}")
+
     protected = [a for a in actions if a.tier == 4]
     scalable = [a for a in actions if a.tier != 4]
 
@@ -1214,6 +1237,23 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
 
     if total_proposed <= headroom:
         return actions
+
+    if reserve_bound and max(0.0, headroom - protected_size) <= 0.0 and scalable:
+        # No room at all above the reserve: drop the scalable actions rather than
+        # pass size 0 on (select_contract would read 0 as "size it yourself").
+        dropped = [a for a in scalable]
+        logger.warning(f"[TIERS] cash reserve leaves no room: {len(dropped)} tier action(s) dropped "
+                       f"({reserve.get('summary') if reserve else ''})")
+        for a in dropped:
+            _pm.log_decision("cash_reserve", "block", a.ticker,
+                             f"{a.ticker}: Tier {a.tier} {a.action} dropped — {reserve.get('summary')}",
+                             dedup_key=f"cr|tiers|{a.ticker}", dedup_seconds=6 * 3600,
+                             source="tiered_strategy._enforce_exposure_cap", tier=a.tier,
+                             wanted_pct=round(a.size_pct, 4), regime=reserve.get("regime"))
+        log_csp_gate_shadow([{"ticker": a.ticker, "decision": "rejected_cash_reserve",
+                              "reason": "cash reserve leaves no room", "metadata": a.metadata}
+                             for a in dropped if a.action == "SELL_CSP"])
+        return protected
 
     scalable_headroom = max(0.0, headroom - protected_size)
 
@@ -1227,6 +1267,14 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
         for a in scalable:
             a.size_pct *= scale_factor
             a.reason = f"{a.reason} [scaled {scale_factor:.0%} by cap enforcer]{_budget_note(caps)}"
+            if reserve_bound:
+                a.reason += " [cash reserve]"
+                _pm.log_decision("cash_reserve", "trim", a.ticker,
+                                 f"{a.ticker}: Tier {a.tier} {a.action} scaled to {scale_factor:.0%} of its size so "
+                                 f"the cash reserve stays whole — {reserve.get('summary')}",
+                                 dedup_key=f"cr|tiers-trim|{a.ticker}", dedup_seconds=6 * 3600,
+                                 source="tiered_strategy._enforce_exposure_cap", tier=a.tier,
+                                 scale=round(scale_factor, 4), regime=reserve.get("regime"))
 
     return protected + scalable
 
