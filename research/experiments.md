@@ -116148,3 +116148,43 @@ DOWNSTREAM: (1) each deploy no longer spikes ~0.9 GB of Python at boot; (2) /api
 ROLLBACK TRIGGER: any client or job found calling /api/scan (a 404 in the logs) -> revert.
 TESTS: the 52 server/client test files that read routes.ts or mention the scanner: 702 pass; tsc 6; counter ratchet OK.
 STARVED: no.
+
+## 2026-11-06 [PIPELINE] — T-BOT (instrument_selector.py, instrument_counterfactual.py, decision_journal.py, bot_engine.py scan trade dict, system_config.py, voltrade_daemon.py; server/instrumentCounterfactual.ts, decisionJournal.ts, decisionAttribution.ts, jobHeartbeat.ts, bot.ts) — instrument counterfactual: each entered stock-vs-options choice records the instrument it passed over, and a nightly job prices both legs at +1/+5/+20 trading days
+VERSION: v1.0.1338 (shipped 2026-11-06 by the parent session; main was v1.0.1337)
+WHY: refocus spec §3 step 7 ("instrument choice: stock vs options vs both; log why the rejected instrument lost") and §7 ("log every signal, decision, outcome"). The instrument selector's choice rests on rules hard-coded from backtests (instrument_selector.py: buy_call disabled at a 22% win rate, bull spreads at 28%, cash-secured puts the only options strategy kept) and on thresholds (MIN_OPTIONS_SCORE 65, MAX_TOTAL_OPTIONS_PCT 16%). CLAUDE.md's RULE REVIEW says such rules must earn their keep through counterfactual data. The 2026-08-05 [RULE-REVIEW] on MAX_TOTAL_OPTIONS_PCT (open_questions.md; result INCONCLUSIVE) found a revisit impossible because the losing instrument's reason was never recorded. That session made the reason visible (`options_ruled_out_reason`). Nothing yet measured what the passed-over instrument would have earned. The decision journal kept rejected alternatives as text only.
+CHANGE (logging only; no order, size, gate or decision reads any of it):
+- `instrument_selector.option_alternative()` is pure and makes no network call. For every selector decision it records the option the selector scored, or why it scored none (outside hours, score below 65, ruled out, no viable strategy, routed to stock, outscored, or chosen). It keeps the score from before a rule-out zeroed it. It records the ATM contract of any chain the selector was handed; otherwise the contract is null with a reason (the scan fetches no chain). It also records a proxy spec: a bought ATM call (a put for a bearish idea), 30-45 days to expiry, a window set in system_config. bot_engine's scan trade dict carries the block as `option_alternative`.
+- At entry (bot.ts executeTrades → server/decisionJournal.ts), the journal's rejected entry for the passed-over instrument gets `would_be`. For a stock or ETF buy that is the option block. For an options entry it is the scan's stock plan: price, size, stop and target. Options entries also record every leg in `stages.options.legs`.
+- journalDecisions writes one `decision` row per such entry to DATA_DIR/voltrade_instrument_counterfactual.jsonl (5 MB cap, rotated to .1).
+- Decisions the selector did not make (options-scanner setups, the tier dispatcher) record no counterfactual.
+- Nightly at 22:00 UTC, `instrument_counterfactual.backfill()` runs in checkShadowBackfill's slot with its own flag, heartbeat `instrument_cf_backfill` and audit row INSTRUMENT-CF-BACKFILL. It prices both legs at +1, +5 and +20 trading days from Alpaca daily stock bars and daily option bars.
+  - Both legs use one clock: close-to-close from the entry day's close.
+  - It resolves the ATM proxy once from Alpaca's contract list: the expiry nearest the middle of the window, then the strike nearest the entry price that traded on the entry day. Only facts known on the entry day are used.
+  - A leg with no trade on the entry day stays unpriced.
+  - A leg that expires inside the horizon is valued at its intrinsic value.
+  - It writes each leg's return, the difference in points and a plain-English line, such as "chose stock: +2.1%; the ATM call proxy it passed over would have made +38.0% on the premium paid — the choice cost 35.9 points (5 trading days, ...)".
+- GET /api/bot/attribution gains `byInstrumentChoice`, with one row per choice and horizon. Each row gives the settled, pending and unpriced counts, each leg's mean return, the mean edge, dollars at equal capital, how often each leg did better, a reason in plain English, and examples. /api/bot/decisions rows show the settled outcomes on `would_be`.
+PRIOR (stated before any data):
+- Stock over options: the stock should beat the ATM-call proxy in most single decisions, because a bought option loses value to time decay in a flat or slightly rising market. The proxy should win the large-move tail. So at +5 days the mean edge per decision should be near zero, with wide spread.
+- Options over stock (mostly cash-secured puts): the put should beat the stock in flat or falling weeks and lose in strong rallies.
+DOWNSTREAM (two steps):
+1. Each scan candidate's dict grows by about 0.65 KB (the option block), so bot.ts parses a little more JSON per scan. Each journal entry row grows by about 0.7 KB, well under the 8 KB row cap. The journal's summary text is unchanged.
+2. The nightly job makes 2-4 Alpaca calls per pending decision (stock bars and option bars; contracts once per proxy) through the shared rate limiter. Its subprocess is serialized behind its 22:00 neighbours by execPythonSerialized. The first numbers arrive one trading day after the first selector-decided entry; until then byInstrumentChoice is empty.
+LIMITS:
+- The proxy is a bought ATM call, not the selector's own idea (mostly cash-secured puts). That idea is named beside the proxy but not priced, because pricing it needs a delta-targeted strike from a chain at entry.
+- Close-to-close pricing leaves out the entry day's intraday move and any fill slippage, for both legs equally.
+- A limit order that never filled still counts.
+- Multi-leg structures are priced only from their recorded legs.
+- Dollars at equal capital on a bought-option proxy are leveraged.
+- The counts will be small for weeks, so read them as anecdote until n grows.
+ROLLBACK TRIGGER: turn it off with `INSTRUMENT_COUNTERFACTUAL.enabled = False` (or env `VOLTRADE_INSTRUMENT_COUNTERFACTUAL=off`) and fix it if any of these happen:
+- The heartbeat reports `instrument_cf_backfill` errored on 3 nights in a row.
+- The ledger reaches its 5 MB cap within 30 days.
+- The scan's candidate dicts show errors from the new key.
+Revert if anything shows it changed a decision. Nothing reads it, so it should not.
+TESTS:
+- New: test_instrument_counterfactual.py (18 tests: the option alternative on every path, select_instrument carrying it with no network call, the leg math on fixtures, the plain-English lines, backfill end to end with injected fetchers, the journal keeping `would_be`, parity with the TS twin and system_config, the wiring) and server/instrumentCounterfactual.test.ts (11 tests: would-be legs, journal rows, the ledger writer, the fold and read, the journal read join, the byInstrumentChoice math and reasons, attribution, the bot.ts and heartbeat wiring).
+- Existing: one exact pin in server/decisionJournal.test.ts was updated to its new exact value. The option alternative now carries `would_be`; the summary is unchanged.
+- On the committed tree: Python 431 passed and 1 skipped across 25 files (the new 18 included); TS 186 passed across 17 files (the new 11 included). test_full_system.py is a script that pytest ignores via conftest; its selector scenario was run directly and carries the option block.
+- tsc reports 6 errors (unchanged). The counter ratchet is OK. test_ts_code_only.py passes 11.
+STARVED: no.
