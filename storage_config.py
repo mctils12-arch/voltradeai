@@ -63,3 +63,10 @@ DOSSIER_SCORES_PATH = os.path.join(DATA_DIR, "voltrade_dossier_scores.jsonl")
 
 # v2 ML model (clean 25-feature, self-learning)
 ML_MODEL_V2_PATH = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
+
+# Edge P1 dealer-gamma short-premium filter (dealer_gamma.py, 2026-11-06): the
+# filter's latest state (overwritten; read by the `gamma` diag probe) and an
+# append-only JSONL of every skip / would-skip it logged (once per ET day per
+# ticker, setup and action). Not created here.
+DEALER_GAMMA_STATE_PATH = os.path.join(DATA_DIR, "voltrade_dealer_gamma_state.json")
+DEALER_GAMMA_DECISIONS_PATH = os.path.join(DATA_DIR, "voltrade_dealer_gamma_decisions.jsonl")
