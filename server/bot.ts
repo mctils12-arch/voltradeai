@@ -69,6 +69,7 @@ import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, SPY_BENCH_ADJUSTMENT, SPY_BENCH_BAS
 import { todayTile, type TodayTile } from "./todayTile";
 import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
+import { readTaxDecisions, taxBody, taxLimit, type TaxBody } from "./taxAware";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
@@ -2959,6 +2960,19 @@ print(json.dumps({
     res.json(await sleevesBody());
   });
 
+  // TAX-AWARE TRADING (2026-11-06, refocus spec §6; server/taxAware.ts): the
+  // tax filter's decisions (tax_filter.py appends DATA_DIR/voltrade_tax_
+  // decisions.jsonl) with the broker's live expectancy beside the sizer's
+  // estimate (the sleeve cache, read — never awaited or refetched here). One
+  // body for the owner route AND the "tax" diag probe.
+  function taxRouteBody(limitQ?: unknown): TaxBody {
+    const read = readTaxDecisions(regimeDataDir(process.env), taxLimit(limitQ));
+    return taxBody({ rows: read.rows, spyAssumption: read.spyAssumption, readError: read.error, edge: sleeveCache?.edge ?? null });
+  }
+  app.get("/api/bot/tax", requireOwner, (req, res) => {
+    res.json(taxRouteBody(req.query.limit));
+  });
+
   // ── Trade History CSV Export ─────────────────────────────────────────────
   app.get("/api/bot/export-trades", requireOwner, async (_req, res) => {
     try {
@@ -3729,6 +3743,11 @@ print(json.dumps(s))
           // day per kind aggregates of the legacy-vs-engine counterfactual
           // log (server/regimeCounterfactual.ts). Read-only; no tickers.
           return res.json(sanitizeDiag({ probe: "regime_counterfactual", ...regimeCounterfactualBody(regimeDataDir(process.env), new Date(), req.query.days) }));
+        }
+        case "tax": {
+          // ADDED 2026-11-06 (refocus spec §6): the tax filter's decisions —
+          // the SAME body as the owner's /api/bot/tax (server/taxAware.ts).
+          return res.json(sanitizeDiag({ probe: "tax", ...taxRouteBody(req.query.limit) }));
         }
         case "sleeves": {
           // ADDED 2026-10-20: P&L by sleeve (server/sleeveLedger.ts), the

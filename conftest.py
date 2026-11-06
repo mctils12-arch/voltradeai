@@ -131,3 +131,20 @@ def _hermetic_dealer_gamma(_dealer_gamma_dir):
          patch.object(storage_config, "DEALER_GAMMA_DECISIONS_PATH", os.path.join(_dealer_gamma_dir, "decisions.jsonl")):
         yield
     dealer_gamma._reset_for_tests()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _hermetic_tax_files(tmp_path_factory):
+    """2026-11-06 tax filter (tax_filter.py): option contract selection, the
+    scan's entry gates and the harvest review now write decision rows (and read
+    harvest / realized-gains files) under DATA_DIR. Point tax_filter's data dir
+    at a session temp dir so no test appends to the real decision log or reads
+    a harvest window left there by a CLI run. Tests that need their own dir
+    patch tax_filter._data_dir themselves (they shadow this). A `with`, not
+    `.start()`, for the same patch.stopall() reason as above. Changes
+    reachability, not behavior."""
+    import tax_filter
+
+    d = str(tmp_path_factory.mktemp("tax_files"))
+    with patch.object(tax_filter, "_data_dir", lambda: d):
+        yield

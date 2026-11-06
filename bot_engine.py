@@ -4218,6 +4218,25 @@ def _scan_market_inner():
         instrument_decision, _etf_fields = _resolve_etf_execution(
             instrument_decision, ticker, position_value)
 
+        # TAX FILTER (2026-11-06, refocus spec §6; tax_filter.py): the shares
+        # this trade would buy (the ETF, else the stock — for an options choice
+        # its STOCK FALLBACK; the option is judged at contract selection) must
+        # beat holding SPY after short-term tax. A skip is a SIZE-BLOCK row and
+        # a "rejected_tax" shadow relabel; a skipped fallback makes the trade
+        # options-only (bot.ts never falls back to the stock for trade_type
+        # "options"). gate_scan_trade logs every decision and never raises.
+        import tax_filter as _tf
+        _tax = _tf.gate_scan_trade(
+            {"ticker": ticker, "side": side, "score": final_score,
+             "instrument": instrument_decision.get("chosen", "stock"),
+             "instrument_ticker": instrument_decision.get("ticker", ticker), **_etf_fields},
+            sizing if _has_sizer else None, sizing_input={**stock, "score": final_score, "side": side})
+        if not _tax.get("allowed", True) and instrument_decision.get("chosen") != "options":
+            _sizing_blocks.append({"ticker": str(ticker).upper(), "reason": _tf.skip_error(_tax)[:200],
+                                   "score": round(float(final_score), 1), "strategy": _tax.get("bucket") or "tax"})
+            _note_gate(ticker, "rejected_tax", _tax.get("reason", "tax filter"))
+            continue
+
         trades.append({
             "action": action_label,
             "side": side,
@@ -4266,6 +4285,9 @@ def _scan_market_inner():
             # INSTITUTIONAL FLOWS (2026-11-06): the sector flow tilt this size carries
             "flows": _flows_adj,
         })
+        trades[-1]["tax"] = _tf.summary(_tax)
+        if not _tax.get("allowed", True):
+            trades[-1]["trade_type"] = "options"   # the stock fallback failed the tax filter
 
     # One relabel call per scan (see _gate_relabels above). Counts travel in
     # the scan result so bot.ts can audit the wiring's liveness.
@@ -4697,6 +4719,14 @@ def _scan_market_inner():
                     ctx, on_phase=lambda p: _timing_log(f"tier_engine_{p}")
                 )
                 tiered_actions = tier_result["actions"]
+                # TAX FILTER (2026-11-06, tax_filter.py): a tier BUY is a new
+                # stock/ETF entry; SELL_CSP / BUY_PUT are option opens, judged
+                # at contract selection. A skipped BUY is a SIZE-BLOCK row.
+                import tax_filter as _tf_tier
+                tiered_actions, _tax_tier_skips = _tf_tier.filter_tier_buys(tiered_actions)
+                for _tts in _tax_tier_skips:
+                    _sizing_blocks.append({"ticker": _tts.get("ticker", ""), "reason": _tf_tier.skip_error(_tts)[:200],
+                                           "score": None, "strategy": _tts.get("source", "tier")})
                 tier_stats = tier_result.get("tier_stats", {})
                 # VISIBILITY FIX 2026-07-11: run_tiers() has its own internal
                 # master_kill_switch (tiered_strategy.py) distinct from the
