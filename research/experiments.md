@@ -115699,3 +115699,76 @@ ROLLBACK TRIGGER. A request that takes more than 10 s or a 500 from the route on
 TESTS. server/decisionAttribution.test.ts (9: totals and every grouping summing to the total on a hand-checked fixture, each lot's labels and their sources, the plain-English reasons pinned literally, execution through the daily line's functions incl. no ledger / no orders, worst trades, notes, ET time windows across DST, driver phrasing, the sector cache, wiring). With it: decisionJournal 24, decisionBackfill 7, dailyLine + diag (95 TS in the targeted run), Python 90 (test_decision_journal, test_option_fill_ledger, the options-manager and floor harnesses, the CSP gate shadow); counter ratchet OK; tsc 6 (baseline).
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (ml_model.py, sim_trading_day_v2.py, test_silent_except_ratchet.py, test_auto_discovery.py, ci/counter_baseline.txt) — Dead code: delete the retired v1 ML model and the one-shot April simulation
+VERSION: v1.0.1323 (shipped 2026-11-06 by the parent session; main was v1.0.1322)
+
+WHY. Refocus spec §2 (human, 2026-11-05) asks to "remove dead code, unused models" and to show "evidence before removal". The evidence for both files:
+
+- **No importer anywhere.** An AST import graph over every .py file, plus string search across .py/.ts/.sh/.yml, finds none. Neither file is in the voltrade_daemon.py method table, in any bot.ts/routes.ts `python3 -c` one-liner, or in any script spawn (audit: scratchpad cleanup_audit.md §1).
+
+**ml_model.py (1,149 lines)**
+- What it was: the v1 sklearn RF+GB model.
+- Replaced by ml_model_v2.py on 2026-04-06 (3529d757). v2 keeps the v1 entry points (ml_score, train_model, track_fill). This is the same idea in a better implementation, not a failed idea.
+- Hazard: storage_config.ML_MODEL_PATH now points at voltrade_ml_v2.pkl. A call to the v1 train_model() would overwrite the live v2 model file.
+
+**sim_trading_day_v2.py (334 lines)**
+- What it was: a v1.0.13 "Tomorrow: Tuesday, April 7, 2026" simulation.
+- All of its work runs at module level, so importing it calls ml_model_v2.train_model(). The standalone test_auto_discovery.py imports every root module.
+
+PRIOR. No runtime change, because neither file is ever loaded.
+
+THE CHANGE.
+- Both files deleted.
+- The ratchets move as their own rules require:
+  - test_silent_except_ratchet.py drops the "ml_model.py": 12 entry ("delete the entry at zero").
+  - ci/counter_baseline.txt silent_py_handlers 252 -> 243.
+  - test_auto_discovery.py (standalone, collect_ignore'd) checks ml_model_v2's live names instead of v1's.
+
+DOWNSTREAM (2 steps).
+1. Nothing imports the files, so no process changes behaviour. The Docker image's `*.py` copy shrinks by 2 files.
+2. Counters: silent_py_handlers drops by the 9 handlers that lived in ml_model.py; assertions are unchanged at 29147. Future sessions can no longer mistake v1 for a live model.
+
+ROLLBACK TRIGGER. Any ImportError naming ml_model or sim_trading_day_v2 in daemon or bot logs (none expected): revert.
+
+TESTS. Run with pytest_locked: test_silent_except_ratchet, test_fills_slippage_stats, test_diagnostic_false_positives, test_durability, test_ts_code_only (60 passed); research_state, ladder_registry and data_stream checks (80 passed). compileall clean. counter_ratchet OK. No assertion removed.
+
+STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT/SHARED (server/routes.ts, server/storage.ts, shared/schema.ts, ci/counter_baseline.txt) — Dead code: routes.ts's never-called background scanner and CBOE universe fetch; two Replit template stubs
+
+WHY. Refocus spec §2: dead code goes, with evidence first. `tsc --noEmit --noUnusedLocals` flags routes.ts runBackgroundScanner and fetchCBOEUniverse as "declared but its value is never read". The rest of the evidence:
+
+- **runBackgroundScanner.** Its call was commented out on 2026-04-03 ("Background scanner disabled — runs on-demand only to save CPU", 96480d98).
+- **fetchCBOEUniverse.** Its last caller stopped calling it on 2026-04-10 ("memory optimizations to prevent Railway OOM … deep scanning happens in Python", fe45f027). Universe scanning now lives in bot_engine.scan_market (daemon run_full_scan), so this was superseded, not abandoned.
+- **server/storage.ts and shared/schema.ts.** Template scaffold from the first commit (d1ba62fd). A reachability walk from server/index.ts finds zero importers.
+
+THE CHANGE.
+- Deleted: runBackgroundScanner + SCAN_BATCH_SIZE, fetchCBOEUniverse + fetchUrl + the CBOE_* constants, the 500-ticker FALLBACK_UNIVERSE literal, the commented-out Tier-1 interval block, the now-unused https import, and the two stub files.
+- Kept: TIER1_TICKERS, scanBatch, refreshTier1, upsertCache, fullScanProgress, all of which /api/scan and /api/scan/progress use.
+
+DOWNSTREAM (2 steps).
+1. No deleted symbol was reachable, so no route output changes. /api/scan/progress was already always 0%, because its only writer was the deleted loop, which never ran.
+2. routes.ts no longer allocates the ~500-string array at load (a few KB). Counter commented_empty_catch 113 -> 110.
+
+ROLLBACK TRIGGER. /api/scan or /api/scan/progress returning a different shape than before (not expected): revert.
+
+TESTS. tsc stays at the pinned 6 errors. The 43 server test files that read routes.ts: 549/549. test_ts_code_only 11/11. counter_ratchet OK.
+
+STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (script/build.ts) — Dead config: drop 17 never-installed package names from the esbuild bundle allowlist
+
+WHY. Refocus spec §2. script/build.ts bundles every dependency named in `allowlist` and makes the rest external (externals = deps + devDeps − allowlist). A name that is not in package.json therefore cannot change the bundle. 17 of the 22 names were never dependencies. They are template residue from d1ba62fd: @google/generative-ai, axios, cors, drizzle-orm, drizzle-zod, express-rate-limit, express-session, jsonwebtoken, memorystore, multer, nanoid, nodemailer, openai, passport, passport-local, uuid, xlsx. They made it look as though the server uses OpenAI, Passport or Drizzle.
+
+THE CHANGE. The allowlist keeps the five real dependencies: date-fns, express, stripe, ws, zod. A dated comment explains why.
+
+DOWNSTREAM (2 steps).
+1. The externals list is identical: 81 packages, before and after.
+2. The server bundle is byte-identical: sha256 1b0c43a7e11200f8cfdb8e5dedc1ffe2022742f94853435b4ba27dbb82ea82e9, 2,783,723 bytes, built with the same esbuild options as script/build.ts using the old list and the new list. So there is no runtime or memory change.
+
+ROLLBACK TRIGGER. A build that bundles differently (impossible by construction): revert.
+
+TESTS. Bundle hash comparison as above. tsc pinned 6. counter_ratchet OK.
+
+STARVED: no.

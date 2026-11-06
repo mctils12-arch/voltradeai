@@ -3,29 +3,15 @@ import { build as viteBuild } from "vite";
 import { rm, readFile, cp } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
-// which helps cold start times
+// which helps cold start times. Only names in package.json can matter here
+// (externals = deps - allowlist); 17 Replit-template names that were never
+// dependencies (axios, openai, passport, drizzle-orm, ...) were dropped
+// 2026-11-06 as dead config — the externals list is unchanged.
 const allowlist = [
-  "@google/generative-ai",
-  "axios",
-  "cors",
   "date-fns",
-  "drizzle-orm",
-  "drizzle-zod",
   "express",
-  "express-rate-limit",
-  "express-session",
-  "jsonwebtoken",
-  "memorystore",
-  "multer",
-  "nanoid",
-  "nodemailer",
-  "openai",
-  "passport",
-  "passport-local",
   "stripe",
-  "uuid",
   "ws",
-  "xlsx",
   "zod",
 ];
 
