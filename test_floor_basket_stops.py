@@ -54,9 +54,11 @@ class TestFloorAndLegTickersMembership(unittest.TestCase):
         # 2026-11-05: + SSO, the volatility-managed floor's 2x leg (FLOOR_MODE
         # "vol_managed_spy"); the Node mirror in server/bot.ts was re-verified
         # and updated in the same change, as this pin exists to force.
+        # 2026-11-06: + BOXX, the T-bill fund holding the floor's idle cash
+        # (FLOOR_VM_CASH_TICKER); bot.ts's mirror updated in the same change.
         self.assertEqual(
             bot_engine.FLOOR_AND_LEG_TICKERS,
-            {"QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD", "SSO"},
+            {"QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD", "SSO", "BOXX"},
         )
 
 

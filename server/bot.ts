@@ -670,7 +670,9 @@ const TAKE_PROFIT_PCT = 0.25; // Emergency ceiling — real TP from system_confi
 // research/experiments.md 2026-07-17.
 // 2026-11-05: + SSO, the 2x leg of the volatility-managed SPY floor
 // (system_config FLOOR_MODE "vol_managed_spy", FLOOR_VM_LEVERED_TICKER).
-const FLOOR_AND_LEG_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD", "SSO"]);
+// 2026-11-06: + BOXX, the T-bill fund holding the floor's idle cash
+// (FLOOR_VM_CASH_TICKER): floor sleeve, no stops, no POS-KILL, not heat.
+const FLOOR_AND_LEG_TICKERS = new Set(["QQQ", "SVXY", "SPY", "SMH", "KWEB", "VXUS", "GLD", "SSO", "BOXX"]);
 
 // Defensive-floor candidates that were evaluated and rejected in favor of GLD
 // (see system_config.py DEFENSIVE_FLOOR_TICKER comment: "TLT/VIXY/SH/SQQQ all

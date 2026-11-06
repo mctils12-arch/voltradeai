@@ -19,7 +19,8 @@ THE RULE (the study's V1, parameters unchanged — system_config FLOOR_VM_*):
   never used.
 - Target SPY-equivalent exposure: E* = min(CAP, TARGET_VOL / sigma).
 - The floor's capital is C = CAPITAL_PCT x equity.
-- Up to 1x, C holds E* x C of SPY and the rest stays in cash.
+- Up to 1x, C holds E* x C of SPY and the rest stays in cash (since
+  2026-11-06 that idle cash sits in a T-bill fund, see cash_plan below).
 - Above 1x, the extra exposure is held in the 2x ETF (SSO), not on margin:
   (2 - E*) x C in SPY plus (E* - 1) x C in SSO. That is still C of capital,
   exposure E* x C.
@@ -133,3 +134,57 @@ def plan(closes: Sequence[float], equity: float, base_value: float, levered_valu
         "legacy_to_sell": legacy,
         "rebalance": bool(drift > band or legacy),
     }
+
+
+def cash_plan(capital: float, core_value: float, held_value: float, cash: Optional[float],
+              reserve: float, cfg: Dict, enabled: bool = True, buys_allowed: bool = True) -> Dict:
+    """Where the floor's idle capital sits (2026-11-06): in the T-bill fund
+    FLOOR_VM_CASH_TICKER, not in cash. The study credited it with the T-bill
+    rate; Alpaca paper credits no interest and no dividends, so the fund must
+    return its yield in price (system_config FLOOR_VM_CASH_* has the numbers).
+
+    - idle = capital - core_value: the floor's capital not in SPY/SSO, never
+      below 0.
+    - room = held_value + cash - reserve: the most the fund can hold while
+      account cash stays >= reserve. With cash unknown, room = held_value
+      (no buy on a guess).
+    - target = min(idle, room), traded only when |target - held_value| >
+      band = max(FLOOR_VM_CASH_MIN_TRADE_DOLLARS, FLOOR_VM_CASH_BAND x
+      capital).
+    - Sells any time, so cash comes first. Buys only when buys_allowed (the
+      engine passes False while the core is trading).
+    - enabled=False sells everything held."""
+    held = max(0.0, float(held_value or 0.0))
+    band = max(float(cfg.get("FLOOR_VM_CASH_MIN_TRADE_DOLLARS", 2000)),
+               float(cfg.get("FLOOR_VM_CASH_BAND", 0.05)) * max(0.0, float(capital)))
+    out = {"enabled": bool(enabled), "held": round(held, 2), "band": round(band, 2),
+           "idle": None, "room": None, "target": None, "gap": None,
+           "action": "hold", "dollars": 0.0, "sell_all": False, "reason": ""}
+    if not enabled:
+        if held > 0:
+            out.update(action="sell", dollars=round(held, 2), sell_all=True, target=0.0, gap=round(-held, 2),
+                       reason="cash parking switched off: the fund goes back to cash")
+        else:
+            out["reason"] = "cash parking switched off, nothing held"
+        return out
+    if capital <= 0:
+        out["reason"] = "no floor capital (equity unreadable)"
+        return out
+    idle = max(0.0, float(capital) - max(0.0, float(core_value)))
+    room = held if cash is None else max(0.0, held + float(cash) - max(0.0, float(reserve)))
+    target = min(idle, room)
+    gap = target - held
+    out.update(idle=round(idle, 2), room=round(room, 2), target=round(target, 2), gap=round(gap, 2))
+    if gap < -band:
+        why = ("account cash below its reserve" if room < idle else "the floor needs the capital back")
+        out.update(action="sell", dollars=round(-gap, 2), reason=f"{why}: hold ${target:,.0f}, not ${held:,.0f}")
+    elif gap > band and buys_allowed:
+        out.update(action="buy", dollars=round(gap, 2),
+                   reason=f"${idle:,.0f} of the floor's ${capital:,.0f} is idle; park ${target:,.0f} (cash would earn 0)")
+    elif gap > band:
+        out["reason"] = "buy waits: the core traded this pass or an order is working"
+    elif cash is None and idle > held + band:
+        out["reason"] = "account cash unreadable: no buy"
+    else:
+        out["reason"] = "within the band of its target"
+    return out

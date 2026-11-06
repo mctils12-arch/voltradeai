@@ -24,9 +24,14 @@ const ORDER_ACTIONS: Record<string, string> = {
   floor_vm_sell: "SELL",
   floor_vm_legacy_sell: "SELL legacy",
   cc_unwind: "BUY TO CLOSE covered call",
+  // 2026-11-06: the floor's idle cash in the T-bill fund (bot_engine._manage_floor_cash)
+  floor_vm_cash_buy: "BUY T-bill fund (idle floor cash)",
+  floor_vm_cash_sell: "SELL T-bill fund",
 };
+/** the core's own order types (the others are the cash parking) */
+const CORE_ACTIONS = new Set(["floor_vm_buy", "floor_vm_sell", "floor_vm_legacy_sell", "cc_unwind"]);
 /** action types that explain why something did not trade (logged only with orders, or in the kill pass) */
-const NOTE_ACTIONS = new Set(["cc_unwind_blocked", "floor_vm_no_quote"]);
+const NOTE_ACTIONS = new Set(["cc_unwind_blocked", "floor_vm_no_quote", "floor_vm_cash_wide_spread"]);
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const pct = (v: unknown) => (num(v) === null ? "?" : `${(num(v)! * 100).toFixed(1)}%`);
@@ -38,7 +43,13 @@ function summary(r: Record<string, unknown>): string {
   const target = m !== null && m < 1
     ? `target ${times(r.target_exposure)} (rule ${times(r.rule_target_exposure)} x flows ${m.toFixed(2)})`
     : `target ${times(r.target_exposure)}`;
-  return `sigma20 ${pct(r.sigma)}, ${target}, now ${times(r.current_exposure)} of capital $${num(r.capital)?.toFixed(0) ?? "?"}`;
+  const core = `sigma20 ${pct(r.sigma)}, ${target}, now ${times(r.current_exposure)} of capital $${num(r.capital)?.toFixed(0) ?? "?"}`;
+  // FLOOR CASH PARKING (2026-11-06): the idle cash and its T-bill fund, when the step ran
+  const c = (r.cash_parking && typeof r.cash_parking === "object" ? r.cash_parking : {}) as Record<string, unknown>;
+  const cashTarget = num(c.target);
+  if (cashTarget === null) return core;
+  const dollars = (v: unknown) => (num(v) === null ? "?" : `$${num(v)!.toFixed(0)}`);
+  return `${core}; idle cash ${dollars(c.idle)}, ${String(c.ticker || "fund")} target ${dollars(cashTarget)}, held ${dollars(c.held)}`;
 }
 
 /** the flows cut's plain-English reason, logged once with any pass that trades */
@@ -54,8 +65,10 @@ function actionLine(a: FloorAction): string | null {
     const sym = t === "cc_unwind" ? String(a.symbol || who) : who;
     const px = num(a.limit) === null ? "" : ` @ ${num(a.limit)!.toFixed(2)} limit`;
     const res = a.ok === false || a.error ? `REJECTED: ${String(a.error || "").slice(0, 160)}` : a.order_id ? `order ${a.order_id}` : "sent";
-    return `${ORDER_ACTIONS[t]} ${a.qty ?? "?"} ${sym}${px} — ${res}`;
+    const why = t.startsWith("floor_vm_cash_") && a.reason ? ` (${String(a.reason).slice(0, 160)})` : "";
+    return `${ORDER_ACTIONS[t]} ${a.qty ?? "?"} ${sym}${px} — ${res}${why}`;
   }
+  if (t === "floor_vm_cash_wide_spread") return `${who}: quote too wide, not traded (${String(a.reason || "").slice(0, 160)})`;
   if (NOTE_ACTIONS.has(t)) return `${who}: ${t === "floor_vm_no_quote" ? "no quote, not traded" : `covered-call unwind blocked (${String(a.reason || "").slice(0, 160)})`}`;
   return null;
 }
@@ -82,7 +95,9 @@ export function floorAuditRows(result: unknown, context: "scan" | "kill", idleLo
   const actions = Array.isArray(r.actions) ? (r.actions as FloorAction[]) : [];
   const lines = actions.map(actionLine).filter((l): l is string => l !== null);
   const traded = actions.some((a) => String(a.type || "") in ORDER_ACTIONS);
-  const head = context === "kill" ? "kill switch tripped, reduce-only (sells only: SSO, then SPY, then legacy)" : "rebalance";
+  const coreTraded = actions.some((a) => CORE_ACTIONS.has(String(a.type || "")));
+  const head = context === "kill" ? "kill switch tripped, reduce-only (sells only: SSO, then SPY, then legacy)"
+    : coreTraded ? "rebalance" : "idle cash in the T-bill fund (paper cash earns 0; the fund accrues in price)";
   if (traded || (context === "kill" && lines.length)) {
     const flows = flowsLine(r);
     return [{ type, message: `${head} — ${summary(r)}` }, ...(flows ? [{ type, message: flows }] : []),

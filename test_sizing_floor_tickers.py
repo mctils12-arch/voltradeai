@@ -32,7 +32,8 @@ SATELLITE = [_pos("AAPL", 5_000)]
 
 def test_the_vm_floor_is_exempt_from_heat():
     assert system_config.BASE_CONFIG["FLOOR_MODE"] == "vol_managed_spy", "the shipped mode"
-    assert ps._passive_floor_tickers() == {"SPY", "SSO"}
+    # 2026-11-06: + BOXX, the T-bill fund holding the floor's idle cash (FLOOR_VM_CASH_TICKER)
+    assert ps._passive_floor_tickers() == {"SPY", "SSO", "BOXX"}
     with_floor = [_pos("SPY", 64_000), _pos("SSO", 12_000)] + SATELLITE
     assert ps._portfolio_heat_scalar(with_floor, 100_000) == ps._portfolio_heat_scalar(SATELLITE, 100_000), \
         "the floor's 76% must not shrink a satellite trade"

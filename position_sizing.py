@@ -526,10 +526,15 @@ def _passive_floor_tickers() -> set:
     so every new stock/ETF/option trade was sized as if 85% were already at
     risk: two extra positions in the count scalar, the 0.70x/0.50x deployed
     scalars, and almost no deploy budget left. Under "basket" (the rollback)
-    the set is FLOOR_TICKER alone, exactly as before."""
+    the set is FLOOR_TICKER alone, exactly as before.
+
+    2026-11-06: + FLOOR_VM_CASH_TICKER (BOXX), the T-bill fund holding the
+    floor's idle cash. It is cash, not active risk; counting it would cost
+    every new trade 10% of size whenever E* < 1."""
     if _HEAT_CFG.get("FLOOR_MODE", "basket") == "vol_managed_spy":
         return {t for t in (_HEAT_CFG.get("FLOOR_VM_TICKER", "SPY"),
-                            _HEAT_CFG.get("FLOOR_VM_LEVERED_TICKER", "SSO")) if t}
+                            _HEAT_CFG.get("FLOOR_VM_LEVERED_TICKER", "SSO"),
+                            str(_HEAT_CFG.get("FLOOR_VM_CASH_TICKER") or "").strip().upper()) if t}
     return {_HEAT_CFG.get("FLOOR_TICKER", _FLOOR_TICKER)}
 
 def _portfolio_heat_scalar(current_positions: list, equity: float, 
