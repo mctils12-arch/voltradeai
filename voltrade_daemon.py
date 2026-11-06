@@ -421,6 +421,10 @@ class RPCDispatcher:
             # entry points. flows_report: the cached estimate, no network.
             "flows_refresh": ("flows_model", "refresh_daily"),
             "flows_report": ("flows_model", "report"),
+            # Signal attribution (2026-11-06, read-only — signal_attribution.py):
+            # bot.ts serves it on /api/bot/signals and the diag probe "signals"
+            # through pythonCall (daemon first, python3 -c fallback), cached 10 min.
+            "signal_attribution": ("signal_attribution", "get_signal_attribution"),
         }
 
     def dispatch(self, method: str, args: dict) -> dict:

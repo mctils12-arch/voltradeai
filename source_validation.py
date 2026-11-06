@@ -702,6 +702,18 @@ def ablated_score(rec: dict, remove: Sequence[str]) -> Tuple[Optional[float], bo
     return _clamp(rules * rw + mls * mw), approx
 
 
+def legacy_logged_score(rec: dict) -> Optional[float]:
+    """The LEGACY composite the record logged. ablated_score reconstructs the
+    legacy composite from its components; once the served score is composite
+    v2 (2026-11-06, BASE_CONFIG["SCORE_COMPOSITE_V2"]) the record's `score` is
+    v2 and the legacy value rides score_breakdown.composite_legacy. Records
+    without that key (everything before v2) read `score`, exactly as before."""
+    bd = rec.get("score_breakdown")
+    if isinstance(bd, dict) and _num(bd.get("composite_legacy")) is not None:
+        return _num(bd.get("composite_legacy"))
+    return _num(rec.get("score"))
+
+
 def ablation_variants(extra_logged: bool) -> Dict[str, Tuple[str, ...]]:
     v: Dict[str, Tuple[str, ...]] = {"baseline": (), "drop_unvalidated": UNVALIDATED_ADJUSTMENTS}
     for k in UNVALIDATED_ADJUSTMENTS:
@@ -731,7 +743,7 @@ def ablation_report(rows: List[dict]) -> dict:
     usable, dropped_recon, n_approx = [], 0, 0
     for r in rows:
         base, approx = ablated_score(r["rec"], ())
-        logged = _num(r["rec"].get("score"))
+        logged = legacy_logged_score(r["rec"])
         if base is None or logged is None:
             continue
         if abs(base - logged) > RECON_TOL:

@@ -149,6 +149,24 @@ class TestAblationReport(unittest.TestCase):
         rep = sv.ablation_report(sv.build_population(recs, "+5d"))
         self.assertEqual(rep["dropped_reconstruction_mismatch"], 25)
 
+    def test_composite_v2_records_reconstruct_against_the_logged_legacy_score(self):
+        """2026-11-06: once composite v2 is served, `score` is v2 and the legacy
+        composite rides score_breakdown.composite_legacy. The ablation rebuilds
+        the LEGACY composite, so it must compare against that key — otherwise
+        every v2-era record would be dropped as a reconstruction mismatch."""
+        recs = ablation_records()
+        for r in recs:
+            r["score_breakdown"]["composite_legacy"] = r["score"]
+            r["score"] = r["score"] - 9.0            # what a served v2 score could read
+        rep = sv.ablation_report(sv.build_population(recs, "+5d"))
+        self.assertEqual(rep["dropped_reconstruction_mismatch"], 0)
+        self.assertEqual(rep["status"], "OK")
+        self.assertTrue(rep["un_inverts"])
+        # without the key the record's own `score` is the legacy score (unchanged rule)
+        r0 = ablation_records(n_days=1, per_day=1)[0]
+        self.assertEqual(sv.legacy_logged_score(r0), r0["score"])
+        self.assertEqual(sv.legacy_logged_score(dict(r0, score_breakdown=dict(r0["score_breakdown"], composite_legacy=12.5))), 12.5)
+
     def test_old_records_without_extras_skip_boost_variant(self):
         recs = ablation_records(log_raw=False)
         for r in recs:
