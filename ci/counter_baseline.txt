@@ -19,7 +19,7 @@
 
 tests_run_in_ci          799      non-decreasing
 tests_gating_merge       799      non-decreasing
-silent_py_handlers       252      non-increasing
+silent_py_handlers       243      non-increasing
 bare_except              3        non-increasing
 empty_ts_catch           486      non-increasing
 ts_any                   1212     non-increasing
@@ -30,7 +30,7 @@ order_post_sites         6        non-increasing
 design_token_drift       0        non-increasing
 long_try_empty_catch     3        non-increasing
 boundary_any             232      non-increasing
-commented_empty_catch    113      non-increasing
+commented_empty_catch    110      non-increasing
 conflicting_const        3        non-increasing
 undeclared_py_import     2        non-increasing
 dead_workflow_env        0        non-increasing
