@@ -351,8 +351,9 @@ export function verdictOf(v: unknown): SignalVerdict {
   const s = (str(v) ?? "").toLowerCase();
   // the negatives first: "no signal" / "not significant" must never read as a signal that works
   if (/hurt|harm|negative|anti|inverse/.test(s)) return "hurts";
-  if (/\bno\b|\bnot\b|noise|cut|drop|remove|useless|fail|insignificant|none|flat/.test(s)) return "noise";
-  if (/keep|work|\badds?\b|useful|positive|pass|valid|signal|edge/.test(s)) return "works";
+  if (/\bno\b|\bnot\b|noise|cut|drop|remove|useless|fail|insignificant|none|flat|dead/.test(s)) return "noise";
+  // "predictive" (signal_attribution.py) after the negatives: "anti_predictive" already read as hurts
+  if (/keep|work|\badds?\b|useful|positive|pass|valid|signal|edge|predictive/.test(s)) return "works";
   return "unclear";
 }
 
@@ -370,15 +371,24 @@ export function parseSignals(raw: unknown): SignalsView | null {
   for (const r of list) {
     if (!r || typeof r !== "object") continue;
     const x = r as Record<string, unknown>;
-    const name = str(x.name) ?? str(x.signal) ?? str(x.feature) ?? str(x.key);
+    // signal_attribution.py (the ML audit) names a row by `label` / `id` and nests its numbers:
+    // long_term.h5.ic (2017-26 point-in-time walk-forward, 5-day IC) and forward.n (deduplicated shadow log)
+    const name = str(x.name) ?? str(x.signal) ?? str(x.feature) ?? str(x.key) ?? str(x.label) ?? str(x.id);
     if (!name) continue;
     const mk = METRIC_KEYS.find(([k]) => numOf(x[k]) !== null);
-    rows.push({ name, verdict: verdictOf(x.verdict ?? x.status ?? x.decision ?? x.keep ?? x.useful), metricLabel: mk ? mk[1] : null, metric: mk ? numOf(x[mk[0]]) : null, n: numOf(x.n) ?? numOf(x.count) ?? numOf(x.samples), reason: plainLine(x.reason ?? x.summary ?? x.note ?? x.why) });
+    const lt = x.long_term && typeof x.long_term === "object" ? (x.long_term as Record<string, unknown>) : null;
+    const h5 = lt && lt.h5 && typeof lt.h5 === "object" ? (lt.h5 as Record<string, unknown>) : null;
+    const fw = x.forward && typeof x.forward === "object" ? (x.forward as Record<string, unknown>) : null;
+    const nestedIc = !mk && h5 ? numOf(h5.ic) : null;
+    rows.push({ name, verdict: verdictOf(x.verdict ?? x.status ?? x.decision ?? x.keep ?? x.useful),
+      metricLabel: mk ? mk[1] : nestedIc !== null ? "5d IC" : null, metric: mk ? numOf(x[mk[0]]) : nestedIc,
+      n: numOf(x.n) ?? numOf(x.count) ?? numOf(x.samples) ?? (fw ? numOf(fw.n) : null), reason: plainLine(x.reason ?? x.summary ?? x.note ?? x.why ?? x.action_text) });
   }
   if (!rows.length) return null;
   const order: Record<SignalVerdict, number> = { works: 0, hurts: 1, noise: 2, unclear: 3 };
   rows.sort((a, b) => order[a.verdict] - order[b.verdict] || a.name.localeCompare(b.name));
-  return { kind: "report", rows, asOf: asOfOf(o), notes: notesOf(o.notes) };
+  const headline = plainLine(o.headline);
+  return { kind: "report", rows, asOf: asOfOf(o) ?? str(o.generated_at), notes: headline ? [headline, ...notesOf(o.notes)] : notesOf(o.notes) };
 }
 
 export function signalsSentence(s: SignalsView): string {

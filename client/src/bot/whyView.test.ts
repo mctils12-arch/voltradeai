@@ -197,3 +197,32 @@ test("the panel's title never says 'losing' over a window that made money", () =
   assert.equal(whyTitle(120), "Where the money came from");
   assert.equal(whyTitle(Number.NaN), "Why we're losing money");
 });
+
+test("signals: the ML audit's report (signal_attribution.py shape) — label/id names, nested 5-day IC, forward n, its verdict words", () => {
+  const s = parseSignals({
+    generated_at: "2026-11-06T02:00:00Z",
+    headline: "Composite score: no measurable edge once duplicate records are removed.",
+    signals: [
+      { id: "volume", label: "Volume sub-score", verdict: "anti_predictive", reason: "5-day IC -0.015 over 513 weekly dates", long_term: { h5: { ic: -0.0153, t: -3.1 } }, forward: { n: 318, ic: -0.02 } },
+      { id: "momentum", label: "Momentum", verdict: "noise", long_term: { h5: { ic: 0.002 } }, forward: { n: 318 } },
+      { id: "earnings_beats", label: "Earnings beats", verdict: "predictive", action_text: "kept at full weight", long_term: { h5: { ic: 0.021 } } },
+      { id: "ml_blend", label: "ML blend", verdict: "dead" },
+      { id: "fresh", label: "New signal", verdict: "untested" },
+    ],
+  })!;
+  assert.equal(s.kind, "report");
+  if (s.kind !== "report") return;
+  const by = Object.fromEntries(s.rows.map((r) => [r.name, r]));
+  assert.equal(by["Volume sub-score"].verdict, "hurts");
+  assert.equal(by["Volume sub-score"].metricLabel, "5d IC");
+  assert.equal(by["Volume sub-score"].metric, -0.0153);
+  assert.equal(by["Volume sub-score"].n, 318);
+  assert.equal(by["Momentum"].verdict, "noise");
+  assert.equal(by["Earnings beats"].verdict, "works");
+  assert.equal(by["Earnings beats"].reason, "kept at full weight");
+  assert.equal(by["ML blend"].verdict, "noise", "a dead signal is noise, never one that works");
+  assert.equal(by["New signal"].verdict, "unclear");
+  assert.equal(s.asOf, "2026-11-06T02:00:00Z");
+  assert.equal(s.notes[0], "Composite score: no measurable edge once duplicate records are removed.");
+  assert.equal(signalsSentence(s), "Of 5 signals measured: 1 add return, 2 look like noise, 1 hurt, 1 unclear.");
+});
