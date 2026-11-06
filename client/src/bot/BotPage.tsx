@@ -7,13 +7,14 @@
 // Brief: research/bot_cockpit_design_brief_v2.md.
 import { contentPos, type Box } from "./flipGeometry";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { frameCore, PRIORITY, type Spring } from "@/render/frameCore";
-import { useBotData, num, type BotData } from "./useBotData";
+import { useBotData, num, DEFAULT_ATTRIBUTION_DAYS, type BotData } from "./useBotData";
 import { derivePageState, type AuditRow } from "./pageState";
 import { deriveStages, deriveIssues, deriveDayReview, rowsToday, type DeriveInput } from "./derive";
 import { Director } from "./director";
-import { tierFor, gridStyle, TEMPLATES, EMPTY_FLAGS, toggleIn, isPinned, initialFloatRect, clampRect, snapEdges, type LayoutFlags, type PanelId, type Rect, type Tier } from "./zoneModel";
+import { tierFor, gridStyle, TEMPLATES, EMPTY_FLAGS, toggleIn, isPinned, initialFloatRect, clampRect, snapEdges, overviewGridStyle, botModeFrom, BOT_MODE_STORAGE_KEY, type LayoutFlags, type PanelId, type Rect, type Tier, type BotMode } from "./zoneModel";
 import { Panel, KpiStrip, StagesBody, IssuesBody, ScanStripBody, DecisionBody, IncidentBody, DayReviewBody, ModelBody, ChartBody, BookBody, OrdersBody, TimelineBody, WatchBody, LookupBox, ICONS, type Chrome, type ActionKind } from "./panels";
 import { ExpectancyBySleeve } from "./expectancyTable";
 import { watchModel } from "./watch";
@@ -25,6 +26,8 @@ import { fmtAge } from "./format";
 import { ScoreBody } from "./scoreboard";
 import { fmtDay } from "./scoreView";
 import { ShadowBlock, ShadowChip } from "./shadow";
+import { ModeBar, PerfBody, PicksBody, WhyBody } from "./overview";
+import { parseAttribution, whyTitle } from "./whyView";
 
 function useNow(periodMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -42,7 +45,14 @@ function reducedMotion(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY" };
+const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY", perf: "Portfolio vs SPY", why: "Why we're losing money", picks: "Picks" };
+/** the overview's own panels: a window popped out with one of them polls the overview's routes */
+const OVERVIEW_PANES: ReadonlySet<PanelId> = new Set<PanelId>(["perf", "why", "picks"]);
+/** the view this viewer chose last (zoneModel.BotMode; a per-viewer convenience — storage may be unavailable) */
+function readBotMode(): BotMode {
+  try { return botModeFrom(window.localStorage.getItem(BOT_MODE_STORAGE_KEY)); }
+  catch (err) { console.warn("[bot page] the saved view could not be read (storage unavailable):", err); return "overview"; }
+}
 /** this window on the pane channel (popout.ts): a sender ignores its own echoes */
 const WIN_ID = windowId();
 
@@ -90,7 +100,17 @@ function useFlip(layoutKey: string, slots: React.MutableRefObject<Map<PanelId, H
 }
 
 export default function BotPage() {
-  const d = useBotData();
+  // pop-out windows (popout.ts): `pane` when THIS window is one panel popped out of the page — read first, it
+  // decides which routes this window polls
+  const pane = useMemo(() => paneIdFromHash(window.location.hash), []);
+  // OVERVIEW · COCKPIT (2026-11-06, human refocus spec §8 "simplify"): the overview is the default view; the
+  // cockpit keeps every panel one press away. The Why panel's attribution window lives here (it keys the query).
+  const [mode, setModeState] = useState<BotMode>(readBotMode);
+  const [attrDays, setAttrDays] = useState<number>(DEFAULT_ATTRIBUTION_DAYS);
+  // the site nav's page slot (home.tsx), found after the first commit — the shell renders it before this page
+  const [navSlot, setNavSlot] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => { setNavSlot(document.getElementById("vt-page-nav-slot")); }, []);
+  const d = useBotData({ overview: pane ? OVERVIEW_PANES.has(pane) : mode === "overview", attributionDays: attrDays });
   const now = useNow(1000);
   const { tier, w: pageW, h: pageH, touch } = useTier();
   const [flags, setFlags] = useState<LayoutFlags>(EMPTY_FLAGS);
@@ -99,10 +119,8 @@ export default function BotPage() {
   // the focus context (brief §6): the position the chart shows; a Book row
   // or a chart chip sets it
   const [focusSym, setFocusSym] = useState<string | null>(null);
-  // pop-out windows (popout.ts): `pane` when THIS window is one panel popped
-  // out of the page; `popped` the panels this page has sent to their own
-  // windows (their handles in popWins; the slot shows a ghost until they come back)
-  const pane = useMemo(() => paneIdFromHash(window.location.hash), []);
+  // `popped`: the panels this page has sent to their own windows (their handles in popWins; the slot shows a
+  // ghost until they come back)
   const [popped, setPopped] = useState<PanelId[]>([]);
   const popWins = useRef<Map<PanelId, Window>>(new Map());
   const [popNote, setPopNote] = useState<string | null>(null);
@@ -153,7 +171,7 @@ export default function BotPage() {
     const out: Partial<Record<PanelId, EventKind>> = {};
     for (const e of events) {
       if (!e.loud || now - e.t >= FRESH_MS) continue;
-      const targets: PanelId[] = e.kind === "trade" || e.kind === "exit" ? ["book", "chart"] : e.kind === "queue" || e.kind === "refusal" ? ["watch"] : e.kind === "halt" || e.kind === "resume" || e.kind === "error" ? ["state", "stages"] : ["model"];
+      const targets: PanelId[] = e.kind === "trade" || e.kind === "exit" ? ["book", "chart", "picks"] : e.kind === "queue" || e.kind === "refusal" ? ["watch"] : e.kind === "halt" || e.kind === "resume" || e.kind === "error" ? ["state", "stages", "issues"] : ["model"];
       for (const id of targets) if (!out[id]) out[id] = e.kind;
     }
     return out;
@@ -210,6 +228,14 @@ export default function BotPage() {
     finally { setBusy(false); }
   }, [status?.killSwitch]);
 
+  // switching the view docks every window and leaves the zoom: a window of the other view's panel would float
+  // over a page that no longer has its slot
+  const setMode = useCallback((m: BotMode) => {
+    setModeState(m);
+    setFlags((f) => ({ ...f, zoomed: null, floating: [] }));
+    try { window.localStorage.setItem(BOT_MODE_STORAGE_KEY, m); }
+    catch (err) { console.warn("[bot page] the view could not be saved (storage unavailable):", err); }
+  }, []);
   const onHold = useCallback((id: PanelId) => setFlags((f) => ({ ...f, held: toggleIn(f.held, id) })), []);
   const onPin = useCallback((id: PanelId) => setFlags((f) => ({ ...f, pinned: toggleIn(f.pinned, id) })), []);
   const onFloat = useCallback((id: PanelId) => setFlags((f) => {
@@ -296,7 +322,10 @@ export default function BotPage() {
   // bodies (fresh), then hold snapshots
   const tpl = TEMPLATES[tier];
   const ordersRoomy = flags.zoomed === "orders" || flags.floating.includes("orders") || pane === "orders";
-  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null, score: d.scoreboard.dataUpdatedAt ? now - d.scoreboard.dataUpdatedAt : null };
+  const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null, score: d.scoreboard.dataUpdatedAt ? now - d.scoreboard.dataUpdatedAt : null,
+    why: d.attribution.dataUpdatedAt ? now - d.attribution.dataUpdatedAt : d.sleeves.dataUpdatedAt ? now - d.sleeves.dataUpdatedAt : null, picks: d.decisions.dataUpdatedAt ? now - d.decisions.dataUpdatedAt : d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null };
+  // the overview grid (desktop): the chart fills its slot; in the phone / tablet stack it keeps a fixed height
+  const overviewGrid = mode === "overview" && !tpl.scrolls;
   const freshBody: Record<PanelId, ReactNode> = {
     kpi: null,
     stages: <StagesBody rows={stages} />,
@@ -315,6 +344,10 @@ export default function BotPage() {
     orders: <>{ordersRoomy || tpl.scrolls ? <ShadowBlock status={status} mode={ordersRoomy ? "full" : "fold"} /> : null}<OrdersBody orders={d.orders.data} deploysToday={deploysToday} /></>,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
     score: <ScoreBody q={d.scoreboard} nowMs={now} />,
+    // OVERVIEW (2026-11-06): the after-tax chart vs SPY, why money is being lost, a plain-English card per pick
+    perf: <PerfBody q={d.scoreboard} bench={d.benchmark.data} nowMs={now} fill={(overviewGrid && !flags.zoomed) || flags.zoomed === "perf" || flags.floating.includes("perf") || pane === "perf"} />,
+    why: <WhyBody attrQ={d.attribution} days={attrDays} onDays={setAttrDays} sleeves={d.sleeves.data} flowsQ={d.flows} taxQ={d.tax} signalsQ={d.signals} regimeQ={d.regime} nowMs={now} />,
+    picks: <PicksBody positions={d.positions.data} decisionsQ={d.decisions} nowMs={now} />,
   };
   for (const id of flags.held) { if (!held.current.has(id)) held.current.set(id, { since: now, body: freshBody[id], ticks: tickCount.current }); }
   for (const id of [...held.current.keys()]) { if (!flags.held.includes(id)) held.current.delete(id); }
@@ -336,7 +369,7 @@ export default function BotPage() {
   const panelEl = (id: PanelId, extraStyle?: React.CSSProperties): ReactNode => {
     if (id === "kpi") return null;
     const c = chrome(id);
-    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "score" ? ages.score : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
+    const common = { chrome: c, pulse: pulses[id], ageMs: id === "model" ? ages.insight : id === "chart" || id === "book" ? ages.positions : id === "orders" ? ages.orders : id === "watch" ? ages.lastScan : id === "score" || id === "perf" ? ages.score : id === "why" ? ages.why : id === "picks" ? ages.picks : id === "stages" || id === "issues" || id === "state" || id === "timeline" ? ages.audit : ages.status } as const;
     switch (id) {
       case "stages": return <Panel {...common} title="Stages" help="stages" meta="last 10 expected ticks" style={{ flex: "0 0 auto", ...extraStyle }}>{body(id)}</Panel>;
       // the slot carries the column share and the cap (maxHeight); the panel
@@ -355,6 +388,10 @@ export default function BotPage() {
       // the daily bot-vs-SPY scoreboard (2026-10-28, human-ordered): the slot carries the column share; the table scrolls inside
       case "score": return <Panel {...common} title="Daily vs SPY" help="scoreboard" meta={d.scoreboard.data?.summary ? `${d.scoreboard.data.rows.length} days · through ${fmtDay(d.scoreboard.data.summary.to)}` : "bot vs buy-and-hold SPY, per trading day"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} help="timeline" status={replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;
+      // OVERVIEW (2026-11-06): the slot carries the share; the panel fills it
+      case "perf": return <Panel {...common} title={d.scoreboard.data?.afterTax ? "Portfolio vs SPY · after tax" : "Portfolio vs SPY"} help="perfChart" meta={d.scoreboard.data?.afterTax ? `since ${fmtDay(d.scoreboard.data.afterTax.from)} · both sold at each close · estimate` : "since the start · buy-and-hold SPY"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
+      case "why": return <Panel {...common} title={whyTitle(parseAttribution(d.attribution.data, attrDays)?.total ?? null)} help="why" meta={d.attribution.data && !d.attribution.isError ? `last ${attrDays} days · by signal, sector, instrument, timing` : "where the P&L came from"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
+      case "picks": return <Panel {...common} title={`Picks${d.positions.data ? ` · ${d.positions.data.length} held` : ""}`} help="picks" meta="why each was bought · what it passed over" scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       default: return null;
     }
   };
@@ -370,9 +407,9 @@ export default function BotPage() {
     // Book and Orders to 0 px (bot-ui harness battery, 2026-10-20)
     : <div key={id} ref={slotRef(id)} style={{ display: "flex", flexDirection: "column", minHeight: 0, minWidth: 0, ...extraStyle }}>{panelEl(id, extraStyle)}</div>;
 
-  const layoutKey = `${tier}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
+  const layoutKey = `${tier}|${mode}|${shown}|${flags.zoomed ?? ""}|${flags.floating.join(",")}`;
   useFlip(layoutKey, slots);
-  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls ? undefined : () => onZoom("score")} onShadow={() => onZoom("orders")} foldSession={tier === "l"} />;
+  const kpi = <KpiStrip perf={perf} account={account} status={status} market={market} calendar={d.calendar.data} bench={d.benchmark.data} now={effNow} state={derived} hold={flags.hold} onHold={() => setFlags((f) => ({ ...f, hold: !f.hold }))} flash={kpiFlash.current} events={events} onScoreboard={tpl.scrolls && mode === "cockpit" ? undefined : () => onZoom("score")} onShadow={() => onZoom("orders")} foldSession={tier === "l"} />;
 
   // a panel popped out into its own browser window (popout.ts): this window
   // IS the panel — no grid, and the KPI strip only when the strip itself was popped
@@ -383,10 +420,16 @@ export default function BotPage() {
       </div>
     );
   }
+  // the view switch: the first item of the phone / tablet stack (it scrolls away); on the desktop tiers it sits in
+  // the site nav's page slot (home.tsx #vt-page-nav-slot), costing the page no height — a row of its own only
+  // where the shell has no slot (the page rendered without it)
+  const modeBar = <ModeBar mode={mode} onMode={setMode} />;
+  const desktopModeBar = navSlot ? createPortal(<ModeBar mode={mode} onMode={setMode} inNav />, navSlot) : modeBar;
   return (
-    <div ref={rootRef} className="vt-bot-page" data-touch={touch ? "true" : undefined} data-state={shown} data-tier={tier} tabIndex={-1}>
+    <div ref={rootRef} className="vt-bot-page" data-mode={mode} data-touch={touch ? "true" : undefined} data-state={shown} data-tier={tier} tabIndex={-1}>
       {popNote ? <div className="vt-bot-popnote" role="status"><span>{popNote}</span><button type="button" className="vt-bot-wbtn" onClick={() => setPopNote(null)}>dismiss</button></div> : null}
       {status?.killSwitch ? <KillBanner days={killSince ? Math.floor((now - killSince) / 86_400_000) : null} onResume={() => void act("resume")} busy={busy} err={actErr} /> : null}
+      {!flags.zoomed && !tpl.scrolls ? desktopModeBar : null}
       {flags.zoomed ? (
         // the strip at its natural height (its tiles carry the 86 px minimum from the l tier up): since the Today tile it is three rows of tiles on the tablet, which a fixed 76 px track clipped
         <div className="vt-bot-grid" style={{ gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "auto minmax(0, 1fr)", gridTemplateAreas: '"kpi" "centre"' }} data-scrolls={tpl.scrolls ? "true" : undefined}>
@@ -396,10 +439,24 @@ export default function BotPage() {
             {slot(flags.zoomed, { flex: "1 1 auto" })}
           </div>
         </div>
+      ) : tpl.scrolls && mode === "overview" ? (
+        // OVERVIEW, tablet / phone (2026-11-06): the after-tax chart first — the page's one question — then the
+        // strip, why money is being lost, the picks, and the essentials (issues, book, orders)
+        <div className="vt-bot-stack" data-tier={tier} data-mode="overview">
+          {modeBar}
+          {slot("perf", { flex: "0 0 auto" })}
+          {kpi}
+          {slot("why", { flex: "0 0 auto" })}
+          {slot("picks", { flex: "0 0 auto" })}
+          {slot("issues", { flex: "0 0 auto" })}
+          {slot("book", { flex: "0 0 auto" })}
+          {slot("orders", { flex: "0 0 auto" })}
+        </div>
       ) : tpl.scrolls ? (
         // Tablet / phone: a prioritised stack that scrolls — the few things
         // that matter first, natural heights, never the desktop squeezed.
         <div className="vt-bot-stack" data-tier={tier}>
+          {modeBar}
           {kpi}
           {hasState ? slot("state", { flex: "0 0 auto" }) : null}
           {slot("issues", { flex: "0 0 auto" })}
@@ -409,6 +466,17 @@ export default function BotPage() {
           {slot("model", { flex: "0 0 auto" })}
           {tier === "m" ? <div className="vt-bot-pair">{slot("stages", { flex: "0 0 auto" })}<div className="vt-bot-col">{slot("book", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</div></div> : <>{slot("book", { flex: "0 0 auto" })}{slot("stages", { flex: "0 0 auto" })}{slot("orders", { flex: "0 0 auto" })}</>}
           {slot("timeline", { flex: "0 0 auto" })}
+        </div>
+      ) : mode === "overview" ? (
+        // OVERVIEW, desktop (2026-11-06; zoneModel.OVERVIEW_TEMPLATES): the chart across the centre and right
+        // columns, the attribution and the picks beneath it, the essentials down the left; the rows keep a floor,
+        // so a short window scrolls the grid instead of squeezing the chart
+        <div className="vt-bot-grid" data-scrolls="true" data-mode="overview" style={overviewGridStyle(tier === "xl" ? "xl" : "l")}>
+          {kpi}
+          <div className="vt-bot-col vt-bot-area-left">{slot("issues", { flex: "0 1 auto", maxHeight: "32%", minHeight: 0 })}{slot("book", { flex: "1 1 auto", minHeight: 160 })}{slot("orders", { flex: ordersFlex })}</div>
+          <div className="vt-bot-col vt-bot-area-perf">{slot("perf", { flex: "1 1 auto" })}</div>
+          <div className="vt-bot-col vt-bot-area-why">{slot("why", { flex: "1 1 auto" })}</div>
+          <div className="vt-bot-col vt-bot-area-picks">{slot("picks", { flex: "1 1 auto" })}</div>
         </div>
       ) : (
         <div className="vt-bot-grid" style={gridStyle(tier)}>

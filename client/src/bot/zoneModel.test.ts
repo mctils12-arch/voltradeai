@@ -39,3 +39,22 @@ test("float rects stay on the page and snap to edges", () => {
   assert.equal(off.y, page.h - 120);
   assert.deepEqual(snapEdges({ x: 7, y: 836 - 300 + 5, w: 400, h: 300 }, page), { x: 0, y: page.h - 300, w: 400, h: 300 });
 });
+
+test("overview (2026-11-06): the view defaults to the overview, its grid rows name the same columns, the chart spans two columns and both views keep the essentials", async () => {
+  const { botModeFrom, OVERVIEW_TEMPLATES, overviewGridStyle, MODE_PANELS, PANEL_IDS } = await import("./zoneModel");
+  assert.equal(botModeFrom(null), "overview");
+  assert.equal(botModeFrom("junk"), "overview");
+  assert.equal(botModeFrom("cockpit"), "cockpit");
+  for (const [tier, t] of Object.entries(OVERVIEW_TEMPLATES)) {
+    const cols = t.columns.split(/\s+(?![^(]*\))/).length;
+    for (const row of t.areas) assert.equal(row.split(" ").length, cols, `${tier}: "${row}"`);
+    assert.match(t.areas.join(" "), /perf perf/, `${tier}: the chart spans the centre and right columns`);
+    assert.match(t.rows, /minmax\(\d{3}px, 1\.3fr\)/, `${tier}: the chart's row keeps a floor`);
+  }
+  assert.match(overviewGridStyle("l").gridTemplateAreas, /^"kpi kpi kpi" "left perf perf" "left why picks"$/);
+  for (const id of ["issues", "book", "orders"] as const) {
+    assert.ok(MODE_PANELS.overview.includes(id) && MODE_PANELS.cockpit.includes(id), `${id} is in both views`);
+  }
+  for (const id of [...MODE_PANELS.overview, ...MODE_PANELS.cockpit]) assert.ok(PANEL_IDS.includes(id), `${id} is a panel id`);
+  assert.deepEqual([...MODE_PANELS.overview].sort(), ["book", "issues", "orders", "perf", "picks", "why"]);
+});
