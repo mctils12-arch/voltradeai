@@ -115394,3 +115394,66 @@ points tax_filter's data dir at a temp dir (existing select_contract tests now
 pass through the gate and would otherwise append rows to the real DATA_DIR).
 
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (tax_filter.py, system_config.py, bot_engine.py, server/taxAware.ts, server/bot.ts) — Hold winners past one year: profit-taking exits wait near the long-term date
+VERSION: v1.0.1314 (shipped 2026-11-06 by the parent session; main was v1.0.1313)
+
+WHY. Refocus spec §6: "prefer holding winners past one year where sensible."
+A winner sold on day 340 pays 24 % on its gain, the same lot sold on day 366
+pays 15 %. The live tax ledger has 1,972 short-term closes and 0 long-term
+ones (diag sleeves, 2026-11-06), so nothing in the exit path looked at the
+holding period.
+
+THE CHANGE. tax_filter.lt_deferral: a LONG position with a gain, within
+TAX_FILTER.LT_DEFER_WINDOW_DAYS (45) of its long-term date (day 366 after the
+stop state's entry_date), is held when saving = gain/value × (24 % − 15 %)
+exceeds give-back = E[max(0, −X)] × (1 − 15 %), X ~ N(0, σ√T), σ = ATR%/1.596
+(Feller 1951 expected range), T = days left × 252/365. Only the profit-taking
+exits wait: scale-out, take-profit and time stop. Stops, trailing and
+breakeven stops, the hard floor, POS-KILL, the 14-day TIME-EXIT (its band caps
+the saving at ~0.18 %) and every risk exit run as before.
+manage_positions decides it once per pass and does not advance a held
+scale-out's state. It writes the verdict into voltrade_stop_state.json
+(tax_defer_until / tax_defer_reason). bot.ts reads that into the monitored
+position on every sync, and checkPositionOnTick holds the WS scale-out,
+take-profit and time stop while it applies, writing one TAX-DEFER audit row per
+ticker and exit kind per day. One decision obeyed by both layers, so the stop
+state cannot record a scale-out that never sold. Eligible verdicts are logged
+(kind exit_deferral). GET /api/bot/tax gains ltApproaching: every open long
+lot, floor included, within 45 days of long-term. The lots come from a FIFO
+walk of the sleeve cache's fills, priced by the live positions (read at most
+once a minute). A loser's row says that selling it before then keeps the loss
+short-term. Switch: TAX_FILTER.LT_DEFER_ENABLED.
+
+EXAMPLES (ATR 2 %). +40 %, 26 days left: saving 2.57 % vs give-back 1.80 %
+→ held. +10 %, 26 days left: 0.82 % vs 1.80 % → exits run.
+
+BIASES. The upside of waiting is ignored and the stop that caps the downside
+is not credited, so the rule holds less often than an expected-value rule
+would. The holding period is the stop state's entry_date, not a broker lot. A
+lost state file reads a position as new, which means no hold (conservative).
+The gain is Alpaca's average-cost P&L, not per lot.
+
+DOWNSTREAM (2 steps). A held scale-out keeps the position full-size through
+the wait. Breakeven activates only after a scale-out, so it stays off while the
+phase trailing stops keep running, and the larger position raises portfolio
+heat, which shrinks new entries' size (position_sizing heat scalar). A held
+take-profit keeps the last third exposed until the long-term day or its
+trailing stop. Dormant in practice today: no stock position is anywhere near a
+year old (time stops at 7 days when flat).
+
+ROLLBACK TRIGGER. LT_DEFER_ENABLED = False if any held position's realized
+give-back (exit price on or after the hold vs the price at the first held
+exit signal) exceeds its estimated tax saving on 3 of the first 5 holds.
+
+TESTS. test_tax_lt_deferral.py (11): the 366-day rule, saving and give-back
+by hand, the small-winner case, ineligible cases (outside the window,
+already long-term, losers, flat, shorts), the off switch, one log row a day, a
+bad date, the exit kinds, and manage_positions end to end (a hold blocks the
+scale-out and keeps scales_completed 0, the same position 100 days held scales
+out, a trailing stop fires through a hold). server/taxAware.test.ts (+9): hold
+expiry, audit dedupe, FIFO relief, lot term, ltApproaching rows, window parity
+with Python, the two checkPositionOnTick hold blocks run as written (a stop
+untouched), and wiring pins (TIME-EXIT unchanged).
+
+STARVED: no.
