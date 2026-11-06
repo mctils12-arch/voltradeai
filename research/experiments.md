@@ -114814,3 +114814,331 @@ assertions 29147 -> 29397, with the pins not raised to avoid cross-branch
 conflicts.
 
 STARVED: no.
+
+## 2026-11-06 [RESEARCH] — T-BOT (scripts/edge_p1_gate3_rule_sim.py, test_edge_p1_gate3_rule_sim.py) — Edge P1 gate 3 (LOGIC): "no new short premium when R_{t-1} < 0.2" replayed on SPY 2012-2026 — HURTS cash-secured puts, halves a strangle book's drawdown
+VERSION: v1.0.1308 (shipped 2026-11-06 by the parent session; main was v1.0.1307)
+
+WHY. Refocus spec §3 step 6 asks the options decision to use dealer gamma and
+implied vs realized vol. The system's own evidence:
+
+- Gate 2 passed (experiments.md 2026-10-28 "EDGE P1 DEALER GAMMA: gate 2 SIGNAL
+  PASS"; research/edge_p1_dealer_gamma_result.md). The regression was OLS
+  log(RV_{t+1..t+5}/VIX_t²) on the trailing-252 percentile rank of SqueezeMetrics
+  GEX. Full sample: b −0.858, NW t −9.61. Holdout 2019+: b −0.904, t −7.25.
+  RV > IV in 24.9% of bottom-quintile windows vs 8.1% in the top quintile.
+- The same doc says the premium does not change sign. Even in the bottom
+  quintile realized vol averages 82% of VIX. So a skip rule trades forgone
+  premium against avoided losses, "only the gate-3 simulation can say which
+  side wins".
+- research/edge_preregistration.md P1 registers that gate-3 rule: "no new
+  short premium when R_{t−1} < 0.2".
+
+WHY A MODEL REPLAY. The registered harness (scripts/csp_manager_rule_sim.py)
+marks the archive's actual picks. The chain archive starts 2026-08, far too
+short for a state defined on a 252-session rank. backtest_v2 has no options
+replay, and the repo holds no historical option quotes.
+
+WHAT WAS SIMULATED (exactly; all of it is in the script's docstring):
+- Entries: one SPY entry per session t, at the close, 2012-05-01 → 2026-10-23.
+  Six positions still open at the 2026-11-04 data end are censored and excluded.
+- Books:
+  - "csp" (primary): sell a BS −0.30-delta put (T1_TARGET_DELTA), $1 strike grid.
+  - "strangle" (secondary): sell a 1-SD strangle, strikes S·exp(∓σ√T).
+  - Expiry for both: the first Friday ≥ t+35 days (DTE 35–41, inside T1's 30–45).
+- Pricing: Black-Scholes, σ = that day's VIX/100 at entry and at every later
+  mark. No skew, no term structure, r = 0.04, no dividend yield. These are
+  model marks, never quotes.
+- Path: raw (dividend-unadjusted) SPY closes.
+- Exits: the live options_manager order via csp_manager_rule_sim.RULES —
+  DTE ≤ 5, profit ≥ 50% of credit, loss ≤ −2× credit, DTE ≤ 21, else expiry at
+  intrinsic. Marks are daily closes only.
+- Costs: each leg sold at mid − h and bought back at mark + h, with
+  h = max($0.02, 1% of the leg's mid).
+- Rule: skip day t when the gate-2 rank of session t−1 is < 0.2. A missing rank
+  keeps the entry.
+- Portfolio: an additive ladder. Every entry gets 1/L of capital, where L is
+  the no-rule book's average open-position count (6.77 csp, 9.95 strangle).
+  Idle capital earns 0.
+- Inference: circular block bootstrap (21-session blocks, 2000 draws, seed 7).
+
+PRIOR (stated in the file before the run; csp book, 2019+):
+- 80% that skipped trades earn less than kept trades.
+- 55% that the bootstrap CI excludes 0.
+- 60% that the skipped trades' mean is still positive.
+- 70% that the skipped trades have a worse worst-5% quantile.
+- 60% that max DD is ≤ with the rule.
+- 45% that Sharpe is higher with the rule.
+- Verdict: HELPS 45%, MIXED 40%, HURTS 15%.
+
+VERDICT RULE (also in the file before the run). The decision sample is the csp
+book with entries from 2019-01-01.
+- HURTS if either holds:
+  - the skipped trades' mean ≥ the kept trades' mean AND their worst 5% is no worse;
+  - OR the rule-on portfolio has BOTH a lower Sharpe AND a deeper max DD.
+- HELPS if the skipped trades' mean is lower, the bootstrap CI upper bound is
+  < 0, AND max DD is ≤.
+- Otherwise MIXED.
+
+Human rule 2026-11-06: ship ON unless the evidence says it hurts.
+
+RESULTS. P&L per trade is in % of collateral (strike × 100).
+
+| book / period | n (skipped) | mean kept | mean skipped | worst 5% kept / skipped | Sharpe off → on | max DD off → on | worst 21d off → on |
+|---|---|---|---|---|---|---|---|
+| csp 2019+ (decision) | 1961 (340, 17.3%) | +0.146 | +0.267 | −2.70 / −3.73 | 0.63 → 0.58 | 15.90% → 17.86% | −14.91% → −6.22% |
+| csp pre-2019 | 1678 (350) | +0.010 | +0.356 | −2.26 / −2.93 | 0.41 → 0.05 | 11.70% → 16.04% | −7.16% → −5.35% |
+| csp full | 3639 (690) | +0.085 | +0.312 | −2.58 / −3.38 | 0.54 → 0.37 | 17.05% → 17.86% | −14.91% → −6.22% |
+| strangle 2019+ | 1965 (341) | +0.149 | +0.072 | −1.75 / −3.41 | 0.63 → 0.79 | 12.52% → 5.53% | −12.37% → −4.26% |
+| strangle pre-2019 | 1678 (350) | +0.064 | +0.256 | −1.56 / −2.17 | 0.65 → 0.38 | 7.80% → 8.34% | −6.87% → −6.87% |
+| strangle full | 3643 (691) | +0.111 | +0.165 | −1.62 / −2.59 | 0.63 → 0.62 | 15.04% → 8.34% | −12.37% → −6.87% |
+
+Bootstrap results:
+- Skipped − kept per-trade mean:
+  - csp 2019+: +0.121 pts, 95% CI [−0.284, +0.498].
+  - csp pre-2019: +0.346, CI [+0.096, +0.555].
+  - strangle 2019+: −0.076, CI [−0.508, +0.272].
+- Sharpe on − off:
+  - csp pre-2019: CI [−0.645, −0.077].
+  - csp 2019+: CI [−0.353, +0.273].
+
+VERDICT. HURTS on the decision sample (csp 2019+): Sharpe and max drawdown are
+both worse with the rule. The full sample and pre-2019 are HURTS too.
+
+The strangle book (secondary, reported, not the decision) is MIXED in 2019+
+and on the full sample. Its max DD roughly halves and its 2019+ Sharpe is
+higher. Pre-2019 it is HURTS (Sharpe 0.65 → 0.38, DD 7.80% → 8.34%).
+
+Against the prior: the 80% leg ("skipped earn less") was wrong for the csp
+book. The worse-tail leg (70%) was right.
+
+POST-HOC. These come from a scratch diagnostic run on the same trades; they
+are not part of the verdict and explain the result rather than change it.
+
+csp book:
+- Rule off: max DD runs 2018-10-03 → 2020-03-23 (Q4-2018 plus COVID).
+- Rule on: max DD runs 2021-11-24 → 2022-10-12, and is recovered only
+  2025-09-18.
+- In 2022 the rule skipped 93 puts averaging +0.29 pts, so the year went
+  −6.86% → −10.90%.
+- The rule helped only in 2020 (+0.98 pts) and 2025 (+1.65), the two sudden
+  crashes. It cost in the other 13 years.
+
+So low gamma flags sudden crashes, where skipping short puts helps, and also
+grinding bear markets. In the grinding bear markets the post-selloff put
+premium was the richest and paid. A two-sided book is hurt by the rebound on
+its call leg, so the crash protection dominates and its drawdown halves.
+
+Regime split, csp 2019+ (skipped − kept mean): BEAR +0.169 (n skipped 189),
+NEUTRAL +0.116 (37), CAUTION −0.059 (53), PANIC −0.488 (46), BULL −1.050 (15).
+
+A "skip only in BULL/PANIC" variant is a data-mined idea. It is NOT shipped
+and goes to open_questions as a hypothesis for a new pre-registration.
+
+LIMITS AND BIASES:
+- Marks are model marks, with VIX used as every strike's vol. A steeper
+  post-selloff put skew would make the skipped puts richer, so the CSP verdict
+  would be stronger, not weaker.
+- Daily closes miss the intraday stop path.
+- SPY only. The live CSP sleeve sells single names; transfer is unproven, as
+  gate 2 already said.
+- Every-session entries are not the live cadence.
+- r is constant and no dividend yield is used.
+- The strangle's call side is not collateralised.
+- DIX.csv is SqueezeMetrics' estimate, and gate 1 (our own GEX) is still open.
+- Variants reported: 2 books × 3 periods. One cell was pre-stated as the decision.
+
+Reproduce: `python3 scripts/edge_p1_gate3_rule_sim.py [--data-dir DIR] [--end 2026-11-04]`.
+Input hashes (sha256[:16]): DIX.csv 17763aa98650afc1, VIX_History.csv
+50731d77d6723344 (spy.json changes per Yahoo fetch). A rerun gave an
+identical report.
+
+DOWNSTREAM (2 steps). This is research only; nothing trades.
+1. It sets the companion change's scope (next entry): condors skipped, CSPs and
+   put spreads logged only.
+2. Those would-skip records give the live CSP sleeve its own prevention-P&L
+   bucket. That bucket is the real-data test of this model result.
+
+ROLLBACK TRIGGER. None (a script). Re-run when gate 1 passes, or when the chain
+archive holds ≥ 252 sessions so the registered harness can run on actual picks.
+
+TESTS. test_edge_p1_gate3_rule_sim.py: 18 tests, all pass. They cover:
+- constants pinned to tiered_strategy.py and options_manager.py;
+- the −30-delta strike, the expiry rule, BS parity;
+- each trade's daily path summing exactly to its P&L;
+- the exit order (profit target, loss limit, 21-DTE close, censoring);
+- the rule reading R_{t−1} (a same-day GEX change cannot move day t's entry);
+- ladder, drawdown and bootstrap math, the verdict mapping, the raw-close loader.
+
+The branch alone: 45 passed with test_edge_p1_dealer_gamma.py,
+test_csp_manager_rule_sim.py and test_collection_health.py.
+
+STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (dealer_gamma.py, options_scanner.py, tiered_strategy.py, system_config.py, storage_config.py, bot_engine.py, conftest.py, server/dealerGamma.ts, server/bot.ts, server/diag.ts) — Dealer-gamma short-premium filter: no new condors while SqueezeMetrics' GEX rank < 0.2, cash-secured puts logged only (ON in paper)
+
+WHY. Refocus spec §3 step 6 (options positioning: dealer gamma, implied vs
+realized vol).
+- Gate 2 passed 2026-10-28 (research/edge_p1_dealer_gamma_result.md).
+- Gate 3 (the previous entry, scripts/edge_p1_gate3_rule_sim.py) found the
+  registered rule "no new short premium when R_{t−1} < 0.2":
+  - HURTS a 30-delta cash-secured-put book (2019+: Sharpe 0.63 → 0.58, max DD
+    15.9% → 17.9%; the skipped puts earned more);
+  - roughly halves a 1-SD strangle book's max DD (2019+: 12.5% → 5.5%, Sharpe
+    0.63 → 0.79).
+- The human's rule for tonight is ON in paper unless the evidence says it
+  hurts. So the filter is enforced where it does not hurt and only logged
+  where it does.
+
+LADDER HONESTY. Gate 1 is still open: our own GEX has not been checked against
+SqueezeMetrics'. The 2026-10-28 result said this root should not trade before
+gate 1. It trades now on the human's paper directive, not on a completed
+ladder. Gate 3 is a model replay on SPY, not the live single-name sleeve.
+
+THE CHANGE.
+
+1. dealer_gamma.py (new) — reads the data the server already caches.
+   - It READS the server's existing squeeze_gex cache
+     (server/squeezeGex.ts polls DIX.csv every 6 h into
+     <DATA_DIR>/datacore_archive/squeeze_gex/<year>.jsonl[.gz]).
+   - It never fetches, so there is no second retriever of SqueezeMetrics'
+     file and no duplicate pipeline.
+   - It returns {asOf, gex, rank252, lowGamma, threshold, source, stale,
+     ageSessions, active, reason}.
+   - rank252 is gate 2's formula bit-for-bit. Verified on real data: the
+     2026-11-05 rank, 0.09163346613545817, equals production's squeeze_gex
+     probe exactly.
+   - Stale means more than 3 NYSE sessions old (market_calendar helpers). A
+     stale, missing or under-252-row archive makes the filter INACTIVE, and its
+     reason says so. Every error path allows.
+
+2. The decision, per NEW option entry.
+   - Bought options: never touched.
+   - Two-sided short premium (iron condors, strangles; also an unknown sold
+     structure): skipped while lowGamma.
+   - One-sided short puts (sell_cash_secured_put, bull_put_credit_spread):
+     "would_skip", i.e. logged and allowed, unless
+     DEALER_GAMMA_ENFORCE_SHORT_PUTS is set.
+   - Reasons are plain English, e.g. "dealer gamma low (rank 0.09): realized
+     vol tends to exceed implied, no new short premium (SqueezeMetrics GEX
+     estimate as of 2026-11-05)".
+
+3. Wiring.
+   - options_scanner.get_options_trades: after the existing filters, so only a
+     candidate that would otherwise be returned is checked.
+   - tiered_strategy.tier1_csp_core: one state-level verdict per scan. An
+     enforced skip ends the walk after 3 logged names, like the crisis gate.
+     Would-skips are recorded for the returned SELL_CSPs only.
+   - The verdict rides each scanner trade dict and SELL_CSP metadata
+     (`dealer_gamma`).
+   - Not options_manager, not options_execution (frozen
+     submit_options_order; optexits and taxfilter work there tonight).
+
+4. Logging. Each skip / would-skip produces:
+   - a WARNING "DEALER-GAMMA SKIP …" line;
+   - one JSON line in DEALER_GAMMA_DECISIONS_PATH, once per ET day per
+     ticker/setup/action;
+   - a counterfactual shadow record (rejected_dealer_gamma /
+     would_reject_dealer_gamma). These cost ~45MB rewrites (KNOWN BROKEN #18),
+     so they are capped at ≤ 3 per scan. Tier 1's go through
+     log_csp_gate_shadow, so the decision-journal hook picks up the real
+     refusals;
+   - a GAMMA-SKIP / GAMMA-WOULD-SKIP audit row. bot_engine.scan_market returns
+     a `dealer_gamma` field (state without raw GEX + this scan's records), and
+     server/dealerGamma.ts turns it into audit rows. A failed field becomes a
+     GAMMA-ERROR row.
+
+5. Exposure.
+   - The scan payload (`dealer_gamma.state.label`, served on
+     /api/bot/last-scan) carries e.g. "dealer gamma: low (rank 0.09) — no new
+     condors / strangles; cash-secured puts and put spreads logged only".
+   - Read-only diag probe `gamma`: the state Python last read, its age, the
+     recent decisions, per-day counts, and the squeeze_gex archive's freshness.
+
+6. system_config BASE_CONFIG:
+   - DEALER_GAMMA_FILTER_ENABLED True — the one switch;
+   - DEALER_GAMMA_LOW_RANK 0.20 — pre-registered;
+   - DEALER_GAMMA_MAX_STALE_SESSIONS 3;
+   - DEALER_GAMMA_ENFORCE_SHORT_PUTS False — gate 3.
+
+7. conftest.py: an autouse fixture points the filter at an empty data dir and
+   temp files, so no test reads a local /tmp cache or writes the real log.
+
+DATA AND TERMS (checked 2026-11-06).
+- DIX.csv is reachable from this sandbox (HTTP 200, 3,903 rows through
+  2026-11-05). Production's archive holds the same 3,903 rows, last refresh
+  OK 2026-11-05 23:00Z.
+- squeezemetrics.com/monitor/terms (read in full): the site grants "no
+  ownership or license", and users agree not to "systematically retrieve data
+  or other content from the Platform to create or compile, directly or
+  indirectly, a collection, compilation, database, or directory without
+  written permission". Content is "for general information only".
+- No CSV-specific terms are published. The paid plan is $720/month for web +
+  API access.
+- The existing squeeze_gex archive (2026-10-29) is arguably the compilation
+  that clause names. That is a human decision: ask SqueezeMetrics
+  (support@sqzme.co) for written permission, buy the plan, or replace the
+  input with our own GEX once gate 1 passes. This change adds no retrieval.
+- The data is labelled everywhere as SqueezeMetrics' published estimate, not
+  ours. No raw GEX value leaves the Python process.
+- Our own OI-based GEX (OI sidecar since 2026-10-29, at most 6 sessions)
+  cannot make a 252-session rank and is not used.
+
+DOWNSTREAM (2 steps).
+1. While R < 0.2, the scanner returns no Setup-1 / Setup-3/7 iron condors.
+   bot_engine's options loop then appends fewer options trades, which leaves
+   options slots free for the Tier-1 CSPs the dispatcher routes, and new
+   two-sided short-vol exposure falls to zero.
+2. Live state: R was 0.092 on 2026-11-05, after a −4.4% SPX day. On deploy, no
+   new scanner condors until the rank is back ≥ 0.2. The CSP and VXX-panic
+   put-spread flow is unchanged. Their would-skip records build the
+   would_reject_dealer_gamma prevention-P&L bucket on /api/diag/shadow: live
+   data on the very trades gate 3 said not to skip.
+
+Costs:
+- The archive is read at most once a minute (cached by file signature).
+- The state file is rewritten at most once a minute.
+- At most 3 shadow writes per scan, only for a name's first record of the day.
+
+ROLLBACK TRIGGER. Either of:
+- ≥ 30 rejected_dealer_gamma condors with matured +5d labels whose
+  underlyings moved LESS (mean |r_5d|) than the taken condors' over the same
+  dates (the filter is removing the calm trades);
+- GAMMA-ERROR on 3 consecutive scans.
+
+Action: DEALER_GAMMA_FILTER_ENABLED False. Re-decide CSP enforcement from the
+would_reject_dealer_gamma bucket once it holds ≥ 60 entries in each gamma
+state (the pre-registration's shadow read size).
+
+NOT DONE:
+- Trade-feedback records do not carry gex_rank_prev / gex_neg / gex_date (the
+  pre-registration's shadow spec); the verdict rides the trade dict and tier
+  metadata only.
+- bot_engine's covered-call sweep and instrument_selector's short-premium
+  choices are not gated. They are outside the brief's named entry points
+  (scanner and SELL_CSP), and both files carry other agents' edits tonight.
+- No UI component: the UI agent reads the `dealer_gamma.state.label` field or
+  the `gamma` probe.
+
+TESTS.
+- test_dealer_gamma.py: 25 pass. Covers rank = gate 2's function bit-for-bit,
+  reading the archive as the server writes it (gz + plain, junk skipped),
+  NYSE session counting, staleness / thin / missing / disabled → inactive,
+  strategy classification, only sold premium skipped, CSP would-skip vs
+  enforced skip, once-per-day JSON + WARNING + pending records, fail-open on
+  errors, the shadow-write cap, scan field without raw GEX, labels, config
+  keys, Tier-1 wiring (baseline / would-skip / enforced), scanner wiring
+  (condors skipped, put spread kept + logged, bought option untouched, cap),
+  and the scan_market field.
+- server/dealerGamma.test.ts: 5 pass. Covers audit rows, readers, probe shape
+  with no raw GEX, and probe registration.
+- Existing suites: 735 Python passed / 1 skipped across 40 related files,
+  including test_regime_options, test_tiered_strategy, test_options_v134_fixes,
+  test_csp_gate_shadow and test_audit_critical. 325 TS passed across 31
+  related server files. After the container restart, on a temporary merge with
+  the new origin/main (b5882c61): 148 Python + 40 TS targeted tests pass, and
+  git merge-tree shows no conflict with main or with the regime branch
+  (77c7db4c, its scan `risk_budget` field sits apart from `dealer_gamma`).
+- Ratchets: counter_ratchet OK (28 at or better), tsc 6 ≤ 6,
+  test_ts_code_only passes.
+
+STARVED: no.

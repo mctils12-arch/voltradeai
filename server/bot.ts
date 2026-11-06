@@ -97,6 +97,7 @@ import {
 } from "./daemonRouting";
 import { PyJobQueue, PyJobWaitTimeout, serializePyJobs } from "./pyJobQueue";
 import { squeezeReport } from "./squeezeGex";
+import { dealerGammaAuditRows, dealerGammaDataDir, dealerGammaProbeBody, readDealerGammaDecisions, readDealerGammaState } from "./dealerGamma";
 import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { createOrderGate } from "./brokerClockGate"; // BROKER CLOCK ORDER GATE 2026-11-05
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
@@ -4490,6 +4491,12 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // squeeze_gex archive — see server/squeezeGex.ts. Read-only.
           return res.json(sanitizeDiag(squeezeReport()));
         }
+        case "gamma": {
+          // ADDED 2026-11-06 (Edge P1 short-premium filter): dealer_gamma.py's
+          // last state + recent skips — see server/dealerGamma.ts. Read-only.
+          const dgDir = dealerGammaDataDir();
+          return res.json(sanitizeDiag(dealerGammaProbeBody(readDealerGammaState(dgDir), readDealerGammaDecisions(dgDir), squeezeReport())));
+        }
         default:
           return res.status(404).json({ error: "unknown probe", probes: DIAG_PROBES });
       }
@@ -6267,6 +6274,9 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       // 2026-11-05: the floor's trades (scan_market's spy_floor) were never
       // audited either (server/floorAudit.ts).
       for (const row of floorAuditRows(result.spy_floor, "scan")) audit(row.type, row.message);
+      // 2026-11-06 Edge P1 dealer-gamma filter: each new short-premium skip /
+      // would-skip Python logged this scan (server/dealerGamma.ts).
+      for (const row of dealerGammaAuditRows(result.dealer_gamma)) audit(row.type, row.message);
 
       // REPAIR 2026-09-09: bot_engine.py's scan_market() has its own
       // portfolio-level DD halt (update_equity_peak/is_trading_halted,

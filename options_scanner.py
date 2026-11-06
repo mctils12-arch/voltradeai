@@ -2178,6 +2178,38 @@ HIGH_EDGE_SETUPS = {
 # was silently overridden by this floor. Lowering here actually surfaces
 # more options candidates.
 MIN_OPTIONS_SCORE = 60.0
+DEALER_GAMMA_SOURCE = "options_scanner.get_options_trades"
+
+
+def _dealer_gamma_gate(opp: dict, vxx_ratio, regime) -> dict:
+    """dealer_gamma.check for one scanner candidate (skip / would_skip / allow), the
+    verdict noted on the candidate (it rides into the trade dict), and a bounded
+    counterfactual shadow record for a NEW skip / would-skip — the Setup-3 refusal
+    convention: features {}, its own decision label, at most
+    dealer_gamma.SHADOW_WRITES_PER_SCAN per scan. Never raises (fails open)."""
+    try:
+        import dealer_gamma
+    except ImportError as e:
+        logger.warning(f"dealer gamma filter unavailable ({e}) - scanner candidates allowed")
+        return {"action": "allow"}
+    d = dealer_gamma.check(opp.get("options_strategy"), opp.get("side", "buy"), str(opp.get("ticker") or ""),
+                           DEALER_GAMMA_SOURCE, setup=str(opp.get("setup") or ""),
+                           score=opp.get("score"), price=opp.get("price"))
+    if d.get("shortPremium"):
+        opp["dealer_gamma"] = {k: d.get(k) for k in ("action", "rank252", "asOf", "lowGamma", "active", "reason")}
+    if d.get("record") and dealer_gamma.shadow_slot():
+        try:
+            import shadow_portfolio
+            shadow_portfolio.log_candidate(
+                ticker=str(opp.get("ticker")), features={}, score=float(opp.get("score") or 0.0),
+                decision=dealer_gamma.SKIP_DECISION if d["action"] == "skip" else dealer_gamma.WOULD_SKIP_DECISION,
+                decision_reason=str(d.get("reason") or "")[:200], entry_price=float(opp.get("price") or 0.0),
+                vxx_ratio=float(vxx_ratio or 1.0), regime_label=str(regime or "unknown"),
+                side="sell", action_label=str(opp.get("action_label") or "SELL OPTIONS"), trade_type="options",
+            )
+        except Exception as e:  # noqa: BLE001 — logged; a shadow record never blocks a trade
+            logger.warning(f"dealer gamma shadow record failed for {opp.get('ticker')}: {type(e).__name__}: {e}")
+    return d
 
 
 def get_options_trades(
@@ -2277,6 +2309,13 @@ def get_options_trades(
         if opp["score"] < min_score:
             continue
         if opp["ticker"] in current_tickers:
+            continue
+
+        # EDGE P1 DEALER GAMMA (2026-11-06, dealer_gamma.py): no NEW short premium while
+        # SqueezeMetrics' GEX rank is low — skipped for condors / strangles, logged only
+        # ("would skip") for one-sided short puts (gate 3: skipping CSPs hurt). Inactive
+        # without fresh data; bought options never reach a skip.
+        if _dealer_gamma_gate(opp, scan_result.get("vxx_ratio"), scan_result.get("regime")).get("action") == "skip":
             continue
 
         # Size: 4-6% of equity per options trade (capped by setup type)

@@ -671,6 +671,53 @@ def _t1_regime_context() -> dict:
     return out
 
 
+T1_DEALER_GAMMA_SOURCE = "tiered_strategy.tier1_csp_core"
+
+
+def _t1_dealer_gamma_decision() -> Dict[str, Any]:
+    """dealer_gamma's verdict on a new Tier-1 short put under this scan's state:
+    allow | would_skip | skip. Never raises: a failure reads as allow, logged."""
+    try:
+        import dealer_gamma
+        return dealer_gamma.decide("sell_cash_secured_put", "sell", dealer_gamma.get_state())
+    except Exception as e:  # noqa: BLE001 — logged; the filter fails open
+        logger.warning(f"T1 dealer gamma unavailable ({type(e).__name__}: {e}) - CSPs allowed")
+        return {"action": "allow", "reason": f"dealer gamma unavailable ({type(e).__name__})"}
+
+
+def _t1_dealer_gamma_log(decision: Dict[str, Any], ticker: str, price: Optional[float], vxx_ratio: float,
+                         regime_label: str, rejections: List[Dict[str, Any]]) -> None:
+    """Record one Tier-1 skip / would-skip (dealer_gamma.record: JSON log, audit feed,
+    once per ET day per name) and queue its shadow record for log_csp_gate_shadow
+    (bounded by dealer_gamma.shadow_slot). Never raises."""
+    try:
+        import dealer_gamma
+        rec = dealer_gamma.record(decision, ticker, T1_DEALER_GAMMA_SOURCE, setup="csp_core",
+                                  strategy="sell_cash_secured_put", price=price)
+        if rec and dealer_gamma.shadow_slot():
+            rejections.append({
+                "ticker": ticker,
+                "decision": dealer_gamma.SKIP_DECISION if decision.get("action") == "skip"
+                else dealer_gamma.WOULD_SKIP_DECISION,
+                "reason": str(decision.get("reason") or "")[:200],
+                "metadata": {"vxx_ratio": vxx_ratio, "regime_label": regime_label},
+            })
+    except Exception as e:  # noqa: BLE001 — logged; logging must never break the tier engine
+        logger.warning(f"T1 dealer gamma log failed for {ticker}: {type(e).__name__}: {e}")
+
+
+def _t1_dealer_gamma_finish(returned: List["TierAction"], decision: Dict[str, Any], vxx_ratio: float,
+                            regime_label: str, prices: Dict[str, float],
+                            rejections: List[Dict[str, Any]]) -> None:
+    """The verdict rides each returned SELL_CSP's metadata; a would-skip is recorded
+    for each of them (the names the scan actually proposes)."""
+    note = {k: decision.get(k) for k in ("action", "rank252", "asOf", "lowGamma", "active", "reason")}
+    for a in returned:
+        a.metadata["dealer_gamma"] = dict(note)
+        if decision.get("action") == "would_skip":
+            _t1_dealer_gamma_log(decision, a.ticker, prices.get(a.ticker), vxx_ratio, regime_label, rejections)
+
+
 def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     """Sell cash-secured puts on Tier 1 universe, regime-scaled."""
     if not TIERS_ENABLED.get(1, False):
@@ -788,6 +835,13 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
     except Exception:
         pass  # gate becomes a no-op if no price data
 
+    # EDGE P1 DEALER GAMMA (2026-11-06, dealer_gamma.py): one state-level verdict on a new
+    # short put — allow, would_skip (logged only: gate 3 found skipping CSPs hurt) or skip
+    # (DEALER_GAMMA_ENFORCE_SHORT_PUTS). Inactive without fresh data.
+    _dg_t1 = _t1_dealer_gamma_decision()
+    _dg_skips = 0
+    _dg_rejections: List[Dict[str, Any]] = []
+
     # Candidates: liquid, high-IV names we don't already own
     for ticker in active_universe:
         if ticker in held_tickers:
@@ -856,6 +910,15 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
                         break      # state-level: every name is blocked; the 3 that would have been proposed are logged
                     continue       # the name is removed, the slot is kept
 
+        # EDGE P1 DEALER GAMMA: an enforced skip refuses the name before it takes a slot;
+        # state-level like the crisis gate, so 3 logged refusals end the walk.
+        if _dg_t1.get("action") == "skip":
+            _dg_skips += 1
+            _t1_dealer_gamma_log(_dg_t1, ticker, _u_price, ctx.vxx_ratio, regime_label, _dg_rejections)
+            if _dg_skips >= 3:
+                break
+            continue
+
         # Position sizing: respect MAX_OPTIONS_PCT from system_config (8%)
         base_size = max_per_position * size_scalar
         slots_available -= 1
@@ -895,6 +958,11 @@ def tier1_csp_core(ctx: TierContext) -> List[TierAction]:
                 "regime_size_mult": _rg["size_mult"],
             },
         ))
+
+    # EDGE P1 DEALER GAMMA: the verdict rides each returned SELL_CSP; a would-skip is
+    # recorded for the names actually returned, its shadow record joins the batch below.
+    _t1_dealer_gamma_finish(actions[:3], _dg_t1, ctx.vxx_ratio, regime_label, _price_lookup, _dg_rejections)
+    _rg_rejections.extend(_dg_rejections)
 
     # REGIME ENGINE step 5: the guards' shadow records — each guard earns a
     # prevention-P&L (per-decision bucket on /api/diag/shadow) before promotion.

@@ -374,6 +374,27 @@ BASE_CONFIG = {
     "LEG3_CRASH_ASSETS":   [],      # DISABLED legacy leg — replaced by DEFENSIVE_FLOOR_* above.
     "LEG3_RECOVERY_ASSETS": [],     # DISABLED: was [("ITA", 0.20)]
 
+    # ── EDGE P1 DEALER-GAMMA SHORT-PREMIUM FILTER (2026-11-06) ────────
+    # dealer_gamma.py: SqueezeMetrics' published GEX estimate (the server's
+    # squeeze_gex cache) and its pre-registered trailing-252 rank R. Gate 2
+    # PASSED 2026-10-28 (low R -> SPY's next-5-day realized vol runs closer to
+    # VIX). Gate 3 2026-11-06 (scripts/edge_p1_gate3_rule_sim.py, SPY model
+    # replay 2012-05 -> 2026-10 with the live manager exits): "no new short
+    # premium when R < 0.2" HURT the 30-delta CSP book (2019+ Sharpe 0.58 vs
+    # 0.63, max DD 17.9% vs 15.9%; the skipped puts earned more on average)
+    # and halved the 1-SD strangle book's max DD (2019+ 5.5% vs 12.5%, Sharpe
+    # 0.79 vs 0.63). Human rule: ON unless the evidence says it hurts, so it
+    # SKIPS new two-sided short premium (the scanner's iron condors) and only
+    # LOGS "would skip" for one-sided short puts (Tier-1 CSPs, put credit
+    # spreads). Expected effect: no new scanner condors while R < 0.2 (prod
+    # 2026-11-05: R 0.09); CSP flow unchanged. Bought options never affected.
+    # Missing or stale data -> inactive, never blocks.
+    # ROLLBACK: DEALER_GAMMA_FILTER_ENABLED False (no check, no logging).
+    "DEALER_GAMMA_FILTER_ENABLED": True,       # the one switch
+    "DEALER_GAMMA_LOW_RANK": 0.20,             # pre-registered (edge_preregistration.md P1)
+    "DEALER_GAMMA_MAX_STALE_SESSIONS": 3,      # latest GEX older than this many NYSE sessions -> inactive
+    "DEALER_GAMMA_ENFORCE_SHORT_PUTS": False,  # True also skips CSPs / put spreads (gate 3: hurts)
+
     # ── CONVEXITY OVERLAY (pro-level: replaces sector rotation) ──────
     # Protective puts on QQQ — far OTM, 60 DTE, rolled at 21 DTE.
     # Defined-risk tail protection with convex crash payoff.

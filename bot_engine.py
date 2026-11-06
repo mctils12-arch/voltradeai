@@ -4855,7 +4855,20 @@ def _scan_market_inner():
         # top-level only, deliberately NOT part of any per-candidate dict so
         # it never reaches ML features or the shadow_portfolio candidate log.
         "data_source_errors": _source_diag,
+        # EDGE P1 DEALER GAMMA (2026-11-06): the short-premium filter's state as this
+        # scan read it (rank, as-of, verdict; no raw GEX) + the skips / would-skips it
+        # logged this scan. bot.ts audits each as GAMMA-SKIP / GAMMA-WOULD-SKIP.
+        "dealer_gamma": _scan_dealer_gamma(),
     }
+
+
+def _scan_dealer_gamma() -> dict:
+    """scan_market's `dealer_gamma` field (dealer_gamma.scan_field). Never raises."""
+    try:
+        import dealer_gamma
+        return dealer_gamma.scan_field()
+    except Exception as e:  # noqa: BLE001 — reported in the field, never into the scan
+        return {"error": f"{type(e).__name__}: {e}"[:160], "decisions": []}
 
 
 # ── ML Attribution Tracker ───────────────────────────────────────────────────

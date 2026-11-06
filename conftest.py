@@ -104,3 +104,30 @@ def _hermetic_broker_clock():
     with patch.object(broker_clock, "_fetch_clock_body", return_value=None):
         yield
     broker_clock.reset_cache()
+
+
+@pytest.fixture(scope="session")
+def _dealer_gamma_dir(tmp_path_factory):
+    return str(tmp_path_factory.mktemp("dealer_gamma"))
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_dealer_gamma(_dealer_gamma_dir):
+    """EDGE P1 DEALER GAMMA 2026-11-06 (dealer_gamma.py): Tier 1 and the options
+    scanner now read the squeeze_gex cache through dealer_gamma.get_state().
+    Point that read at an EMPTY data dir (the filter's inactive "no rows" branch,
+    exactly what a fresh CI runner sees) and its two files at a session temp
+    dir, and clear its per-process caches around every test — so no test sees a
+    cache a local server wrote under /tmp, and none appends to the real decision
+    log. Tests of the filter patch dealer_gamma themselves (they shadow this).
+    Changes reachability, not behavior."""
+    import os
+    import dealer_gamma
+    import storage_config
+
+    dealer_gamma._reset_for_tests()
+    with patch.object(dealer_gamma, "_data_dir", return_value=os.path.join(_dealer_gamma_dir, "data")), \
+         patch.object(storage_config, "DEALER_GAMMA_STATE_PATH", os.path.join(_dealer_gamma_dir, "state.json")), \
+         patch.object(storage_config, "DEALER_GAMMA_DECISIONS_PATH", os.path.join(_dealer_gamma_dir, "decisions.jsonl")):
+        yield
+    dealer_gamma._reset_for_tests()
