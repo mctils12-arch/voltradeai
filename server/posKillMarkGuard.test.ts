@@ -353,6 +353,31 @@ test("TIME-EXIT shares the mark check: a >14d position with no mark is not close
   assert.ok(h.audited("TIME-EXIT")[0].msg.includes("closing stale"));
 });
 
+test("TIME-EXIT never closes an option: options_manager owns option exits (2026-11-06)", async () => {
+  // A market order with no opening-window rule is the widest fill an option
+  // can get, and options_manager.py has its own 21-DTE time exit.
+  const old = "2026-09-01T15:12:00Z";
+  const longCall: Row = { ...longOptionAt(0.5, "XLK261219C00100000"), created_at: old };
+  const soldPut: Row = { ...longOptionAt(-1, "XLK261219P00100000"), side: "short", qty: "-1", created_at: old };
+  const noAssetClass: Row = { ...longOptionAt(1, "IWM261219P00200000"), asset_class: undefined, created_at: old };
+  const h = makeHarness();
+  for (let i = 0; i < 3; i++) await h.tick([longCall, soldPut, noAssetClass]);
+  assert.equal(h.posts.length, 0, "no order for any option, whatever its age and P&L band");
+  assert.equal(h.audited("TIME-EXIT").length, 0, "no 'closing stale' line for an option");
+  assert.equal(h.audited("TIME-EXIT-ERROR").length, 0);
+  // The same age and band on a stock still closes it (TIME-EXIT unchanged for stocks).
+  await h.tick([longCall, stockAt(0.5, "AXTI", old)]);
+  assert.equal(h.posts.length, 1);
+  assert.equal(h.posts[0].body.symbol, "AXTI");
+  assert.equal(h.audited("TIME-EXIT").length, 1);
+});
+
+test("wiring: the TIME-EXIT guard exempts options through the shared OCC/asset-class check", () => {
+  const loop = bot.slice(loopStart, loopEnd);
+  assert.ok(loop.includes("if (!LEGACY_DEFENSIVE_CANDIDATE_TICKERS.has(ticker) && !isPosKillExemptOption(ticker, pos.asset_class)) {"),
+    "TIME-EXIT must skip option positions (asset_class us_option OR an OCC symbol)");
+});
+
 test("wiring: hasMark is computed from the Alpaca row before TIME-EXIT, and gates its band test", () => {
   const loop = bot.slice(loopStart, loopEnd);
   const hasMarkAt = loop.indexOf("const hasMark = posKillHasValidMark(pos.current_price, pos.unrealized_plpc);");
