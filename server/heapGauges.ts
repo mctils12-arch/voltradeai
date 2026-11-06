@@ -33,6 +33,9 @@ export function registerBuiltinHeapGauges(): void {
       estimate: "memoryCount*72B",
       mode: st.mode,
       memoryCount: st.memoryCount,
+      // 2026-11-06: the Set now loads without blocking the loop; while it does,
+      // memoryCount stays null and this is true (an honest "not built yet")
+      loading: st.memoryLoading,
       dbCount: st.dbCount,
       totalArchived: d ? d.totalArchived : null,
       mismatches: st.mismatches,

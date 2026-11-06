@@ -55,6 +55,8 @@
  * thesis ever needs it.
  */
 import { Readable, pipeline } from "stream";
+import { once } from "events";
+import { promisify } from "util";
 import zlib from "zlib";
 import readline from "readline";
 import fs from "fs";
@@ -418,20 +420,218 @@ function writeSeenIdsIndex(dir: string, ids: Set<string>): void {
 }
 
 /** Routine (non-boot) write path: appends newly-archived IDs to the compact
- *  index, same read-modify-write-gzip shape `archiveNewRows` already uses
- *  for its own per-day files, just for this one small file instead of N
- *  full row-object files. Runs only when a poll actually finds fresh rows
- *  (at most once per ~6h poll), never on the boot read path above. */
+ *  index as ONE NEW GZIP MEMBER (2026-11-06 dtcc-stall REPAIR). Concatenated
+ *  gzip members are a single valid gzip stream (RFC 1952 §2.2; Node's Gunzip
+ *  reads every member since v5.9.0 — zlib.gunzipSync, zlib.gunzip and
+ *  createGunzip alike), so every reader sees the same one-ID-per-line text.
+ *  The old shape — gunzip the whole index, concatenate, re-gzip the whole
+ *  index, rewrite it — cost 7.1 s of synchronous zlib at 6.94M IDs (measured
+ *  2026-11-06) on every poll that found fresh rows; this costs only the new
+ *  IDs (41 ms for 128k). Runs only when a poll actually finds fresh rows. */
 function appendSeenIdsIndex(dir: string, ids: string[]): void {
   if (!ids.length) return;
   try {
     fs.mkdirSync(dir, { recursive: true });
-    const file = seenIdsIndexPath(dir);
-    const existing = fs.existsSync(file) ? zlib.gunzipSync(fs.readFileSync(file)).toString("utf8") : "";
-    const payload = existing + ids.join("\n") + "\n";
-    fs.writeFileSync(file, zlib.gzipSync(payload));
+    fs.appendFileSync(seenIdsIndexPath(dir), zlib.gzipSync(ids.join("\n") + "\n"));
   } catch (e) {
     console.error("[datacore] dtccswaps appendSeenIdsIndex:", e);
+  }
+}
+
+/** Async twin of appendSeenIdsIndex (the refresh path): the same bytes —
+ *  zlib.gzip and zlib.gzipSync produce identical output — compressed on the
+ *  libuv threadpool instead of the event loop. */
+async function appendSeenIdsIndexAsync(dir: string, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  try {
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.appendFile(seenIdsIndexPath(dir), await gzipAsync(ids.join("\n") + "\n"));
+  } catch (e) {
+    console.error("[datacore] dtccswaps appendSeenIdsIndex:", e);
+  }
+}
+
+const gzipAsync = promisify(zlib.gzip);
+
+// ── NON-BLOCKING LOAD (2026-11-06 dtcc-stall REPAIR, KEEP ALIVE) ───────────
+//
+// Live 2026-11-06: an EVENTLOOP-LAG row of 7.7-10.2 s about 5 minutes after
+// 26 of that day's 39 boots — the eager boot poll finishing its zip download
+// and then running loadSeenIds synchronously (gunzipSync of the 139 MB index,
+// split into 6.94M strings, a 6.94M-entry Set). Reproduced locally on a
+// synthetic 6.94M-ID index: 8.4 s in one block (gunzip 0.8 s, split 1.7 s,
+// Set build 5.0 s). The refresh path now loads through loadSeenIdsAsync
+// below: the index is STREAMED (createReadStream -> createGunzip, both under
+// stream.pipeline so a read error rejects instead of going unhandled), split
+// on "\n" at the byte level chunk by chunk, and the loop gets a turn at least
+// every DTCC_ASYNC_SLICE_MS. The new Set is private until it is COMPLETE and
+// only then installed as `seenIds`, so a dedup decision never sees a partial
+// set; a refresh that arrives while it loads awaits the same load. The sync
+// loadSeenIds below stays, unchanged, for direct callers.
+
+/** Longest stretch (ms) the non-blocking DTCC paths run before handing the
+ *  event loop a turn. server/eventLoopLag.ts alerts (EVENTLOOP-LAG) at 500 ms;
+ *  the gzip work itself runs on the libuv threadpool, off the loop. */
+export const DTCC_ASYNC_SLICE_MS = 8;
+
+const yieldToLoop = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
+
+/** A file's bytes as a stream: plain, or gunzipped with every gzip member
+ *  read. stream.pipeline (never .pipe()) so a read error on the file destroys
+ *  the gunzip stream with that error and the consumer's for-await rejects —
+ *  an unlistened 'error' on the source would otherwise end the process. */
+function fileByteStream(file: string, gunzip: boolean): Readable {
+  const src = fs.createReadStream(file);
+  if (!gunzip) return src;
+  const gz = zlib.createGunzip();
+  pipeline(src, gz, () => { /* any error has already destroyed gz; the consumer's for-await rejects with it */ });
+  return gz;
+}
+
+/** Calls onLine(buf, start, end) for each "\n"-separated line of a byte
+ *  stream — the same lines `text.split("\n")` + `if (line)` gives on the
+ *  decoded text: no trimming, "\r" kept, empty lines skipped, a final
+ *  unterminated line kept (0x0A never occurs inside a multi-byte UTF-8
+ *  sequence, so splitting the bytes first is exact). The pieces of a line
+ *  that straddles chunks are joined once, when its "\n" arrives (each byte is
+ *  copied at most once, however long the line). Yields to the loop whenever a
+ *  slice has run DTCC_ASYNC_SLICE_MS, even when the stream hands chunks over
+ *  back to back through microtasks. Rejects if the stream errors. */
+async function forEachLine(input: AsyncIterable<Buffer>, onLine: (buf: Buffer, start: number, end: number) => void): Promise<void> {
+  let pending: Buffer[] = [];
+  let sliceStart = performance.now();
+  for await (const chunk of input) {
+    let start = 0;
+    for (;;) {
+      const nl = chunk.indexOf(10, start);
+      if (nl === -1) break;
+      if (pending.length) {
+        pending.push(chunk.subarray(start, nl));
+        const line = Buffer.concat(pending);
+        pending = [];
+        if (line.length) onLine(line, 0, line.length);
+      } else if (nl > start) {
+        onLine(chunk, start, nl);
+      }
+      start = nl + 1;
+    }
+    if (start < chunk.length) pending.push(chunk.subarray(start));
+    if (performance.now() - sliceStart >= DTCC_ASYNC_SLICE_MS) {
+      await yieldToLoop();
+      sliceStart = performance.now();
+    }
+  }
+  if (pending.length) {
+    const line = Buffer.concat(pending);
+    if (line.length) onLine(line, 0, line.length);
+  }
+}
+
+/** Non-blocking twin of readSeenIdsIndex: same null-vs-Set contract (null =
+ *  no index, or it failed to read — the caller falls back to the day-file
+ *  scan exactly as before), same lines, streamed. */
+async function readSeenIdsIndexAsync(dir: string): Promise<Set<string> | null> {
+  const file = seenIdsIndexPath(dir);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const seen = new Set<string>();
+    await forEachLine(fileByteStream(file, true), (buf, start, end) => { seen.add(buf.toString("utf8", start, end)); });
+    return seen;
+  } catch (e) {
+    console.error("[datacore] dtccswaps readSeenIdsIndex:", e);
+    return null;
+  }
+}
+
+/** Non-blocking twin of writeSeenIdsIndex: the same text (Array.from order,
+ *  one ID per line, a trailing "\n" when non-empty) streamed through gzip
+ *  into a temp file, then renamed over the index in one step, so a crash
+ *  mid-write never leaves a half-written index behind. */
+async function writeSeenIdsIndexAsync(dir: string, ids: Set<string>): Promise<void> {
+  const file = seenIdsIndexPath(dir);
+  const tmp = `${file}.rebuild.tmp`;
+  try {
+    await fs.promises.mkdir(dir, { recursive: true });
+    const gz = zlib.createGzip();
+    const written = new Promise<void>((resolve, reject) => {
+      pipeline(gz, fs.createWriteStream(tmp), (err) => (err ? reject(err) : resolve()));
+    });
+    let batch: string[] = [];
+    for (const id of ids) {
+      batch.push(id);
+      if (batch.length >= 50_000) {
+        if (!gz.write(batch.join("\n") + "\n")) await once(gz, "drain");
+        batch = [];
+      }
+    }
+    if (batch.length) gz.write(batch.join("\n") + "\n");
+    gz.end();
+    await written;
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    console.error("[datacore] dtccswaps writeSeenIdsIndex:", e);
+    fs.rm(tmp, { force: true }, (rmErr) => {
+      if (rmErr) console.error("[datacore] dtccswaps writeSeenIdsIndex: could not remove the temp file:", rmErr);
+    });
+  }
+}
+
+/** Non-blocking twin of loadSeenIds — the identical Set (same members, same
+ *  insertion order), the identical fallback (no readable index -> scan the
+ *  name-anchored day files in readdir order, stop at the first unreadable
+ *  one, count malformed lines, persist the index), with every file streamed
+ *  and the loop yielded to between slices. Never touches `seenIds`: the
+ *  caller installs the result once it is complete. */
+export async function loadSeenIdsAsync(dir: string): Promise<Set<string>> {
+  const indexed = await readSeenIdsIndexAsync(dir);
+  if (indexed) return indexed;
+
+  const seen = new Set<string>();
+  let malformedLines = 0;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!/^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
+      await forEachLine(fileByteStream(path.join(dir, f), f.endsWith(".gz")), (buf, start, end) => {
+        try { seen.add(JSON.parse(buf.toString("utf8", start, end)).disseminationId); }
+        catch { malformedLines++; }
+      });
+    }
+  } catch (e) {
+    console.error("[datacore] dtccswaps loadSeenIds:", e);
+  }
+  if (malformedLines) {
+    console.error(`[datacore] dtccswaps loadSeenIds: ${malformedLines} malformed archive line(s) skipped`);
+  }
+  await writeSeenIdsIndexAsync(dir, seen);
+  return seen;
+}
+
+/** Bumped by _resetDtccForTests so a load that started before a reset can
+ *  never install its Set afterwards. */
+let seenIdsEpoch = 0;
+let seenIdsLoad: { epoch: number; promise: Promise<void> } | null = null;
+
+/** The memory path's Set, loaded WITHOUT blocking the loop (single flight).
+ *  Concurrent callers await the same load; the Set is installed only when
+ *  complete, and never over a Set someone loaded synchronously meanwhile
+ *  (that one may already hold newer IDs). */
+async function ensureSeenIdsLoaded(dir: string): Promise<Set<string>> {
+  for (;;) {
+    const loaded = seenIds;
+    if (loaded) return loaded;
+    const epoch = seenIdsEpoch;
+    let load = seenIdsLoad;
+    if (!load || load.epoch !== epoch) {
+      const promise = loadSeenIdsAsync(dir).then((built) => {
+        if (seenIdsEpoch === epoch && !seenIds) seenIds = built;
+      });
+      const entry = { epoch, promise };
+      const clear = () => { if (seenIdsLoad === entry) seenIdsLoad = null; };
+      promise.then(clear, clear);
+      seenIdsLoad = entry;
+      load = entry;
+    }
+    await load.promise;
   }
 }
 
@@ -620,6 +820,17 @@ function readyIdsStoreSync(dir: string): DtccIdsStore | null {
   return store.backfill.state === "failed" ? null : store;
 }
 
+/** The refresh path's twin of readyIdsStoreSync: the same store, the same
+ *  degrade-to-memory contract, but a still-pending (or earlier failed)
+ *  backfill is retried through the STREAMED ensureReadyAsync, never the
+ *  whole-index gunzipSync of ensureReadySync. */
+async function readyIdsStoreAsync(dir: string): Promise<DtccIdsStore | null> {
+  const store = openIdsStore(dir);
+  if (!store) return null;
+  if (!store.isReady) await store.ensureReadyAsync();
+  return store.backfill.state === "failed" ? null : store;
+}
+
 /** Boot path (refreshDtccSwaps): the streamed backfill, awaited BEFORE the
  *  zip stream so the two never overlap in memory. No-op in memory mode. */
 export async function ensureDtccIdsReady(baseDir?: string): Promise<void> {
@@ -646,20 +857,24 @@ function compareIdsDecisions(memFresh: DtccSwapRow[], dbFresh: DtccSwapRow[]): v
 
 /** Archive-wide distinct-ID count for `totalArchived` when nothing was
  *  archived this cycle: the Set's size (memory/dual — the served answer) or
- *  the DB's (sqlite). */
-function seenIdsTotal(dir: string): number {
+ *  the DB's (sqlite). Its one caller is the refresh path's disk backfill, so
+ *  (2026-11-06) the Set loads / the store backfills without blocking the
+ *  loop; the count itself is unchanged. */
+async function seenIdsTotalAsync(dir: string): Promise<number> {
   if (dtccIdsMode() === "sqlite") {
-    const store = readyIdsStoreSync(dir);
+    const store = await readyIdsStoreAsync(dir);
     if (store) return store.count();
   }
-  if (!seenIds) seenIds = loadSeenIds(dir);
-  return seenIds.size;
+  return (await ensureSeenIdsLoaded(dir)).size;
 }
 
 export interface DtccIdsStats {
   mode: DtccIdsMode;
   /** Set size, or null when the Set has not been built (sqlite mode's win). */
   memoryCount: number | null;
+  /** true while the non-blocking load (loadSeenIdsAsync) is building the Set;
+   *  memoryCount stays null until it is complete and installed. */
+  memoryLoading: boolean;
   /** DB distinct-id count, or null when no DB has been opened (memory mode). */
   dbCount: number | null;
   /** dual-mode disagreements (decision or count) since boot. */
@@ -684,6 +899,7 @@ export function dtccIdsStats(): DtccIdsStats {
   return {
     mode: dtccIdsMode(),
     memoryCount: seenIds ? seenIds.size : null,
+    memoryLoading: seenIdsLoad !== null,
     dbCount: open ? open.count() : null,
     mismatches: idsMismatches,
     lastMismatch: idsLastMismatch,
@@ -700,28 +916,59 @@ export function dtccIdsStats(): DtccIdsStats {
 
 export function _resetDtccForTests(): void {
   seenIds = null; cache = null; refreshing = false;
+  seenIdsEpoch++; seenIdsLoad = null;
   closeIdsStore();
   idsStoreError = null; idsMismatches = 0; idsLastMismatch = null; idsLastLookupMs = null; idsLastLookupRows = null;
   idsDiskGuard = { active: false, reason: null, freeBytes: null, at: null };
 }
 
-/** Appends only rows whose Dissemination Identifier has never been archived
- *  before, to <archive>/dtccswaps/<observedDate>.jsonl.gz (one file per
- *  calendar day this pipeline RAN, not per event date — events span years).
- *  Returns { newRows, seenTotal }. */
-export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDir?: string): { newRows: number; seenTotal: number } {
-  const dir = dtccDir(baseDir);
-  fs.mkdirSync(dir, { recursive: true });
-  const mode = dtccIdsMode();
-  // dual/sqlite: the store, or null when it could not open/backfill — then
-  // this call runs the memory path (already logged by the store helpers).
-  const store = mode === "memory" ? null : readyIdsStoreSync(dir);
+interface FreshDecision {
+  /** Rows whose Dissemination Identifier was never archived (the served verdict). */
+  fresh: DtccSwapRow[];
+  store: DtccIdsStore | null;
+  total: () => number;
+  dualCountCheck: () => void;
+}
+
+/** Bumped every time decideFresh records fresh IDs in the Set: lets a verdict
+ *  computed in slices (freshInSlices) prove nothing was claimed meanwhile. */
+let seenIdsMutations = 0;
+
+/** The memory verdict computed in slices for the refresh path — exactly
+ *  `rows.filter((r) => !set.has(r.disseminationId))` (136.7k lookups ≈ 210 ms
+ *  in one go at 6.94M IDs, measured 2026-11-06), the loop yielded to between
+ *  slices. Claims nothing: decideFresh records the IDs, in one turn, and only
+ *  uses this verdict if the Set is still the same object and unmutated. */
+interface SlicedVerdict { set: Set<string>; mutations: number; fresh: DtccSwapRow[] }
+async function freshInSlices(rows: DtccSwapRow[], set: Set<string>): Promise<SlicedVerdict> {
+  const mutations = seenIdsMutations;
+  const fresh: DtccSwapRow[] = [];
+  let sliceStart = performance.now();
+  for (let i = 0; i < rows.length; i++) {
+    if (!set.has(rows[i].disseminationId)) fresh.push(rows[i]);
+    if ((i & 1023) === 1023 && performance.now() - sliceStart >= DTCC_ASYNC_SLICE_MS) {
+      await yieldToLoop();
+      sliceStart = performance.now();
+    }
+  }
+  return { set, mutations, fresh };
+}
+
+/** The dedup decision both archive paths share. The Set update happens in
+ *  the same turn as the final verdict, so no other archive call can
+ *  interleave between deciding a row is fresh and recording it as seen. A
+ *  verdict precomputed in slices is used only when the Set it was computed
+ *  against is still installed and nothing was recorded since; otherwise it is
+ *  recomputed here, synchronously (never stale). */
+function decideFresh(rows: DtccSwapRow[], dir: string, mode: DtccIdsMode, store: DtccIdsStore | null, sliced?: SlicedVerdict): FreshDecision {
   const useMemory = mode !== "sqlite" || !store;
   let memFresh: DtccSwapRow[] | null = null;
   let dbFresh: DtccSwapRow[] | null = null;
   if (useMemory) {
     if (!seenIds) seenIds = loadSeenIds(dir);
-    memFresh = rows.filter((r) => !seenIds!.has(r.disseminationId));
+    memFresh = sliced && sliced.set === seenIds && sliced.mutations === seenIdsMutations
+      ? sliced.fresh
+      : rows.filter((r) => !seenIds!.has(r.disseminationId));
   }
   if (store) {
     const t0 = performance.now();
@@ -743,30 +990,110 @@ export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDi
       if (seenIds!.size !== dbCount) idsMismatch("count", `set ${seenIds!.size} vs db ${dbCount} after this poll`);
     }
   };
-  if (!fresh.length) { dualCountCheck(); return { newRows: 0, seenTotal: total() }; }
-  if (seenIds) fresh.forEach((r) => seenIds!.add(r.disseminationId));
+  if (fresh.length && seenIds) {
+    fresh.forEach((r) => seenIds!.add(r.disseminationId));
+    seenIdsMutations++;
+  }
+  return { fresh, store, total, dualCountCheck };
+}
+
+function dayFilePath(dir: string, observedDate: string): string {
+  return path.join(dir, `${observedDate}.jsonl.gz`);
+}
+
+/** AFTER the day file and the index: a crash between them leaves the db
+ *  BEHIND the index, which the next boot's backfill heals; the reverse order
+ *  could record an id whose row never reached the archive. */
+function insertFreshIds(store: DtccIdsStore | null, freshIds: string[]): void {
+  if (!store) return;
   try {
-    const file = path.join(dir, `${observedDate}.jsonl.gz`);
-    const existing = fs.existsSync(file) ? zlib.gunzipSync(fs.readFileSync(file)).toString("utf8") : "";
-    const payload = existing + fresh.map((r) => JSON.stringify(r)).join("\n") + "\n";
-    fs.writeFileSync(file, zlib.gzipSync(payload));
+    store.insertMany(freshIds);
+  } catch (e) {
+    idsEmit("DTCC-IDS-DB-ERROR", `insert of ${freshIds.length} ids failed: ${e instanceof Error ? e.message : String(e)} — the next boot's backfill re-imports them from the compact index`);
+  }
+}
+
+/** Appends only rows whose Dissemination Identifier has never been archived
+ *  before, to <archive>/dtccswaps/<observedDate>.jsonl.gz (one file per
+ *  calendar day this pipeline RAN, not per event date — events span years).
+ *  Returns { newRows, seenTotal }. Synchronous, for direct callers; the
+ *  refresh path runs archiveNewRowsAsync (same decision, same bytes on disk,
+ *  without blocking the loop). The day file gets the fresh rows as one NEW
+ *  gzip member (2026-11-06; it was gunzipped, concatenated and re-gzipped
+ *  whole): the same JSONL text for every reader, without re-reading or
+ *  rewriting the rows already archived that day. */
+export function archiveNewRows(rows: DtccSwapRow[], observedDate: string, baseDir?: string): { newRows: number; seenTotal: number } {
+  const dir = dtccDir(baseDir);
+  fs.mkdirSync(dir, { recursive: true });
+  const mode = dtccIdsMode();
+  // dual/sqlite: the store, or null when it could not open/backfill — then
+  // this call runs the memory path (already logged by the store helpers).
+  const store = mode === "memory" ? null : readyIdsStoreSync(dir);
+  const d = decideFresh(rows, dir, mode, store);
+  if (!d.fresh.length) { d.dualCountCheck(); return { newRows: 0, seenTotal: d.total() }; }
+  try {
+    fs.appendFileSync(dayFilePath(dir, observedDate), zlib.gzipSync(d.fresh.map((r) => JSON.stringify(r)).join("\n") + "\n"));
   } catch (e) {
     console.error("[datacore] dtccswaps archive:", e);
   }
-  const freshIds = fresh.map((r) => r.disseminationId);
+  const freshIds = d.fresh.map((r) => r.disseminationId);
   appendSeenIdsIndex(dir, freshIds);
-  if (store) {
-    // AFTER the day file and the index: a crash between them leaves the db
-    // BEHIND the index, which the next boot's backfill heals; the reverse
-    // order could record an id whose row never reached the archive.
-    try {
-      store.insertMany(freshIds);
-    } catch (e) {
-      idsEmit("DTCC-IDS-DB-ERROR", `insert of ${freshIds.length} ids failed: ${e instanceof Error ? e.message : String(e)} — the next boot's backfill re-imports them from the compact index`);
+  insertFreshIds(d.store, freshIds);
+  d.dualCountCheck();
+  return { newRows: d.fresh.length, seenTotal: d.total() };
+}
+
+/** JSON lines for the day file, serialized in slices (128k rows ≈ 190 ms of
+ *  JSON.stringify in one go, measured 2026-11-06). Same text as
+ *  `rows.map((r) => JSON.stringify(r)).join("\n") + "\n"`. */
+async function jsonlPayloadAsync(rows: DtccSwapRow[]): Promise<string> {
+  const parts = new Array<string>(rows.length);
+  let sliceStart = performance.now();
+  for (let i = 0; i < rows.length; i++) {
+    parts[i] = JSON.stringify(rows[i]);
+    if ((i & 1023) === 1023 && performance.now() - sliceStart >= DTCC_ASYNC_SLICE_MS) {
+      await yieldToLoop();
+      sliceStart = performance.now();
     }
   }
-  dualCountCheck();
-  return { newRows: fresh.length, seenTotal: total() };
+  return parts.join("\n") + "\n";
+}
+
+/** archiveNewRows for the refresh path (2026-11-06 dtcc-stall REPAIR): the
+ *  Set is loaded (or the store backfilled) without blocking the loop and
+ *  awaited BEFORE the decision, so a dedup never runs against a partial set;
+ *  the decision is the shared synchronous decideFresh; the day file and the
+ *  index get exactly the bytes archiveNewRows writes, compressed on the
+ *  threadpool. Same order of writes (day file, index, store), same
+ *  return value, same log lines. */
+export function archiveNewRowsAsync(rows: DtccSwapRow[], observedDate: string, baseDir?: string): Promise<{ newRows: number; seenTotal: number }> {
+  // One at a time: the refresh is already single-flight, and chaining keeps
+  // any other concurrent caller from interleaving its writes or its total
+  // with another call's (the caller still receives its own rejection).
+  const run = archiveChain.then(() => archiveNewRowsOnce(rows, observedDate, baseDir));
+  archiveChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+let archiveChain: Promise<void> = Promise.resolve();
+
+async function archiveNewRowsOnce(rows: DtccSwapRow[], observedDate: string, baseDir?: string): Promise<{ newRows: number; seenTotal: number }> {
+  const dir = dtccDir(baseDir);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const mode = dtccIdsMode();
+  const store = mode === "memory" ? null : await readyIdsStoreAsync(dir);
+  const sliced = mode !== "sqlite" || !store ? await freshInSlices(rows, await ensureSeenIdsLoaded(dir)) : undefined;
+  const d = decideFresh(rows, dir, mode, store, sliced);
+  if (!d.fresh.length) { d.dualCountCheck(); return { newRows: 0, seenTotal: d.total() }; }
+  try {
+    await fs.promises.appendFile(dayFilePath(dir, observedDate), await gzipAsync(await jsonlPayloadAsync(d.fresh)));
+  } catch (e) {
+    console.error("[datacore] dtccswaps archive:", e);
+  }
+  const freshIds = d.fresh.map((r) => r.disseminationId);
+  await appendSeenIdsIndexAsync(dir, freshIds);
+  insertFreshIds(d.store, freshIds);
+  d.dualCountCheck();
+  return { newRows: d.fresh.length, seenTotal: d.total() };
 }
 
 /** Most recently archived day's rows (plain or gz), walked backward up to
@@ -943,7 +1270,7 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
           if (backfill) {
             cache = {
               at: Date.now(), fileDate: backfill.fileDate, sourceDate: "",
-              usRows: backfill.rows.length, newRows: 0, totalArchived: seenIdsTotal(dtccDir(baseDir)),
+              usRows: backfill.rows.length, newRows: 0, totalArchived: await seenIdsTotalAsync(dtccDir(baseDir)),
               topRows: topNotionalRows(backfill.rows),
             };
             console.log(`[datacore] dtccswaps: live walk found nothing — backfilled from archived ${backfill.fileDate} (${backfill.rows.length} rows)`);
@@ -952,7 +1279,9 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
         return;
       }
       const observedDate = now.toISOString().slice(0, 10);
-      const { newRows, seenTotal } = archiveNewRows(foundRows, observedDate, baseDir);
+      // async twin: the Set loads (and the day file / index compress) without
+      // blocking the loop — the 7.7-10.2 s EVENTLOOP-LAG after each boot
+      const { newRows, seenTotal } = await archiveNewRowsAsync(foundRows, observedDate, baseDir);
       cache = {
         at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows,
         totalArchived: seenTotal, topRows: topNotionalRows(foundRows),
