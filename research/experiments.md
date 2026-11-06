@@ -116000,3 +116000,30 @@ DOWNSTREAM: (1) the SPY-bars fetch for the benchmark/scoreboard spans from the c
 ROLLBACK TRIGGER: a curve that loses its newest row or exceeds 3660 rows -> revert.
 TESTS: server/equityCurveRetention.test.ts (5; the real recordDailyEquity cut out of bot.ts: a full 3660-row curve records today and drops the oldest; the old bug's 365-row state records day 366; a same-day call updates in place and persists; the load slice uses the cap; the cap is 3660). 4 of the 5 fail on main's code. diag.test.ts passes; tsc 6; counter ratchet OK.
 STARVED: no.
+
+## 2026-11-06 [PRODUCT] — T-CLIENT (client/src/cockpit/*, client/src/bot/BotPage.tsx, zoneModel.ts, popout.ts, panels.tsx, flipGeometry.ts) — Cockpit engine: the bot page's panel engine made generic; the bot page binds it, behavior unchanged
+VERSION: v1.0.1332 (shipped 2026-11-06 by the parent session; main was v1.0.1331)
+
+WHY. PR #1556 (draft, 2026-10-29, "Trade cockpit") put the Trade world on the bot page's panel engine and planned to ship as four one-change PRs: engine extraction, page bodies, cockpit page, nav. It never merged. The human's standing directive tonight is "no orphan PRs — every change gets merged and deployed" (refocus spec §2: "Finish and ship. No orphan PRs or half-built features") and "simplify the UI". This entry is the first of the four, ported onto tonight's bot page (Overview by default, Cockpit one press away; ce533864, e6bb3993) instead of the 2026-10-29 page the PR was cut from. The Trade page (third PR of the four) needs the same engine; a second copy would drift from the first, which is the reason the PR gave for extracting it.
+
+CHANGE. New client/src/cockpit/ holds the engine lifted out of BotPage.tsx, generic over the panel id, with no import from bot/:
+- zoneModel.ts: tiers, grid styles, the flag set, float-rect geometry. gridStyle takes a template without `scrolls`, so the bot's overview grids reuse it.
+- useCockpitLayout.ts: flags, float rects, pop-out windows and their BroadcastChannel, slot refs, hold snapshots, the chrome handlers, Esc. Its flag transitions are pure functions.
+- useNow.ts, useTier.ts, useFlip.ts (FLIP on frameCore, Law I).
+- FloatWin.tsx, icons.tsx, popout.ts (pane URL, window name and features, channel message parsing).
+
+client/src/bot/ binds the engine and keeps every export it had:
+- zoneModel.ts keeps PanelId, both views' templates (TEMPLATES, OVERVIEW_TEMPLATES), MODE_PANELS, botModeFrom and the typed LayoutFlags / EMPTY_FLAGS.
+- popout.ts keeps the bot's prefix (#/bot/pane/), channel (vt-bot-panes) and window names (vt-pane-<id>).
+- panels.tsx re-exports ICONS and a Chrome type that is generic over the id.
+- flipGeometry.ts re-exports.
+
+BotPage.tsx runs useCockpitLayout. The DOM, classes, data-attributes, FLIP label (bot-page-flip), pane tab title and focus-symbol channel messages are the same. The view switch docks every window through applyDockAll, which is the same update the page made inline. The page is 384 lines, down from 558.
+
+DOWNSTREAM (2 steps). (1) The bot page's handlers now come from the engine. The flag updates are the same pure functions, now tested headless, with the same channel name and messages and the same pane URL and window name. The harness's pop-out check pins `#/bot/pane/chart` and `vt-pane-chart`. (2) Nothing about data changes: useBotData, the Overview's routes and the polling cadence are untouched. The shared engine code moves out of the bot module into its own module in the bundle.
+
+ROLLBACK TRIGGER. Any bot page control (hold, pin, window, zoom, own window, Esc, the Overview · Cockpit switch) behaving differently on the live site from before this deploy, or a bot / botidle / botpane harness hard failure: revert this commit. Nothing depends on it until the Trade page PR.
+
+TESTS. 19 new engine tests: cockpit/zoneModel.test.ts (6), popout.test.ts (5), useCockpitLayout.test.ts (8). Every bot test is unchanged. The bot, chart and cockpit suites pass 161/161; tradeChartGuards.test.ts (which reads bot/panels.tsx) passes 7/7. `npx tsc --noEmit -p .` gives 6 errors, the same set as the tip. scripts/counter_ratchet.sh is OK (tests_run_in_ci 807 -> 810, assertions 32234 -> 32335, no counter worse). test_ts_code_only.py: 11 passed. Visual harness at 390/768/1440, plus 1920 for bot: botpane, bot and botidle 0 hard failures. The bot run's warnings are a subset of the ui agent's run on the same tip, and none are new.
+
+STARVED: no.
