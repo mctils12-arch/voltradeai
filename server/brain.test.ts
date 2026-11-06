@@ -335,3 +335,21 @@ test("wiring: /api/bot/brain is owner-only, cached 10 min, daemon-first with a n
   assert.equal(plan.lane, "mutex");
   assert.ok(plan.timeoutMs <= 90_000 && plan.timeoutMs >= 60_000);
 });
+
+test("composite v2 (2026-11-06): the terms the served score holds neutral read shadow, with the reason; v2 off restores 'scored'", () => {
+  const live = { ...BRAIN_CONFIG_MIRROR, SHADOW_ENTRY_SLEEVES: "off" };
+  for (const id of ["volume", "vol_premium", "rel_strength", "ml_v2"]) {
+    const s = status(id, {}, live);
+    assert.equal(s.status, "shadow", id);
+    assert.equal(s.status_source, "config", id);
+    assert.match(s.detail, /held at its neutral value in the served score \(composite v2, SCORE_COMPOSITE_V2/, id);
+  }
+  assert.match(status("volume", {}, live).detail, /anti-predictive in the 2017-2026 point-in-time walk-forward/);
+  assert.match(status("ml_v2", {}, live).detail, /no honest out-of-sample test/);
+  assert.equal(status("momentum", {}, live).status, "live", "an untouched term keeps the scored rule");
+  const v2Off = { ...live, SCORE_COMPOSITE_V2_neutralize: [], SCORE_COMPOSITE_V2_ml_neutral: false };
+  for (const id of ["volume", "vol_premium", "rel_strength", "ml_v2"]) {
+    assert.deepEqual(status(id, {}, v2Off), status("momentum", {}, v2Off), id);
+  }
+  assert.deepEqual(status("volume", {}, { ...live, SCORE_COMPOSITE_V2_neutralize: ["rel_strength"] }), status("momentum", {}, live));
+});

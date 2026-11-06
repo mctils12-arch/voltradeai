@@ -71,6 +71,12 @@ def config_snapshot() -> dict:
     out = {k: BASE_CONFIG.get(k) for k in CONFIG_KEYS}
     cvx = BASE_CONFIG.get("CONVEXITY_OVERLAY") or {}
     out["CONVEXITY_OVERLAY_enabled"] = bool(cvx.get("enabled")) if isinstance(cvx, dict) else None
+    # COMPOSITE v2 (2026-11-06): which score terms the SERVED score holds
+    # neutral (empty when v2 is off) — the Brain shows them as shadow.
+    from score_composite import v2_config
+    v2 = v2_config(BASE_CONFIG.get("SCORE_COMPOSITE_V2"))
+    out["SCORE_COMPOSITE_V2_neutralize"] = list(v2["neutralize"]) if v2["enabled"] else []
+    out["SCORE_COMPOSITE_V2_ml_neutral"] = bool(v2["enabled"] and v2["ml_neutral"])
     try:
         from tiered_strategy import TIERS_ENABLED
         out["TIERS_ENABLED"] = {str(k): bool(v) for k, v in TIERS_ENABLED.items()}
