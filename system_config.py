@@ -880,6 +880,16 @@ BASE_CONFIG = {
     # exposure cap for new stock entries (unchanged here). Rollback without
     # a deploy: env VOLTRADE_SHADOW_ENTRIES=stocks,options (or =options).
     "SHADOW_ENTRY_SLEEVES": "off",
+    # DECISION JOURNAL 2026-11-06 (human refocus spec §7 "log every signal,
+    # decision, and outcome"; decision_journal.py, Node mirror
+    # server/decisionJournal.ts): one row per entry / exit / skip with the
+    # stages behind it (regime, sector, selection sub-scores, options,
+    # instrument alternatives, sizing) in DATA_DIR/voltrade_decisions.jsonl,
+    # rotated to .1 above max_bytes. Logging only — no order, size or gate
+    # reads it. Prior behaviour: none (no key). Expected effect: a few dozen
+    # rows a day (~50 KB). Off switch: enabled False, or env
+    # VOLTRADE_DECISION_JOURNAL=off (wins whenever present, no deploy).
+    "DECISION_JOURNAL": {"enabled": True, "max_bytes": 5_000_000},
     # Target universe size — top N scored candidates per cycle
     "T1_UNIVERSE_MAX_SIZE": 200,
     # REGIME-SPECIFIC STOP SCALARS 2026-04-22

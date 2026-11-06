@@ -386,6 +386,12 @@ def log_masterkill_csp_shadow(ctx: TierContext, kill_reason: str) -> int:
         shadow_actions = tier1_csp_core(ctx)
         if not shadow_actions:
             return 0
+        # DECISION JOURNAL 2026-11-06: the blocked CSPs as skip decisions (logging only).
+        try:
+            import decision_journal
+            decision_journal.record_tier_kill(shadow_actions, kill_reason, regime=ctx.regime, vxx_ratio=ctx.vxx_ratio)
+        except Exception as _dj_err:
+            logger.warning(f"decision journal (master kill) failed, shadow log unaffected: {_dj_err}")
 
         from csp_universe import _load_layer2_cache
         _layer2 = _load_layer2_cache() or {}
@@ -448,6 +454,13 @@ def log_csp_gate_shadow(rejections: list) -> dict:
         if not isinstance(rejections, list) or not rejections:
             return out
         out["received"] = len(rejections)
+        # DECISION JOURNAL 2026-11-06: the real refusals (rejected_*) as skip
+        # decisions; shadow-only would_reject_* verdicts are not decisions.
+        try:
+            import decision_journal
+            decision_journal.record_tier_rejections(rejections)
+        except Exception as _dj_err:
+            logger.warning(f"decision journal (CSP refusals) failed, shadow log unaffected: {_dj_err}")
         import shadow_portfolio
         prices = _layer2_price_lookup()
         for r in rejections:

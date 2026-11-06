@@ -85,6 +85,8 @@ import { AUDIT_PRUNE_EVERY_INSERTS, ensureAuditSchema, parseAuditSince, pruneAud
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
 import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
 import { isEntryShadowed, entryShadowStatus, ShadowEntryBook, shadowEntryAuditLine, SHADOW_ORDER_STATUS, SHADOW_REPEAT_DECISION, type NodeShadowEntry, type EntrySleeve } from "./entryShadow";
+import { appendDecisions, decisionsDir, decisionsQuery, entryDecision, exitDecision, readDecisions, skipDecision, tierDecision, type DecisionRow } from "./decisionJournal";
+import { BACKFILL_AUDIT_LIMIT, BACKFILL_AUDIT_TYPES, BACKFILL_WINDOW_DAYS, DECISION_BACKFILL_DELAY_MS, DECISION_BACKFILL_MAX_ATTEMPTS, DECISION_BACKFILL_RETRY_MS, backfillAuditLine, backfillDone, buildBackfill, writeBackfill } from "./decisionBackfill";
 import { aircraftProviderCompliance } from "./providerCompliance";
 import { computeLagMs, lagExceedsThreshold, EVENTLOOP_LAG_CHECK_MS } from "./eventLoopLag";
 import { cleanupOrphanedTempFiles, TMP_CLEANUP_INTERVAL_MS, TMP_CLEANUP_AUDIT_THRESHOLD } from "./tmpCleanup";
@@ -304,6 +306,19 @@ function recordEntryFill(payload: ReturnType<typeof buildEntryFillPayload>) {
 }
 
 
+
+// DECISION JOURNAL (2026-11-06, server/decisionJournal.ts): append decision
+// rows. Never throws — the journal must never stand between a decision and
+// its order. Calls inside syncMonitoredPositions' per-position loop are
+// written `typeof journalDecisions === "function"`-guarded: test harnesses
+// run that loop body standalone.
+function journalDecisions(rows: ReadonlyArray<DecisionRow | null>): void {
+  try {
+    appendDecisions(decisionsDir(), rows);
+  } catch (err) {
+    console.error("[decision-journal]", err instanceof Error ? err.message : err);
+  }
+}
 
 // ─── Python Subprocess Serialization (OOM fix) ─────────────────────────────
 // At most 1 heavy Python subprocess at a time. Each Python invocation imports
@@ -3023,6 +3038,42 @@ print(json.dumps({
     res.json(await taxRouteBody(req.query.limit));
   });
 
+  // DECISION JOURNAL (2026-11-06, server/decisionJournal.ts): newest-first
+  // entry / exit / skip decisions with the stages behind each — the Bot
+  // page's per-pick cards. ?ticker matches the underlying or the ordered
+  // symbol; ?limit 1..500 (default 50). Same rows as the "decisions" probe.
+  app.get("/api/bot/decisions", requireOwner, (req, res) => {
+    res.json(readDecisions(decisionsDir(), decisionsQuery(req.query as Record<string, unknown>)));
+  });
+
+  // ONE-TIME BACKFILL of the journal (server/decisionBackfill.ts) from the
+  // sleeve ledger's lots + fills and the audit log, so the cards are not empty
+  // on day one. Runs once the sleeve cache is warm; the backfill file's
+  // existence is the marker (never rerun, never appended to). Read-only
+  // except that one file: one /v2/positions GET, audit queries.
+  async function runDecisionBackfill(attempt = 1): Promise<void> {
+    const dir = decisionsDir();
+    if (backfillDone(dir)) return;
+    await sleevesBody();
+    const positions = parsePositions(await alpaca("/v2/positions"));
+    if (!sleeveCache || !positions) {
+      if (attempt < DECISION_BACKFILL_MAX_ATTEMPTS) setTimeout(() => { void runDecisionBackfill(attempt + 1).catch(noteDecisionBackfillError); }, DECISION_BACKFILL_RETRY_MS).unref();
+      return;
+    }
+    const since = new Date(Date.now() - BACKFILL_WINDOW_DAYS * 86_400_000).toISOString();
+    const auditRows: AuditRow[] = [];
+    for (const type of BACKFILL_AUDIT_TYPES) auditRows.push(...queryAuditLog(db, { limit: BACKFILL_AUDIT_LIMIT, type, since }));
+    const built = buildBackfill({
+      events: sleeveCache.taxInputs.events, fills: sleeveCache.taxInputs.fills, positions,
+      audit: auditRows, floorTickers: FLOOR_AND_LEG_TICKERS, nowMs: Date.now(),
+    });
+    audit("DECISION-BACKFILL", backfillAuditLine(built, writeBackfill(dir, built.rows)));
+  }
+  function noteDecisionBackfillError(err: unknown): void {
+    audit("DECISION-BACKFILL", `failed (measurement only, nothing traded): ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`);
+  }
+  setTimeout(() => { void runDecisionBackfill().catch(noteDecisionBackfillError); }, DECISION_BACKFILL_DELAY_MS).unref();
+
   // ── Trade History CSV Export ─────────────────────────────────────────────
   app.get("/api/bot/export-trades", requireOwner, async (_req, res) => {
     try {
@@ -3725,6 +3776,14 @@ print(json.dumps(s))
             fetchedAt: sleeveCache ? new Date(sleeveCache.at).toISOString() : null,
             pending: !sleeveCache, lastError: sleeveError, rows,
           });
+        }
+        case "decisions": {
+          // ADDED 2026-11-06 (see diag.ts): the decision journal — the SAME
+          // rows as the owner's /api/bot/decisions, sanitized one by one,
+          // ?limit capped at 200 (the sanitizer's array cap).
+          const q = decisionsQuery(req.query as Record<string, unknown>);
+          const rows = readDecisions(decisionsDir(), { ...q, limit: Math.min(q.limit ?? 50, 200) });
+          return res.json({ probe: "decisions", count: rows.length, ticker: q.ticker, rows: rows.map((r) => sanitizeDiag(r)) });
         }
         case "option_bars": {
           // ADDED 2026-11-02 (human-directed — see diag.ts): bounded
@@ -6616,6 +6675,9 @@ print(json.dumps(check_weekly_loss(history)))
       }
 
       if (isMarketOpen) {
+        // DECISION JOURNAL (2026-11-06): the scan's regime risk budget (result.risk_budget,
+        // regime_engine.risk_budget_view) rides each trade and tier action into its journal row.
+        for (const t of [...(result.new_trades || []), ...(result.tier_actions || [])]) if (t && typeof t === "object" && !("risk_budget" in t)) t.risk_budget = result.risk_budget ?? null;
         await executeTrades(result.new_trades || [], equity);
         // CAPITAL ROTATION 2026-11-06: this scan's planned swaps (position_mgmt.plan_rotations).
         await runUpgradeCandidates(parseRotationPlan(result.rotation_plan));
@@ -6734,6 +6796,7 @@ print(json.dumps(check_weekly_loss(history)))
           noteReserve("SELL_CSP", { action: "trim", qty: 0, value: tierReserve.remaining, reason: `collateral capped at $${Math.round(tierReserve.remaining)} (the room above the cash reserve) instead of $${Math.round(tierCashAvailable)} of options buying power` }, tierReserve, "tier dispatcher", tierCashAvailable);
           tierCashAvailable = tierReserve.remaining;
         }
+        const tierDecisionRows: Array<DecisionRow | null> = [];   // DECISION JOURNAL (2026-11-06)
         for (const action of result.tier_actions) {
           if (state.killSwitch) {
             for (const rest of result.tier_actions.slice(result.tier_actions.indexOf(action))) {
@@ -6859,6 +6922,7 @@ else:
                   { timeout: 30000 }
                 );
                 const r = JSON.parse(stdout.trim());
+                tierDecisionRows.push(tierDecision(action, r));
                 if (r.status === SHADOW_ORDER_STATUS) {
                   // Shadowed open: the slot and cash it WOULD have used are
                   // consumed in this loop so the rest of the batch sees the
@@ -6924,6 +6988,7 @@ else:
                     sleeve: "stocks", ticker: String(action.ticker), source: "tier_dispatcher.T3_BUY", side: "buy",
                     qty: shares, price: currentPrice, notional: shares * currentPrice, score: 0,
                   }, tierShadowEntries);
+                  tierDecisionRows.push(tierDecision(action, { status: SHADOW_ORDER_STATUS }, { qty: shares, price: currentPrice }));
                 } else if (shares > 0) {
                   const orderParams = getOrderParams(currentPrice);
                   try {
@@ -6937,6 +7002,7 @@ else:
                       }),
                     });
                     audit("T3", `BUY ${shares} ${action.ticker} @ ~$${currentPrice.toFixed(2)} | ${action.reason}`);
+                    tierDecisionRows.push(tierDecision(action, { status: t3OrderResult?.status || "submitted", order_id: t3OrderResult?.id }, { qty: shares, price: currentPrice }));
                     // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation,
                     // Tier 3 BUY): getOrderParams' 'new_entry' default is
                     // ALWAYS a DAY limit order (never market — orderParams.ts)
@@ -6956,10 +7022,12 @@ else:
                     }
                   } catch (e: any) {
                     audit("T3-FAIL", `${action.ticker}: ${e?.message?.slice(0,120)}`);
+                    tierDecisionRows.push(tierDecision(action, { status: "error", reason: String(e?.message || "order failed").slice(0, 160) }, { qty: shares, price: currentPrice }));
                   }
                 }
               } else {
                 audit("T3-SKIP", `${action.ticker}: insufficient BP or no price`);
+                tierDecisionRows.push(tierDecision(action, { status: "error", reason: "insufficient buying power or no price" }, null));
               }
             }
 
@@ -7005,6 +7073,7 @@ else:
                   { timeout: 30000 }
                 );
                 const r = JSON.parse(stdout.trim());
+                tierDecisionRows.push(tierDecision(action, r));
                 if (r.status === SHADOW_ORDER_STATUS) {
                   noteShadowEntry({
                     sleeve: "options", ticker: String(action.ticker), source: "tier_dispatcher.BUY_PUT", side: r.side || "buy",
@@ -7038,6 +7107,7 @@ else:
           }
         }
         await flushShadowEntries(tierShadowEntries, "tier dispatcher");
+        journalDecisions(tierDecisionRows);
         // One shadow-log call per dispatcher loop (see cspGateRejections above).
         if (cspGateRejections.length > 0) {
           const cspGateTmpPath = `/tmp/csp_gate_shadow_${Date.now()}.json`;
@@ -7414,10 +7484,14 @@ else:
     // rejected_exposure_cap). A `break` drops every later trade too, so the
     // remainder is labelled with the break's own reason.
     const gateRejections: Array<{ ticker: string; decision: string; reason: string }> = [];
+    // DECISION JOURNAL (2026-11-06, server/decisionJournal.ts): every entry
+    // and gate refusal below, appended in one write after the loop.
+    const decisionRows: Array<DecisionRow | null> = [];
     type GateTrade = { ticker?: string; _consumed?: boolean };
     const noteGate = (t: GateTrade | null | undefined, decision: string, reason: string) => {
       if (t && t.ticker && !t._consumed) {
         gateRejections.push({ ticker: String(t.ticker), decision, reason: String(reason).slice(0, 200) });
+        if (decision !== "rejected_held") decisionRows.push(skipDecision(t, decision, reason));
       }
     };
     const noteRemaining = (from: GateTrade, decision: string, reason: string) => {
@@ -7596,6 +7670,7 @@ else:
               price: trade.price || 0, notional: etfPlan.value, score: trade.score || 0,
               instrument: etfTicker, instrument_price: etfPrice, relabel: true,
             }, shadowEntries);
+            decisionRows.push(entryDecision(trade, { instrument: "etf", chosen: trade.instrument_strategy || "buy_etf", side: "buy", symbol: etfTicker, qty: etfShares, price: etfPrice, notional: etfPlan.value, status: "shadowed", mode: "shadow", source: "bot.ts executeTrades.etf", equity }));
             slotsUsed++;
             totalDeployed += etfPlan.value;
             continue;
@@ -7619,6 +7694,7 @@ else:
             registerScaleIn(etfScaleIn.plan, etfOrderResult?.id || null, etfScaleIn.reason);
             audit("ETF-TRADE", `${trade.side?.toUpperCase() || 'BUY'} ${etfShares} ${etfTicker} @ ~$${etfPrice.toFixed(2)} ($${etfPlan.value.toFixed(0)}, leveraged ETF for ${trade.ticker}, sizing=${trade.etf_sizing_source || "?"}) | Score: ${trade.score} | ${trade.instrument_reasoning?.slice(0, 120)}`);
             notify("trade", `ETF: ${etfShares} ${etfTicker} (leveraged ${trade.ticker})`);
+            decisionRows.push(entryDecision(trade, { instrument: "etf", chosen: trade.instrument_strategy || "buy_etf", side: "buy", symbol: etfTicker, qty: etfShares, price: etfPrice, notional: etfPlan.value, status: String(etfOrderResult?.status || "submitted"), orderId: etfOrderResult?.id ?? null, mode: "live", source: "bot.ts executeTrades.etf", equity }));
             slotsUsed++;
             totalDeployed += etfPlan.value;
             // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #32 continuation): this ETF
@@ -7790,6 +7866,7 @@ else:
                 notional: Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0,
                 score: trade.score || 0, instrument: optExec.order?.occ_symbol || trade.ticker,
               }, null);
+              decisionRows.push(entryDecision(trade, { instrument: "option", chosen: String(trade.options_strategy || optExec.strategy || ""), side: String(optExec.contract?.side || trade.side || "sell"), symbol: String(optExec.order?.occ_symbol || optExec.contract?.occ_symbol || trade.ticker), qty: Number(optExec.order?.qty) || 1, price: Number(optExec.order?.limit_price ?? optExec.contract?.limit_price) || null, notional: Number(optExec.contract?.cash_required || optExec.contract?.max_cost) || null, status: "shadowed", mode: "shadow", source: "bot.ts executeTrades.options", equity, contract: optExec.contract }));
               optionsSlotsUsed++;
               totalDeployed += optExec.contract?.max_cost || trade.position_value;
               reserve.spend(Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0);
@@ -7798,6 +7875,7 @@ else:
             if (optExec.instrument === "options" && ["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status)) {
               audit("OPTIONS-TRADE", `${(trade.options_strategy || '').toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${(optExec.reasoning || '').slice(0, 120)}`);
               notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${(trade.options_edge_pct || 0).toFixed?.(1) || '?'}%)`);
+              decisionRows.push(entryDecision(trade, { instrument: "option", chosen: String(trade.options_strategy || optExec.strategy || ""), side: String(optExec.contract?.side || optExec.order?.side || trade.side || "buy"), symbol: String(optExec.order?.occ_symbol || optExec.contract?.occ_symbol || trade.ticker), qty: Number(optExec.order?.qty ?? optExec.contract?.qty) || 1, price: Number(optExec.order?.limit_price ?? optExec.contract?.limit_price) || null, notional: Number(optExec.contract?.cash_required || optExec.contract?.max_cost) || null, status: String(optExec.order?.status), orderId: optExec.order?.order_id ?? null, mode: "live", source: "bot.ts executeTrades.options", equity, contract: optExec.contract }));
               optionsSlotsUsed++;
               totalDeployed += optExec.contract?.max_cost || trade.position_value;
               reserve.spend(Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0);
@@ -7846,6 +7924,7 @@ else:
             price: trade.price || 0, notional: trade.position_value || qty * (trade.price || 0),
             score: trade.score || 0, relabel: true,
           }, shadowEntries);
+          decisionRows.push(entryDecision(trade, { instrument: "stock", chosen: "buy_stock", side, symbol: trade.ticker, qty, price: trade.price || null, notional: trade.position_value || null, status: "shadowed", mode: "shadow", source: "bot.ts executeTrades.stock", equity }));
           slotsUsed++;
           totalDeployed += trade.position_value;
           continue;
@@ -7874,6 +7953,7 @@ else:
         const scoreAttrib = trade.rules_score != null ? ` | Rules: ${trade.rules_score} ML: ${trade.ml_score_raw ?? 'N/A'} Blend: ${trade.score}` : "";
         audit("TRADE", `${orderParams.type.toUpperCase()} ${side.toUpperCase()} ${qty} ${trade.ticker} @ ~$${trade.price} | Score: ${trade.score}${scoreAttrib} | $${trade.position_value} (${((trade.position_value / equity) * 100).toFixed(1)}%)${sizingInfo}`);
         notify("trade", `${side.toUpperCase()} ${qty} ${trade.ticker} @ $${trade.price} (${((trade.position_value / equity) * 100).toFixed(1)}% of portfolio)`);
+        decisionRows.push(entryDecision(trade, { instrument: "stock", chosen: "buy_stock", side, symbol: trade.ticker, qty, price: trade.price || null, notional: trade.position_value || null, status: String(orderResult?.status || "submitted"), orderId, mode: "live", source: "bot.ts executeTrades.stock", equity }));
         slotsUsed++;
         totalDeployed += trade.position_value;
         addPositionToMonitor(trade.ticker, "long", trade.price || 0, qty);  // Always long (short blocked)
@@ -7912,6 +7992,7 @@ else:
     }
 
     await flushShadowEntries(shadowEntries, "executeTrades");
+    journalDecisions(decisionRows);
 
     // One relabel call per admission loop (see gateRejections above).
     if (gateRejections.length > 0) {
@@ -9157,6 +9238,7 @@ except: print('{}')
               const ageDays = (Date.now() - new Date(entryTime).getTime()) / (1000 * 60 * 60 * 24);
               if (hasMark && ageDays > 14 && pnlPct >= -5.0 && pnlPct <= 2.0) {
                 audit("TIME-EXIT", `${ticker}: ${Math.round(ageDays)}d old, pnl ${pnlPct.toFixed(1)}% — closing stale`);
+                if (typeof journalDecisions === "function") journalDecisions([exitDecision({ ticker, exitType: "time_exit", reason: `${Math.round(ageDays)} days old with P&L ${pnlPct.toFixed(1)}% (inside -5%..+2%)`, side: side === "long" ? "sell" : "buy", qty, price: hasMark ? current : null, pnlPct, entryDate: entryTime, source: "bot.ts TIME-EXIT" })]);
                 try {
                   const closeSide = side === "long" ? "sell" : "buy";
                   await alpaca("/v2/orders", {
@@ -9368,6 +9450,7 @@ except: print('{}')
           }
 
           audit("POS-KILL", `${ticker}: position down ${pnlPct.toFixed(1)}% — forcing liquidation (threshold: ${POSITION_KILL_LOSS_PCT}%)`);
+          if (typeof journalDecisions === "function") journalDecisions([exitDecision({ ticker, exitType: "position_kill", reason: `down ${pnlPct.toFixed(1)}% against the ${POSITION_KILL_LOSS_PCT}% backstop${isOptionPos ? "; worked as a marketable-limit ladder" : ""}`, side: closeSide, qty, price: current, pnlPct, source: "bot.ts POS-KILL", instrument: isOptionPos ? "option" : "stock" })]);
           // ── BACKSTOP LADDER (2026-11-05, human-approved frozen-path change) ──
           // An option is not sent a market order here. posKillStartOptionLadder
           // works a marketable limit (the bid for a sell, the ask for a buy),
@@ -9834,6 +9917,7 @@ except: print('{}')
         }
 
         audit("WS-SCALE-OUT", `${scaleOutLabel} | ${orderParams.type.toUpperCase()} ${exitSide} ${scaleOutQty} of ${pos.originalQty} ${ticker} @ $${currentPrice.toFixed(2)} (${pos.remainingQty} remaining)`);
+        journalDecisions([exitDecision({ ticker, exitType: "scale_out", reason: `${scaleOutLabel} (${pos.remainingQty} of ${pos.originalQty} left)`, side: exitSide, qty: scaleOutQty, price: currentPrice, pnlPct, partial: true, entryDate: pos.entryDate, orderId: scaleOrderResult?.id ?? null, status: String(scaleOrderResult?.status || "submitted"), source: "bot.ts WS scale-out" })]);
         notify("exit", `Scale-out ${ticker}: ${scaleOutLabel}`);
 
         // Persist scale-out state to stop_state.json
@@ -10098,6 +10182,7 @@ if '${ticker}' in ss:
         : `WS ETF MAX HOLD: leveraged ETF held ${etfDaysHeld}d since ${pos.entryDate} > ${ETF_MAX_HOLD_DAYS}d limit, P&L ${pnlPct.toFixed(1)}%${scaleNote}`;
 
       audit("WS-EXIT", `${reason} | ${orderParams.type.toUpperCase()} ${exitSide} ${exitQty} ${ticker} @ $${currentPrice.toFixed(2)}`);
+      journalDecisions([exitDecision({ ticker, exitType, reason, side: exitSide, qty: exitQty, price: currentPrice, pnlPct, entryDate: pos.entryDate, orderId: orderResult?.id ?? null, status: String(orderResult?.status || "submitted"), source: "bot.ts WS exit" })]);
       notify("exit", `WS exit ${ticker}: ${reason}`);
 
       // Write stop-loss cooldown

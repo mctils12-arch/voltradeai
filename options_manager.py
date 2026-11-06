@@ -3282,6 +3282,14 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     # (reads `actions`, writes its own file; never raises, decides nothing).
     _note_opening_window_deferrals(actions)
 
+    # DECISION JOURNAL 2026-11-06: the closes / rolls that reached the broker
+    # (decision_journal.record_option_exits; logging only — exits unaffected).
+    try:
+        import decision_journal
+        decision_journal.record_option_exits(actions)
+    except Exception as _dj_err:
+        logger.warning(f"decision journal (option exits) failed, exits unaffected: {_dj_err}")
+
     return {
         "actions": actions,
         "positions_checked": positions_checked,

@@ -2305,6 +2305,9 @@ except Exception as e:
         "score_legacy": round(_composite_legacy, 1),          # COMPOSITE v2 (2026-11-06)
         "score_version": "v2" if _v2_served else "legacy",
         "ml_only_score": ml_only_score if ml_only_score is not None else None,  # FIX 2026-05-18: use rounded var
+        # DECISION JOURNAL 2026-11-06: the sub-scores the shadow record keeps,
+        # on the candidate too (decision_journal.selection_stage reads them).
+        "score_breakdown": _score_breakdown if '_score_breakdown' in locals() else None,
         "sector": _yf_sector,
         # 200d MA fields for ETF gate (alpha audit 2026-05-03)
         "above_ma200":      _above_ma200 if '_above_ma200' in locals() else None,
@@ -3941,9 +3944,13 @@ def _scan_market_inner():
     # fit the scan's SIGALRM cap. The slots `break` drops every later
     # candidate too, so the remainder is labelled with its reason.
     _gate_relabels = []
+    # DECISION JOURNAL 2026-11-06: the same skips (plus the sector / spread
+    # blocks, which relabel inline) go to decision_journal after the loop.
+    _journal_skips = []
 
     def _note_gate(_t, _decision, _reason):
         _gate_relabels.append({"ticker": _t, "decision": _decision, "reason": str(_reason)[:200]})
+        _journal_skips.append(_gate_relabels[-1])
 
     # CASH RESERVE 2026-11-06 (position_mgmt, refocus spec section 4): the room
     # above the regime's cash reserve for NEW satellite capital this scan. Each
@@ -4131,6 +4138,8 @@ def _scan_market_inner():
                 )
             except Exception:
                 pass  # Shadow logging must never break the trading loop
+            _journal_skips.append({"ticker": ticker, "decision": "rejected_heat",
+                                   "reason": f"sector {stock.get('sector') or 'Unknown'} at its {_max_sec}-position limit"})
             continue
 
         side = stock.get("side", "buy")
@@ -4220,6 +4229,8 @@ def _scan_market_inner():
                         )
                     except Exception:
                         pass  # Shadow logging must never break the trading loop
+                    _journal_skips.append({"ticker": ticker, "decision": "rejected_spread",
+                                           "reason": f"spread {_spread_pct:.2%} > 0.50% max"})
                     continue  # Skip — spread too wide, would lose to slippage
         except Exception:
             pass  # If quote fetch fails, allow the trade (don't block on API failure)
@@ -4452,6 +4463,12 @@ def _scan_market_inner():
             "regime_at_entry": stock.get("regime_label", "UNKNOWN"),
             # INSTITUTIONAL FLOWS (2026-11-06): the sector flow tilt this size carries
             "flows": _flows_adj,
+            # DECISION JOURNAL 2026-11-06 (server/decisionJournal.ts entry rows)
+            "score_breakdown": stock.get("score_breakdown"),
+            "sector": stock.get("sector"),
+            "scan_regime": _scan_regime,
+            "score_threshold": _min_score_threshold,
+            "decision_stages": stock.get("decision_stages"),
         })
         trades[-1]["tax"] = _tf.summary(_tax)
         if not _tax.get("allowed", True):
@@ -4479,6 +4496,21 @@ def _scan_market_inner():
         except (ImportError, KeyError, TypeError, ValueError) as _rot_err:
             _rsv_log.getLogger("bot_engine").warning(f"[ROTATION] plan skipped this scan: {_rot_err}")
             _rotation_plan = {"rotations": [], "rejected": [], "error": str(_rot_err)[:200]}
+
+    # DECISION JOURNAL 2026-11-06: one write per scan for the candidates the
+    # gates above refused (logging only; the scan is unaffected either way).
+    try:
+        import decision_journal as _dj
+        _dj.record_scan_skips(
+            _journal_skips + [{"ticker": _b["ticker"], "decision": "rejected_sizing", "reason": _b.get("reason")}
+                              for _b in _sizing_blocks],
+            deep_scored, scan_regime=_scan_regime if '_scan_regime' in dir() else None,
+            threshold=_min_score_threshold if '_min_score_threshold' in dir() else None,
+            vxx_ratio=_macro.get("vxx_ratio") if isinstance(_macro, dict) else None,
+            regime_state=_regime_state if '_regime_state' in dir() else None)
+    except Exception as _dj_err:
+        import logging as _dj_log
+        _dj_log.getLogger("bot_engine").warning(f"decision journal (scan skips) failed, scan unaffected: {_dj_err}")
 
     # One relabel call per scan (see _gate_relabels above). Counts travel in
     # the scan result so bot.ts can audit the wiring's liveness.
@@ -6605,6 +6637,12 @@ def _manage_vol_managed_floor(macro: dict = None, reduce_only: bool = False) -> 
     else:
         _sell_legacy()
         _trade_core(legs)
+    try:
+        import decision_journal as _dj_floor
+        _dj_floor.record_floor(result)   # DECISION JOURNAL 2026-11-06 (logging only)
+    except Exception as _dj_floor_err:
+        import logging as _dj_floor_log
+        _dj_floor_log.getLogger("bot_engine").warning(f"[FLOOR-VM] decision journal failed, floor unaffected: {_dj_floor_err}")
     return result
 
 
