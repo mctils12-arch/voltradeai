@@ -1105,11 +1105,18 @@ interface TradeResult {
 
 const tradeResults: TradeResult[] = [];
 
-// In-memory equity curve (keeps up to 1 year of daily data)
+// In-memory equity curve, newest row first (one {date, value, pnl} row per UTC day).
+// RETENTION 2026-11-06: up to EQUITY_CURVE_MAX_ROWS rows, the OLDEST dropped first.
+// Prior: 365 rows, and recordDailyEquity's trim removed the NEWEST row (unshift then
+// shift), so from the 366th day (~2027-05-06 for this account) every new day was
+// added and removed in the same call: the curve, the SPY benchmark, the scoreboard
+// and the daily line would have frozen on that date. Ten years of rows is ~0.2 MB
+// on disk and keeps the account's inception row for since-inception comparisons.
 // UI FIX 2026-05-05 batch 9: equity curve was in-memory only. Every Railway
 // redeploy wiped it, so the dashboard chart only ever showed "today" or
 // at most 1-2 days of history. Now load from disk on startup, persist
 // after each daily snapshot. Stays in /data/voltrade so it survives.
+const EQUITY_CURVE_MAX_ROWS = 3660;
 const EQUITY_CURVE_PATH = "/data/voltrade/voltrade_equity_curve.json";
 const EQUITY_CURVE_FALLBACK = "/tmp/voltrade_equity_curve.json";
 const equityCurve: Array<{ date: string; value: number; pnl: number }> = (() => {
@@ -1122,7 +1129,7 @@ const equityCurve: Array<{ date: string; value: number; pnl: number }> = (() => 
           // Sanity-check shape — only keep records that look like equity points
           return parsed.filter((d: any) =>
             d && typeof d.date === "string" && typeof d.value === "number"
-          ).slice(0, 365);
+          ).slice(0, EQUITY_CURVE_MAX_ROWS);
         }
       }
     } catch (e: any) {
@@ -1597,7 +1604,8 @@ function recordDailyEquity() {
       last.pnl = pnl;
     } else {
       equityCurve.unshift({ date, value, pnl });
-      if (equityCurve.length > 365) equityCurve.shift();
+      // Newest is at [0]: trim from the END (the oldest rows).
+      if (equityCurve.length > EQUITY_CURVE_MAX_ROWS) equityCurve.length = EQUITY_CURVE_MAX_ROWS;
     }
     // UI FIX batch 9: persist after every update so we don't lose history
     // on the next redeploy.
@@ -3943,7 +3951,7 @@ print(json.dumps(s))
           // ADDED 2026-09-10 (KNOWN BROKEN #42 support) — see diag.ts's
           // DIAG_PROBES comment. Read-only passthrough of the in-memory
           // equityCurve array (one {date, value, pnl} row/day, oldest-day
-          // pruned past 365 entries — see recordDailyEquity()). Distinguishes
+          // pruned past EQUITY_CURVE_MAX_ROWS entries — see recordDailyEquity()). Distinguishes
           // a gradual realized-loss trend from a single-read anomaly.
           const days = Math.min(Math.max(parseInt(String(req.query.days || "30"), 10) || 30, 1), 365);
           return res.json(sanitizeDiag({
