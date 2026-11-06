@@ -44,7 +44,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { ZONES } from "./euLoad";
-import { trackSet } from "./heapDiag";
+import { registerHeapGauge } from "./heapDiag";
 
 export function euGenerationMixEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.ENTSOE_API_KEY || env.ENTSOE_TOKEN);
@@ -199,17 +199,74 @@ export async function fetchGenMix(fetchImpl: FetchFn = fetch as any,
 
 // ── Archive (dedup zone|psr|ts|res|VALUE — vintage capture; day-file per UTC day) ──
 
+/** MEMORY BOUND (2026-11-06, dead-code/memory audit). The dedup set only has
+ *  to hold keys that a later sweep could fetch again. Every sweep asks for
+ *  the last HOURS_PER_FETCH (48 h), so a key whose observation is more than
+ *  SEEN_RETAIN_DAYS older than the newest archived observation can never
+ *  match a fetched row: dropping it changes no archive write. Before this
+ *  bound the set kept every key of the 120-day seed window plus everything
+ *  since boot — 1,091,835 entries on /api/health 2026-11-05, about 190 MB of
+ *  heap at the ~185 bytes per key measured for this key shape. 7 days is
+ *  3.5x the fetch window, room for ENTSO-E widening a period to whole days.
+ *  The window's clock is the data's own newest timestamp, capped at wall
+ *  clock + 1 day so one future-dated row cannot flush the set; a replay of
+ *  older days (the tests) therefore behaves exactly like live polling. */
+export const SEEN_RETAIN_DAYS = 7;
+const SEEN_RETAIN_MS = SEEN_RETAIN_DAYS * 86_400_000;
+const FUTURE_SLACK_MS = 86_400_000;
+
 const seenObs = new Set<string>();
-trackSet("euGenerationMix.seenObs", seenObs); // memory audit 2026-11-03 A0
+let seenNewestMs = Number.NEGATIVE_INFINITY;
+let seenPruned = 0;
+let lateRows = 0;
+// memory audit 2026-11-03 A0 (was trackSet); bound + counters 2026-11-06
+registerHeapGauge("euGenerationMix.seenObs", () => ({
+  entries: seenObs.size, retain_days: SEEN_RETAIN_DAYS, pruned: seenPruned, late_rows: lateRows,
+}));
 let seeded = false;
 
 const obsKey = (o: GenMixObs) => `${o.zone}|${o.psr}|${o.ts}|${o.res}|${o.mw}`;
+
+/** Observation time (UTC ms) of an `obsKey` string; NaN when unreadable. */
+function keyTsMs(key: string): number {
+  const a = key.indexOf("|");
+  const b = key.indexOf("|", a + 1);
+  const c = key.indexOf("|", b + 1);
+  if (a < 0 || b < 0 || c < 0) return NaN;
+  return Date.parse(`${key.slice(b + 1, c)}Z`);
+}
+
+function noteSeenTs(ms: number): void {
+  if (ms > seenNewestMs) seenNewestMs = ms;
+}
+
+/** Oldest observation time the dedup set still has to remember. */
+function seenCutoffMs(): number {
+  return Math.min(seenNewestMs, Date.now() + FUTURE_SLACK_MS) - SEEN_RETAIN_MS;
+}
+
+/** Drops every key older than the retention window, and any key whose
+ *  timestamp cannot be read (a fetched row always carries a canonical ts, so
+ *  such a key can never match one). O(set size), once per archive pass. */
+function pruneSeen(): void {
+  if (!Number.isFinite(seenNewestMs)) return;
+  const cutoff = seenCutoffMs();
+  seenObs.forEach((k) => {
+    if (!(keyTsMs(k) >= cutoff)) {
+      seenObs.delete(k);
+      seenPruned++;
+    }
+  });
+}
 
 function genMixDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "eugenmix");
 }
 
-export const SEED_WINDOW_DAYS = 120;
+/** Day files are named by observation day, so reading SEEN_RETAIN_DAYS + 1
+ *  days of them covers every key the retention window can hold. Was 120
+ *  (a heap bound copied from gridDemand) until 2026-11-06. */
+export const SEED_WINDOW_DAYS = SEEN_RETAIN_DAYS + 1;
 
 export function seedFileInWindow(fileName: string, nowMs: number): boolean {
   const day = Date.parse(fileName.slice(0, 10));
@@ -231,7 +288,12 @@ function seedSeen(dir: string): void {
       } catch { continue; }
       for (const line of text.split("\n")) {
         if (!line) continue;
-        try { seenObs.add(obsKey(JSON.parse(line))); } catch {}
+        try {
+          const k = obsKey(JSON.parse(line));
+          seenObs.add(k);
+          const t = keyTsMs(k);
+          if (Number.isFinite(t)) noteSeenTs(t);
+        } catch {}
       }
     }
   } catch {}
@@ -240,7 +302,7 @@ function seedSeen(dir: string): void {
 export function archiveGenMix(obs: GenMixObs[], baseDir?: string): number {
   if (!obs.length) return 0;
   const dir = genMixDir(baseDir);
-  if (!seeded) { seedSeen(dir); seeded = true; }
+  if (!seeded) { seedSeen(dir); seeded = true; pruneSeen(); }
   const fresh = obs.filter((o) => !seenObs.has(obsKey(o)));
   if (!fresh.length) return 0;
   try {
@@ -255,7 +317,23 @@ export function archiveGenMix(obs: GenMixObs[], baseDir?: string): number {
       fs.appendFileSync(path.join(dir, `${day}.jsonl`),
                         rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
     });
-    fresh.forEach((o) => seenObs.add(obsKey(o)));
+    fresh.forEach((o) => {
+      seenObs.add(obsKey(o));
+      const t = Date.parse(`${o.ts}Z`);
+      if (Number.isFinite(t)) noteSeenTs(t);
+    });
+    // A row older than the window is still archived (nothing is dropped);
+    // it is counted because a re-publication of it would archive it again.
+    // ENTSO-E answering a 48 h request with a week-old point would mean the
+    // window above is too short, so it is surfaced, never silent (Law V).
+    const cutoff = seenCutoffMs();
+    const late = fresh.filter((o) => !(Date.parse(`${o.ts}Z`) >= cutoff)).length;
+    if (late > 0) {
+      lateRows += late;
+      console.warn(`[datacore] eugenmix: ${late} archived row(s) older than the ` +
+        `${SEEN_RETAIN_DAYS}-day dedup window (a re-publication would re-archive them)`);
+    }
+    pruneSeen();
     return fresh.length;
   } catch (e: any) {
     console.error("[datacore] eugenmix archive:", e?.message || e);
@@ -380,6 +458,9 @@ export function latestGenMix() {
  *  rather than rely on file execution order to find `cache` still null. */
 export function _resetGenMixForTests(): void {
   seenObs.clear();
+  seenNewestMs = Number.NEGATIVE_INFINITY;
+  seenPruned = 0;
+  lateRows = 0;
   seeded = false;
   cache = null;
   polling = false;

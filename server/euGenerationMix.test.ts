@@ -14,7 +14,9 @@ import {
   parseAck, parseGenMix, fetchGenMix, archiveGenMix, refreshGenMix,
   latestGenMix, seedFileInWindow, SEED_WINDOW_DAYS,
   computeGenMixStats, readArchivedGenMix, _resetGenMixForTests,
+  SEEN_RETAIN_DAYS, HOURS_PER_FETCH,
 } from "./euGenerationMix";
+import { readHeapGauges } from "./heapDiag";
 
 const GL = (series: string) => `<?xml version="1.0"?>
 <GL_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0">
@@ -238,4 +240,78 @@ test("refresh: cold cache with nothing archived either stays honestly null, neve
   await refreshGenMix(allAck as any, { ENTSOE_API_KEY: "k" } as any,
                       Date.parse("2026-07-07T12:00:00Z"), base, 0);
   assert.equal(latestGenMix(), null, "no archive and no live result means warming_up is the honest state, not a fabricated one");
+});
+
+// ── seen-set memory bound (2026-11-06 dead-code/memory audit) ───────────────
+// /api/health 2026-11-05: euGenerationMix.seenObs held 1,091,835 keys (~190 MB)
+// because it kept the whole 120-day seed window plus everything since boot,
+// while each sweep only fetches the last HOURS_PER_FETCH. These pin that the
+// bound drops only keys no sweep can fetch again, and that dedup is unchanged
+// inside the window.
+
+const seenGauge = () => readHeapGauges()["euGenerationMix.seenObs"] as Record<string, number>;
+const hourObs = (zone: string, startIso: string, hours: number, base = 100) =>
+  parseGenMix(GL(SERIES("B16", PERIOD(startIso, "PT60M",
+    Array.from({ length: hours }, (_, i) => [i + 1, String(base + i)] as [number, string])))), zone, startIso.slice(0, 10));
+
+test("seen-set bound: the window covers the fetch window several times over, and the seed covers the window", () => {
+  assert.ok(SEEN_RETAIN_DAYS * 24 >= 3 * HOURS_PER_FETCH,
+    "a key is only dropped once it is >= 3 fetch windows older than the newest row");
+  assert.ok(SEED_WINDOW_DAYS > SEEN_RETAIN_DAYS, "the boot seed must read every day the window can hold");
+});
+
+test("seen-set bound: keys older than the window are dropped; dedup inside the window is unchanged", () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  const day1 = hourObs("FR", "2026-07-01T00:00Z", 24);
+  const day5 = hourObs("FR", "2026-07-05T00:00Z", 24);
+  assert.equal(archiveGenMix(day1, base), 24);
+  assert.equal(archiveGenMix(day5, base), 24);
+  assert.equal(seenGauge().entries, 48, "both days are inside the window of the newest row (07-05T23:00)");
+  assert.equal(archiveGenMix(day1, base), 0, "a re-publication inside the window still never re-archives");
+
+  const day12 = hourObs("FR", "2026-07-12T00:00Z", 24);
+  assert.equal(archiveGenMix(day12, base), 24);
+  const g = seenGauge();
+  assert.equal(g.entries, 25, "cutoff = newest 07-12T23:00 minus 7 days = 07-05T23:00: that one key + 07-12's 24 remain");
+  assert.equal(g.pruned, 47, "all 24 keys of 07-01 and 07-05's 23 earlier hours are pruned");
+  assert.equal(g.retain_days, SEEN_RETAIN_DAYS);
+  assert.equal(archiveGenMix(day12, base), 0, "the newest sweep re-published: still deduped");
+  assert.equal(archiveGenMix(day5.slice(-1), base), 0, "07-05T23:00 is exactly at the cutoff and still remembered");
+  const lines = fs.readFileSync(path.join(base, "eugenmix", "2026-07-12.jsonl"), "utf8").trim().split("\n");
+  assert.equal(lines.length, 24, "no duplicate rows were written for the day the sweeps kept re-publishing");
+});
+
+test("seen-set bound: a row older than the window is still archived, and counted as late", () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  assert.equal(archiveGenMix(hourObs("DE_LU", "2026-07-20T00:00Z", 2), base), 2);
+  const stale = hourObs("DE_LU", "2026-07-01T00:00Z", 1);
+  assert.equal(archiveGenMix(stale, base), 1, "nothing is dropped from the archive");
+  assert.ok(fs.existsSync(path.join(base, "eugenmix", "2026-07-01.jsonl")));
+  assert.equal(seenGauge().late_rows, 1, "a 19-day-old row is surfaced on /api/health, never silent");
+  assert.equal(seenGauge().entries, 2, "and it does not stay in the set");
+});
+
+test("seen-set bound: one future-dated row cannot flush the window (reference capped at wall clock + 1 day)", () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  const hourAgo = new Date(Math.floor((Date.now() - 3600_000) / 3600_000) * 3600_000).toISOString().slice(0, 16) + "Z";
+  const recent = hourObs("NL", hourAgo, 1);
+  assert.equal(archiveGenMix(recent, base), 1);
+  assert.equal(archiveGenMix(hourObs("NL", "2099-01-01T00:00Z", 1), base), 1);
+  assert.equal(archiveGenMix(recent, base), 0,
+    "the recent key survives: the cutoff is (now + 1 day) - 7 days, not 2099 - 7 days");
+});
+
+test("seen-set bound: the boot seed still dedups the days inside the window", () => {
+  _resetGenMixForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eugenmix-"));
+  const dir = path.join(base, "eugenmix");
+  fs.mkdirSync(dir, { recursive: true });
+  const todayHour = new Date(Math.floor((Date.now() - 2 * 3600_000) / 3600_000) * 3600_000).toISOString().slice(0, 16) + "Z";
+  const row = hourObs("PL", todayHour, 1);
+  fs.writeFileSync(path.join(dir, `${todayHour.slice(0, 10)}.jsonl`), row.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  assert.equal(archiveGenMix(row, base), 0, "a row already on disk from today is seeded and never re-archived after a restart");
+  assert.equal(seenGauge().entries, 1);
 });
