@@ -30,6 +30,7 @@ import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonEx
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { floorAuditRows } from "./floorAudit";
+import { flowsBody, readFlows, flowsAuditMessage, FLOWS_REFRESH_CMD, FLOWS_REFRESH_TIMEOUT_MS } from "./flowsReport";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
@@ -2690,6 +2691,15 @@ print(json.dumps({
     res.json(regimeBody());
   });
 
+  // ── INSTITUTIONAL FLOWS (2026-11-06, flows_model.py): the daily flow
+  // ESTIMATE — broad-equity and per-sector buying/selling pressure with
+  // plain-English drivers, the calendar window and the floor multiplier in
+  // force. Read-only (server/flowsReport.ts); Tier 3 computes the file. The
+  // diag probe "flows" serves the same body.
+  app.get("/api/bot/flows", requireOwner, (_req, res) => {
+    res.json(flowsBody(readFlows(regimeDataDir(process.env)), new Date()));
+  });
+
   // ── BRAIN page (2026-10-29, human-asked: "what is being used at the moment
   // and what combinations could have produced better results ... the short
   // term is one thing but the long term is different"). server/brain.ts shapes
@@ -3694,6 +3704,12 @@ print(json.dumps(s))
           // engine's daily report — the SAME body as the owner's
           // /api/bot/regime (server/regimeReport.ts). Index-level only.
           return res.json(sanitizeDiag({ probe: "regime", ...regimeBody() }));
+        }
+        case "flows": {
+          // ADDED 2026-11-06 (institutional flow model): the SAME body as the
+          // owner's /api/bot/flows (server/flowsReport.ts). Index and sector
+          // ETF readings only; no account values.
+          return res.json(sanitizeDiag({ probe: "flows", ...flowsBody(readFlows(regimeDataDir(process.env)), new Date()) }));
         }
         case "regime_counterfactual": {
           // ADDED 2026-10-28 (regime engine live flip, human directive): per
@@ -7934,6 +7950,22 @@ print(json.dumps(run_update()))
         audit("TIER3-PORTDWELL", `Week ${captureResult.week_index} deferred — cooling down after a suspected crash on the prior attempt${captureResult.detail ? `: ${captureResult.detail}` : ""}`);
       }
     } catch (err: unknown) { console.error("[tier3-portdwell]", err instanceof Error ? err.message : err); noteJobError("tier3_strategic", `port dwell: ${err instanceof Error ? err.message : err}`); }
+
+    // 8. INSTITUTIONAL FLOWS (2026-11-06, flows_model.py): the daily flow
+    // ESTIMATE the floor and the satellite sizer read. Self-guarded: it
+    // recomputes only once a new session has completed since the cached one
+    // (23 of 24 hourly calls are one file read). Every new estimate is one
+    // FLOWS audit row; a failure keeps the last good file and is audited.
+    try {
+      const { stdout: flowsOut } = await execPythonSerialized(FLOWS_REFRESH_CMD, { timeout: FLOWS_REFRESH_TIMEOUT_MS });
+      const flowsResult: unknown = JSON.parse(flowsOut.trim());
+      const row = flowsAuditMessage(flowsResult, flowsBody(readFlows(regimeDataDir(process.env)), new Date()));
+      if (row) audit(row.type, row.message);
+    } catch (err: unknown) {
+      const why = err instanceof Error ? err.message : String(err);
+      console.error("[tier3-flows]", why);
+      noteJobError("tier3_strategic", `flows: ${why.slice(0, 200)}`);
+    }
 
     audit("TIER3", "Strategic scan complete");
   }

@@ -37,6 +37,25 @@ test("a scan rebalance: one summary row, then one row per order with its limit a
   assert.match(rows[3].message, /^BUY 20 SSO @ 99\.50 limit — REJECTED: insufficient buying power/);
 });
 
+test("a flows cut (2026-11-06) shows the rule's target and the multiplier, and one reason row", () => {
+  const cut = {
+    ...PLAN, target_exposure: 0.932, rule_target_exposure: 1.035, exposure_multiplier: 0.9, status: "ok",
+    flows: { multiplier: 0.9, applied: true, reason: "Expected net equity selling (pressure -1.00, estimate): floor target x0.90." },
+    actions: [{ type: "floor_vm_buy", ticker: "SPY", qty: 90, limit: 758.2, ok: true, order_id: "f1", error: null }],
+  };
+  const rows = floorAuditRows(cut, "scan");
+  assert.equal(rows.length, 3);
+  assert.match(rows[0].message, /target 0\.93x \(rule 1\.03x x flows 0\.90\), now 0\.47x/);
+  assert.equal(rows[1].message, "flows ESTIMATE: Expected net equity selling (pressure -1.00, estimate): floor target x0.90.");
+  assert.equal(rows[2].message, "BUY 90 SPY @ 758.20 limit — order f1");
+  const kill = floorAuditRows({ ...cut, actions: [{ type: "floor_vm_sell", ticker: "SSO", qty: 5, limit: 99.9, ok: true, order_id: "k" }] }, "kill");
+  assert.equal(kill[1].type, "FLOOR-KILL-REDUCE");
+  assert.match(kill[1].message, /^flows ESTIMATE: /);
+  const neutral = floorAuditRows({ ...cut, exposure_multiplier: 1, flows: { multiplier: 1, applied: false, reason: "no adjustment" } }, "scan");
+  assert.equal(neutral.length, 2, "no flows row when nothing was cut");
+  assert.doesNotMatch(neutral[0].message, /flows/);
+});
+
 test("a scan pass that only deferred or waited writes nothing (it repeats every scan)", () => {
   assert.deepEqual(floorAuditRows({ ...PLAN, status: "deferred", actions: [{ type: "floor_vm_deferred", reason: "outside 09:45-15:54 ET" }] }, "scan"), []);
   assert.deepEqual(floorAuditRows({ ...PLAN, status: "ok", actions: [{ type: "floor_vm_wait", ticker: "SPY", reason: "order working" }] }, "scan"), []);

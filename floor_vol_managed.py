@@ -25,6 +25,10 @@ THE RULE (the study's V1, parameters unchanged — system_config FLOOR_VM_*):
   exposure E* x C.
 - Trade only when the current exposure is more than BAND away from E*, or
   when a legacy floor ticker is still held.
+- (2026-11-06) The institutional flow model may scale E* DOWN by a multiplier
+  in [1 - FLOWS_FLOOR_MAX_CUT, 1] when net equity selling is expected
+  (flows_model.floor_multiplier; plan() clamps any input to [0, 1]). 1.0 is the
+  study's rule unchanged; the rule's value is kept as rule_target_exposure.
 """
 from __future__ import annotations
 
@@ -75,30 +79,50 @@ def current_exposure(base_value: float, levered_value: float, capital: float) ->
     return (max(0.0, base_value) + LEVERAGE_OF_LEVERED * max(0.0, levered_value)) / capital
 
 
+def bounded_multiplier(m) -> float:
+    """An exposure multiplier the floor accepts: in [0, 1]. Above 1 (or not a
+    number) is refused as 1.0, so no input can raise exposure or add leverage."""
+    try:
+        m = float(m)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(m) or m >= 1.0:
+        return 1.0
+    return max(0.0, m)
+
+
 def plan(closes: Sequence[float], equity: float, base_value: float, levered_value: float,
-         legacy_value: float, cfg: Dict) -> Dict:
+         legacy_value: float, cfg: Dict, exposure_multiplier: float = 1.0) -> Dict:
     """Everything _manage_vol_managed_floor needs to decide, as plain numbers.
 
     `legacy_value`: market value of floor tickers this mode no longer owns (the
-    old basket and GLD); any amount > 0 forces a rebalance so they are sold."""
+    old basket and GLD); any amount > 0 forces a rebalance so they are sold.
+    `exposure_multiplier` (2026-11-06, the institutional flow model): scales the
+    study's E* down, bounded to [0, 1] — it can only cut the target, never raise
+    it above the rule, so it never adds leverage. 1.0 is the study's rule."""
     window = int(cfg.get("FLOOR_VM_WINDOW", 20))
     target_vol = float(cfg.get("FLOOR_VM_TARGET_VOL", 0.16))
     cap = float(cfg.get("FLOOR_VM_CAP", 1.5))
     band = float(cfg.get("FLOOR_VM_BAND", 0.10))
     capital = max(0.0, float(equity)) * float(cfg.get("FLOOR_VM_CAPITAL_PCT", 0.85))
+    mult = bounded_multiplier(exposure_multiplier)
     sigma = realized_vol(closes, window)
-    e_star = target_exposure(sigma, target_vol, cap)
+    e_rule = target_exposure(sigma, target_vol, cap)
     e_now = current_exposure(base_value, levered_value, capital)
-    if e_star is None:
+    if e_rule is None:
         return {"ok": False, "reason": f"need {window + 1} completed daily closes, have {len(closes)}",
-                "sigma": None, "target_exposure": None, "current_exposure": round(e_now, 4),
+                "sigma": None, "target_exposure": None, "rule_target_exposure": None,
+                "exposure_multiplier": mult, "current_exposure": round(e_now, 4),
                 "capital": round(capital, 2), "rebalance": False}
+    e_star = e_rule * mult
     drift = abs(e_star - e_now)
     legacy = legacy_value > 0
     targets = holdings_for(e_star, capital)
     return {
         "ok": True,
         "sigma": round(sigma, 6),
+        "rule_target_exposure": round(e_rule, 4),
+        "exposure_multiplier": mult,
         "target_exposure": round(e_star, 4),
         "current_exposure": round(e_now, 4),
         "drift": round(drift, 4),

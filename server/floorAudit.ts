@@ -7,6 +7,9 @@
 // plus one row per order-level action. Passes that only deferred (outside
 // 09:45-15:54 ET, or the broker clock said closed) or waited on a working
 // order write nothing in a scan; the kill pass says once per day that it ran.
+// 2026-11-06: when the institutional flow model cut the target
+// (flows_model.floor_multiplier), the summary shows the rule's target and the
+// multiplier, and one "flows ESTIMATE:" row gives the reason.
 
 export interface FloorAuditRow { type: "FLOOR-VM" | "FLOOR-KILL-REDUCE" | "FLOOR-KILL-REDUCE-ERROR"; message: string }
 
@@ -30,7 +33,18 @@ const pct = (v: unknown) => (num(v) === null ? "?" : `${(num(v)! * 100).toFixed(
 const times = (v: unknown) => (num(v) === null ? "?" : `${num(v)!.toFixed(2)}x`);
 
 function summary(r: Record<string, unknown>): string {
-  return `sigma20 ${pct(r.sigma)}, target ${times(r.target_exposure)}, now ${times(r.current_exposure)} of capital $${num(r.capital)?.toFixed(0) ?? "?"}`;
+  // INSTITUTIONAL FLOWS (2026-11-06): a flows cut shows next to the study's rule
+  const m = num(r.exposure_multiplier);
+  const target = m !== null && m < 1
+    ? `target ${times(r.target_exposure)} (rule ${times(r.rule_target_exposure)} x flows ${m.toFixed(2)})`
+    : `target ${times(r.target_exposure)}`;
+  return `sigma20 ${pct(r.sigma)}, ${target}, now ${times(r.current_exposure)} of capital $${num(r.capital)?.toFixed(0) ?? "?"}`;
+}
+
+/** the flows cut's plain-English reason, logged once with any pass that trades */
+function flowsLine(r: Record<string, unknown>): string | null {
+  const f = (r.flows && typeof r.flows === "object" ? r.flows : {}) as Record<string, unknown>;
+  return f.applied === true && typeof f.reason === "string" ? `flows ESTIMATE: ${f.reason.slice(0, 400)}` : null;
 }
 
 function actionLine(a: FloorAction): string | null {
@@ -70,7 +84,9 @@ export function floorAuditRows(result: unknown, context: "scan" | "kill", idleLo
   const traded = actions.some((a) => String(a.type || "") in ORDER_ACTIONS);
   const head = context === "kill" ? "kill switch tripped, reduce-only (sells only: SSO, then SPY, then legacy)" : "rebalance";
   if (traded || (context === "kill" && lines.length)) {
-    return [{ type, message: `${head} — ${summary(r)}` }, ...lines.map((message) => ({ type, message }))];
+    const flows = flowsLine(r);
+    return [{ type, message: `${head} — ${summary(r)}` }, ...(flows ? [{ type, message: flows }] : []),
+      ...lines.map((message) => ({ type, message }))];
   }
   if (context === "kill" && !idleLoggedToday) {
     const why = status === "deferred"

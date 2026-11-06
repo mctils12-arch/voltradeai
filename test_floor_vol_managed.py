@@ -27,6 +27,19 @@ if _ROOT not in sys.path:
 import floor_vol_managed as fvm
 import system_config
 import bot_engine
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _flows_estimate_neutral():
+    """Since 2026-11-06 the floor pass reads the day's flows estimate from
+    DATA_DIR (flows_model.py). These pins are the study's rule, so the estimate
+    is held neutral, like every other input here; the flows path has its own
+    tests (test_flows_model.py)."""
+    with patch.object(bot_engine, "_floor_flows_adjustment",
+                      return_value={"multiplier": 1.0, "applied": False, "reason": "test: neutral"}):
+        yield
+
 
 CFG = {"FLOOR_VM_WINDOW": 20, "FLOOR_VM_TARGET_VOL": 0.16, "FLOOR_VM_CAP": 1.5,
        "FLOOR_VM_BAND": 0.10, "FLOOR_VM_CAPITAL_PCT": 0.85}

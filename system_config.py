@@ -217,6 +217,49 @@ BASE_CONFIG = {
     # NEUTRAL floor + GLD held ~89%), leaving room under the 95% invested cap
     # for options and satellites.
     "FLOOR_VM_CAPITAL_PCT": 0.85,
+    # ── INSTITUTIONAL FLOWS 2026-11-06 (refocus spec steps 2-4; flows_model.py,
+    # calendar_effects.py). A daily ESTIMATE of net buying/selling pressure on
+    # US equities and each sector: month-/quarter-end and threshold rebalancing
+    # (Harvey, Mazzoleni & Melone 2025), month-end cash needs (Etula et al.
+    # 2020), tax-loss windows, sector momentum/crowding. ON by default (human
+    # directive: paper, don't gate); every effect is logged. Expected effect
+    # (scripts/flows_validation.py, SPY/IEF 2003-2026, weights set after the
+    # component tests): the estimate's correlation with the next 5 sessions'
+    # SPY return is +0.11 (t 3.2; 2014 on +0.12; since 2023-04 +0.04, not
+    # significant). On a 1x SPY position the floor cut changed log growth by
+    # -0.005 pp/yr and max drawdown by +0.1 pp (2014 on: -0.016 pp/yr,
+    # +0.06 pp): about nothing either way. EXPLORATORY: kill date
+    # 2027-02-06. Rollback: FLOWS_ENABLED False (or one hook's switch).
+    # Rollback trigger: the logged estimates (voltrade_flows_history.jsonl)
+    # show a negative correlation with the next 5 sessions' SPY return over
+    # 60+ estimates.
+    "FLOWS_ENABLED": True,
+    "FLOWS_FLOOR_ENABLED": True,          # floor E* x [1 - MAX_CUT, 1.0]; never above 1, never leverage
+    "FLOWS_SECTOR_SIZING_ENABLED": True,  # satellite shares x [1 - K, 1 + K], capped at the sizer's max
+    "FLOWS_FLOOR_MAX_CUT": 0.10,          # at most -10% of the floor's target exposure (0.90x .. 1.00x)
+    "FLOWS_FLOOR_DEADBAND": 0.10,         # equity pressure must be below -0.10 before any cut
+    "FLOWS_SECTOR_SIZE_K": 0.10,          # +-10% of a satellite's size at full sector pressure
+    "FLOWS_BOND_PROXY": "IEF",            # 7-10y Treasuries: the paper's 10-year note futures, as an ETF
+    "FLOWS_HORIZON_SESSIONS": 5,
+    "FLOWS_MAX_AGE_DAYS": 4,              # an older estimate is ignored (no adjustment)
+    # Driver weights and scales, set from the component tests (out of sample =
+    # 2014 on): threshold rebalancing next-day t -2.6; calendar rebalancing
+    # t -1.0 (in sample -1.7); month-end cash windows t -0.8 (paper period
+    # -2.5); sector momentum/crowding |t| < 1; tax-loss December t -2.25 and
+    # January +1.4, but October the opposite sign (t +1.7), hence the quarter
+    # weight. Scales ~1.5 standard deviations of each signal.
+    "FLOWS_REBAL_SCALE": 0.03,            # 60/40 drift (points/100) that reads as full pressure
+    "FLOWS_THRESHOLD_SCALE": 0.006,
+    "FLOWS_W_REBALANCE": 0.45,
+    "FLOWS_W_THRESHOLD": 0.35,
+    "FLOWS_W_MONTH_END": 0.20,
+    "FLOWS_W_ROTATION": 0.3,
+    "FLOWS_W_TAX": 0.3,
+    "FLOWS_W_BROAD": 0.5,                 # each sector's share of the broad-equity estimate
+    "FLOWS_W_MOMENTUM": 1.0,
+    "FLOWS_W_CROWDING": 0.25,
+    "FLOWS_TAX_WINDOW_WEIGHTS": {"fund_tax_loss": 0.25, "fund_tax_loss_reversal": 0.25,
+                                 "december_tax_loss": 1.0, "turn_of_year": 1.0},
     # BROKER CLOCK ORDER GATE 2026-11-05 (human-directed; broker_clock.py):
     # every Python order POST first asks Alpaca's /v2/clock whether the market
     # is open. One cached reading serves every order path; it is re-read after
