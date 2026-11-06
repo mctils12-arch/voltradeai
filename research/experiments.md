@@ -115603,3 +115603,10 @@ Filed (not changed): (a) the quick-score pre-rank is the selection problem — i
 Tests: test_score_composite_v2.py (15: config defaults/validation/malformed; removed-point arithmetic; not-blended, blended with the ML input at 50, gated, missing inputs → None; reason line; the live config equals the walk-forward's pre-registered set; the weights reproduce the walk-forward composite difference; deep_score source pins; the table reads the live config; end-to-end deep_score: disabled serves legacy and still logs v2, enabled serves v2 and leaves the legacy composite byte-identical, a confident ML view is logged not used, a v2 failure and a malformed config serve legacy), server/brain.test.ts (+1). Existing: 71 test files touching deep_score / the breakdown / the shadow log / the Brain / system_config (1,013 passed, 1 pre-existing skip); counter_ratchet OK; tsc 6 (pre-existing); test_ts_code_only, test_silent_except_ratchet pass.
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (ml_model_v2.py, bot_engine.py) — two logging defects found by the ML audit: v2 logged as "ml_model_v3"; deep_score's regime handlers could raise NameError
+VERSION: v1.0.1318 (shipped 2026-11-06 by the parent session; main was v1.0.1317)
+WHY: (1) ml_model_v2.py named its logger "ml_model_v3", so the live model's warnings were attributed to the shadow candidate (mlaudit-3). (2) bot_engine.py had no module-level `import logging`: deep_score's regime-label override and regime-ML-snapshot error handlers call `logging.getLogger(...)`, so when regime_engine raised, the handler itself raised NameError — the ML block was silently skipped, or the whole shadow record lost (verified: `hasattr(bot_engine, "logging")` was False on main).
+CHANGE: ml_model_v2 logs under its own name; bot_engine imports logging at module level. No behaviour change except that those two error paths now log instead of raising.
+TESTS: test_ml_model_logger_names.py (2, both fail before), test_bot_engine_logging_import.py (3, all fail before: module-level import pinned, no bare logging.* call without an import in scope, the runtime attribute).
+STARVED: no.

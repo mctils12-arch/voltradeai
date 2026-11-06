@@ -59,7 +59,10 @@ except ImportError:
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger("ml_model_v3")
+# [REPAIR] 2026-11-06: this module logged as "ml_model_v3" — the shadow v3
+# candidate's name (ml_model_v3.py) — so the LIVE model's training and scoring
+# warnings were attributed to the shadow model in every log line.
+logger = logging.getLogger("ml_model_v2")
 
 try:
     from system_config import BASE_CONFIG, DATA_DIR
