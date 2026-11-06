@@ -15,9 +15,10 @@
 // Pure except readTaxDecisions (one bounded file read).
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_TAX_RATES } from "./taxLedger";
+import { DEFAULT_TAX_RATES, taxLedger } from "./taxLedger";
 import type { EdgeLedger, EdgeRow } from "./edgeLedger";
 import type { FillRow, PositionRow } from "./killSwitchAutoResume";
+import type { RealizedEvent } from "./sleeveLedger";
 
 export const TAX_DECISIONS_FILE = "voltrade_tax_decisions.jsonl";
 export const TAX_DECISIONS_DEFAULT_LIMIT = 100;
@@ -52,7 +53,9 @@ export interface TaxDecision {
   strategy: string | null;
 }
 
-export interface HarvestRow { ticker: string; unrealized: number; replacement: string | null; washSaleUntil: string | null; reason: string }
+/** One losing position in the latest harvest review. The first five fields are the UI contract;
+ *  action: "harvested" | "harvest" | "recommend" | "failed" | "none". washSaleUntil: the last day a buy-back would wash the loss. */
+export interface HarvestRow { ticker: string; unrealized: number; replacement: string | null; washSaleUntil: string | null; reason: string; action?: string; taxSaving?: number | null }
 export interface LtApproachingRow { ticker: string; daysToLongTerm: number; gain: number; reason: string }
 
 export interface LiveExpectancy { n: number; winRatePct: number | null; expectancyPct: number | null; lastCloseAt: string | null }
@@ -297,4 +300,113 @@ export function ltApproachingRows(fills: readonly FillRow[], positions: readonly
     }
   }
   return out.sort((a, b) => a.daysToLongTerm - b.daysToLongTerm);
+}
+
+// ── tax-loss harvesting (2026-11-06) ────────────────────────────────────────
+// The harvest review and its swaps are Python (tax_filter.harvest_step, once
+// per scan). bot.ts supplies the one input only it has, this calendar year's
+// realized gains from the sleeve ledger's fill walk (written to
+// DATA_DIR/voltrade_tax_realized.json on every refresh, kept fresh by Tier 3),
+// serves the latest review, and audits every swap the scan made.
+
+export const TAX_REALIZED_FILE = "voltrade_tax_realized.json";
+export const TAX_HARVEST_REVIEW_FILE = "voltrade_tax_harvest_review.json";
+/** Tier 3 refreshes the sleeve ledger when it is older than this, so the snapshot stays under tax_filter's 48 h bar. */
+export const TAX_REALIZED_REFRESH_MS = 6 * 3_600_000;
+const WASH_LOOKBACK_MS = 31 * 86_400_000;
+
+export interface TaxRealizedSnapshot {
+  schema: "tax_realized/v1";
+  asOf: string;
+  year: number;
+  /** server/taxLedger.ts netting for the calendar year to date (wash-sale disallowances added back) */
+  shortNet: number; longNet: number; shortAfterNetting: number; longAfterNetting: number; carryforward: number;
+  washDisallowed: number;
+  estimatedTax: number;
+  /** symbol -> newest close at a loss in the last 31 days (a replacement bought now would wash it) */
+  recentLossSales: Record<string, string>;
+  /** symbol -> newest buy fill in the last 31 days */
+  recentBuys: Record<string, string>;
+  source: string;
+}
+
+/** Pure: the snapshot tax_filter.harvest_step reads. */
+export function taxRealizedSnapshot(events: readonly RealizedEvent[], fills: readonly FillRow[], now: Date): TaxRealizedSnapshot {
+  const year = now.getUTCFullYear();
+  const ledger = taxLedger(events, fills, { windowStartMs: Date.UTC(year, 0, 1) });
+  const cut = now.getTime() - WASH_LOOKBACK_MS;
+  const newest = (into: Record<string, string>, symbol: string, t: number) => {
+    const iso = new Date(t).toISOString();
+    if (!into[symbol] || iso > into[symbol]) into[symbol] = iso;
+  };
+  const recentLossSales: Record<string, string> = {};
+  for (const e of events) if (e.pnl < 0 && e.t >= cut) newest(recentLossSales, e.symbol, e.t);
+  const recentBuys: Record<string, string> = {};
+  for (const f of fills) if (f.dir === 1 && f.t >= cut) newest(recentBuys, f.symbol, f.t);
+  const n = ledger.netting;
+  return {
+    schema: "tax_realized/v1", asOf: now.toISOString(), year,
+    shortNet: n.shortNet, longNet: n.longNet, shortAfterNetting: n.shortAfterNetting, longAfterNetting: n.longAfterNetting,
+    carryforward: n.carryforward, washDisallowed: ledger.washSales.disallowed, estimatedTax: ledger.estimatedTax.total,
+    recentLossSales, recentBuys,
+    source: "server/taxLedger.ts over the sleeve ledger's realized events, calendar year to date",
+  };
+}
+
+/** Atomic write; returns the error text instead of throwing (a snapshot must never fail a ledger refresh). */
+export function writeTaxRealized(dir: string, snap: TaxRealizedSnapshot): string | null {
+  const p = path.join(dir, TAX_REALIZED_FILE);
+  try {
+    fs.writeFileSync(`${p}.tmp`, JSON.stringify(snap));
+    fs.renameSync(`${p}.tmp`, p);
+    return null;
+  } catch (err) {
+    return String(err instanceof Error ? err.message : err).slice(0, 200);
+  }
+}
+
+export interface HarvestReview { asOf: string | null; enabled: boolean | null; realizedWhy: string | null; harvest: HarvestRow[] }
+
+/** The latest review tax_filter wrote; null when there is none (or it is unreadable — the reason is returned). */
+export function readHarvestReview(dir: string): { review: HarvestReview | null; error: string | null } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(path.join(dir, TAX_HARVEST_REVIEW_FILE), "utf8"));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    return { review: null, error: code === "ENOENT" ? null : String(err instanceof Error ? err.message : err).slice(0, 200) };
+  }
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const rows = Array.isArray(r.harvest) ? r.harvest : [];
+  const harvest: HarvestRow[] = [];
+  for (const x of rows) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const ticker = str(o.ticker);
+    const unrealized = num(o.unrealized);
+    if (!ticker || unrealized === null) continue;
+    harvest.push({ ticker, unrealized, replacement: str(o.replacement), washSaleUntil: str(o.washSaleUntil), reason: str(o.reason) ?? "",
+      action: str(o.action) ?? "none", taxSaving: num(o.taxSaving) });
+  }
+  return { review: { asOf: str(r.asOf), enabled: typeof r.enabled === "boolean" ? r.enabled : null, realizedWhy: str(r.realizedWhy), harvest }, error: null };
+}
+
+/** Audit rows for the swaps one scan made (scan_market's `tax_harvest`): one per swap, plus the step's error. */
+export function taxHarvestAuditRows(h: unknown): Array<{ type: string; message: string }> {
+  if (!h || typeof h !== "object") return [];
+  const o = h as { actions?: unknown; error?: unknown };
+  const out: Array<{ type: string; message: string }> = [];
+  for (const a of Array.isArray(o.actions) ? o.actions : []) {
+    if (!a || typeof a !== "object") continue;
+    const x = a as { ticker?: unknown; replacement?: unknown; sold?: { ok?: unknown; error?: unknown } | null; bought?: { ok?: unknown; error?: unknown } | null; error?: unknown };
+    const t = String(x.ticker ?? "?"), r = String(x.replacement ?? "?");
+    if (x.sold && x.sold.ok) {
+      const bought = x.bought && x.bought.ok ? `bought ${r} with the proceeds` : `${r} NOT bought (${String(x.bought?.error ?? "no order")}), proceeds in cash`;
+      out.push({ type: "TAX-HARVEST", message: `${t}: sold for a tax-loss harvest; ${bought}; ${t} is blocked from re-entry for 30 days (wash-sale window)` });
+    } else {
+      out.push({ type: "TAX-HARVEST-FAIL", message: `${t}: harvest sale refused (${String(x.sold?.error ?? x.error ?? "unknown")}); nothing bought` });
+    }
+  }
+  if (o.error) out.push({ type: "TAX-HARVEST-ERROR", message: String(o.error).slice(0, 200) });
+  return out;
 }

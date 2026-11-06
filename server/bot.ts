@@ -69,7 +69,7 @@ import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, SPY_BENCH_ADJUSTMENT, SPY_BENCH_BAS
 import { todayTile, type TodayTile } from "./todayTile";
 import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
-import { readTaxDecisions, taxBody, taxLimit, taxHoldOf, taxDeferLine, TaxDeferAudit, ltApproachingRows, type TaxBody, type LtApproachingRow } from "./taxAware";
+import { readTaxDecisions, taxBody, taxLimit, taxHoldOf, taxDeferLine, TaxDeferAudit, ltApproachingRows, taxRealizedSnapshot, writeTaxRealized, readHarvestReview, taxHarvestAuditRows, TAX_REALIZED_REFRESH_MS, type TaxBody, type LtApproachingRow } from "./taxAware";
 import { isOptionPosition, reconstructPortfolioPnl, type PositionInput as ReconPositionInput } from "./reconstructPnl";
 import shadowZonesData from "../datacore/shadow_zones.json";
 import ofacSdnVessels from "../datacore/ofac_sdn_vessels.json";
@@ -2932,6 +2932,10 @@ print(json.dumps({
         },
       };
       sleeveError = null;
+      // TAX (2026-11-06, server/taxAware.ts): this calendar year's realized
+      // gains for the Python harvest review (tax_filter.harvest_step reads it).
+      const taxWriteErr = writeTaxRealized(regimeDataDir(process.env), taxRealizedSnapshot(walked.events, fills.rows, new Date()));
+      if (taxWriteErr) console.warn("[tax] realized-gains snapshot not written:", taxWriteErr);
     } catch (err) {
       sleeveError = String(err instanceof Error ? err.message : err).slice(0, 200);
     }
@@ -2973,6 +2977,10 @@ print(json.dumps({
   async function taxRouteBody(limitQ?: unknown): Promise<TaxBody> {
     const read = readTaxDecisions(regimeDataDir(process.env), taxLimit(limitQ));
     const extraNotes: string[] = [];
+    const hv = readHarvestReview(regimeDataDir(process.env));
+    if (hv.error) extraNotes.push(`harvest review unreadable: ${hv.error}`);
+    else if (!hv.review) extraNotes.push("harvest: no review written yet (tax_filter.harvest_step runs every scan)");
+    else extraNotes.push(`harvest: review of ${hv.review.asOf}${hv.review.realizedWhy ? ` — ${hv.review.realizedWhy}` : ""}${hv.review.enabled === false ? " — harvesting is switched off (TAX_FILTER.HARVEST_ENABLED)" : ""}`);
     let ltApproaching: LtApproachingRow[] = [];
     if (!sleeveCache) {
       void sleevesBody().catch((warmErr) => console.warn("[tax] sleeve ledger warm-up:", warmErr instanceof Error ? warmErr.message : warmErr));
@@ -2990,7 +2998,7 @@ print(json.dumps({
         extraNotes.push(`ltApproaching unavailable: ${String(err instanceof Error ? err.message : err).slice(0, 160)}`);
       }
     }
-    return taxBody({ rows: read.rows, spyAssumption: read.spyAssumption, readError: read.error, edge: sleeveCache?.edge ?? null, ltApproaching, extraNotes });
+    return taxBody({ rows: read.rows, spyAssumption: read.spyAssumption, readError: read.error, edge: sleeveCache?.edge ?? null, ltApproaching, harvest: hv.review?.harvest ?? [], extraNotes });
   }
   app.get("/api/bot/tax", requireOwner, async (req, res) => {
     res.json(await taxRouteBody(req.query.limit));
@@ -6331,6 +6339,8 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       // 2026-11-06 Edge P1 dealer-gamma filter: each new short-premium skip /
       // would-skip Python logged this scan (server/dealerGamma.ts).
       for (const row of dealerGammaAuditRows(result.dealer_gamma)) audit(row.type, row.message);
+      // 2026-11-06: tax-loss harvest swaps the scan made (tax_filter.harvest_step; server/taxAware.ts)
+      for (const row of taxHarvestAuditRows(result.tax_harvest)) audit(row.type, row.message);
 
       // REPAIR 2026-09-09: bot_engine.py's scan_market() has its own
       // portfolio-level DD halt (update_equity_peak/is_trading_halted,
@@ -7838,6 +7848,13 @@ else:
 
   async function tier3Strategic() {
     audit("TIER3", "Starting strategic scan...");
+
+    // 0. TAX (2026-11-06, server/taxAware.ts): every sleeve-ledger refresh writes
+    //    this year's realized gains for the harvest review; refresh it when it is
+    //    older than TAX_REALIZED_REFRESH_MS so the review never runs blind.
+    if (!sleeveCache || Date.now() - sleeveCache.at > TAX_REALIZED_REFRESH_MS) {
+      void sleevesBody().catch((e) => console.warn("[tier3-tax] sleeve ledger refresh:", e instanceof Error ? e.message : e));
+    }
 
     // 1. ML model retrain (if needed)
     try {

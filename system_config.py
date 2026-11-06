@@ -548,6 +548,19 @@ BASE_CONFIG = {
         # exit always run. Prior behaviour: no deferral. Rollback: False.
         "LT_DEFER_ENABLED": True,
         "LT_DEFER_WINDOW_DAYS": 45,
+        # TAX-LOSS HARVESTING (2026-11-06, tax_filter.harvest_step): a losing
+        # stock position whose loss would offset this year's realized gains is
+        # sold and the proceeds put into its sector's SPDR ETF (a correlated,
+        # not substantially identical replacement) when the tax saved beats
+        # the swap's modeled cost by HARVEST_MIN_NET_USD; the sold symbol (and
+        # options on it) cannot be bought back for 30 days (wash-sale window).
+        # Floor tickers, symbols with an open option, and anything without a
+        # replacement are only reported. Prior behaviour: no harvesting.
+        # Rollback: "HARVEST_ENABLED": False (the review is still logged).
+        "HARVEST_ENABLED": True,
+        "HARVEST_MIN_NET_USD": 20.0,
+        "HARVEST_MAX_PER_SCAN": 2,
+        "REALIZED_MAX_AGE_H": 48,   # bot.ts's realized-gains snapshot older than this = unknown
     },
 
     # ── AGGRESSIVE TREND EXITS (pro-level) ────────────────────────────
