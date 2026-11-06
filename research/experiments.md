@@ -116139,3 +116139,12 @@ DOWNSTREAM: (1) the after-tax tile and the Overview's after-tax line rise toward
 ROLLBACK TRIGGER: a deferred amount that grows while replacement lots close (would mean releases are not matched) -> revert.
 TESTS: server/taxLedger.test.ts +2 (a round-tripped wash nets to zero with no tax on a net loss; an open replacement keeps the deferral; a release in the next year moves it there), both fail on the old code; 47 tests across the files that read the ledger pass.
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — KEEP ALIVE / memory (server/routes.ts) — removed the dead public market scanner: GET /api/scan, /api/scan/progress and the boot pre-warm
+VERSION: v1.0.1337 (shipped 2026-11-06 by the parent session; main was v1.0.1336)
+WHY: refocus spec §2 (remove dead code, reduce memory) and CLAUDE.md GOAL #1 (keep the system alive). Found by tonight's cleanup audit and confirmed in code: nothing calls /api/scan or /api/scan/progress (client: one comment; server and the visual harness: none; the Trade pages use /api/analyze). But (1) 3 s after every boot the scanner pre-warmed by starting 10 concurrent `analyze.py --mode=scan` processes (~93 MB each, ~0.9 GB) at the server's memory peak (Node heap ~1.9 GB right after boot, ~2.7 GB within 25 min, 11-06), and (2) the route was unauthenticated: with a cold cache any visitor's GET started 20 analyze.py processes at once.
+CHANGE: removed the two routes, the pre-warm and everything only they used (the scan result type, the Tier-1 ticker lists, the full-universe/tier-1 caches and their heap gauge, the per-ticker/batch/refresh helpers). −253 lines.
+DOWNSTREAM: (1) each deploy no longer spikes ~0.9 GB of Python at boot; (2) /api/scan answers 404. No page, job or test reads either route.
+ROLLBACK TRIGGER: any client or job found calling /api/scan (a 404 in the logs) -> revert.
+TESTS: the 52 server/client test files that read routes.ts or mention the scanner: 702 pass; tsc 6; counter ratchet OK.
+STARVED: no.
