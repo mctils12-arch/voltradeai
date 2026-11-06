@@ -115971,3 +115971,12 @@ CHANGE: the original commits cherry-picked unchanged (research entries kept both
 ALSO CLOSED: #1593 (P3 day-2 duplicate of #1594, same verdict), #1506 (superseded: bot_engine half by #1641's broker clock, the rest by this night's N17 PR).
 TESTS: test_edge_p1_gate1.py, test_p3_realquote_check.py (the originals' tests).
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (options_execution.py evaluate_and_execute entry registration) — verticals register both legs, so the manager runs them as one group
+VERSION: v1.0.1329 (shipped 2026-11-06 by the parent session; main was v1.0.1328)
+WHY: found by tonight's options-exit agent and confirmed in code (2026-11-05 open question). Every vertical builder (bull_call_spread, bull_put_credit_spread, calendar, diagonal) names its legs `long_leg` / `short_leg` as bare OCC strings, but the entry registration walked only short_call / long_call / short_put / long_put / call_leg / put_leg. Neither leg of a vertical was registered, so options_manager initialised each as a standalone `strategy: "unknown"` leg. Consequences: (1) a credit put spread's long wing could be closed alone by the 50% bought-option stop, leaving a naked short put; (2) the structure's group profit target, max-loss exit and 21-DTE close never ran.
+CHANGE: the leg walk is now `_contract_leg_entries(contract, entry_side)` with `short_leg` / `long_leg` added (CONTRACT_LEG_KEYS). A bare-string leg is priced from the contract's `leg_quotes` (buy at the ask, sell at the bid) when present (debit verticals carry them since #1655), else the contract limit (the old fallback). Its delta comes from the contract's `short_delta` / `long_delta` when present. Dict legs (condors) and single-leg contracts are unchanged.
+DOWNSTREAM: (1) a newly opened vertical is grouped by options_manager (bull_call_spread, bear_put_spread, bull_put_credit_spread are in MULTI_LEG_STRATEGIES): group profit target, max-loss exit with the recorded max_loss, coordinated close; (2) group P&L is priced from Alpaca's avg_entry_price, so a fallback leg price only seeds the leg's state.
+ROLLBACK TRIGGER: a vertical's legs closed separately after this deploy -> revert and inspect the grouping.
+TESTS: test_vertical_legs_registered.py (5; 4 fail on the old code); 681 existing tests in the 34 test files touching options_execution / evaluate_and_execute / register_options_entry pass.
+STARVED: no.
