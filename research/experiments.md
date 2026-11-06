@@ -115772,3 +115772,79 @@ ROLLBACK TRIGGER. A build that bundles differently (impossible by construction):
 TESTS. Bundle hash comparison as above. tsc pinned 6. counter_ratchet OK.
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-DATACORE (server/euGenerationMix.ts, server/euGenerationMix.test.ts) — Memory: euGenerationMix's dedup set keeps only the last 7 days of keys
+VERSION: v1.0.1324 (shipped 2026-11-06 by the parent session; main was v1.0.1323)
+
+WHY. Refocus spec §2, "reduce memory usage".
+
+Evidence:
+- /api/health checks.memory.detail at 2026-11-05 ~23:55Z: euGenerationMix.seenObs held 1,091,835 entries, the largest gauge on the server.
+- Earlier samples: 1,070,774 (11-04 04:37Z) and 1,077,342 (11-04 17:50Z), about 12k a day.
+- A Set of keys shaped like these (zone|psr|ts|res|mw), measured with node --expose-gc, costs ~185 B per entry. So the set held ~190 MB of heap.
+
+Cause:
+- The set was seeded from a 120-day window. SEED_WINDOW_DAYS = 120 was a heap bound copied from gridDemand.
+- The module dates from 2026-07-21, so that window has not filled yet and the set still grows daily.
+- Each 2 h sweep fetches only the last HOURS_PER_FETCH = 48 h. A key older than that can never match a fetched row again.
+- The 2026-11-03 memory audit (docs/memory_audit_2026-11-03.md) item 1f put the per-feed ID sets at 0.06-0.2 GB in total and called them capped. This one was not capped.
+
+PRIOR. The gauge settles at ~70-80k entries (~13-15 MB), freeing ~175 MB of Node heap. No change to any archive row.
+
+THE CHANGE.
+- SEEN_RETAIN_DAYS = 7, which is 3.5x the fetch window.
+- Keys older than (newest archived observation − 7 d) are pruned after each archive pass and once after the boot seed. Keys whose ts cannot be read are pruned too.
+- The window's clock is the data's own newest timestamp, capped at wall clock + 1 day so a future-dated row cannot flush the set.
+- SEED_WINDOW_DAYS 120 -> 8.
+- A row older than the window is still archived, then counted (late_rows) and logged.
+- The gauge keeps its name and now reports {entries, retain_days, pruned, late_rows}.
+- Why not usaSpending's clear() at a count cap: clearing would re-archive the next sweep's whole 48 h window as duplicates.
+
+DOWNSTREAM (2 steps).
+1. archiveGenMix makes the same write decisions: every key a 48 h sweep can return is still remembered. Nothing else reads the set.
+2. The archive day files are unchanged, so the /api/data/eu-generation-mix stats, the cold-cache backfill (readArchivedGenMix) and the gzip pass are unchanged. Old-space heap drops by ~175 MB, and the boot seed reads ~8 day files instead of up to ~108.
+
+ROLLBACK TRIGGER. late_rows > 0 on /api/health, or a duplicate row in any eugenmix day file: raise SEEN_RETAIN_DAYS or revert.
+
+TESTS.
+- server/euGenerationMix.test.ts: 15 existing + 5 new = 20/20. The new tests cover:
+  - the window/seed invariants;
+  - pruning exact out-of-window keys while in-window dedup holds and no duplicate rows are written;
+  - a late row being archived and counted;
+  - a 2099-dated row unable to flush the set;
+  - the boot seed still deduping today's on-disk rows.
+- Mutation check: without the prune calls 2 new tests fail; without the wall-clock cap 1 fails.
+- heapDiag, euLoad and euDayAheadPrices suites pass. tsc pinned 6. counter_ratchet OK (assertions +23).
+
+STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-DATACORE (server/euLoad.ts, server/euLoad.test.ts) — Memory: euLoad's dedup set keeps only the last 7 days of keys
+
+WHY. Refocus spec §2. euLoad.seenObs is the second-largest dedup gauge: 279,670 entries on /api/health 2026-11-05 ~23:55Z, measured at ~190 B per key for the zone|ts|res|mw shape, so ~50 MB. The cause is the same as euGenerationMix's (previous entry):
+- a 120-day seed window ("heap bound, gridDemand precedent", now full: the module dates from 2026-07-07);
+- plus everything since boot;
+- while each 2 h sweep only fetches the last 48 h.
+
+PRIOR. ~18-20k entries (~3.5 MB), ~45 MB of heap freed, archive rows unchanged.
+
+THE CHANGE. The euGenerationMix mechanism, unchanged:
+- SEEN_RETAIN_DAYS = 7 on the data's own clock, capped at wall clock + 1 day;
+- prune after each archive pass and after the boot seed;
+- SEED_WINDOW_DAYS 120 -> 8;
+- late_rows counted and logged;
+- gauge {entries, retain_days, pruned, late_rows}.
+
+The vintage rule (revisions inside 48 h append, exact re-publications dedup) is unchanged. A shared helper should follow when a third module (euDayAheadPrices, whose window reaches into the future) is bounded.
+
+DOWNSTREAM (2 steps).
+1. archiveLoad makes the same write decisions inside the fetch window.
+2. The day files, so the /api/data/eu-load stats, analyst.ts's latestLoad and the cold-cache backfill, are unchanged. Heap drops by ~45 MB, and the boot seed reads ~8 day files instead of ~120.
+
+ROLLBACK TRIGGER. late_rows > 0 on /api/health, or a duplicate row in an euload day file: raise SEEN_RETAIN_DAYS or revert.
+
+TESTS.
+- server/euLoad.test.ts: 8 existing + 5 new = 13/13, covering the same five properties as euGenerationMix's.
+- Mutation check: without the prune calls 2 new tests fail; without the cap 1 fails.
+- heapDiag + euLoad + euGenerationMix + euDayAheadPrices + analyst: 70/70. tsc pinned 6. counter_ratchet OK.
+
+STARVED: no.
