@@ -433,6 +433,14 @@ def _replace_order_price(order_id: str, limit_price: float):
         )
         if resp.status_code == 200:
             body = resp.json()
+            if isinstance(body, dict):
+                # 2026-11-06 (daily line): a replace is a NEW order id at a new
+                # limit — one ledger row for it, with the quote this ladder step
+                # was priced from (the step's _get_option_snapshot noted it), so
+                # its fill is attributed instead of counted as unexplained.
+                _fill_ledger.record_order(body.get("id", ""), body.get("symbol", ""), body.get("side", ""),
+                                          body.get("qty"), "options_manager:exit ladder replace",
+                                          limit=limit_price)
             return (body if isinstance(body, dict) else None), "replaced"
         return None, f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
     except Exception as e:

@@ -18,6 +18,7 @@ import {
   sameBasis, saveDailyLine, type DailyLine, type DailyLineInputs, type FloorConfig, type LedgerRow, type OptionContract,
 } from "./dailyLine";
 import type { RealizedEvent } from "./sleeveLedger";
+import { runLadder, LADDER_DEFAULTS } from "./limitLadder";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -400,8 +401,7 @@ test("wiring: once per day — saved BEFORE the one DAILY-LINE audit row; SPY pr
 test("wiring: every bot.ts option order path writes its ledger row only AFTER its POST returned, with the POST unchanged", () => {
   const sites: Array<[string, string, string]> = [
     ['app.post("/api/bot/trade"', "// Close a position", '"bot.ts:/api/bot/trade"'],
-    ['audit("TIME-EXIT", `${ticker}', 'audit("TIME-EXIT-ERROR"', '"bot.ts:TIME-EXIT"'],
-    ["const killOrderResult = await alpaca(", "// STALE-ORDER-SWEEP FIX (KNOWN BROKEN #34)", '"bot.ts:POS-KILL"'],
+    ["const send = async (order: Record<string, string>): Promise<LadderSubmit> => {", "submitLimit: (q, price) =>", '"bot.ts:POS-KILL ladder"'],
     ["Scale-out would leave", "CC-UNWIND-ERROR", '"bot.ts:CC-UNWIND scale-out"'],
     ["before stock exit`);", "CC-UNWIND-ERROR", '"bot.ts:CC-UNWIND stock exit"'],
   ];
@@ -421,7 +421,7 @@ test("wiring: every bot.ts option order path writes its ledger row only AFTER it
 // POS-KILL harnesses use) and the REAL ledgerOptionOrder, with only the file
 // append stubbed: a confirmed option kill and an option TIME-EXIT each write
 // one row with the order id the POST returned; a stock kill writes none.
-test("wiring (run): the POS-KILL and TIME-EXIT option orders write one ledger row each, keyed by the returned order id; stocks write none", async () => {
+test("wiring (run): a confirmed option kill goes to the backstop ladder, whose order writes one ledger row keyed by the returned id; TIME-EXIT never closes an option; stocks write none", async () => {
   const matchBrace = (src: string, open: number): number => {
     let depth = 0;
     for (let i = open; i < src.length; i++) {
@@ -444,13 +444,19 @@ test("wiring (run): the POS-KILL and TIME-EXIT option orders write one ledger ro
     "function posKillObserveBreach(pending: Map<string, PosKillBreach>, symbol: string,",
     "function ledgerOptionOrder(order: unknown, symbol: string, side: string, qty: number, source: string): void",
   ].map(fnSrc).join("\n");
+  const starter = fnSrc("async function posKillStartOptionLadder(");
+  assert.ok(starter.includes("ledgerOptionOrder(placed, ticker, closeSide"), "the ladder's send writes the ledger row");
   assert.ok(helpers.includes("function ledgerOptionOrder("), "the real ledger helper is cut from bot.ts");
   const js = transformSync(`${helpers}
 async function runTick(positions, env) {
   const { FLOOR_AND_LEG_TICKERS, LEGACY_DEFENSIVE_CANDIDATE_TICKERS, audit, alpaca, state, openOrders, getOrderParams,
-          notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay } = env;
+          notify, pkgVersion, posKillPendingBreach, posKillNoMarkAuditDay, posKillLadderInFlight, runLadder } = env;
   const posKillMarketOpenCurrent = true;
   const posKillOptionOpeningWindowCurrent = false;
+  const BACKSTOP_LADDER_CONFIG = env.ladderConfig;
+  const posKillOptionQuote = async () => ({ bid: 0.75, ask: 0.85 });
+  const posKillLadderSleep = () => new Promise(() => undefined); // the ladder stops after its first step here
+  ${starter}
   const activeTickers = new Set();
   ${bot.slice(loopStart, loopEnd)}
 }
@@ -474,23 +480,26 @@ async function runTick(positions, env) {
       return [];
     },
     posKillPendingBreach: new Map(), posKillNoMarkAuditDay: new Map(),
+    posKillLadderInFlight: new Map<string, number>(), runLadder, ladderConfig: LADDER_DEFAULTS,
   };
   const pick = (r: Record<string, unknown>) => ({ id: r.order_id, symbol: r.symbol, side: r.side, qty: r.qty, mid: r.mid, source: r.source });
-  const tick = async (p: unknown[]) => { await runTick(p, env); nowMs += 45_000; };
+  const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); };
+  const tick = async (p: unknown[]) => { await runTick(p, env); await flush(); nowMs += 45_000; };
   const longOpt = (pnlPct: number, symbol: string, createdAt = "2026-11-03T15:00:00Z") => ({
     symbol, asset_class: "us_option", side: "long", qty: "2", avg_entry_price: "4", current_price: (4 * (1 + pnlPct / 100)).toFixed(2),
     unrealized_plpc: String(pnlPct / 100), created_at: createdAt,
   });
   await tick([longOpt(-80, "XLK261219P00100000")]);
   await tick([longOpt(-80, "XLK261219P00100000")]);
-  assert.deepEqual(posts, ["XLK261219P00100000"], "the confirmed option kill POSTs once");
-  assert.deepEqual(rows.map(pick), [{ id: "ord-1", symbol: "XLK261219P00100000", side: "sell", qty: 2, mid: null, source: "bot.ts:POS-KILL" }],
-    "no quote on this path: the mid is null (unattributed), never the position's mark");
+  assert.deepEqual(posts, ["XLK261219P00100000"], "the confirmed option kill: the ladder's first limit, one POST");
+  assert.deepEqual(rows.map(pick), [{ id: "ord-1", symbol: "XLK261219P00100000", side: "sell", qty: 2, mid: null, source: "bot.ts:POS-KILL ladder" }],
+    "the ladder's order is in the ledger; no quote is held on this path, so the mid is null (unattributed), never the position's mark");
   await tick([longOpt(1, "OLD261219C00050000", "2026-10-01T15:00:00Z")]);
-  assert.deepEqual(rows.map(pick)[1], { id: "ord-2", symbol: "OLD261219C00050000", side: "sell", qty: 2, mid: null, source: "bot.ts:TIME-EXIT" });
+  assert.equal(posts.length, 1, "an aged, flat option is not time-exited (options_manager owns option exits, #1647)");
+  assert.equal(rows.length, 1);
   const stock = { symbol: "AXTI", asset_class: "us_equity", side: "long", qty: "5", avg_entry_price: "20", current_price: "14", unrealized_plpc: "-0.3", created_at: "2026-11-03T15:00:00Z" };
   await tick([stock]);
   await tick([stock]);
   assert.equal(posts[posts.length - 1], "AXTI", "the stock kill still POSTs exactly as before");
-  assert.equal(rows.length, 2, "a stock order writes no fill-ledger row");
+  assert.equal(rows.length, 1, "a stock order writes no fill-ledger row");
 });

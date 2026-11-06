@@ -8583,6 +8583,13 @@ print(json.dumps(out))
           method: "POST",
           body: JSON.stringify({ symbol: ticker, side: closeSide, time_in_force: "day", ...order }),
         });
+        // DAILY LINE 2026-11-06: every ladder order (each limit step and the
+        // final market order) is one fill-ledger row after its POST returned,
+        // keyed by the id the broker answered with. No quote is held here, so
+        // the row names the path and the daily line counts the fill as
+        // unattributed rather than guessing a mid. Never throws (typeof guard:
+        // this function also runs standalone in the test harnesses).
+        if (typeof ledgerOptionOrder === "function") ledgerOptionOrder(placed, ticker, closeSide, Number(order.qty) || 0, "bot.ts:POS-KILL ladder");
         return { ok: true, order: placed };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
@@ -8740,16 +8747,13 @@ except: print('{}')
                 audit("TIME-EXIT", `${ticker}: ${Math.round(ageDays)}d old, pnl ${pnlPct.toFixed(1)}% — closing stale`);
                 try {
                   const closeSide = side === "long" ? "sell" : "buy";
-                  const timeExitOrder = await alpaca("/v2/orders", {
+                  await alpaca("/v2/orders", {
                     method: "POST",
                     body: JSON.stringify({
                       symbol: ticker, qty: String(qty), side: closeSide,
                       type: "market", time_in_force: "day",
                     }),
                   });
-                  // DAILY LINE 2026-11-05: fill-ledger row after the POST (options only;
-                  // never throws). typeof guard: this loop body runs standalone in the test harnesses.
-                  if (typeof ledgerOptionOrder === "function") ledgerOptionOrder(timeExitOrder, ticker, closeSide, qty, "bot.ts:TIME-EXIT");
                   continue;
                 } catch (e: any) {
                   audit("TIME-EXIT-ERROR", `${ticker}: ${e?.message?.slice(0, 80)}`);
@@ -8973,9 +8977,6 @@ except: print('{}')
                 ...orderParams,
               }),
             });
-            // DAILY LINE 2026-11-05: fill-ledger row after the POST (options only;
-            // never throws). typeof guard: this loop body runs standalone in the test harnesses.
-            if (typeof ledgerOptionOrder === "function") ledgerOptionOrder(killOrderResult, ticker, closeSide, qty, "bot.ts:POS-KILL");
 
             // STALE-ORDER-SWEEP FIX (KNOWN BROKEN #34): this standalone
             // forced-liquidation branch is NOT the checkPositionOnTick exit

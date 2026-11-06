@@ -143,7 +143,9 @@ class TestOrderPathsWriteAfterThePost(_LedgerDir):
                 patch.object(om.alpaca_feed, "options_feed", return_value="indicative"):
             snap = om._get_option_snapshot(self.OCC)
         post = MagicMock(return_value=_resp(200, {"id": "close-1"}))
-        with patch.object(om.requests, "post", post):
+        # The plain close path (rolls, group legs and the exit ladder's own
+        # orders run it with the ladder paused); the ladder is pinned below.
+        with patch.object(om.requests, "post", post), om.order_ladder.paused():
             res = om._submit_close_order(self.OCC, 1, "buy", snap["ask"])
         self.assertEqual(res["status"], "submitted")
         self.assertEqual(post.call_args.kwargs["json"], {"symbol": self.OCC, "qty": "1", "side": "buy", "type": "limit",
@@ -153,6 +155,39 @@ class TestOrderPathsWriteAfterThePost(_LedgerDir):
         self.assertEqual((row["order_id"], row["symbol"], row["side"], row["qty"]), ("close-1", self.OCC, "buy", 1.0))
         self.assertEqual((row["bid"], row["ask"], row["mid"], row["limit"]), (0.47, 0.51, 0.49, 0.51))
         self.assertEqual(row["source"], "options_manager._submit_close_order")
+
+    def test_the_first_exit_ladder_order_is_recorded_at_the_mid_with_the_quote_it_read(self):
+        """Mid-first exit ladder ON (the paper setting): step 1 goes out at the
+        mid, priced from the snapshot the ladder itself read — one row."""
+        ladder_on = {"on": True, "setting": "on", "steps": 3, "step_seconds": 60.0}
+        post = MagicMock(return_value=_resp(200, {"id": "lad-1"}))
+        with patch.object(om, "DATA_DIR", self.dir), \
+                patch.object(om.order_ladder, "settings", return_value=ladder_on), \
+                patch.object(om.requests, "get", self._snapshot_get(0.40, 0.60)), \
+                patch.object(om.alpaca_feed, "options_feed", return_value="indicative"), \
+                patch.object(om.requests, "post", post):
+            om._submit_close_order(self.OCC, 1, "buy", 0.60)
+        self.assertEqual(post.call_args.kwargs["json"]["limit_price"], "0.5", "step 1 is the mid")
+        (row,) = _rows(self.dir)
+        self.assertEqual((row["order_id"], row["bid"], row["ask"], row["mid"], row["limit"]), ("lad-1", 0.4, 0.6, 0.5, 0.5))
+
+    def test_an_exit_ladder_replace_is_recorded_under_its_new_order_id(self):
+        """A replace is a new order id at a new limit: its own row, with the
+        quote the step was priced from, so its fill is attributed."""
+        ofl.note_quote(self.OCC, 0.40, 0.60)
+        replaced = MagicMock(return_value=_resp(200, {"id": "lad-2", "symbol": self.OCC, "side": "buy", "qty": "1"}))
+        with patch.object(om.requests, "patch", replaced):
+            order, detail = om._replace_order_price("lad-1", 0.55)
+        self.assertEqual((order["id"], detail), ("lad-2", "replaced"))
+        (row,) = _rows(self.dir)
+        self.assertEqual((row["order_id"], row["symbol"], row["side"], row["qty"]), ("lad-2", self.OCC, "buy", 1.0))
+        self.assertEqual((row["limit"], row["mid"], row["source"]), (0.55, 0.5, "options_manager:exit ladder replace"))
+
+    def test_a_refused_replace_writes_no_row(self):
+        with patch.object(om.requests, "patch", MagicMock(return_value=_resp(422, {"message": "no"}))):
+            order, _ = om._replace_order_price("lad-1", 0.55)
+        self.assertIsNone(order)
+        self.assertEqual(_rows(self.dir), [])
 
     def test_a_rejected_close_writes_no_row(self):
         with patch.object(om.requests, "post", MagicMock(return_value=_resp(422, {"message": "no"}))):
