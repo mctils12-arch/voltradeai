@@ -211,14 +211,17 @@ export function KpiStrip({ perf, account, status, market, calendar, bench, now, 
       </div>
       {/* TODAY (B1, human-approved 2026-11-03; server/todayTile.ts, today.ts): equity now against the prior close in $ and %,
           SPY's move on the same ET day with its own as-of clock, and the headline difference in points — every line from the
-          server's fields, a missing side with its reason; the hover carries the whole provenance sentence */}
-      <div className="vt-bot-panel" data-kpi="today">
+          server's fields, a missing side with its reason; the hover carries the whole provenance sentence. Between sessions
+          ([REPAIR] 2026-11-06) the eyebrow names the session the numbers belong to ("Thu Nov 5 session") and the last line
+          says what the change runs between ("Wed $93,623 → Thu $89,889"; the phone drops the first day, never the second:
+          "→ Thu" is the session's close, "→ now" is equity now) */}
+      <div className="vt-bot-panel" data-kpi="today" data-phase={account?.today?.phase ?? undefined}>
         <div className="vt-kpi-today" title={tv.title}>
-          <div className="vt-bot-eb" style={{ whiteSpace: "nowrap" }}>Today · vs SPY<Help k="today" /></div>
+          <div className="vt-bot-eb vt-kpi-today-eb" style={{ whiteSpace: "nowrap" }}>{tv.eyebrow}{tv.eyebrowWord ? <span className="vt-kpi-today-word">{tv.eyebrowWord}</span> : null} · vs SPY<Help k="today" /></div>
           <div className={`vt-bot-kpiv ${tv.headlineCls}`} data-flash={flashAttr(flash?.today, now)}>{tv.headline}</div>
           <div className={`vt-kpi-today-ln vt-kpi-today-chg ${tv.changeCls}`}><span>{tv.change}</span></div>
           <div className="vt-kpi-today-ln vt-bot-t3"><span><span className={tv.spyCls}>{tv.spy}</span> · <span className={tv.spyStale ? "vt-bot-o" : undefined}>{tv.spyNote}</span></span></div>
-          <div className="vt-kpi-today-ln vt-bot-t3"><span><span className="vt-kpi-today-word">prior </span>{tv.pathValue}</span></div>
+          <div className="vt-kpi-today-ln vt-bot-t3"><span><span className="vt-kpi-today-word">{tv.pathFrom} </span>{tv.pathSeg.length === 2 ? <>{tv.pathSeg[0]} → {tv.pathTo ? <span className="vt-kpi-today-end">{tv.pathTo} </span> : null}{tv.pathSeg[1]}</> : tv.pathValue}</span></div>
         </div>
       </div>
       {/* at the l tier (foldSession) this tile is not rendered: its line sits in the Now tile (vt-kpi-now-session) */}
