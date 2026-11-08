@@ -34931,7 +34931,7 @@ change, so it is created directly rather than proposed in wishlist.md.
 | Audit | Cadence | Last run | Next due |
 |---|---|---|---|
 | STALENESS AUDIT | 30d | 2026-10-17 | 2026-11-16 |
-| CONSTITUTIONAL AUDIT | 30d | 2026-09-20 | 2026-10-20 |
+| CONSTITUTIONAL AUDIT | 30d | 2026-11-08 | 2026-12-08 |
 | CALENDAR YEAR-ADD | annual (December) | never yet run | 2026-12-01 |
 
 CONSTITUTIONAL AUDIT run 2026-09-20 (scheduled-routine session, see the
@@ -55565,7 +55565,7 @@ exception to append-only; the log below it stays append-only)
 | audit | cadence | last run |
 |---|---|---|
 | staleness audit (code/deps/config/expired adapters — DEAD CODE POLICY governs) | 30d | 2026-09-22 COMPLETE (this session; register itself was the finding — see 2026-09-22 log entry) — a 2026-09-16 partial pass (#1096) closed 2 expired review-by items (options_scanner.py Setup 4/5, OpenSky reinstatement) but never updated this row, so it silently read 37 days stale against a 30d cadence. This session: re-verified Python deps (requirements.txt + requirements-dev.txt) all used incl. the yaml/pyyaml false-negative (inline in scripts/program_status.sh, missed by a naive *.py grep, confirmed real via direct grep of the script); undeclared_py_import unchanged at 2 (laspy/ultralytics, already-tracked GPU tooling, D6); diffed process.env additions since #1096 (DATA_DIR/DIAG_TOKEN/VOLTRADE_PROD_URL, all live call sites, none dead); zero open review-by items found repo-wide (both prior ones already closed, no new adapter exceptions logged since). ONE REAL FINDING, fixed same session: `bot_engine.py`'s deep-score block in `_scan_market_inner` carried a self-labeled "DEAD CODE" `ThreadPoolExecutor(max_workers=1)` block (2 comments naming it dead) left over from the 2026-04-21 ThreadPool->serial-loop MEM FIX — an inert `try: pass / except TimeoutError: pass` that still spun up and tore down a real OS thread pool on every scan cycle with candidates, plus its now-unrelated `ThreadPoolExecutor, as_completed` import and a stale "in PARALLEL" doc comment describing behavior that hasn't existed since that same fix. Deleted per DEAD CODE POLICY; `silent_py_handlers` improved 255->254 (re-pinned in `ci/counter_baseline.txt` same PR). Next full pass due 2026-10-22; THIS ROW is now the authoritative record — update it in place on every future run, do not let a partial pass go unreflected again. |
-| constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-09-20 (THIRD-EVER, 5 days overdue at run time — #1140ish; see that date's [RULE-REVIEW] log entry) — 2 new consolidation proposals filed in wishlist.md, both 2026-08-16-era proposals re-confirmed still pending human review. This row was also stale (last read 2026-07-04) until this session's fix; next full pass due 2026-10-20. Original 2026-07-04 CONSTITUTIONAL REPAIR's 4 proposals remain awaiting approval, unchanged. |
+| constitutional audit (rules — CONSTITUTIONAL HYGIENE governs) | 30d | 2026-11-08 (FOURTH, 19d overdue; see that date's [RULE-REVIEW] entry) — 1 new proposal filed, 4 older still pending; prior run: 2026-09-20 (THIRD-EVER, 5 days overdue at run time — #1140ish; see that date's [RULE-REVIEW] log entry) — 2 new consolidation proposals filed in wishlist.md, both 2026-08-16-era proposals re-confirmed still pending human review. This row was also stale (last read 2026-07-04) until this session's fix; next full pass due 2026-10-20. Original 2026-07-04 CONSTITUTIONAL REPAIR's 4 proposals remain awaiting approval, unchanged. |
 | market_calendar year-add (FROZEN PATHS exception governs) | December | 2026 dates present; add 2027 in Dec 2026 |
 
 ## 2026-07-15 [PRODUCT] — EARTH TWIN O6: focus, find & follow (v1.0.343-345, human directive w/ screenshot)
@@ -116321,3 +116321,11 @@ SECOND-ORDER: the weekly job will keep rewriting an unchanged-in-substance verdi
 NEXT: (1) extend power, not reruns: the pre-2016 panel or the Lazy Prices CIK map (v1.0.1289) are the only levers on MDE; (2) investigate the 7 corrupt-line symbols (are the overflows bad vendor bars on reverse splits? if so, a repair that quarantines the bar rather than the series would recover those names); (3) P3 and Lazy Prices gate-1 items already filed stay the queue.
 ROLLBACK TRIGGER: none (log only). MERGE: docs only, safe any time (Sunday, market closed).
 STARVED: no.
+
+## 2026-11-08 (scheduled routine, Sun ~20:15Z = 15:15 ET EST, market closed) [RULE-REVIEW] — research/wishlist.md + experiments.md register only — fourth constitutional audit: 1 new proposal, 4 older still pending
+VERSION: no code_version change (main v1.0.1341).
+HEALTH: /api/health 200 ok, liveness not dark, alpaca ACTIVE, jobs 8 ok / 0 late / 0 errored, feeds alive, heap pressure ok. DIAG_TOKEN book readable (BOXX 110 sh). research_state_check: thrash 1/10, STARVED 0, WARN only this overdue audit and NASR bundle 10d behind. Nothing to repair.
+CHOICE: the earlier session today left P2's corrupt-line symbols as NEXT, but price_panel already counts and discloses them and the verdict is power-limited regardless, so a fix would not change any decision. The overdue audit is the prescribed fall-through item.
+RESULT: wishlist.md gains Proposal 3 (move the live-Book read-access bullet out of RENDERING & MOTION LAW into STANDING BEHAVIORS; text unchanged). The four older proposals (2026-08-16 x2, 2026-09-20 x2) are still verbatim in CLAUDE.md, now 84 and 49 days old; re-flagged, not re-argued. CLAUDE.md untouched.
+NEXT: human reviews the five pending wording proposals as one docs PR.
+ROLLBACK TRIGGER: none (docs only). STARVED: no.

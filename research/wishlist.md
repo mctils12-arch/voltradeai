@@ -1,5 +1,18 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ CONSTITUTIONAL AUDIT 2026-11-08 (fourth run) — 1 new consolidation proposal; 4 older ones still pending, human approval needed
+
+Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule (the audit never edits rules). Re-checked against the live CLAUDE.md this session: the 2026-08-16 Proposals 1-2 and the 2026-09-20 Proposals 1-2 are all still present verbatim, unresolved. They change no behavior; they are wording fixes. NOT A SPEND REQUEST.
+
+### Proposal 3 — the "SESSION READ ACCESS TO THE LIVE BOOK" bullet sits inside RENDERING & MOTION LAW
+
+WHAT: that bullet (2026-11-02, DIAG_TOKEN / `/api/diag/book`) was appended after the RENDERING & MOTION LAW section's STACK NOTE, so it reads as part of a rendering article, and a session scanning STANDING BEHAVIORS for how to read the account will not find it.
+BEFORE: the bullet is the last item of the "STACK NOTE (recorded 2026-08-12, factual)" block, under the `## RENDERING & MOTION LAW` heading.
+AFTER: move the bullet, text unchanged, to the end of `## STANDING BEHAVIORS` (above the RENDERING & MOTION LAW heading).
+PRESERVES: every word of the directive and its authority. DROPS: nothing. RESOLVES: a rule that exists but is filed where nobody looks for it.
+
+### Observation (no proposal): the KNOWN STATE "PRODUCTION DEPLOY FREEZE ... RESOLVED" paragraph is a long recovered-outage history. It is factual and may stay; KNOWN STATE allows factual updates, so a later session may shorten it to one line plus a pointer to this file without amendment.
+
 ## ⚠ FROZEN-PATH PROPOSAL 2026-11-06 — credit multi-leg entries are sent with an effectively unlimited price; human approval needed
 
 WHAT: `options_execution._submit_mleg_order` (a FROZEN order-transmission path)
