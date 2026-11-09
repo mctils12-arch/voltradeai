@@ -116329,3 +116329,13 @@ CHOICE: the earlier session today left P2's corrupt-line symbols as NEXT, but pr
 RESULT: wishlist.md gains Proposal 3 (move the live-Book read-access bullet out of RENDERING & MOTION LAW into STANDING BEHAVIORS; text unchanged). The four older proposals (2026-08-16 x2, 2026-09-20 x2) are still verbatim in CLAUDE.md, now 84 and 49 days old; re-flagged, not re-argued. CLAUDE.md untouched.
 NEXT: human reviews the five pending wording proposals as one docs PR.
 ROLLBACK TRIGGER: none (docs only). STARVED: no.
+
+## 2026-11-09 (scheduled routine, Mon ~16:15Z = 11:15 ET EST, market open) [RESEARCH] — research/experiments.md only — the DTCC seen-ID SQLite store "never opens" because the volume disk guard refuses it, by design; not a code bug
+VERSION: no code_version change (main v1.0.1341).
+HEALTH: /api/health 200 ok, liveness not dark, alpaca ACTIVE, jobs 9 ok / 0 late / 0 errored, feeds alive, heap pressure ok (cgroup headroom 17.8 GB). Account equity 90,351, drawdown -9.6% from peak 99,962 (recovering from -10.9% on 11-08), kill switch off. research_state_check: thrash 1/10, STARVED 0, only WARN is NASR bundle 11d behind. Nothing critical, no repair.
+CHOICE: highest-value queued item that fits a no-trading-code, market-hours-safe session was the open_questions 2026-11-06 [MEMORY] item (DTCC seen-ID set still dual mode, ~510 MB). Diagnosis only.
+FINDING: /api/health heap gauges show dtcc.seenIds {mode dual, memoryCount 7,095,751, dbCount null, backfill null, dbBytes null, diskGuard true}. diskGuard true is dtccSwaps.idsStoreDiskAllowed refusing to create the DB: it needs free - (ids x 28 B, about 199 MB) >= MIN_FREE_BYTES 1 GiB + 256 MiB margin, i.e. about 1.5 GiB free on the archive volume. The DB therefore never opens, no backfill runs, and the 'dual-run' has had no second half, so zero mismatches (0) is vacuous, not evidence. The guard is a safety mechanism working as designed (archives outrank a derived store; CLAUDE.md priority 1) and must not be loosened.
+CONSEQUENCE: the memory win can only land if the volume gains headroom, or the archive footprint shrinks. This is a capacity decision, not a code fix. I could not read free bytes this session (no diag probe exposes volume free space; /api/diag/archive wants a stream name), so the exact shortfall is unmeasured.
+NEXT: (1) a small diag/health field for volume free bytes beside diskGuard.reason (the guard's reason string already holds the number, so surfacing it is a read-only change); (2) if free space is the cause, the human decides on volume size, or the archive-compaction lever; (3) do NOT flip to sqlite mode until a dual-run with dbCount non-null and 0 mismatches.
+ROLLBACK TRIGGER: none (log only). MERGE: docs only, safe any time.
+STARVED: no.
