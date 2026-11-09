@@ -59,7 +59,7 @@ export function volumeUsage(
   walk(root, []);
 
   let freeBytes: number | null = null;
-  try { const s: any = (fsx as any).statfsSync(root); freeBytes = Number(s.bavail) * Number(s.bsize); } catch { freeBytes = null; }
+  try { const s = fsx.statfsSync(root); freeBytes = Number(s.bavail) * Number(s.bsize); } catch { freeBytes = null; }
   const top = [...nodes.values()].sort((a, b) => b.bytes - a.bytes).slice(0, opts.topN ?? 40);
   return { root: path.basename(root), totalBytes, totalFiles, truncated, top, freeBytes };
 }
