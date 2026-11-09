@@ -4656,6 +4656,12 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           }, { fresh: String(req.query.fresh || "") === "1" });
           return res.json(sanitizeDiag(report));
         }
+        case "volume": {
+          // ADDED 2026-11-09: read-only per-directory byte breakdown (see volumeUsage.ts).
+          const { volumeUsage } = await import("./volumeUsage");
+          const root = process.env.DATA_DIR || (fs.existsSync("/data") ? "/data" : "/tmp");
+          return res.json(sanitizeDiag({ probe: "volume", ...volumeUsage(root) }));
+        }
         case "bars_coverage": {
           // ADDED 2026-10-28 ([PIPELINE], human order "check whether Alpaca's
           // free bars include delisted tickers since 2010"): READ-ONLY GETs of

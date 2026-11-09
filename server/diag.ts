@@ -460,6 +460,11 @@ export const DIAG_PROBES = [
   // with a plain-English reason. Aggregates plus the ten worst lots' symbols
   // (the 2026-07-07 widening); read-only; ?days (1..365, default 30).
   "attribution",
+  // ADDED 2026-11-09: read-only byte breakdown of the persistent volume by
+  // directory (server/volumeUsage.ts) — names + sizes only. Needed because the
+  // local archive (~0.6 GB) does not explain the volume sitting under its
+  // 1 GiB guard; the other ~1 GB had no owner a session could name.
+  "volume",
 ] as const;
 export type DiagProbe = (typeof DIAG_PROBES)[number];
 
