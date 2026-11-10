@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-10 (scheduled routine, EDGE-DOCTRINE axis (a), Tue, PRE-MARKET) [PIPELINE] — T-DATACORE (new module + test only) — Lazy Prices panel adapter: dated CIK->ticker join + memory-bounded price-panel reader feeding the unchanged gate-2 harness (v1.0.1344)
+HEALTH: research_state_check: thrash 1/10, STARVED 0, no overdue audit; only WARN nasr_cycle (advisory). KNOWN BROKEN: nothing critical (#44/#48 advisory). Sandbox has no /data volume, so live site/panel probes were not possible; no repair signal found.
+AXIS: (a) finish the in-flight pipeline: the 11-10 NEXT was the panel adapter.
+PRIOR (stated before building): ~90% the adapter plumbs end to end on synthetic data with every drop counted and no lookahead; the real unknown (join-in-panel coverage on real data) cannot be measured here because the panel lives on the Railway volume under the Alpaca licence.
+CHANGE: `lazy_prices_panel.py` (+ `test_lazy_prices_panel.py`, 4 tests): `prepare_rows` rewrites each scored 10-K row's cik to the ticker that CIK carried on the filing date (undated/none/ambiguous dropped and COUNTED); `build_panel` streams `price_panel.iter_series` once keeping only requested symbols (numpy arrays, RSS guard, SPY calendar); `PanelAdapter` exposes the SimplePanel duck type; `run_gate2` reports resolved_not_in_panel. Eligibility fixed BEFORE any return: raw close >= $2 and trailing-20 $ADV >= $1M evaluated on the bar BEFORE entry (test pins one-bar shift). sec_filings_gate2 constants untouched; no variant added to the ledger.
+VERIFIED: 27/27 across the adapter and its three upstream modules (offline, synthetic series).
+HONEST LIMITS: no return was computed on real data; no signal claim. The $2 price floor is borrowed from Edge P2 and is a small researcher degree of freedom, fixed here in advance. Merged same-ticker series can in principle step across a reused ticker in last_close_on_or_before (price_panel splits raw segments at corporate-action dates, the main guard; multi_series_symbols is reported). Result reads 'insider-visible names only'.
+LADDER STATUS: Lazy Prices gate 1 passed (11-10); gate 2 now needs only the scheduled production run (`sec_filings_similarity distribution --pit --rows-json` then `python3 lazy_prices_panel.py --rows ... --pairs-dir ...`) on the volume. Nothing surfaces on /data or touches a trade path.
+NEXT: schedule that run as a weekly job mirroring edgeP2 (needs the rows JSON built on the volume; own PR).
+ROLLBACK TRIGGER: none (unreferenced module). MERGE: new files + version bump + log; safe any time.
+STARVED: no.
+
 ## 2026-11-10 (scheduled routine, [PRODUCT] slot, Tue, PRE-MARKET) [PIPELINE] — T-DATACORE (scripts tooling + test + result file) — Lazy Prices gate-1 join clause: 25-pair cover-page spot check PASSES, 23/23 readable matched (v1.0.1343)
 HEALTH: research_state_check: thrash 1/10, STARVED 0, no overdue audit; only WARN nasr_cycle (advisory). KNOWN BROKEN: nothing critical (#44/#48 advisory). Product work proceeds.
 PRIOR (stated before running): ~85% that >= 90% of readable pairs match the cover page; wrong-ticker joins would come from ticker reuse after delisting or share-class confusion.
