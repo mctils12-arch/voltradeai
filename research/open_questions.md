@@ -23339,6 +23339,8 @@ RESULT 2026-11-05 (v1.0.1289, `sec_issuer_pairs.py`): HYPOTHESIS SUPPORTED, bord
 
 RESULT 2026-11-10 (v1.0.1343, `scripts/lazy_prices_cover_spotcheck.py`): GATE-1 JOIN CLAUSE PASSED — 25 resolved 10-K pairs sampled (Q1 2021/23/25, seeded), 23 match the filing cover page, 0 mismatch, 2 unreadable (2021). n small (lower 95% bound ~85%). Remaining: panel adapter, then gate 2. See experiments.md 2026-11-10.
 
+RESULT 2026-11-10 later (v1.0.1344, `lazy_prices_panel.py`): panel adapter shipped (dated join + memory-bounded reader + pre-entry-bar eligibility, synthetic-tested). Remaining before gate 2 reads: the scheduled production run on the volume. See experiments.md 2026-11-10.
+
 ## 2026-11-04 — from the options-bleed diagnosis (research/options_bleed_2026-11-04.md)
 
 - **[RULE-REVIEW candidate] Option exits wait until 09:45 ET, except the 5-DTE critical close.**
