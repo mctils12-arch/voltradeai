@@ -273,7 +273,7 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
   {
     // lazyPrices.ts bootLazyPrices: 30-min tick, acts Sunday 16:00-18:00 ET once
     // per ISO week — a run (lazy_prices_run.py, up to 2 h) or one "skipped" beat
-    // (no panel / no filings archive / low disk / fresh result).
+    // (no panel / no backfill rows yet / low disk / fresh result).
     id: "lazy_prices_weekly", label: "Lazy Prices 10-K similarity gate-2 test (weekly, Sun 16:00-18:00 ET)",
     source: "server/lazyPrices.ts", kind: "interval", window: { kind: "always" },
     cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 3 * HOUR,
@@ -283,6 +283,21 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
       return v === "1" || v === "true" || v === "on" || v === "yes";
     },
     disabledReason: "VOLTRADE_LAZY_PRICES off",
+  },
+  {
+    // lazyPricesBackfill.ts bootLazyPricesBackfill: 30-min tick, acts every day
+    // 21:00-23:00 ET once per ET day — a run (lazy_prices_backfill.py, 3.5 h
+    // budget, 4 h kill: the gate-2 INPUT rows accumulating on the volume) or one
+    // "skipped" beat (low disk). A start lands every ~24 h.
+    id: "lazy_prices_backfill_nightly", label: "Lazy Prices 10-K similarity rows backfill (nightly, 21:00-23:00 ET start)",
+    source: "server/lazyPricesBackfill.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 24 * HOUR, graceMs: 6 * HOUR, maxRunMs: 5 * HOUR,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_LAZY_PRICES_BACKFILL;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_LAZY_PRICES_BACKFILL off",
   },
 ];
 
