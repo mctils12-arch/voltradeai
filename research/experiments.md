@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-10 (scheduled routine, [PRODUCT] slot, Tue, PRE-MARKET) [PIPELINE] — T-DATACORE (scripts tooling + test + result file) — Lazy Prices gate-1 join clause: 25-pair cover-page spot check PASSES, 23/23 readable matched (v1.0.1343)
+HEALTH: research_state_check: thrash 1/10, STARVED 0, no overdue audit; only WARN nasr_cycle (advisory). KNOWN BROKEN: nothing critical (#44/#48 advisory). Product work proceeds.
+PRIOR (stated before running): ~85% that >= 90% of readable pairs match the cover page; wrong-ticker joins would come from ticker reuse after delisting or share-class confusion.
+RULE (pre-registered in the script docstring): PASS >= 90% of readable pairs, KILL < 80%; rows with no readable cover ticker excluded from the denominator and reported.
+CHANGE: `scripts/lazy_prices_cover_spotcheck.py` (+ `test_lazy_prices_cover_spotcheck.py`, 4 tests): seeded uniform sample (seed 20261110) of RESOLVED (exact/padded, unambiguous) 10-K rows from Q1 of 2021, 2023, 2025; fetches the first 600 KB of each filing and reads inline-XBRL `dei:TradingSymbol`. Map built from 2019q1+ pairs only (31 quarters), so this tests the map as a 2019+ product. Result: research/lazy_prices_cover_spotcheck_2026-11-10.json.
+RESULT: 25 sampled: 23 match, 0 mismatch, 2 no cover ticker (both 2021 filings, before universal inline-XBRL covers). Match 23/23 = 100% of readable => PASSES_GATE_1_JOIN_CLAUSE.
+HONEST LIMITS: n=25 so the 95% lower bound on the match rate is ~85%, not 100%; the pass says the join is not visibly wrong, not that it is 99% right. Only resolved rows are sampled, so it says nothing about the unmapped 28-32%. Cover tickers on rows like ALL list preferred-series tokens as well; a match is 'map ticker appears among the cover symbols'. Sampled filers skew to names with insider filings, same skew as the join itself.
+LADDER STATUS: Lazy Prices gate 1 (join clause) passed. Open: unmapped-remainder skew, panel adapter (CIK-keyed, memory-bounded), then gate 2 as pre-registered (unchanged). Nothing surfaces on /data or touches a trade path.
+NEXT: panel adapter + the scheduled `distribution --pit --rows-json` run.
+ROLLBACK TRIGGER: none (unreferenced script). MERGE: new files + version bump + log; safe any time.
+STARVED: no.
+
 ## 2026-11-05 (scheduled routine, [PRODUCT] slot, Thu 08:00 ET / 13:00Z, PRE-MARKET) [PIPELINE] — T-DATACORE (new module + test only) — Lazy Prices join widened: all-form issuer pairs lift 10-K CIK->ticker coverage from 55% to 68-72% (v1.0.1289)
 HEALTH: research_state_check: thrash 4/10 (< 7), STARVED 0, only WARN the overdue CONSTITUTIONAL AUDIT. KNOWN BROKEN: nothing critical (#44/#48 advisory). Product work proceeds.
 PRIOR (open_questions 2026-11-04): 60% that all-code issuer pairs over 2014q1+ lift per-quarter 10-K join coverage to >= 70%.
