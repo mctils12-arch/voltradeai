@@ -389,6 +389,11 @@ export const DIAG_PROBES = [
   // statistics only: no ticker, price, owner or URL; no network; no Python; no
   // query parameters.
   "edge_p2",
+  // ADDED 2026-11-10 ([PIPELINE]): read-only status of the weekly gate-2 test of
+  // the Lazy Prices root (server/lazyPrices.ts lazyPricesStatus) — verdict, counts,
+  // per-block spreads, join drop counts. Derived statistics only: no ticker, CIK,
+  // price or URL; no network; no Python; no query parameters.
+  "lazy_prices",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job

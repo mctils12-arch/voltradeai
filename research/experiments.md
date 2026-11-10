@@ -3,6 +3,18 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-10 (scheduled routine, voltrade-product-am, Tue 08:00 ET, PRE-MARKET) [PIPELINE] — T-DATACORE (new runner + job + diag probe + tests; shared files minimal) — Lazy Prices weekly gate-2 production job (v1.0.1345)
+HEALTH: sandbox has no /data volume or live site access, so no live probes; the last entries log thrash 1/10, STARVED 0, nothing critical. Product work proceeds.
+CHOICE: the 11-10 pre-market NEXT was "schedule the production run weekly, mirroring edgeP2". Lazy Prices gate 2 is otherwise only reachable by hand on the volume.
+PRIOR: ~85% the chain plumbs and degrades honestly (skips, never errors, when the filings archive or panel is absent). Whether the archive on the volume holds enough scoreable 10-K pairs is unknown from here; the first Sunday run answers it.
+CHANGE: `lazy_prices_run.py` (+ `test_lazy_prices_run.py`, 4 tests) chains ensure_pairs_cache -> pit_rows_from_archive(min_corpus 30) -> lazy_prices_panel.run_gate2 and prints one JSON line; `server/lazyPrices.ts` (+ `lazyPrices.test.ts`, 6 tests) = Sunday 16:00-18:00 ET weekly job (after edgeP2's window, 2h budget ends before the 20:15 panel build), once per ISO week, same long-job lane (nice 19, RSS cap, SIGKILL group), heartbeat `lazy_prices_weekly`, read-only `lazy_prices` diag probe, flag VOLTRADE_LAZY_PRICES (default on). Gate-2 constants, eligibility and variant ledger untouched; weekly re-runs re-evaluate the SAME pre-registered spec (variants stays 1), re-running only for a new panel build, new code version or a >27-day-old result.
+HONEST LIMITS: derived statistics only in latest.json (no ticker/CIK/price). Result reads 'insider-visible names only'. Repeated runs on a growing archive are not independent looks; the verdict to trust is the first one with the final archive, and any PASS stays provisional until the 12-month live shadow. Not run end to end on real data here (volume-bound); tests are synthetic/offline.
+VERIFIED: 8/8 python (new + adapter), 14/14 tsx (new + edgeP2), 53/53 jobHeartbeat+diag; tsc clean for touched files (pre-existing client/billing errors unchanged).
+LADDER STATUS: Lazy Prices gate 1 passed; gate 2 now self-schedules. Nothing surfaces on /data; no trade path touched.
+NEXT: read `/api/diag?probe=lazy_prices` after the first Sunday (2026-11-15) run; if "skipped: no filings archive", the archive backfill (sec_filings_text) is the next blocker to file.
+ROLLBACK TRIGGER: set VOLTRADE_LAZY_PRICES=0 if a run ever exceeds budget or competes with the panel build. MERGE: safe any time (no trade-path or client change).
+STARVED: no.
+
 ## 2026-11-10 (scheduled routine, EDGE-DOCTRINE axis (a), Tue, PRE-MARKET) [PIPELINE] — T-DATACORE (new module + test only) — Lazy Prices panel adapter: dated CIK->ticker join + memory-bounded price-panel reader feeding the unchanged gate-2 harness (v1.0.1344)
 HEALTH: research_state_check: thrash 1/10, STARVED 0, no overdue audit; only WARN nasr_cycle (advisory). KNOWN BROKEN: nothing critical (#44/#48 advisory). Sandbox has no /data volume, so live site/panel probes were not possible; no repair signal found.
 AXIS: (a) finish the in-flight pipeline: the 11-10 NEXT was the panel adapter.
