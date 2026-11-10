@@ -137,6 +137,43 @@ def check_liveness(health):
     return finding(OK, "liveness", "loop alive, not dark")
 
 
+def check_engine_kill(health):
+    """KNOWN BROKEN #49 (2026-11-10): the Python engine's own kill latch
+    (risk_kill_switch.check_kill_switches, every Tier-2 scan) suppresses every
+    entry while latched, and /api/health's `bot.status` only ever reflected
+    NODE's latch — the engine sat latched "Portfolio DD -20.0%" on a stale
+    peak for three trading days while every routine read "loop alive".
+    /api/health now carries `checks.bot.engineKill` (server/engineKill.ts);
+    read it, don't re-derive. ALARM when the two sides disagree (engine
+    latched, Node off); a pre-fix server (no field) is a WARN so the gap is
+    never silently "ok"."""
+    if not isinstance(health, dict):
+        return finding(WARN, "engine_kill", "no /api/health response — engine kill state unknown")
+    bot = (health.get("checks") or {}).get("bot") or {}
+    ek = bot.get("engineKill")
+    if not isinstance(ek, dict):
+        return finding(WARN, "engine_kill",
+                       "/api/health carries no checks.bot.engineKill (pre-v1.0.1347 server?) — "
+                       "the engine's kill latch is unverified; grep /api/diag/audit?type=KILL-SWITCH")
+    status = ek.get("status")
+    if ek.get("disagree"):
+        return finding(
+            ALARM, "engine_kill",
+            f"ENGINE KILL LATCHED while Node reads {bot.get('status')!r}: kind={ek.get('kind')}, "
+            f"reported {ek.get('ageMinutes')} min ago — every scanner entry suppressed and the tier "
+            f"engine skipped; read /api/diag/kill_state for the peak it measures from (KNOWN BROKEN #49)",
+            fix="human decision: re-baseline the Python peaks to the validated paper equity (wishlist.md "
+                "2026-11-10) or reset via risk_kill_switch.reset_kill_state(); never edit the mechanism",
+        )
+    if status == "latched":
+        return finding(OK, "engine_kill",
+                       f"engine kill latched ({ek.get('kind')}) and Node is latched too — "
+                       "the liveness/auto-resume path owns this state")
+    if status == "unknown":
+        return finding(OK, "engine_kill", "no Tier-2 scan has reported since this container started")
+    return finding(OK, "engine_kill", "engine kill not latched")
+
+
 def check_health_subsystems(health):
     """Non-liveness /api/health subsystems (server/db/alpaca/python/scanner/
     licensing) — any non-'ok' status is a WARN, not an ALARM (liveness owns
@@ -636,6 +673,7 @@ def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
     return [
         check_deploy_gate(health),
         check_liveness(health),
+        check_engine_kill(health),
         check_health_subsystems(health),
         check_process_faults(health),
         check_alt_data_enrichment(diagnostic_entries),

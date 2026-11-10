@@ -35,10 +35,18 @@ import { earningsRefreshAuditMessage, EARNINGS_HISTORY_REFRESH_CMD, EARNINGS_HIS
 import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isRegularSessionMinute, pushRegularBar,
   streamSignalLogEnabled, type StreamHistory } from "./streamSignals";
 import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
+import { engineKillSnapshot, engineKillHealth, shouldAuditEngineKill, engineKillAuditLine, type EngineKillSnapshot } from "./engineKill";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
 import { regimeCounterfactualBody } from "./regimeCounterfactual";
 let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
+// ENGINE KILL VISIBILITY (2026-11-10, KNOWN BROKEN #49, server/engineKill.ts): the
+// Python engine's kill latch as the LAST Tier-2 scan reported it. /api/health
+// reads it beside Node's own latch; the two disagreeing (engine latched, Node
+// off) is the state that hid a 3-trading-day entry halt. In-memory only: a
+// restart reads "unknown" until the first scan reports.
+let lastEngineKill: EngineKillSnapshot | null = null;
+let lastEngineKillAuditAtMs = 0;
 let lastRiskBudgetAuditKey = "";     // 2026-11-06 regime risk budget: one RISK-BUDGET line per (as_of, band, applied)
 import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRanges, rowInBbox } from "./datacoreArchive";
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
@@ -2143,10 +2151,20 @@ print(json.dumps(data))
     // account snapshot Check 3 already fetched above, so this finally
     // reflects real current drawdown from peak instead of a hardcoded 0.
     const healthDd = evaluateDrawdown(healthAcctEquity, state.equityPeak, state.maxDrawdownPct);
+    // ENGINE KILL VISIBILITY (2026-11-10, KNOWN BROKEN #49, server/engineKill.ts):
+    // `status` above is NODE's latch only. The Python engine's own kill
+    // (risk_kill_switch.check_kill_switches, every Tier-2 scan) suppresses
+    // every entry while latched and used to be invisible here — found live
+    // reading "active, -9.7%" through a 3-trading-day engine halt. Enum + age
+    // only on this public payload (the reason and the peaks are on the
+    // token-gated kill_state probe). DEGRADES `status` when the engine is
+    // latched and Node is not; never reaches the HTTP code (healthGate.ts).
+    const engineKillNow = engineKillHealth(lastEngineKill, state.killSwitch, Date.now());
     checks.checks.bot = {
       status: state.killSwitch ? "killed" : state.active ? "active" : "stopped",
       equityPeak: state.equityPeak,
       drawdownPct: healthDd.valid ? healthDd.drawdownPct!.toFixed(1) : "N/A",
+      engineKill: engineKillNow,
       liveness: lv.dark
         ? { dark: true, marketHours: +lv.marketHours.toFixed(1), wallHours: +lv.wallHours.toFixed(1), detail: lv.detail }
         : { dark: false },
@@ -2181,6 +2199,7 @@ print(json.dumps(data))
       },
     };
     if (lv.dark) checks.status = "degraded";
+    if (engineKillNow.degrade) checks.status = "degraded";
 
     // Check 5b: TIER-2 scan health (REPAIR 2026-07-06) — Check 5 above
     // catches the loop being paused/halted; it does NOT catch a loop that
@@ -4656,6 +4675,45 @@ print(json.dumps(insider_cusum_probe.run_probe()))
             tradingBase: ALPACA_BASE, underlying: String(req.query.u || "SPY"),
           }, { fresh: String(req.query.fresh || "") === "1" });
           return res.json(sanitizeDiag(report));
+        }
+        case "kill_state": {
+          // ADDED 2026-11-10 (KNOWN BROKEN #49): READ-ONLY view of every
+          // drawdown latch on both sides — Node's (state.killSwitch, its
+          // re-baselined equityPeak and threshold) and the Python engine's
+          // three persisted peaks (kill_state_probe.py: risk_kill_switch's
+          // state + kill history, the shared tiered peak, bot_engine's DD
+          // halt), each with the equity level its peak implies for the -20%
+          // trip and the 95% resume gate. Same account-equity read the
+          // `account` probe makes, so every drawdown is from one number.
+          // Nothing is written; no mechanism or threshold is touched.
+          let acctEq: number | null = null;
+          try {
+            const acct = await alpaca("/v2/account");
+            const dd = evaluateDrawdown(acct?.equity, state.equityPeak, state.maxDrawdownPct);
+            acctEq = dd.valid ? Number(acct.equity) : null;
+          } catch { acctEq = null; }
+          const eqArg = acctEq === null ? "None" : String(acctEq);
+          const r = await pythonCall(
+            "kill_state",
+            { equity: acctEq },
+            `python3 -c "import json; from kill_state_probe import kill_state_report; print(json.dumps(kill_state_report(equity=${eqArg}), default=str))"`,
+            { timeout: 20000 },
+            20000,
+          );
+          return res.json(sanitizeDiag({
+            probe: "kill_state",
+            node: {
+              killSwitch: state.killSwitch,
+              reason: state.killSwitch ? killSwitchMeta.reason : null,
+              equityPeak: state.equityPeak,
+              maxDrawdownPct: state.maxDrawdownPct,
+              equity: acctEq,
+              drawdownPct: acctEq !== null && state.equityPeak > 0 ? +((acctEq - state.equityPeak) / state.equityPeak * 100).toFixed(2) : null,
+            },
+            engine_last_scan: lastEngineKill,
+            engine_health: engineKillHealth(lastEngineKill, state.killSwitch, Date.now()),
+            python: r.success ? r.result : { error: String(r.result?.error || "kill_state_probe failed").slice(0, 300), via: r.via },
+          }));
         }
         case "volume": {
           // ADDED 2026-11-09: read-only per-directory byte breakdown (see volumeUsage.ts).
@@ -7235,6 +7293,18 @@ else:
         }
         for (const warning of (result.kill_status.warnings || [])) {
           audit("KILL-WARN", warning);
+        }
+      }
+      // ENGINE KILL VISIBILITY (KNOWN BROKEN #49): remember what the engine
+      // reported so /api/health can compare it with Node's latch, and say so
+      // ONCE AN HOUR (not once a scan — FIRED above already does that) while
+      // the engine refuses every entry and Node still reads active.
+      lastEngineKill = engineKillSnapshot(result, Date.now());
+      if (lastEngineKill) {
+        const ekHealth = engineKillHealth(lastEngineKill, state.killSwitch, Date.now());
+        if (shouldAuditEngineKill(ekHealth, lastEngineKillAuditAtMs, Date.now())) {
+          lastEngineKillAuditAtMs = Date.now();
+          audit("ENGINE-KILL-LATCHED", engineKillAuditLine(lastEngineKill, ekHealth));
         }
       }
 

@@ -1,5 +1,50 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ ENGINE KILL LATCHED ON A STALE PEAK 2026-11-10 — no new entries since 11-06; human decision needed (which peak the -20% kill measures from)
+
+WHAT: risk_kill_switch.check_kill_switches (Python, FROZEN mechanism, every
+Tier-2 scan) is latched `Portfolio DD -20.0% <= -20%` against the SHARED
+peak file voltrade_peak_equity.json (~$110,727, the pre-re-baseline all-time
+high). Node's kill switch is OFF and measures -20% from the re-baselined
+$99,962 (the 2026-09-28 paper auto-resume + your 2026-11-05 move to -20%).
+Same constant, two peaks: Python trips at ~$88,582, Node at ~$79,970. Equity
+is ~$90.3K, so the engine has refused EVERY scanner entry and skipped the
+tier engine since 2026-11-06 ~15:30Z while /api/health read "active, -9.7%".
+Exits and position management were never blocked. It cannot self-clear: its
+resume gate wants equity >= 95% of the stale peak (~$105.2K). Full evidence
+and mechanism trace: research/open_questions.md KNOWN BROKEN #49.
+
+WHAT SHIPPED WITHOUT YOU (v1.0.1347, visibility only): /api/health
+`checks.bot.engineKill` degrades `status` while the two sides disagree, an
+hourly `ENGINE-KILL-LATCHED` audit line, the token-gated `/api/diag/kill_state`
+probe (every peak, every implied trip level), and the session health script
+alarms on it. Nothing about the latch, the peaks or the thresholds changed.
+
+THE DECISION (pick one; each is its own PR):
+(a) RECOMMENDED — make the paper re-baseline complete: when Node re-baselines
+    its peak (basis PAPER_REBASE / DATA_ANOMALY, already human-approved
+    2026-09-28), paper_resume_sync also lowers the shared tiered/risk peak to
+    the same validated equity (a new write-down function in tiered_strategy.py,
+    MUTABLE; risk_kill_switch.py untouched) and calls the module's own
+    reset_kill_state() for a Portfolio-DD kill — plus a ONE-TIME catch-up now,
+    because Node is not latched so no re-baseline event will fire on its own.
+    Effect: the Python trip moves from ~$88.6K to ~$80.0K, matching the kill
+    you set on 11-05; entries resume on the next scan. This is the 09-28
+    design's own "deliberately not written here" gap, closed.
+(b) One-off operator reset only (`python3 risk_kill_switch.py reset` on the
+    volume, or a one-shot owner route): entries resume now, the shared peak
+    stays at $110.7K, and the SAME latch re-trips the moment equity touches
+    $88,582 again — a repeat of this week with a dashboard that says active.
+(c) Keep the stricter Python trip as policy: then CLAUDE.md's LIVENESS ALARM
+    text and the 11-05 "-20% from peak" decision need to say WHICH peak, and
+    the floor logic (kill-switch floor reduce-only) should key off the engine
+    latch too. Not recommended: two kills with different reference points
+    cannot both be "the" -20% rule.
+
+NOT A SPEND REQUEST. RULE REVIEW note: none of (a)/(b)/(c) changes a
+threshold constant; (a) changes which equity the constant is applied to,
+which is the decision you already made for Node on 09-28 and 11-05.
+
 ## ⚠ CONSTITUTIONAL AUDIT 2026-11-08 (fourth run) — 1 new consolidation proposal; 4 older ones still pending, human approval needed
 
 Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule (the audit never edits rules). Re-checked against the live CLAUDE.md this session: the 2026-08-16 Proposals 1-2 and the 2026-09-20 Proposals 1-2 are all still present verbatim, unresolved. They change no behavior; they are wording fixes. NOT A SPEND REQUEST.

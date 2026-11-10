@@ -41,6 +41,45 @@ CLEAN_MSG = "[OK] all sources fresh"
 
 # ── check_liveness ────────────────────────────────────────────────────────
 
+# ── check_engine_kill (KNOWN BROKEN #49) ─────────────────────────────────
+
+def _ek(status="ok", kind=None, disagree=False, age=3, node=False):
+    h = _health()
+    h["checks"]["bot"]["engineKill"] = {
+        "status": status, "kind": kind, "ageMinutes": age, "nodeKillSwitch": node,
+        "disagree": disagree, "degrade": disagree,
+    }
+    return h
+
+
+def test_engine_kill_alarm_when_engine_latched_and_node_reads_active():
+    f = hc.check_engine_kill(_ek(status="latched", kind="PORTFOLIO_DD", disagree=True, age=7))
+    assert f["severity"] == hc.ALARM
+    assert "PORTFOLIO_DD" in f["detail"] and "/api/diag/kill_state" in f["detail"]
+    assert "reset_kill_state" in f["fix"]
+
+
+def test_engine_kill_ok_when_both_sides_latched_or_not_latched():
+    h = _ek(status="latched", kind="DAILY_LOSS", disagree=False, node=True)
+    h["checks"]["bot"]["status"] = "killed"
+    assert hc.check_engine_kill(h)["severity"] == hc.OK
+    assert hc.check_engine_kill(_ek(status="ok"))["severity"] == hc.OK
+    assert hc.check_engine_kill(_ek(status="unknown"))["severity"] == hc.OK
+
+
+def test_engine_kill_warns_when_the_server_predates_the_field():
+    f = hc.check_engine_kill(_health())
+    assert f["severity"] == hc.WARN and "KILL-SWITCH" in f["detail"]
+    assert hc.check_engine_kill(None)["severity"] == hc.WARN
+
+
+def test_engine_kill_is_part_of_the_standard_run():
+    findings = hc.run_all_checks(_ek(status="latched", kind="PORTFOLIO_DD", disagree=True),
+                                 {"alive": True, "rss_mb": 200}, [], [], None)
+    assert any(f["label"] == "engine_kill" and f["severity"] == hc.ALARM for f in findings)
+    assert hc.overall_exit_code(findings) == 2
+
+
 def test_liveness_ok_when_not_dark():
     f = hc.check_liveness(_health(dark=False))
     assert f["severity"] == hc.OK
@@ -481,11 +520,12 @@ def test_overall_exit_code_empty_is_ok():
     assert hc.overall_exit_code([]) == 0
 
 
-def test_run_all_checks_returns_nine_findings():
+def test_run_all_checks_returns_ten_findings():
     # 7 -> 8 on 2026-09-16 (check_deploy_gate, KNOWN BROKEN #41); 8 -> 9 same
-    # day (check_process_faults, that fix's own queued NEXT step).
+    # day (check_process_faults, that fix's own queued NEXT step); 9 -> 10 on
+    # 2026-11-10 (check_engine_kill, KNOWN BROKEN #49).
     findings = hc.run_all_checks(_health(), {"alive": True, "rss_mb": 100}, [], [], {})
-    assert len(findings) == 9
+    assert len(findings) == 10
     assert all("severity" in f and "label" in f and "detail" in f for f in findings)
     assert {f["label"] for f in findings} >= {"deploy_freshness", "deploy_gate", "process_faults"}
     assert findings[0]["label"] == "deploy_gate", "the deploy gate is the first line — a 503 there explains every other finding"

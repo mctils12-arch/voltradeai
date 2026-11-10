@@ -45,6 +45,15 @@ export const DIAG_PROBES = [
   // Index-level inputs only (SPY/IWM/sector ETFs/VIX family); no account
   // values, no symbols beyond those ETFs, no keys.
   "regime",
+  // ADDED 2026-11-10 (KNOWN BROKEN #49, server/engineKill.ts +
+  // kill_state_probe.py): every drawdown latch on both sides — Node's
+  // kill switch with its re-baselined peak, and the Python engine's three
+  // persisted peaks (risk_kill_switch state + kill history, the shared
+  // tiered peak, bot_engine's DD halt) with the equity each implies for the
+  // -20% trip and the 95% resume gate. Found live: the engine latched on a
+  // stale peak for 3 trading days while /api/health read "active". Paper
+  // account values (the 2026-07-07 widening); read-only; writes nothing.
+  "kill_state",
   // ADDED 2026-11-06 (institutional flow model, flows_model.py): the daily
   // flow ESTIMATE — the SAME body the owner's /api/bot/flows serves
   // (server/flowsReport.ts): broad-equity and per-sector pressure with its
