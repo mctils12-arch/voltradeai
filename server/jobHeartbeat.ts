@@ -270,6 +270,20 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     },
     disabledReason: "VOLTRADE_EDGE_P2 off",
   },
+  {
+    // lazyPrices.ts bootLazyPrices: 30-min tick, acts Sunday 16:00-18:00 ET once
+    // per ISO week — a run (lazy_prices_run.py, up to 2 h) or one "skipped" beat
+    // (no panel / no filings archive / low disk / fresh result).
+    id: "lazy_prices_weekly", label: "Lazy Prices 10-K similarity gate-2 test (weekly, Sun 16:00-18:00 ET)",
+    source: "server/lazyPrices.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 3 * HOUR,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_LAZY_PRICES;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_LAZY_PRICES off",
+  },
 ];
 
 // ── calendar ────────────────────────────────────────────────────────────────
