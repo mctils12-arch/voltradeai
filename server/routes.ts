@@ -139,6 +139,7 @@ import { bootPricePanel } from "./pricePanel";
 import { bootWalkforward } from "./walkforward";
 import { bootEdgeP2 } from "./edgeP2";
 import { bootLazyPrices } from "./lazyPrices";
+import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
@@ -1703,6 +1704,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Weekly gate-2 test of the Lazy Prices root (server/lazyPrices.ts): Sunday
   // 16:00-18:00 ET, after edgeP2 closes. VOLTRADE_LAZY_PRICES=0 disables.
   bootLazyPrices();
+
+  // Nightly backfill of that test's INPUT (server/lazyPricesBackfill.ts):
+  // point-in-time 10-K similarity rows accumulate on the volume, raw filings
+  // stay in container tmp; 21:00-23:00 ET start, once per ET day, 3.5 h budget.
+  // VOLTRADE_LAZY_PRICES_BACKFILL=0 disables.
+  bootLazyPricesBackfill();
 
   // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
   // trains archiving was REQUEST-driven (fetch functions archive as a side

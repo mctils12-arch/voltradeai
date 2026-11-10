@@ -24,6 +24,6 @@
  "entity_key": "cik (company)",
  "sentiment": null,
  "started": "2026-10-16",
- "cadence": "on-demand backfill (sample CLI); write-once raw, sections rewritten only on EXTRACTION_VERSION change",
- "_note": "Lazy Prices (Cohen-Malloy-Nguyen 2020) pipeline PR 1: DATA gate only. No similarity scores (PR 2), no prices. Raw primary documents are never deleted."
+ "cadence": "on-demand backfill (sample CLI; write-once raw on the volume) — PLUS, since 2026-11-10, the nightly gate-2 input backfill (lazy_prices_backfill.py): same raw->sections extraction, but raw/sections live in CONTAINER TMP and only the scored point-in-time similarity ROWS persist, under DATA_DIR/lazy_prices/backfill/ (see that module's docstring for why: a 10-K primary document is 5-30 MB and the volume cannot hold the universe)",
+ "_note": "Lazy Prices (Cohen-Malloy-Nguyen 2020) pipeline PR 1: DATA gate only. No similarity scores (PR 2), no prices. Raw primary documents are never deleted. 2026-11-10: this stream has never existed on the production volume; the gate-2 input is lazy_prices_backfill.py's rows, not an archive walk."
 }

@@ -13,6 +13,8 @@
  * 19, peak-RSS budget enforced by the Python). Result files are KB-sized under
  * DATA_DIR/lazy_prices; the re-fetchable SEC pairs cache lives in container tmp.
  * Derived statistics only — no ticker, CIK or price (Alpaca data licence).
+ * INPUT (since 2026-11-10): the rows lazyPricesBackfill.ts accumulates nightly
+ * under DATA_DIR/lazy_prices/backfill — the runner skips until they exist.
  * FLAG: VOLTRADE_LAZY_PRICES, default ON; present env var wins.
  */
 import fs from "fs";
@@ -21,6 +23,7 @@ import path from "path";
 import { beat, zonedParts } from "./jobHeartbeat";
 import { execGroupKill } from "./pythonExec";
 import { pricePanelRoot } from "./pricePanel";
+import { lazyPricesBackfillStatus } from "./lazyPricesBackfill";
 import {
   WALKFORWARD_ENV_CAPS, currentPanelBuild, isoWeekKey, type RunOutcome, type WalkforwardExec,
 } from "./walkforward";
@@ -157,9 +160,10 @@ export function lazyPricesStatus(env: Record<string, string | undefined> = proce
       schema: str(l.schema), generated_at: str(l.generated_at), code_version: str(l.code_version), panel: obj(l.panel),
       verdict: obj(l.verdict), variants: l.variants ?? null, n_obs: l.n_obs ?? null, drops: obj(l.drops),
       delisted_exits: l.delisted_exits ?? null, summary: obj(l.summary), join: obj(l.join), caveat: str(l.caveat),
-      rows_scored: l.rows_scored ?? null, elapsed_s: l.elapsed_s ?? null,
+      rows_scored: l.rows_scored ?? null, backfill: obj(l.backfill), elapsed_s: l.elapsed_s ?? null,
     } : null,
     last_run: readJson(path.join(root, "last_run.json")),
+    backfill: lazyPricesBackfillStatus(env, path.join(root, "backfill")),
   };
 }
 

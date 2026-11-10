@@ -204,6 +204,23 @@ class PitIdf:
             elif c == 1:
                 self._n_df1 -= 1
 
+    def add_delta(self, df_delta: dict, n_docs: int) -> None:
+        """Fold a batch of documents in at once: df_delta[token] = number of the
+        batch's docs containing it, n_docs = the batch size. Identical to n_docs
+        sequential add() calls (tested); used by lazy_prices_backfill to close a
+        filing day whose df was accumulated across checkpoints."""
+        for t, c in df_delta.items():
+            c = int(c)
+            if c <= 0:
+                continue
+            old = self.df[t]
+            self.df[t] = old + c
+            if old == 0 and c == 1:
+                self._n_df1 += 1
+            elif old == 1:
+                self._n_df1 -= 1
+        self.n += int(n_docs)
+
     def get(self, tok, default=None):
         v = self.df.get(tok)
         return default if v is None else math.log((self.n + 1) / (v + 1)) + 1.0
@@ -215,6 +232,20 @@ class PitIdf:
 
     def __bool__(self):
         return self.n > 0
+
+    # Checkpoint form (lazy_prices_backfill.py persists the corpus between
+    # nightly runs): plain {n, df} — the derived _n_df1 is recomputed on load so
+    # a hand-edited or truncated state can never carry a stale fast-path count.
+    def state(self) -> dict:
+        return {"n": self.n, "df": dict(self.df)}
+
+    @classmethod
+    def from_state(cls, st: dict) -> "PitIdf":
+        v = cls()
+        v.n = int(st.get("n") or 0)
+        v.df = Counter({str(k): int(c) for k, c in (st.get("df") or {}).items() if int(c) > 0})
+        v._n_df1 = sum(1 for c in v.df.values() if c == 1)
+        return v
 
 
 def _knowable_at(doc: dict) -> str:
