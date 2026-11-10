@@ -23337,6 +23337,8 @@ STANDALONE VALUE: a dated CIK<->ticker map incl. delisted names is itself a sell
 
 RESULT 2026-11-05 (v1.0.1289, `sec_issuer_pairs.py`): HYPOTHESIS SUPPORTED, borderline — all-form issuer pairs 2014q1-2026q3 join 68-72% of each sampled year's Q1 10-K filers (kill <50% cleared). Still open: 25-pair cover-page spot check, small/illiquid skew of the unmapped remainder, panel adapter. See experiments.md 2026-11-05.
 
+RESULT 2026-11-10 (v1.0.1343, `scripts/lazy_prices_cover_spotcheck.py`): GATE-1 JOIN CLAUSE PASSED — 25 resolved 10-K pairs sampled (Q1 2021/23/25, seeded), 23 match the filing cover page, 0 mismatch, 2 unreadable (2021). n small (lower 95% bound ~85%). Remaining: panel adapter, then gate 2. See experiments.md 2026-11-10.
+
 ## 2026-11-04 — from the options-bleed diagnosis (research/options_bleed_2026-11-04.md)
 
 - **[RULE-REVIEW candidate] Option exits wait until 09:45 ET, except the 5-DTE critical close.**

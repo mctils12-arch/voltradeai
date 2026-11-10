@@ -1,0 +1,327 @@
+{
+ "rule": "pass>=0.9, kill<0.8 of readable",
+ "years_q1": [
+  2021,
+  2023,
+  2025
+ ],
+ "seed": 20261110,
+ "pool_resolved_rows_total": 16532,
+ "summary": {
+  "n_sampled": 25,
+  "match": 23,
+  "mismatch": 0,
+  "no_cover_ticker": 2,
+  "readable": 23,
+  "match_frac_of_readable": 1.0,
+  "verdict": "PASSES_GATE_1_JOIN_CLAUSE"
+ },
+ "rows": [
+  {
+   "cik": "0001158172",
+   "name": "COMSCORE, INC.",
+   "filingDate": "2025-03-06",
+   "accession": "0001158172-25-000021",
+   "map_ticker": "SCOR",
+   "cover_tickers": [
+    "SCOR"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001858028",
+   "name": "Nova Vision Acquisition Corp",
+   "filingDate": "2023-03-31",
+   "accession": "0001493152-23-010110",
+   "map_ticker": "NOVV",
+   "cover_tickers": [
+    "NOVVU",
+    "NOVV",
+    "NOVVW",
+    "NOVVR"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001564408",
+   "name": "Snap Inc",
+   "filingDate": "2023-02-01",
+   "accession": "0001564408-23-000013",
+   "map_ticker": "SNAP",
+   "cover_tickers": [
+    "SNAP"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001616862",
+   "name": "Axalta Coating Systems Ltd.",
+   "filingDate": "2021-02-18",
+   "accession": "0001616862-21-000013",
+   "map_ticker": "AXTA",
+   "cover_tickers": [
+    "AXTA"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001410172",
+   "name": "Rubicon Technology, Inc.",
+   "filingDate": "2023-03-30",
+   "accession": "0001213900-23-024745",
+   "map_ticker": "RBCN",
+   "cover_tickers": [
+    "RBCN"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001803901",
+   "name": "Talkspace, Inc.",
+   "filingDate": "2025-03-12",
+   "accession": "0000950170-25-038107",
+   "map_ticker": "TALK",
+   "cover_tickers": [
+    "TALK",
+    "TALKW"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001615999",
+   "name": "NEUROPATHIX, INC.",
+   "filingDate": "2021-03-30",
+   "accession": "0001607062-21-000063",
+   "map_ticker": "NPTX",
+   "cover_tickers": [],
+   "verdict": "no_cover_ticker",
+   "fetch_error": null
+  },
+  {
+   "cik": "0000886346",
+   "name": "KADANT INC",
+   "filingDate": "2025-02-25",
+   "accession": "0000886346-25-000006",
+   "map_ticker": "KAI",
+   "cover_tickers": [
+    "KAI"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001640147",
+   "name": "Snowflake Inc.",
+   "filingDate": "2025-03-21",
+   "accession": "0001640147-25-000052",
+   "map_ticker": "SNOW",
+   "cover_tickers": [
+    "SNOW"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001677703",
+   "name": "CONDUENT Inc",
+   "filingDate": "2023-02-22",
+   "accession": "0001677703-23-000011",
+   "map_ticker": "CNDT",
+   "cover_tickers": [
+    "CNDT"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001000298",
+   "name": "IMPAC MORTGAGE HOLDINGS INC",
+   "filingDate": "2021-03-12",
+   "accession": "0001558370-21-002945",
+   "map_ticker": "IMH",
+   "cover_tickers": [],
+   "verdict": "no_cover_ticker",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001371285",
+   "name": "TRUPANION, INC.",
+   "filingDate": "2023-02-16",
+   "accession": "0001371285-23-000047",
+   "map_ticker": "TRUP",
+   "cover_tickers": [
+    "TRUP"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001897245",
+   "name": "HWH International Inc.",
+   "filingDate": "2025-03-31",
+   "accession": "0001641172-25-001707",
+   "map_ticker": "HWH",
+   "cover_tickers": [
+    "HWH"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0000823768",
+   "name": "WASTE MANAGEMENT INC",
+   "filingDate": "2021-02-22",
+   "accession": "0001558370-21-001348",
+   "map_ticker": "WM",
+   "cover_tickers": [
+    "WM"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001039399",
+   "name": "FORMFACTOR INC",
+   "filingDate": "2021-02-22",
+   "accession": "0001039399-21-000009",
+   "map_ticker": "FORM",
+   "cover_tickers": [
+    "FORM"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001720893",
+   "name": "BioXcel Therapeutics, Inc.",
+   "filingDate": "2025-03-28",
+   "accession": "0001558370-25-003985",
+   "map_ticker": "BTAI",
+   "cover_tickers": [
+    "BTAI"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001821329",
+   "name": "CC Neuberger Principal Holdings III",
+   "filingDate": "2023-03-23",
+   "accession": "0001104659-23-036138",
+   "map_ticker": "PRPC",
+   "cover_tickers": [
+    "PRPC.WS",
+    "PRPC",
+    "WS"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001211805",
+   "name": "My Size, Inc.",
+   "filingDate": "2025-03-27",
+   "accession": "0001641172-25-000990",
+   "map_ticker": "MYSZ",
+   "cover_tickers": [
+    "MYSZ"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001570562",
+   "name": "Evolus, Inc.",
+   "filingDate": "2025-03-04",
+   "accession": "0001570562-25-000020",
+   "map_ticker": "EOLS",
+   "cover_tickers": [
+    "EOLS"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001790982",
+   "name": "Arconic Corp",
+   "filingDate": "2023-02-21",
+   "accession": "0001790982-23-000006",
+   "map_ticker": "ARNC",
+   "cover_tickers": [
+    "ARNC"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001280776",
+   "name": "IMMUNIC, INC.",
+   "filingDate": "2023-02-23",
+   "accession": "0001280776-23-000004",
+   "map_ticker": "IMUX",
+   "cover_tickers": [
+    "IMUX"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0000899051",
+   "name": "ALLSTATE CORP",
+   "filingDate": "2023-02-16",
+   "accession": "0000899051-23-000020",
+   "map_ticker": "ALL",
+   "cover_tickers": [
+    "ALL",
+    "PR",
+    "G",
+    "H",
+    "I"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001114995",
+   "name": "IMPINJ INC",
+   "filingDate": "2023-02-13",
+   "accession": "0000950170-23-002614",
+   "map_ticker": "PI",
+   "cover_tickers": [
+    "PI"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0001327811",
+   "name": "Workday, Inc.",
+   "filingDate": "2025-03-11",
+   "accession": "0001327811-25-000056",
+   "map_ticker": "WDAY",
+   "cover_tickers": [
+    "WDAY"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  },
+  {
+   "cik": "0000795266",
+   "name": "KB HOME",
+   "filingDate": "2023-01-20",
+   "accession": "0000795266-23-000009",
+   "map_ticker": "KBH",
+   "cover_tickers": [
+    "KBH"
+   ],
+   "verdict": "match",
+   "fetch_error": null
+  }
+ ]
+}
