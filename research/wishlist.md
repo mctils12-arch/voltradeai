@@ -41,6 +41,13 @@ THE DECISION (pick one; each is its own PR):
     latch too. Not recommended: two kills with different reference points
     cannot both be "the" -20% rule.
 
+MEASURED POST-DEPLOY (21:06Z, `/api/diag/kill_state`): the shared peak is
+$111,736.69 (higher than the $110.7K estimated above); the engine latched
+2026-11-06T15:32:44Z at equity $89,370.65; its trip level is $89,389 and its
+resume gate $106,150. Equity ($90,425) sits ~$1.0K above the trip, so option
+(b) would re-trip on a ~1.1% dip — only (a) holds. /api/health now reads
+"degraded" for this until you decide.
+
 NOT A SPEND REQUEST. RULE REVIEW note: none of (a)/(b)/(c) changes a
 threshold constant; (a) changes which equity the constant is applied to,
 which is the decision you already made for Node on 09-28 and 11-05.
