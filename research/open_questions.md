@@ -7555,6 +7555,17 @@
     pick ships as its own PR. RECURRENCE RULE: if this item is marked fixed
     and the two sides disagree again, no patch — root-cause the peak
     ownership (one peak, one owner) per HEALTH OF THE LOOP #4.
+    POST-DEPLOY 2026-11-10 21:06Z (v1.0.1347 live, `kill_state` read):
+    MEASURED — shared peak $111,736.69 (voltrade_peak_equity.json; the
+    estimate above of ~$110.7K was Node's OLD peak, the file is higher);
+    engine latched 2026-11-06T15:32:44Z at equity $89,370.65 (dd
+    -20.02%); trip level $89,389.35, resume gate $106,149.86; equity
+    $90,425 = ~$1.0K above the trip. bot_engine DD halt clean (peak
+    99,956.88, not halted). Kill history: the same peak file produced the
+    2026-07-07 false kill (equity read $27,187, resumed 4 h later) — the
+    file has carried a bad-read-era high since July. /api/health now reads
+    "degraded" with engineKill.disagree true; the visibility half is
+    CONFIRMED LIVE. The latch itself is unchanged, awaiting the human.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
