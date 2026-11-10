@@ -4900,3 +4900,9 @@ RECURRENCE ESCALATES: the CSP earnings gate has been fixed three times (v1.0.649
 - Second source for issuers Finnhub omits entirely: the Nasdaq earnings-date endpoint, as a per-candidate cross-check. It is unofficial, so it is labeled as an estimate.
 - This is a session task (T-BOT), not a human decision. It is filed here because CLAUDE.md requires a structural proposal after two failed fixes on one subsystem. The human may veto.
 - **UPDATE 2026-11-04 21:10Z: DONE.** #1616 (another session, v1.0.1276) completes a cut window's near end by chunked re-fetch for every consumer. The second-source cross-check for issuers Finnhub omits is still open.
+
+### UPDATE 2026-11-10 (scheduled midday session) — the volume probe ran; the 10-12 premise is incomplete
+
+`GET /api/diag/volume` (v1.0.1345 live) shows /data/voltrade = 3.76 GB used, ~1.03 GB free (offload-status; guard 1 GiB, underPressure true). Offload-status counts only aircraft + vessels (578 MB local), but `datacore_archive` is 2.97 GB: the offload and its eviction never see ~2.4 GB of other archive kinds.
+Top consumers: vessels_tracks 517 MB, occvolume 410 MB, vessels 372 MB, price_panel/b20261029 337 MB (derived, rebuildable), dtccswaps 250 MB, backups 215 MB (5 kept, ~43 MB each), aircraft 205 MB, fires 204 MB, aircraft_tracks 190 MB, secmidas 150 MB, buoys 141 MB, finrashortvol 103 MB, form4_bulk 95 MB.
+Reading: archive growth is not the aircraft/vessel hot tier alone; the R2 offload covers 2 of ~25 kinds. Cleanup options (each its own PR + human nod where archive data is touched): (a) extend offload/eviction to the other kinds (largest: vessels_tracks, occvolume, dtccswaps, fires, aircraft_tracks); (b) prune superseded price_panel batches; (c) backups 5 -> 3 (~86 MB, small). Option (3) from 10-12 (grow volume) is still the honest fix for the sweep pause; the ask is now better specified: ~2.4 GB of un-offloaded archive is the lever, not aircraft/vessels.

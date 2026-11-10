@@ -116383,3 +116383,9 @@ PRIOR: ~60% the consumer is a derived store written since 10-12 (price panel, Fo
 CHANGE: `GET /api/diag/volume` (token-gated, read-only): bounded walk (200k entries, depth 3, no symlinks) returning bytes/files per directory under /data plus statfs free. Names and sizes only. +5 tests. No trading/archive/guard behavior touched.
 NEXT: after deploy, read the probe, file the top consumer in wishlist.md under the VOLUME CAPACITY entry, and decide cleanup vs resize (cleanup of a derived store = own PR).
 ROLLBACK TRIGGER: none (read-only probe). STARVED: no.
+
+## 2026-11-10 (scheduled routine, Tue ~16:12Z = 11:12 ET EST, market open) [RESEARCH] — research/wishlist.md + experiments.md only — volume probe read: ~2.4 GB of un-offloaded archive kinds, not aircraft/vessels, is what pins the volume
+HEALTH: /api/health ok, liveness not dark, all feeds/jobs ok, version 1.0.1345 = package.json. Thrash ratio: last 10 tags = 0 REPAIR. STARVED: no.
+PRIOR (from 11-09): ~60% derived store. RESULT: mixed — datacore_archive 2.97 GB of 3.76 GB used; offload-status sees only 578 MB (aircraft+vessels). Derived price_panel 337 MB and backups 215 MB are secondary.
+FILED: wishlist.md VOLUME CAPACITY UPDATE with the ranked consumers and three cleanup options. No code changed.
+NEXT: human picks resize vs offload-extension; extending offload to other kinds is its own [PIPELINE] PR (touches archive retention — needs ladder-safe design). Merge note: docs-only, safe anytime.
