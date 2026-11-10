@@ -99,8 +99,8 @@ def main(argv=None) -> int:
     if a.nice:
         try:
             os.nice(a.nice)
-        except OSError:
-            pass
+        except OSError as e:
+            print(f"[lazy_prices] os.nice failed: {e}", file=sys.stderr)
     import sec_filings_text as sft
     data_dir = os.environ.get("DATA_DIR") or ("/data/voltrade" if os.path.exists("/data") else "/tmp")
     out_dir = a.out_dir or os.path.join(data_dir, OUT_SUBDIR)
@@ -111,8 +111,8 @@ def main(argv=None) -> int:
         try:
             _write_atomic(os.path.join(out_dir, "last_run.json"), {"status": "error", "reason": out["reason"],
                           "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")})
-        except OSError:
-            pass
+        except OSError as e2:
+            print(f"[lazy_prices] could not write last_run.json: {e2}", file=sys.stderr)
     print(json.dumps(out))
     return 0 if out["status"] != "error" else 1
 
