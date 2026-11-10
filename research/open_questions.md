@@ -7489,6 +7489,73 @@
     config are the intended policy — and delete the losing one (STALENESS:
     unread config is debt).
 
+49. **[FOUND 2026-11-10, scheduled-routine session, LIVE PRODUCTION
+    ENTRY HALT — VISIBILITY FIX SHIPPED (v1.0.1347), THE LATCH ITSELF IS A
+    HUMAN DECISION (wishlist.md 2026-11-10).] The Python engine's -20% kill
+    switch has been latched since 2026-11-06 against the stale ~$110.7K
+    peak, suppressing every new entry, while /api/health read "active,
+    -9.7%" from Node's re-baselined $99,962 peak.** EVIDENCE (read live
+    with DIAG_TOKEN this session): `/api/diag/audit?type=KILL-SWITCH`
+    returns the probe's full 200-row window of `FIRED: Portfolio DD -20.0%
+    <= -20%` — one per Tier-2 scan, 11-09 (80) and 11-10 (120) alone; the
+    last `TIERS`/`TIER-KILL` lines (which only print when the engine is
+    NOT killed) are 2026-11-06T15:21Z/15:28Z, so the latch set after
+    15:28Z on 11-06 (the probe returns newest-200 only, so the first FIRED
+    could not be read directly). `/api/diag/account`: equity 90,293.63,
+    equityPeak 99,962.18, drawdownPct -9.67, killSwitch false; health
+    `bot.status: "active"`, liveness not dark. Decision journal 11-06:
+    "the tier engine's master kill switch blocked all new" x4; 11-07..11-10
+    every stock candidate refused upstream anyway ("stock slots full 0/0").
+    Equity curve: 11-05 close 89,800, 11-06 close 89,169 (-720 on the day).
+    MECHANISM (code read this session, not memory): bot_engine.scan_market
+    -> `peak = update_peak_equity(equity)` (tiered_strategy, the SHARED
+    voltrade_peak_equity.json, max-ratchet only) -> `check_kill_switches(
+    equity, peak_equity=peak, ...)` (risk_kill_switch.py:150-230, FROZEN
+    mechanism) -> `dd <= PORTFOLIO_DD_KILL` latches `killed` with
+    `can_auto_resume False`; step 4's resume gate needs equity >= 95% of
+    that peak (~$105.2K), so from $90K it never clears. While killed:
+    `suppress_entries_on_kill` empties the scanner's trade list and the
+    tier engine is skipped ("[TIERS] BLOCKED" is a logger line, not an
+    audit) — a complete ENTRY halt; exits/management unaffected. -20.0% of
+    $110,727 = $88,582: the account's 11-06 intraday low plausibly touched
+    it (unverified until `kill_state`'s recent_kills is read post-deploy).
+    WHY THE TWO SIDES DISAGREE: the human-directed paper auto-resume
+    (2026-09-28, KB #42/#43) re-baselines Node's equityPeak and, via
+    paper_resume_sync.py, bot_engine's DD-halt peak — and by its own
+    docstring REPORTS BUT NEVER LOWERS the shared tiered/risk peak ("only
+    max-ratchet writers exist ... deliberately not written here"). The
+    11-05 human decision moved Node's kill to -20% FROM THE RE-BASELINED
+    peak ($79,970 trip); the Python side still trips at $88,582. Same
+    constant, two peaks, $8.6K apart — and the stricter one was invisible.
+    NOT A MECHANISM BUG: risk_kill_switch did exactly what its inputs say.
+    The fault is (a) an input the auto-resume knowingly left stale and (b)
+    zero surface for the engine latch: `KILL-SWITCH FIRED` was audited
+    every scan since 11-06 and no routine greps that type; every session
+    HEALTH line 11-06..11-10 said "kill switch off" from Node's view.
+    FIX SHIPPED (this item's visibility half, own PR, v1.0.1347):
+    server/engineKill.ts (pure) + bot.ts remembers the last scan's
+    kill_status; /api/health `checks.bot.engineKill` {status ok|latched|
+    unknown, kind enum, ageMinutes, nodeKillSwitch, disagree, degrade}
+    DEGRADES `status` when engine-latched and Node-off (never the HTTP
+    code — healthGate.ts untouched); audit `ENGINE-KILL-LATCHED` once an
+    hour while it persists; token-gated `/api/diag/kill_state` (new
+    kill_state_probe.py, daemon route `kill_state`, no bot_engine import)
+    reports all three Python peaks + Node's with the equity each implies
+    for the -20% trip and 95% resume; scripts/session_health_check.py
+    `check_engine_kill` ALARMs on the disagreement (WARN on a pre-fix
+    server). RATCHET: engineKill.test.ts (10, incl. 3 wiring pins),
+    test_kill_state_probe.py (9), test_session_health_check.py (+4).
+    NOT CHANGED: no threshold, no mechanism, no peak, no reset — the engine
+    stays latched until the human decides (wishlist.md 2026-11-10: (a)
+    extend the paper re-baseline to the shared peak + reset_kill_state(),
+    (b) one-off operator reset, or (c) keep the stricter Python trip and
+    say so in CLAUDE.md). NEXT: read `/api/diag/kill_state` after deploy
+    (recent_kills gives the exact trip equity/peak/time); confirm
+    `engineKill.disagree: true` and health "degraded"; then the human's
+    pick ships as its own PR. RECURRENCE RULE: if this item is marked fixed
+    and the two sides disagree again, no patch — root-cause the peak
+    ownership (one peak, one owner) per HEALTH OF THE LOOP #4.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 

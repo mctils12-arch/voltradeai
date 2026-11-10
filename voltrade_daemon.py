@@ -301,6 +301,12 @@ class RPCDispatcher:
             # human-directed; server/killSwitchAutoResume.ts). Re-baselines the
             # Python DD halts through their EXISTING functions only.
             "paper_resume_sync": ("paper_resume_sync", "rebaseline_python_halts"),
+            # ENGINE KILL VISIBILITY (2026-11-10, KNOWN BROKEN #49): read-only
+            # report of the three Python-side drawdown latches and the peaks
+            # they measure from (kill_state_probe.py; no bot_engine import).
+            # args {"equity": float|None}; python3 -c fallback in bot.ts's
+            # `kill_state` diag probe. Writes nothing.
+            "kill_state": ("kill_state_probe", "kill_state_report"),
             # HALT SCOPE (2026-10-27, audit N15): while a Node halt blocks
             # entries, Tier 2 skips the full scan but still runs the options
             # manager's protective exits. args {"allow_rolls": false} (a
