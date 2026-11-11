@@ -649,3 +649,146 @@ test("readEarnings8kHistory (legacy newest-N reader) is unchanged — the cold-c
   assert.equal(hist.length, 3);
   assert.ok(hist.every((f) => f.filedAt === "2026-11-10"), "newest-first then sliced, exactly as before");
 });
+
+// ── [REPAIR 2026-11-11] JOINT filings: one accession, one row, N registrants.
+// EDGAR's getcurrent feed lists a joint 8-K once per registrant (parent +
+// subsidiaries, same AccNo, different CIK). Production 2026-11-11: 77 such
+// accessions / 114 extra archive lines across 07..11, EVERY one a
+// parent+subsidiary group on an earnings-season day (Southern Co + 5
+// utilities, DTE Energy + DTE Electric, Sempra + SoCalGas + SDG&E, Hertz
+// Global + Hertz Corp, ConEd + CECONY, Regency Centers Corp + LP…) and the
+// Form 4 archive on the same days held ZERO repeats — so the v1.0.1351
+// "overlapping deploy containers" diagnosis was wrong, and its first-seen
+// dedup served whichever subsidiary the feed listed first (Southern Power Co,
+// ticker null) while dropping the parent's row (Southern Co, "SO").
+// The registrant names/CIKs/accession/timestamps below are the real Southern
+// Co group as archived on 2026-11-05; the index/exhibit bodies reuse the real
+// MV Oil fixtures above (the fetch layer never looks inside them for this).
+import { mergeCoRegistrants, readEarnings8kHistoryWindow as readWin8k, parseEarnings8kHistoryQuery as parseWin8k } from "./sec8kEarnings";
+
+const JOINT_ENTRY = (name: string, cik: string) => `<entry>
+<title>8-K - ${name} (${cik}) (Filer)</title>
+<link rel="alternate" type="text/html" href="https://www.sec.gov/Archives/edgar/data/${parseInt(cik, 10)}/000009212226000071/0000092122-26-000071-index.htm"/>
+<summary type="html">
+ &lt;b&gt;Filed:&lt;/b&gt; 2026-11-05 &lt;b&gt;AccNo:&lt;/b&gt; 0000092122-26-000071 &lt;b&gt;Size:&lt;/b&gt; 150 KB
+&lt;br&gt;Item 2.02: Results of Operations and Financial Condition
+</summary>
+<updated>2026-11-05T08:09:18-05:00</updated>
+<category scheme="https://www.sec.gov/" label="form type" term="8-K"/>
+<id>urn:tag:sec.gov,2008:accession-number=0000092122-26-000071</id>
+</entry>`;
+const JOINT_8K_FEED = `<?xml version="1.0" encoding="ISO-8859-1" ?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+${JOINT_ENTRY("SOUTHERN POWER CO", "0001160661")}
+${JOINT_ENTRY("SOUTHERN CO GAS", "0001004155")}
+${JOINT_ENTRY("SOUTHERN CO", "0000092122")}
+${JOINT_ENTRY("MISSISSIPPI POWER CO", "0000066904")}
+${JOINT_ENTRY("GEORGIA POWER CO", "0000041091")}
+${JOINT_ENTRY("ALABAMA POWER CO", "0000003153")}
+${REAL_8K_FEED.slice(REAL_8K_FEED.indexOf("<entry>"))}`; // + the two real single-registrant entries
+const SOUTHERN_TICKERS = JSON.stringify({
+  "0": { cik_str: 92122, ticker: "SO", title: "SOUTHERN CO" },
+  "1": { cik_str: 41091, ticker: "GPJA", title: "GEORGIA POWER CO" },
+});
+
+test("fetchLatestEarnings8Ks: a JOINT filing (6 feed entries, one accession) is ONE filing — primary = first registrant with a resolved ticker (Southern Co 'SO', not the first-listed Southern Power Co), the other five ride as coRegistrants, the index and exhibit are fetched once, and `limit` counts filings", async () => {
+  resetCikTickerCacheForTests();
+  const routes: Record<string, string> = {
+    "action=getcurrent": JOINT_8K_FEED,
+    "company_tickers.json": SOUTHERN_TICKERS,
+    "0000092122-26-000071-index.htm": REAL_INDEX_MVOIL,
+    "1371782/000110465926080431/0001104659-26-080431-index.htm": REAL_INDEX_MVOIL,
+    "tm2618490d1_ex99-1.htm": REAL_EXHIBIT_MVOIL,
+  };
+  const hits: string[] = [];
+  const counting = async (url: string) => { hits.push(url); return fakeFetch(routes)(url); };
+  const results = await fetchLatestEarnings8Ks(15, counting as any, 0);
+  assert.equal(results.length, 2, "Southern Co group + MV Oil Trust; AppTech still filtered (no Item 2.02)");
+  const so = results[0];
+  assert.equal(so.accession, "0000092122-26-000071");
+  assert.deepEqual([so.cik, so.companyName, so.ticker], ["0000092122", "SOUTHERN CO", "SO"], "the ticker-bearing parent is the row, not the first-listed subsidiary");
+  assert.deepEqual(so.coRegistrants, [
+    { cik: "0001160661", companyName: "SOUTHERN POWER CO", ticker: null },
+    { cik: "0001004155", companyName: "SOUTHERN CO GAS", ticker: null },
+    { cik: "0000066904", companyName: "MISSISSIPPI POWER CO", ticker: null },
+    { cik: "0000041091", companyName: "GEORGIA POWER CO", ticker: "GPJA" },
+    { cik: "0000003153", companyName: "ALABAMA POWER CO", ticker: null },
+  ], "every other registrant kept, feed order, its own ticker resolution (GPJA is a listed note, honestly carried, not promoted)");
+  assert.equal(so.acceptanceDatetime, "2026-11-05T08:09:18-05:00");
+  assert.equal(hits.filter((u) => u.includes("0000092122-26-000071-index.htm")).length, 1, "index fetched once for the group, not six times");
+  assert.equal(hits.filter((u) => u.includes("tm2618490d1_ex99-1.htm")).length, 2, "exhibit fetched once per FILING (Southern group + MV Oil)");
+  assert.equal(results[1].companyName, "MV Oil Trust");
+  assert.ok(!("coRegistrants" in results[1]), "a single-registrant filing gains no key");
+  // `limit` is filings, not feed entries: limit=1 returns the Southern group alone
+  resetCikTickerCacheForTests();
+  const one = await fetchLatestEarnings8Ks(1, fakeFetch(routes) as any, 0);
+  assert.deepEqual(one.map((f) => f.ticker), ["SO"]);
+});
+
+test("mergeCoRegistrants: per-registrant legacy rows fold into one row per accession (first ticker-bearing row primary, else first row); repeated lines of the SAME CIK collapse without inventing a co-registrant; single rows untouched; already-merged rows re-merge without duplicate CIKs", () => {
+  const row = (cik: string, name: string, ticker: string | null, acc = "0000092122-26-000071") =>
+    ({ ...mkFiling8k(acc, "2026-11-05"), cik, companyName: name, ticker });
+  const legacy = [
+    row("0001160661", "SOUTHERN POWER CO", null), row("0001004155", "SOUTHERN CO GAS", null), row("0000092122", "SOUTHERN CO", "SO"),
+    row("0000066904", "MISSISSIPPI POWER CO", null), row("0000041091", "GEORGIA POWER CO", "GPJA"), row("0000003153", "ALABAMA POWER CO", null),
+    mkFiling8k("E-SINGLE", "2026-11-05"),
+  ];
+  const merged = mergeCoRegistrants(legacy);
+  assert.equal(merged.length, 2);
+  assert.deepEqual([merged[0].cik, merged[0].ticker, merged[0].coRegistrants?.length], ["0000092122", "SO", 5]);
+  assert.deepEqual(merged[0].coRegistrants?.map((c) => c.cik), ["0001160661", "0001004155", "0000066904", "0000041091", "0000003153"], "feed order kept, primary excluded");
+  assert.ok(!("coRegistrants" in merged[1]), "the single row is returned as-is, no key added");
+  assert.equal(legacy[2].coRegistrants, undefined, "inputs are not mutated");
+  // no ticker anywhere: the first row is primary
+  const none = mergeCoRegistrants([row("1", "A", null, "X-1"), row("2", "B", null, "X-1")]);
+  assert.deepEqual([none.length, none[0].cik, none[0].coRegistrants], [1, "1", [{ cik: "2", companyName: "B", ticker: null }]]);
+  // the same CIK twice (restart re-seed gap, ticker cold then warm) is ONE registrant: ticker-bearing copy wins, no co-registrant
+  const dup = mergeCoRegistrants([row("1", "A", null, "D-1"), row("1", "A", "AAA", "D-1")]);
+  assert.deepEqual([dup.length, dup[0].ticker, "coRegistrants" in dup[0]], [1, "AAA", false]);
+  // re-merging rows that already carry co-registrants (a merged row + a legacy line of one of its registrants) keeps each CIK once
+  const again = mergeCoRegistrants([merged[0], row("0000041091", "GEORGIA POWER CO", "GPJA")]);
+  assert.deepEqual([again.length, again[0].coRegistrants?.length], [1, 5]);
+});
+
+test("readEarnings8kHistoryWindow + readEarnings8kHistory + archiveEarnings8Ks: legacy per-registrant archive lines read back as ONE row with the parent's ticker and its coRegistrants; the page cap counts merged rows; a merged filing archives as one line", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-joint-"));
+  const dir = path2.join(base, "earnings8k");
+  fs2.mkdirSync(dir, { recursive: true });
+  const row = (cik: string, name: string, ticker: string | null, acc: string, day: string) =>
+    ({ ...mkFiling8k(acc, day), cik, companyName: name, ticker });
+  // 2026-11-05 as production archived it: Southern Power first (null), Southern Co third ("SO")
+  fs2.writeFileSync(path2.join(dir, "2026-11-05.jsonl"), [
+    row("0001160661", "SOUTHERN POWER CO", null, "0000092122-26-000071", "2026-11-05"),
+    row("0001004155", "SOUTHERN CO GAS", null, "0000092122-26-000071", "2026-11-05"),
+    row("0000092122", "SOUTHERN CO", "SO", "0000092122-26-000071", "2026-11-05"),
+    row("0000041091", "GEORGIA POWER CO", "GPJA", "0000092122-26-000071", "2026-11-05"),
+    mkFiling8k("E-SINGLE-1", "2026-11-05"),
+  ].map((r) => JSON.stringify(r)).join("\n") + "\n");
+  fs2.writeFileSync(path2.join(dir, "2026-11-04.jsonl"), [
+    row("0000936340", "DTE ENERGY CO", "DTE", "0000936340-26-000166", "2026-11-04"),
+    row("0000028385", "DTE Electric Co", null, "0000936340-26-000166", "2026-11-04"),
+  ].map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const page = readWin8k(parseWin8k({ from: "2026-11-04", to: "2026-11-05" }, NOW_11_11), base);
+  assert.equal(page.filings.length, 3, "7 lines -> 3 filings");
+  assert.equal(page.malformed_lines, 0);
+  const so = page.filings.find((f) => f.accession === "0000092122-26-000071")!;
+  assert.deepEqual([so.cik, so.ticker], ["0000092122", "SO"], "the parent's row is served — v1.0.1351 served Southern Power Co (ticker null) and dropped SO");
+  assert.deepEqual(so.coRegistrants?.map((c) => `${c.companyName}:${c.ticker}`), ["SOUTHERN POWER CO:null", "SOUTHERN CO GAS:null", "GEORGIA POWER CO:GPJA"]);
+  const dte = page.filings.find((f) => f.accession === "0000936340-26-000166")!;
+  assert.deepEqual([dte.ticker, dte.coRegistrants], ["DTE", [{ cik: "0000028385", companyName: "DTE Electric Co", ticker: null }]]);
+  assert.ok(!("coRegistrants" in page.filings.find((f) => f.accession === "E-SINGLE-1")!));
+  // cap on MERGED rows: limit=2 fits the 11-05 day's 2 filings untruncated... then 11-04 would make 3 -> truncated at the day boundary
+  const capped = readWin8k(parseWin8k({ from: "2026-11-04", to: "2026-11-05", limit: "2" }, NOW_11_11), base);
+  assert.deepEqual([capped.filings.length, capped.truncated, capped.next_to], [2, true, "2026-11-04"]);
+  // legacy newest-N reader (cold-cache backfill) folds the same way
+  const legacy = readEarnings8kHistory(8, base, NOW_11_11, 10); // 11-11 back to 11-04
+  assert.deepEqual(legacy.map((f) => `${f.accession}:${f.ticker}:${f.coRegistrants?.length ?? 0}`).sort(),
+    ["0000092122-26-000071:SO:3", "0000936340-26-000166:DTE:1", "E-SINGLE-1:TST:0"]);
+  // the writer: one merged filing = one archive line, co-registrants inside it
+  const base2 = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-joint-w-"));
+  const t = Date.parse("2026-11-11T12:00:00Z");
+  assert.equal(archiveEarnings8Ks([{ ...so, accession: "0000092122-26-000071-W" }], base2, t), 1);
+  const lines = fs2.readFileSync(path2.join(base2, "earnings8k", "2026-11-11.jsonl"), "utf8").trim().split("\n");
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).coRegistrants.length, 3);
+});
