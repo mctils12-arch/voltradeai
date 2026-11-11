@@ -180,6 +180,58 @@ export interface Earnings8K {
   text: string;
   textLength: number;
   truncated: boolean;
+  /** JOINT filings only: the OTHER registrants that filed this same accession
+   *  (a parent and its subsidiaries file one 8-K — DTE Energy + DTE Electric,
+   *  Southern Co + five utilities, Sempra + SoCalGas + SDG&E…). EDGAR's
+   *  getcurrent feed lists one entry per registrant, so the row carries them
+   *  here instead of becoming one row per registrant. The row's own
+   *  cik/companyName/ticker are the PRIMARY registrant: the first feed entry
+   *  with a resolved ticker, else the first entry. Absent (not `[]`) for a
+   *  single-registrant filing. Rows archived before v1.0.1352 were written
+   *  one line per registrant; the readers fold them into this shape. */
+  coRegistrants?: Earnings8KRegistrant[];
+}
+
+export interface Earnings8KRegistrant {
+  cik: string;
+  companyName: string;
+  ticker: string | null;
+}
+
+/** Folds one-row-per-registrant copies of a JOINT filing into one row per
+ *  accession (first-appearance order kept). Primary = the first row with a
+ *  resolved ticker, else the first row; every other distinct CIK becomes a
+ *  co-registrant (and co-registrants the rows already carry are kept).
+ *  Repeated lines of the SAME CIK (a restart re-seed gap) collapse to one
+ *  without inventing a co-registrant. Single rows are returned untouched —
+ *  no `coRegistrants` key is added. Used by the fetch layer (before any
+ *  exhibit is fetched) and by both archive readers (legacy rows). */
+export function mergeCoRegistrants<T extends Earnings8K>(rows: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const r of rows) {
+    const g = groups.get(r.accession);
+    if (g) g.push(r); else groups.set(r.accession, [r]);
+  }
+  const out: T[] = [];
+  for (const g of groups.values()) {
+    if (g.length === 1) { out.push(g[0]); continue; }
+    const primary = g.find((r) => r.ticker) ?? g[0];
+    const seenCik = new Set<string>([primary.cik]);
+    const co: Earnings8KRegistrant[] = [];
+    const add = (x: Earnings8KRegistrant) => {
+      if (seenCik.has(x.cik)) return;
+      seenCik.add(x.cik);
+      co.push({ cik: x.cik, companyName: x.companyName, ticker: x.ticker ?? null });
+    };
+    for (const r of g) {
+      if (r !== primary) add(r);
+      for (const x of r.coRegistrants || []) add(x);
+    }
+    const merged: T = { ...primary };
+    if (co.length) merged.coRegistrants = co; else delete merged.coRegistrants;
+    out.push(merged);
+  }
+  return out;
 }
 
 // ── fetch layer (injectable for tests, same FetchFn shape as edgarForm4.ts /
@@ -260,10 +312,25 @@ export async function fetchLatestEarnings8Ks(
 ): Promise<Earnings8K[]> {
   const feedUrl = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&company=&dateb=&owner=include&count=100&output=atom";
   const feedXml = await fetchText(fetchImpl, feedUrl);
-  const candidates = parse8KFeed(feedXml).filter(hasItem202).slice(0, limit);
+  // One FILING per accession: a joint 8-K (parent + subsidiaries) is one
+  // accession listed once per registrant in the feed. Group first so `limit`
+  // counts filings, the exhibit is fetched once, and the archive gets one
+  // row carrying its co-registrants (see mergeCoRegistrants). Found on
+  // production 2026-11-11: 77 accessions / 114 extra rows across 07..11,
+  // every one a parent+subsidiary pair — not the deploy overlap first blamed.
+  const byAccession = new Map<string, Filing8KEntry[]>();
+  for (const e of parse8KFeed(feedXml).filter(hasItem202)) {
+    const g = byAccession.get(e.accession);
+    if (g) g.push(e); else byAccession.set(e.accession, [e]);
+  }
+  const candidates = Array.from(byAccession.values()).slice(0, limit);
   const cikTickers = await getCikTickerMap(fetchImpl);
+  const tickerOf = (e: Filing8KEntry) => cikTickers.get(String(parseInt(e.cik, 10))) ?? null;
   const out: Earnings8K[] = [];
-  for (const entry of candidates) {
+  for (const group of candidates) {
+    const entry = group.find((e) => tickerOf(e) !== null) ?? group[0];
+    const coRegistrants = group.filter((e) => e !== entry && e.cik !== entry.cik)
+      .map((e) => ({ cik: e.cik, companyName: e.companyName, ticker: tickerOf(e) }));
     try {
       const indexHtml = await fetchText(fetchImpl, entry.indexUrl);
       const exhibitHref = pickExhibit99Href(indexHtml);
@@ -279,13 +346,14 @@ export async function fetchLatestEarnings8Ks(
         companyName: entry.companyName,
         filedAt: entry.filedAt,
         acceptanceDatetime: entry.acceptanceDatetime,
-        ticker: cikTickers.get(String(parseInt(entry.cik, 10))) ?? null,
+        ticker: tickerOf(entry),
         itemCodes: entry.itemCodes,
         indexUrl: entry.indexUrl,
         exhibitUrl,
         text,
         textLength: fullText.length,
         truncated,
+        ...(coRegistrants.length ? { coRegistrants } : {}),
       });
     } catch {
       // one bad filing (missing exhibit, transient 4xx) never kills the batch
@@ -366,10 +434,10 @@ export function gzipOldEarnings8kDays(baseDir?: string, nowMs?: number): number 
 export function readEarnings8kHistory(days = 30, baseDir?: string, nowMs?: number, maxFilings = 500): Earnings8K[] {
   const dir = earnings8kDir(baseDir);
   const now = nowMs ?? Date.now();
-  const out: Earnings8K[] = [];
-  const seen = new Set<string>();
+  let out: Earnings8K[] = [];
   for (let d = 0; d < days && out.length < maxFilings; d++) {
     const day = new Date(now - d * 86400_000).toISOString().slice(0, 10);
+    const dayRows: Earnings8K[] = [];
     for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
       let text: string | null = null;
       try {
@@ -381,10 +449,14 @@ export function readEarnings8kHistory(days = 30, baseDir?: string, nowMs?: numbe
         if (!line) continue;
         try {
           const f = JSON.parse(line);
-          if (f.accession && !seen.has(f.accession)) { seen.add(f.accession); out.push(f); }
+          if (f.accession) dayRows.push(f);
         } catch {}
       }
     }
+    // one row per accession across everything read so far: a joint filing's
+    // per-registrant lines fold into one row (mergeCoRegistrants), a repeated
+    // line of the same filing collapses, first appearance wins
+    if (dayRows.length) out = mergeCoRegistrants(out.concat(dayRows));
   }
   out.sort((a, b) => String(b.filedAt || "").localeCompare(String(a.filedAt || "")));
   return out.slice(0, maxFilings);
@@ -544,20 +616,18 @@ export function readEarnings8kHistoryWindow(win: Earnings8kHistoryWindow, baseDi
   for (let ms = dayMs(win.to); ms >= fromMs; ms -= 86400_000) {
     const day = utcDay(ms);
     const read = readArchiveDay(dir, day);
-    // Dedup ROW BY ROW, not by filtering the day against `seen` first: the
-    // live archive holds the same accession more than once INSIDE one day
-    // file (overlapping containers during a deploy both poll and append,
-    // one with the CIK->ticker map still cold), and a filter-then-add pass
-    // lets every same-day repeat through. Found on production the hour
-    // v1.0.1350 deployed (page 07-24..07-29: 379 rows, 365 unique);
-    // readEarnings8kHistory had always deduped line by line.
-    const rows: Earnings8K[] = [];
-    const dayAccessions = new Set<string>();
-    for (const f of read.rows) {
-      if (seen.has(f.accession) || dayAccessions.has(f.accession)) continue;
-      dayAccessions.add(f.accession);
-      rows.push(f);
-    }
+    // One row per accession. Rows archived before v1.0.1352 hold a JOINT
+    // filing once per registrant (parent + subsidiaries, same accession,
+    // different CIK — 77 accessions / 114 extra lines on production, all of
+    // them utility/holding-company pairs on earnings-season days; the
+    // v1.0.1351 "deploy overlap" diagnosis was wrong): mergeCoRegistrants
+    // folds them into the primary registrant's row with `coRegistrants`, so
+    // a customer filtering on the parent's ticker still finds the filing —
+    // v1.0.1351's first-seen dedup kept whichever subsidiary the feed listed
+    // first (Southern Power Co, ticker null, over Southern Co "SO"). Rows
+    // whose accession an earlier (newer) day already served are dropped, as
+    // before. The page cap is measured on these merged rows.
+    const rows = mergeCoRegistrants(read.rows).filter((f) => !seen.has(f.accession));
     if (out.length > 0 && out.length + rows.length > win.maxFilings) {
       truncated = true;
       nextTo = day;

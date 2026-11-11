@@ -7,7 +7,8 @@
  "attribution": "SEC EDGAR",
  "schema_version": 1,
  "field_map": {
-  "accession": "SEC accession (dedup key)",
+  "accession": "SEC accession (dedup key). ONE ROW PER ACCESSION from v1.0.1352 (2026-11-11): a JOINT filing (parent + subsidiaries, one accession, N registrants — EDGAR's getcurrent feed lists it once per registrant) is one row whose cik/companyName/ticker are the PRIMARY registrant (first feed entry with a resolved ticker, else the first entry). Rows written before v1.0.1352 hold a joint filing once per registrant (77 accessions / 114 extra lines, 2026-07..11); the readers (readEarnings8kHistory, readEarnings8kHistoryWindow via mergeCoRegistrants) fold them into the same shape. Append-only: the old lines are not rewritten.",
+  "coRegistrants": "JOINT filings only — the other registrants of the same accession as [{cik, companyName, ticker}], feed order, each ticker resolved the same exact-CIK way (null = unlisted). Absent, not [], for a single-registrant filing.",
   "ticker": "exact CIK match vs SEC company_tickers.json; null = unlisted filer (never guessed). Entity key with accession.",
   "acceptanceDatetime": "the getcurrent feed entry's <updated> timestamp (ISO with offset) — when this feed made the filing publicly visible; the lookahead-free event time for gate-2 work. filedAt remains the date-only field.",
   "text": "extracted exhibit plain text (truncated at 30k chars with truncated flag)",
