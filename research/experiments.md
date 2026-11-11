@@ -116632,3 +116632,23 @@ TESTS:
 - platformStatsIncremental 9/9, streamsInventory 11/11, archiveOffload, durability.
 Ratchets: counter OK, tsc 6, ts_code_only 11.
 STARVED: no.
+
+## 2026-11-06 [REPAIR] KEEP ALIVE — T-DATACORE (server/archivePermanentTier.ts stream config; tests) — fires and buoys archives join the permanent R2 tier with 31 days kept local: ~0.23 GiB off the volume
+VERSION: v1.0.1358 (shipped 2026-11-11 by the parent session; main was v1.0.1357)
+WHY: fires (194.4 MiB, 116 daily files since 07-04) and buoys (132.6 MiB, 122 since 07-08) are the next streams whose readers fit inside a fixed window. Grepped across server/, scripts/ and *.py:
+- The live routes /api/data/fires, /api/data/fires-near-facilities and /api/data/buoys serve in-memory caches.
+- The in-process history readers reach at most 30 days: queryEngine's DAYS_CAP and snapshotWindow are RAW_RETENTION_DAYS; siteTimeline reads 7 days; nasaFirms readFireHistory 7 (backfill 2); ndbcBuoys 2.
+- Both writers append only to today's file and gzip it after 2 days.
+- gasflare_gate1 and gdelt_fires_gate2 read through /api/diag/archive.
+- Both streams have manifests, so their counts stay whole through the counter change.
+CHANGE: fires and buoys join the tier with a 31-day local window (the 30-day reach plus 1). A ratchet test pins the readers' look-back constants (DAYS_CAP, snapshotWindow, siteTimeline WINDOW_DAYS) against the windows, so widening a reader without revisiting the tier fails CI.
+DOWNSTREAM:
+(1) ~150 MiB of fires (~89 files at the 1.68 MiB mean) and ~85 MiB of buoys (90 files at ~0.95 MiB gz) are freed. Today's plain buoy/fire files are never touched. With changes 2-5, free is expected at ~2.23 GiB, from 0.98 (~1,277 MiB in all). The ~1,050-file backlog clears in ~17 ticks (~9 h) at 64 uploads per tick.
+(2) Second-order: sweep/OpenSky archiving (2 GiB gate) resumes. It writes until free is back under 2 GiB, so the margin above 2 GiB is spent by design. The dual-mode DTCC DB (~0.18 GiB) returns unless DTCC stays memory-only.
+PROJECTION to the panel rebuild (~2026-11-28): remaining growth is ~10-20 MiB/day from streams with longer in-process readers (dtccswaps ~3-5 MiB/day, optionchains, earnings8k, filings13f, aircraft_intent_daily) plus the unmeasured non-archive state; the volume probe will measure it. From ~2.0 GiB after the sweep refills to its gate, the volume is expected to hold ~1.55-1.75 GiB on 11-28 without the DTCC DB, and ~0.18 GiB less with it. The rebuild needs ~1.6 GiB (1.25 GiB floor + 0.31 GiB second build). It fits only if DTCC stays memory-only and growth stays near the low end. The durable fix is a bigger volume (human).
+ROLLBACK TRIGGER: an analyst query or site timeline reporting fewer fire events for a day inside its 30-day window than before (it should never read R2), or any fires/buoys conflict/MISSING in permanentTier. ARCHIVE_PERMANENT_TIER=0 stops further moves.
+TESTS: archivePermanentTier +2, now 22/22:
+- fires/buoys day 31 kept, older evicted; today's plain file untouched;
+- the reader-window ratchet.
+The scope pin is updated to the six streams. queryEngine, siteTimeline, occVolume, platformStatsIncremental, streamsInventory, archiveOffload, datacoreArchive, durability, diag, aircraftWindow, manifests, layerFreshness and qualityDashboard pass: 223/223 across the 15 files. Ratchets: counter OK, tsc 6, ts_code_only 11; the esbuild server bundle builds.
+STARVED: no.
