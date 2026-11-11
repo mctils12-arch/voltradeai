@@ -19,6 +19,7 @@ These tests pin:
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -116,10 +117,24 @@ def test_the_pre_open_guard_covers_the_measured_deploy_lag():
     assert int(out) * 60 > 675
 
 
-def test_without_a_tz_database_the_gate_fails_closed():
-    # GNU date quietly answers in UTC for an unknown zone; the gate must notice
-    # (zone abbreviation is not EST/EDT) instead of computing a wrong window.
-    env = {"TZDIR": "/nonexistent-tzdir"}
+def _no_tz_date(dirpath):
+    """A `date` that behaves like one on a host WITHOUT a tz database: GNU date
+    quietly answers in UTC for a zone it cannot load. Simulated by a wrapper on
+    PATH that forces TZ=UTC, because pointing TZDIR at an empty directory only
+    works where `date` honors TZDIR (GNU coreutils; not every runner's `date`
+    does — the 2026-11-11 CI runner resolved the zone anyway)."""
+    real = shutil.which("date")
+    assert real, "a real date binary"
+    fake = dirpath / "date"
+    fake.write_text(f'#!/bin/sh\nTZ=UTC exec "{real}" "$@"\n')
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return dirpath
+
+
+def test_without_a_tz_database_the_gate_fails_closed(tmp_path):
+    # the gate must notice (zone abbreviation is not EST/EDT) instead of
+    # computing a wrong window
+    env = {"PATH": f"{_no_tz_date(tmp_path)}{os.pathsep}{os.environ['PATH']}"}
     assert call_fn("merge_window_open", utc("2026-11-07T15:00"), env) == 2
     assert call_fn("in_market_hours", utc("2026-11-06T15:00"), env) == 2
 
@@ -278,7 +293,9 @@ def test_ci_path_trusts_the_api_when_gh_errs_after_merging(tmp_path):
 
 
 def test_ci_path_fails_closed_without_a_tz_database(tmp_path):
-    r, calls = run([URL7], "2026-11-07T15:00", {}, tmp_path, env={"TZDIR": "/nonexistent-tzdir"})
+    (tmp_path / "bin").mkdir(exist_ok=True)
+    _no_tz_date(tmp_path / "bin")  # run() puts tmp_path/bin first on PATH, beside the fake gh
+    r, calls = run([URL7], "2026-11-07T15:00", {}, tmp_path)
     assert r.returncode == 0
     assert merges(calls) == []
     assert "::error title=DEPLOY WINDOW::" in r.stdout
