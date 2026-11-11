@@ -18,6 +18,15 @@
 // only. readArchiveDay therefore falls back to this tier (coldDaySource) for a
 // day whose file is no longer local, so the research path keeps working.
 //
+// OCCVOLUME (added the same day; 390 MiB, 588 report days back to 2024-07-08,
+// the next-largest stream): server/occVolume.ts reads back only the newest 5
+// trading days (refreshOcc's dedup) and the newest archived day after a
+// restart; its one-shot deep backfill is done (backfill_done.json) and its
+// dedup counts R2-held days as archived, so nothing re-downloads them; the
+// OCC gate scripts fetch from OCC, not the archive; /data/occ-volume serves
+// the in-memory latest day. Its files stay local for 30 days. Its counts stay
+// whole: platformStats and the streams inventory count R2-held files.
+//
 // WHAT (ARCHIVE_PERMANENT_TIER, default ON; "0"/"off"/"false"/"no"/"" = off):
 //   offload  each closed `<stream>/<YYYY-MM-DD>.jsonl.gz` (day ended >= 2 d
 //            ago, untouched >= 1 h, gzip readable end to end) is PUT byte-for-
@@ -53,13 +62,24 @@ import { errText, type R2Client } from "./r2Client";
 import { archiveBaseDir, type ColdDayFileSource } from "./datacoreArchive";
 
 // ── constants ───────────────────────────────────────────────────────────────
-/** streams whose closed day files move to the permanent tier — only ones
- *  whose sole reader is the research read path (see the header) */
-export const PERMANENT_STREAMS = ["vessels_tracks", "aircraft_tracks", "trains_tracks"] as const;
+/** local copies stay until their date is MORE than this many UTC days old
+ *  (the default; a stream may keep a longer local window below) */
+export const PERMANENT_LOCAL_DAYS = 7;
+/** streams whose closed day files move to the permanent tier, each with the
+ *  local window its in-process readers need (see the header) — a stream is
+ *  added here only after every reader of its history is checked */
+export const PERMANENT_STREAM_CONFIG: ReadonlyArray<{ stream: string; localDays: number }> = [
+  { stream: "vessels_tracks", localDays: PERMANENT_LOCAL_DAYS },
+  { stream: "aircraft_tracks", localDays: PERMANENT_LOCAL_DAYS },
+  { stream: "trains_tracks", localDays: PERMANENT_LOCAL_DAYS },
+  { stream: "occvolume", localDays: 30 },
+];
+export const PERMANENT_STREAMS: readonly string[] = PERMANENT_STREAM_CONFIG.map((c) => c.stream);
+export function permanentLocalDays(stream: string): number {
+  return PERMANENT_STREAM_CONFIG.find((c) => c.stream === stream)?.localDays ?? PERMANENT_LOCAL_DAYS;
+}
 export const PERMANENT_PREFIX = "permanent";
 export const PERMANENT_MANIFEST_NAME = "archive_permanent_manifest.json";
-/** local copies stay until their date is MORE than this many UTC days old */
-export const PERMANENT_LOCAL_DAYS = 7;
 /** a day file is offloaded only once its date is at least this many days old... */
 export const PERMANENT_MIN_AGE_DAYS = 2;
 /** ...and it has not been modified for this long (no writer mid-write) */
@@ -437,7 +457,7 @@ export function createPermanentTier(deps: PermanentTierDeps) {
     let consecutive = 0;
     for (const f of files) {
       if (s.evicted >= maxEvictions) break;
-      if (permAgeDays(f.date, t) <= PERMANENT_LOCAL_DAYS) continue;
+      if (permAgeDays(f.date, t) <= permanentLocalDays(f.stream)) continue;
       const e = manifest.entries[f.key];
       if (!e || e.evictedAt != null || !e.sha256 || manifest.conflicts[f.key]) continue;
       if (e.bytes !== f.size || e.srcMtimeMs !== f.mtimeMs) continue; // changed since verified: the offload phase judges it first
@@ -554,8 +574,8 @@ export function createPermanentTier(deps: PermanentTierDeps) {
 
   function status() {
     const flag = permanentTierFlag(env);
-    const byStream: Record<string, { r2Objects: number; r2Bytes: number; evictedFiles: number; evictedBytes: number; localFiles: number; localBytes: number; oldestDate: string | null; newestDate: string | null }> = {};
-    for (const st of streams) byStream[st] = { r2Objects: 0, r2Bytes: 0, evictedFiles: 0, evictedBytes: 0, localFiles: 0, localBytes: 0, oldestDate: null, newestDate: null };
+    const byStream: Record<string, { localDays: number; r2Objects: number; r2Bytes: number; evictedFiles: number; evictedBytes: number; localFiles: number; localBytes: number; oldestDate: string | null; newestDate: string | null }> = {};
+    for (const st of streams) byStream[st] = { localDays: permanentLocalDays(st), r2Objects: 0, r2Bytes: 0, evictedFiles: 0, evictedBytes: 0, localFiles: 0, localBytes: 0, oldestDate: null, newestDate: null };
     for (const e of Object.values(manifest.entries)) {
       const b = byStream[e.stream];
       if (!b) continue;
@@ -572,7 +592,7 @@ export function createPermanentTier(deps: PermanentTierDeps) {
       configured: client.configured,
       streams: [...streams],
       prefix: `${PERMANENT_PREFIX}/<stream>/<YYYY-MM-DD>.jsonl.gz`,
-      localDays: PERMANENT_LOCAL_DAYS,
+      localDays: Object.fromEntries(streams.map((st) => [st, permanentLocalDays(st)])),
       r2Objects: sum("r2Objects"),
       r2Bytes: sum("r2Bytes"),
       evictedFiles: sum("evictedFiles"),
@@ -586,7 +606,7 @@ export function createPermanentTier(deps: PermanentTierDeps) {
       lastReconcile: manifest.lastReconcileAt ? new Date(manifest.lastReconcileAt).toISOString() : null,
       lastRunSummary: lastSummary,
       readThroughCache: cache.stats(),
-      rule: `A day file is copied to R2 once its date is ${PERMANENT_MIN_AGE_DAYS}+ days old and it has been idle 1 h (SHA-256-signed PUT, HEAD size check); its local copy is deleted only when its date is more than ${PERMANENT_LOCAL_DAYS} days old AND the R2 object read back byte-for-byte matches it. R2 objects under ${PERMANENT_PREFIX}/ are never deleted. /api/diag/archive reads evicted days from R2.`,
+      rule: `A day file is copied to R2 once its date is ${PERMANENT_MIN_AGE_DAYS}+ days old and it has been idle 1 h (SHA-256-signed PUT, HEAD size check); its local copy is deleted only when its date is older than its stream's local window (localDays) AND the R2 object read back byte-for-byte matches it. R2 objects under ${PERMANENT_PREFIX}/ are never deleted. /api/diag/archive reads evicted days from R2; the archive's counters still count them.`,
     };
   }
 

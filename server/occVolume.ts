@@ -35,7 +35,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
-import { archiveBaseDir } from "./datacoreArchive";
+import { archiveBaseDir, coldDayFilesHeldInR2 } from "./datacoreArchive";
 import { trackSet } from "./heapDiag";
 
 const BASE_URL = "https://marketdata.theocc.com/volume-query";
@@ -139,7 +139,13 @@ function seedSeen(dir: string): void {
 
 export function isDayArchived(day: string, baseDir?: string): boolean {
   if (!seeded) { seedSeen(occDir(baseDir)); seeded = true; }
-  return archivedDays.has(day);
+  if (archivedDays.has(day)) return true;
+  // 2026-11-06: a report day whose only copy is now the permanent R2 tier
+  // (archivePermanentTier.ts keeps the newest 30 days local) is archived too —
+  // the local listing above no longer shows it, and without this the deep
+  // backfill (should its done-marker ever be lost) would re-download every
+  // such day still inside OCC's 2-year window and refill the volume.
+  return coldDayFilesHeldInR2().some((f) => f.stream === "occvolume" && f.file === `${day}.jsonl.gz`);
 }
 
 /** Test isolation only (alpaca_feed._reset_for_tests precedent) — the
