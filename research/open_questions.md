@@ -23648,3 +23648,8 @@ Ladder: datacore/signal_ladder.json settlement_stress_composite note
 (2026-11-10 UPDATE). Related: github_org_engineering_momentum is one week
 short of its own bar (14/15) and resolves on its next run after 2026-11-15 —
 no decision needed there.
+
+### UPDATE 2026-11-11 — weekly walk-forward of 11-07 (code 1.0.1341, build b20261029), read late
+- Composite v2 rollback trigger 1: NOT tripped (5d IC v2 +0.0007 vs legacy -0.0089; top-10 vs random -0.54% vs -1.17%). Both arms remain null; v2 stays the served composite under its kill date.
+- Reproducibility: the nine pre-#1659 inputs' raw p-values reproduce exactly (p_bonf scaled 30/39 because the pre-rank candidates had not deployed).
+- Pre-rank candidates (12-1 momentum, residual 12-1 momentum, quick score without move terms): first measured on the 11-14 run; gate-2 rule as pre-registered.
