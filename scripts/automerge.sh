@@ -30,6 +30,12 @@
 #                          each deploy carries one change.
 #   automerge.sh --window  print the decision for now; exit 0 open, 3 closed.
 #
+# BRANCHES. Both paths merge with --delete-branch (human, 2026-11-06: "turn on
+# GitHub's auto-delete setting"; that repository setting is a human-only toggle,
+# so the merge deletes its own head instead). gh deletes the branch after the
+# merge; if only that step fails, the PR is still merged (pr_is_merged), and the
+# weekly .github/workflows/branch-hygiene.yml run removes the leftover head.
+#
 # WHY A SCRIPT. `.github/workflows/` is a FROZEN PATH. As with
 # scripts/gated_tests.sh, the YAML gains one `run:` line and the rule lives in a
 # mutable, tested file (test_automerge_deploy_window.py).
@@ -176,7 +182,7 @@ merge_one_pr() {
     return 0
   fi
   echo "DEPLOY WINDOW open ($stamp): merging $url"
-  gh pr merge --squash "$url"
+  gh pr merge --squash --delete-branch "$url"
   rc=$?
   [ "$rc" -eq 0 ] && return 0
   if parse_pr_url "$url" && pr_is_merged "$PR_REPO" "$PR_NUM"; then
@@ -223,7 +229,7 @@ sweep() {
       continue
     fi
     echo "merging #$num at $sha: every required check passed"
-    gh pr merge --squash --match-head-commit "$sha" "$url" </dev/null
+    gh pr merge --squash --delete-branch --match-head-commit "$sha" "$url" </dev/null
     rc=$?
     if [ "$rc" -eq 0 ] || pr_is_merged "$repo" "$num"; then
       [ "$rc" -ne 0 ] && echo "::warning title=DEPLOY WINDOW::#$num is merged, but gh exited $rc after the merge"

@@ -269,14 +269,14 @@ def test_a_label_failure_never_turns_a_deferral_red(tmp_path):
 def test_ci_path_merges_outside_the_window(tmp_path):
     r, calls = run([URL7], AFTER, {}, tmp_path)
     assert r.returncode == 0, r.stderr
-    assert merges(calls) == [["pr", "merge", "--squash", URL7]]
+    assert merges(calls) == [["pr", "merge", "--squash", "--delete-branch", URL7]]
 
 
 @pytest.mark.parametrize("now", ["2026-11-07T15:00", "2026-11-06T14:14"])  # Sat 10:00 ET; Fri 09:14 ET
 def test_ci_path_merges_on_a_weekend_and_before_the_guard(tmp_path, now):
     r, calls = run([URL7], now, {}, tmp_path)
     assert r.returncode == 0, r.stderr
-    assert merges(calls) == [["pr", "merge", "--squash", URL7]], now
+    assert merges(calls) == [["pr", "merge", "--squash", "--delete-branch", URL7]], now
 
 
 def test_a_failed_merge_still_fails_the_job(tmp_path):
@@ -316,7 +316,7 @@ def test_sweep_merges_only_the_oldest_green_claude_pr(tmp_path):
     }
     r, calls = run(["--sweep"], AFTER, scenario, tmp_path)
     assert r.returncode == 0, r.stderr
-    assert merges(calls) == [["pr", "merge", "--squash", "--match-head-commit", sha(11),
+    assert merges(calls) == [["pr", "merge", "--squash", "--delete-branch", "--match-head-commit", sha(11),
                               "https://github.com/o/r/pull/11"]]
     checked = [c[1] for c in calls if c[0] == "api" and "/check-runs" in c[1]]
     assert checked == [f"repos/o/r/commits/{sha(11)}/check-runs?per_page=100&filter=latest"], \
@@ -337,7 +337,7 @@ def test_sweep_never_merges_a_failed_cancelled_pending_or_missing_check(tmp_path
                 "checks": {**{sha(n): c for n, c in bad.items()}, sha(20): checks()}}
     r, calls = run(["--sweep"], AFTER, scenario, tmp_path)
     assert r.returncode == 0, r.stderr
-    assert merges(calls) == [["pr", "merge", "--squash", "--match-head-commit", sha(20),
+    assert merges(calls) == [["pr", "merge", "--squash", "--delete-branch", "--match-head-commit", sha(20),
                               "https://github.com/o/r/pull/20"]]
     for n, reason in [(1, "test: failure"), (2, "docker-build: cancelled"), (3, "node-build: in_progress"),
                       (4, "python-tests: missing"), (5, "changes: skipped"), (6, "test: timed_out"),
@@ -389,6 +389,18 @@ def test_sweep_reads_every_page_of_open_prs(tmp_path):
     pages = [c[1] for c in calls if c[0] == "api" and "/pulls?" in c[1]]
     assert pages == ["repos/o/r/pulls?state=open&per_page=100&page=1",
                      "repos/o/r/pulls?state=open&per_page=100&page=2"]
+
+
+def test_both_merge_paths_delete_the_merged_branch(tmp_path):
+    # 2026-11-06, human: "turn on GitHub's auto-delete setting". The setting is a
+    # human-only toggle, so each merge deletes its own head.
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    _, ci_calls = run([URL7], AFTER, {}, tmp_path / "a")
+    _, sweep_calls = run(["--sweep"], AFTER, {"pulls": [pr(3)], "checks": {sha(3): checks()}}, tmp_path / "b")
+    for call in merges(ci_calls) + merges(sweep_calls):
+        assert "--delete-branch" in call, call
+    assert len(merges(ci_calls)) == 1 and len(merges(sweep_calls)) == 1
 
 
 def test_window_command_exit_codes(tmp_path):
