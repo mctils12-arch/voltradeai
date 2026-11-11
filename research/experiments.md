@@ -116605,3 +116605,30 @@ TESTS: platformStatsIncremental +2, now 9/9:
 - streams_recording keeps an all-R2 stream.
 streamsInventory +1, now 11/11: R2-held files in files/bytes plus the cold breakdown; freshness stays local. heldOnlyInR2 is pinned in archivePermanentTier.test.ts (19/19), including MISSING exclusion. layerFreshness, qualityDashboard, platformStats and repoFiles pass. Ratchets: counter OK, tsc 6, ts_code_only 11.
 STARVED: no.
+
+## 2026-11-06 [REPAIR] KEEP ALIVE — T-DATACORE (server/archivePermanentTier.ts stream config; server/occVolume.ts isDayArchived; tests) — the OCC volume archive joins the permanent R2 tier with 30 days kept local: ~375 MiB off the volume
+VERSION: v1.0.1357 (shipped 2026-11-11 by the parent session; main was v1.0.1356)
+WHY: occvolume is the largest remaining stream (389.9 MiB, 588 files, report days back to 2024-07-08: the one-shot 2-year deep backfill). Its readers, grepped across server/, scripts/ and *.py:
+- refreshOcc checks only the newest 5 trading days (dedup by local file name). After a restart it reads back the newest archived day.
+- occDeepBackfillIfEnabled returns at once while backfill_done.json exists.
+- The gate scripts (occ_volume_gate1/2/2_clustered) fetch from OCC, not the archive.
+- /api/data/occ-volume serves the in-memory latest day.
+- The only other reader is /api/diag/archive, which falls back to R2.
+CHANGE:
+- The tier's stream list becomes a config with a local window per stream (`_tracks` 7 days, occvolume 30 days).
+- OCC report days older than 30 days go to permanent/occvolume/ under the same rules: SHA-256-signed PUT, HEAD check, deletion only after a byte-for-byte GET read-back, no overwrite.
+- occVolume.isDayArchived also counts days held only in R2. A lost backfill marker therefore cannot re-download ~565 days and refill the volume.
+- backfill_done.json is not a day file and never leaves the volume.
+DOWNSTREAM:
+(1) ~375 MiB freed: 565 files at the live mean of 0.664 MiB. 22 trading days stay local. The backlog clears at 64 uploads per tick: ~9 ticks after the `_tracks` backlog, ~14 ticks (~7 h) for both. Free is expected at ~2.0 GiB, from 0.98, before other growth.
+(2) Second-order:
+- Counts stay whole through the counter change (previous entry): the hero total and the streams page do not drop.
+- R2 permanent rises by ~0.37 GB.
+- A future reader that needs OCC history older than 30 days must read through the tier: readArchiveDay already does; a new module-local reader would not.
+ROLLBACK TRIGGER: refreshOcc fetching a day already in R2 (an OCC fetch log for a date older than 7 days), the hero observations dropping by ~90M, or any permanentTier conflict/MISSING under occvolume. ARCHIVE_PERMANENT_TIER=0 stops further moves; evicted days stay readable and counted.
+TESTS:
+- archivePermanentTier +1, now 20/20: day 30 kept, day 31 evicted after the read-back and listed as held; the backfill marker untouched and never uploaded; localDays reported. The scope pin is updated to the four streams (stated in the test).
+- occVolume +1, now 9/9: refreshOcc and the deep backfill never fetch or re-write an R2-held day.
+- platformStatsIncremental 9/9, streamsInventory 11/11, archiveOffload, durability.
+Ratchets: counter OK, tsc 6, ts_code_only 11.
+STARVED: no.
