@@ -11,13 +11,23 @@
  * 5-30 MB; ~50k of them since 2015). The Python module's docstring has the
  * byte math; this file only gives it a nightly slot.
  *
- * WHEN: every night, start window 21:00-23:00 ET, once per ET day. Tier-2 scans
- * stop at 20:00 ET and the 04:00 ET daily branch (resets, retrain, backup) is
- * well after the 3.5 h Python budget (4 h hard kill) ends. The 20:15-04:00 ET
- * price-panel build may overlap: it is one Alpaca request at a time, CPU-light,
- * and currently blocked by its own disk floor; this job is CPU-bound HTML
- * extraction at nice 19 against EDGAR, a different host. Weekend nights
- * included — Sat/Sun daytime belongs to walkforward/edgeP2/lazyPrices.
+ * WHEN: every night. The NIGHT opens 21:00 ET and every slice's Python budget
+ * ends by 03:30 ET (hard kill 30 min later, before the 04:00 ET daily branch:
+ * resets, retrain, backup). A slice is at most 3.5 h; one that starts later in
+ * the night gets what is left of it, and a slice shorter than 20 min is not
+ * started (so the latest start is 03:10 ET). Once per night PER PROCESS: the
+ * attempt marker is in memory on purpose, so a fresh container (Railway
+ * redeploys on EVERY merge to main, research-only PRs included — see
+ * wishlist.md 2026-10-15 option A) re-attempts at its first tick and resumes
+ * from the Python's checkpoint. Before 2026-11-11 the start window closed at
+ * 23:00 ET and the first night was lost twice: a 03:13Z deploy killed the
+ * 02:05Z run and a 03:46Z research-only deploy killed its 03:44Z re-run two
+ * minutes in; a restart after 23:00 ET would then have skipped the night.
+ * Tier-2 scans stop at 20:00 ET. The 20:15-04:00 ET price-panel build may
+ * overlap: it is one Alpaca request at a time, CPU-light, and currently
+ * blocked by its own disk floor; this job is CPU-bound HTML extraction at
+ * nice 19 against EDGAR, a different host. Weekend nights included — Sat/Sun
+ * daytime belongs to walkforward/edgeP2/lazyPrices/earningsQoq.
  * HOW: same long-job lane as edgeP2 (detached process group, thread caps,
  * nice 19, peak-RSS budget enforced by the Python, which checkpoints every
  * chunk so a kill loses at most one chunk of fetches, never a row).
@@ -26,18 +36,20 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { beat, zonedParts } from "./jobHeartbeat";
+import { beat, zonedInstant, zonedParts } from "./jobHeartbeat";
 import { execGroupKill } from "./pythonExec";
 import { WALKFORWARD_ENV_CAPS, type RunOutcome, type WalkforwardExec } from "./walkforward";
 import { version as pkgVersion } from "../package.json";
 
 export const LAZY_PRICES_BACKFILL_SUBDIR = path.join("lazy_prices", "backfill");
-export const LAZY_PRICES_BACKFILL_BUDGET_S = 3.5 * 3600;           // the Python stops and checkpoints here
-export const LAZY_PRICES_BACKFILL_TIMEOUT_MS = 4 * 60 * 60_000;    // the hard kill, after the budget
+export const LAZY_PRICES_BACKFILL_BUDGET_S = 3.5 * 3600;           // the longest slice: the Python stops and checkpoints here
+export const LAZY_PRICES_BACKFILL_KILL_GRACE_MS = 30 * 60_000;     // the hard kill lands this long after a slice's budget
+export const LAZY_PRICES_BACKFILL_TIMEOUT_MS = LAZY_PRICES_BACKFILL_BUDGET_S * 1000 + LAZY_PRICES_BACKFILL_KILL_GRACE_MS; // = 4 h, the longest hard kill
 export const LAZY_PRICES_BACKFILL_TICK_MS = 30 * 60_000;
 export const LAZY_PRICES_BACKFILL_MAX_RSS_MB = 1500;
-export const LAZY_PRICES_BACKFILL_WINDOW_START_MIN = 21 * 60;
-export const LAZY_PRICES_BACKFILL_WINDOW_END_MIN = 23 * 60;
+export const LAZY_PRICES_BACKFILL_WINDOW_START_MIN = 21 * 60;      // the night opens 21:00 ET
+export const LAZY_PRICES_BACKFILL_NIGHT_END_MIN = 3 * 60 + 30;     // ...and every slice's budget ends by 03:30 ET the next morning
+export const LAZY_PRICES_BACKFILL_MIN_SLICE_S = 20 * 60;           // a slice with no more night left than this is not started (latest start 03:09 ET)
 /** Mirrors the Python's MIN_FREE_BYTES: the job writes ~50 MB of derived rows/state in total. */
 export const LAZY_PRICES_BACKFILL_MIN_FREE_BYTES = 256 * 1024 * 1024;
 const ET = "America/New_York";
@@ -66,35 +78,59 @@ export function lazyPricesBackfillTmpArchive(env: Record<string, string | undefi
   return o && SAFE_PATH.test(o) ? o : path.join(os.tmpdir(), "voltrade_lazy_prices_tmp_archive");
 }
 
-export function lazyPricesBackfillCmd(codeVersion: string = pkgVersion, env: Record<string, string | undefined> = process.env): string {
+export function lazyPricesBackfillCmd(codeVersion: string = pkgVersion, env: Record<string, string | undefined> = process.env,
+                                      budgetS: number = LAZY_PRICES_BACKFILL_BUDGET_S): string {
   const v = /^[0-9A-Za-z.+-]{1,40}$/.test(codeVersion) ? codeVersion : "unknown";
   const pairs = lazyPricesBackfillPairsDir(env);
   const tmp = lazyPricesBackfillTmpArchive(env);
-  return `python3 lazy_prices_backfill.py --run --nice 19 --budget-seconds ${LAZY_PRICES_BACKFILL_BUDGET_S} `
+  const b = Math.floor(Math.min(Math.max(budgetS, 0), LAZY_PRICES_BACKFILL_BUDGET_S));
+  return `python3 lazy_prices_backfill.py --run --nice 19 --budget-seconds ${b} `
     + `--max-rss-mb ${LAZY_PRICES_BACKFILL_MAX_RSS_MB} --code-version ${v} --pairs-dir ${pairs} --tmp-archive ${tmp}`;
 }
 
-/** Any day, 21:00-23:00 ET. */
+/** The ET date of the night an instant belongs to: an evening is its own date, the small hours
+ *  (and, vacuously, the daytime) belong to the night that opened the evening before. */
+export function lazyPricesBackfillNightOf(nowMs: number): string {
+  const p = zonedParts(nowMs, ET);
+  return p.minutes >= LAZY_PRICES_BACKFILL_WINDOW_START_MIN ? p.date : zonedParts(nowMs - 24 * 60 * 60_000, ET).date;
+}
+
+/** The epoch ms at which this night's slices must have ended their budget (03:30 ET the morning after it opened). */
+export function lazyPricesBackfillNightEndMs(nowMs: number): number {
+  return zonedInstant(lazyPricesBackfillNightOf(nowMs), 24 * 60 + LAZY_PRICES_BACKFILL_NIGHT_END_MIN, ET);
+}
+
+/** Seconds of Python budget a slice started now may have: the 3.5 h cap, or what is left of the night. */
+export function lazyPricesBackfillBudgetSeconds(nowMs: number): number {
+  const left = Math.floor((lazyPricesBackfillNightEndMs(nowMs) - nowMs) / 1000);
+  return Math.max(0, Math.min(LAZY_PRICES_BACKFILL_BUDGET_S, left));
+}
+
+/** Any day: from 21:00 ET while a slice longer than MIN_SLICE would still end by 03:30 ET (i.e. before 03:10 ET). */
 export function inLazyPricesBackfillWindow(nowMs: number): boolean {
   const m = zonedParts(nowMs, ET).minutes;
-  return m >= LAZY_PRICES_BACKFILL_WINDOW_START_MIN && m < LAZY_PRICES_BACKFILL_WINDOW_END_MIN;
+  const inHours = m >= LAZY_PRICES_BACKFILL_WINDOW_START_MIN || m < LAZY_PRICES_BACKFILL_NIGHT_END_MIN;
+  return inHours && lazyPricesBackfillBudgetSeconds(nowMs) > LAZY_PRICES_BACKFILL_MIN_SLICE_S;
 }
 
 export type LazyPricesBackfillDecision =
   | { action: "idle"; reason: string }
-  | { action: "skip" | "run"; reason: string; day: string };
+  | { action: "skip"; reason: string; day: string }
+  | { action: "run"; reason: string; day: string; budgetS: number };
 
 /** Pure: what this tick should do. No freshness skip — the backfill has work until the plan is exhausted,
- *  and an exhausted plan returns in seconds. */
+ *  and an exhausted plan returns in seconds. `day` is the NIGHT's date (lazyPricesBackfillNightOf), so a
+ *  slice started after midnight ET counts against the night it belongs to, not a new calendar day. */
 export function decideLazyPricesBackfill(nowMs: number, s: { enabled: boolean; lastAttemptDay: string; freeBytes: number | null }): LazyPricesBackfillDecision {
   if (!s.enabled) return { action: "idle", reason: "VOLTRADE_LAZY_PRICES_BACKFILL off" };
-  if (!inLazyPricesBackfillWindow(nowMs)) return { action: "idle", reason: "outside 21:00-23:00 ET" };
-  const day = zonedParts(nowMs, ET).date;
-  if (s.lastAttemptDay === day) return { action: "idle", reason: `already attempted ${day}` };
+  if (!inLazyPricesBackfillWindow(nowMs)) return { action: "idle", reason: "outside the 21:00-03:10 ET start window" };
+  const day = lazyPricesBackfillNightOf(nowMs);
+  if (s.lastAttemptDay === day) return { action: "idle", reason: `already attempted the night of ${day}` };
   if (s.freeBytes !== null && s.freeBytes < LAZY_PRICES_BACKFILL_MIN_FREE_BYTES) {
     return { action: "skip", day, reason: `only ${Math.floor(s.freeBytes / 1e6)} MB free on the volume (< ${Math.floor(LAZY_PRICES_BACKFILL_MIN_FREE_BYTES / 1e6)} MB)` };
   }
-  return { action: "run", day, reason: "nightly slice" };
+  const budgetS = lazyPricesBackfillBudgetSeconds(nowMs);
+  return { action: "run", day, budgetS, reason: `nightly slice: ${Math.round(budgetS / 60)} min of budget until 03:30 ET` };
 }
 
 function readJson(file: string): Record<string, unknown> | null {
@@ -129,16 +165,23 @@ export function parseLazyPricesBackfillSummary(stdout: string): RunOutcome {
   return { status: "error", detail: str(j.reason) ?? `status ${String(st)}` };
 }
 
+/** The hard kill for a slice of `budgetS`: the budget plus the grace, never past the 4 h maximum. */
+export function lazyPricesBackfillTimeoutMs(budgetS: number = LAZY_PRICES_BACKFILL_BUDGET_S): number {
+  return Math.min(LAZY_PRICES_BACKFILL_TIMEOUT_MS, Math.max(0, Math.floor(budgetS)) * 1000 + LAZY_PRICES_BACKFILL_KILL_GRACE_MS);
+}
+
 /** Run lazy_prices_backfill.py once (process-group kill on timeout). Never throws. */
-export async function runLazyPricesBackfill(env: NodeJS.ProcessEnv, exec: WalkforwardExec = execGroupKill): Promise<RunOutcome> {
+export async function runLazyPricesBackfill(env: NodeJS.ProcessEnv, exec: WalkforwardExec = execGroupKill,
+                                            budgetS: number = LAZY_PRICES_BACKFILL_BUDGET_S): Promise<RunOutcome> {
+  const timeout = lazyPricesBackfillTimeoutMs(budgetS);
   try {
-    const { stdout } = await exec(lazyPricesBackfillCmd(pkgVersion, env), {
-      timeout: LAZY_PRICES_BACKFILL_TIMEOUT_MS, killSignal: "SIGKILL", env: { ...env, ...WALKFORWARD_ENV_CAPS }, maxBuffer: 1024 * 1024, encoding: "utf8",
+    const { stdout } = await exec(lazyPricesBackfillCmd(pkgVersion, env, budgetS), {
+      timeout, killSignal: "SIGKILL", env: { ...env, ...WALKFORWARD_ENV_CAPS }, maxBuffer: 1024 * 1024, encoding: "utf8",
     });
     return parseLazyPricesBackfillSummary(stdout);
   } catch (e) {
     const err = e as { killed?: boolean; signal?: string | null; code?: unknown; stdout?: string; stderr?: string; message?: string };
-    if (err.killed) return { status: "error", detail: `exceeded the ${Math.round(LAZY_PRICES_BACKFILL_TIMEOUT_MS / 60_000)}-minute hard budget — process group killed (checkpoint on disk is the last chunk)` };
+    if (err.killed) return { status: "error", detail: `exceeded the ${Math.round(timeout / 60_000)}-minute hard budget — process group killed (checkpoint on disk is the last chunk)` };
     const fromStdout = err.stdout ? parseLazyPricesBackfillSummary(err.stdout) : null;
     if (fromStdout && fromStdout.status === "error" && !fromStdout.detail.startsWith("unparseable")) return fromStdout;
     const tail = String(err.stderr || err.message || "").trim().slice(-160);
@@ -155,7 +198,7 @@ export function lazyPricesBackfillStatus(env: Record<string, string | undefined>
   try { months = fs.readdirSync(path.join(root, "rows")).filter((n) => n.endsWith(".jsonl.gz")).length; } catch { months = 0; }
   return {
     flag: { value: flag.value, source: flag.source, on: flag.on },
-    schedule: `nightly ${LAZY_PRICES_BACKFILL_WINDOW_START_MIN / 60}:00-${LAZY_PRICES_BACKFILL_WINDOW_END_MIN / 60}:00 ET start, once per ET day, budget ${LAZY_PRICES_BACKFILL_BUDGET_S / 60} min (kill ${LAZY_PRICES_BACKFILL_TIMEOUT_MS / 60_000}), ${LAZY_PRICES_BACKFILL_MAX_RSS_MB} MB`,
+    schedule: `nightly from ${LAZY_PRICES_BACKFILL_WINDOW_START_MIN / 60}:00 ET, slices end by 0${Math.floor(LAZY_PRICES_BACKFILL_NIGHT_END_MIN / 60)}:${LAZY_PRICES_BACKFILL_NIGHT_END_MIN % 60} ET, once per night per process (a restart re-attempts), budget <= ${LAZY_PRICES_BACKFILL_BUDGET_S / 60} min (kill +${LAZY_PRICES_BACKFILL_KILL_GRACE_MS / 60_000}), ${LAZY_PRICES_BACKFILL_MAX_RSS_MB} MB`,
     rows_months: months,
     plan: meta ? { complete: meta.complete ?? null, filings: meta.filings ?? null, ciks: Array.isArray(meta.done_ciks) ? meta.done_ciks.length : null,
       completed_at: str(meta.completed_at), list_errors: meta.list_errors ?? null } : null,
@@ -191,7 +234,7 @@ export function bootLazyPricesBackfill(env: NodeJS.ProcessEnv = process.env): vo
     running = true;
     beat("lazy_prices_backfill_nightly", "start");
     try {
-      const out = await runLazyPricesBackfill(env);
+      const out = await runLazyPricesBackfill(env, execGroupKill, d.budgetS);
       beat("lazy_prices_backfill_nightly", "finish", out.status === "error" ? "error" : out.status === "ok" ? "ok" : "skipped", `${out.status}: ${out.detail}`);
     } catch (e) {
       beat("lazy_prices_backfill_nightly", "finish", "error", e instanceof Error ? e.message : String(e));
