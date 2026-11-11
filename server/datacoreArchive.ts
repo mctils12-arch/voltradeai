@@ -965,6 +965,23 @@ export function rowInBbox(row: Record<string, unknown>, bbox: ArchiveBbox): bool
   return false;
 }
 
+/**
+ * COLD DAY FILES (2026-11-06, server/archivePermanentTier.ts): a day file
+ * that now exists ONLY in the permanent R2 tier (its local copy was deleted
+ * after a byte-for-byte read-back) is fetched through this source into a
+ * local cache file and read by the same streamJsonlLines path. Consulted by
+ * readArchiveDay only when the day has NO local file, so every local read is
+ * unchanged. Boot wiring: archiveOffload.registerArchiveOffloadRoutes.
+ */
+export interface ColdDayFileSource {
+  /** local cache paths of `stream`'s files for `day` held only in R2 ([] if none) */
+  resolve(stream: string, day: string, signal?: AbortSignal): Promise<string[]>;
+}
+let coldDaySource: ColdDayFileSource | null = null;
+export function setColdDayFileSource(src: ColdDayFileSource | null): void {
+  coldDaySource = src;
+}
+
 export async function readArchiveDay(
   stream: string, day: string, baseDir?: string, limit = 1000,
   rowFilter?: (row: Record<string, unknown>) => boolean,
@@ -975,7 +992,15 @@ export async function readArchiveDay(
   if (isPrivateArchiveDir(base, stream)) return null;
   const dir = path.join(base, stream);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
-  const files = archiveDayFiles(dir, day);
+  let files = archiveDayFiles(dir, day);
+  if (!files.length && coldDaySource) {
+    try {
+      files = await coldDaySource.resolve(stream, day);
+    } catch (e: unknown) {
+      console.error(`[archive] cold day read ${stream}/${day}:`, e instanceof Error ? e.message : e);
+      files = [];
+    }
+  }
   const rows: any[] = [];
   let truncated = false;
   for (const fp of files) {
