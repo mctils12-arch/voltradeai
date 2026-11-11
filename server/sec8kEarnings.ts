@@ -390,6 +390,195 @@ export function readEarnings8kHistory(days = 30, baseDir?: string, nowMs?: numbe
   return out.slice(0, maxFilings);
 }
 
+// ── Windowed archive reader (2026-11-11). `readEarnings8kHistory` above
+// answers "the newest N filings in the last D days" — right for the cold-
+// cache backfill, wrong for a HISTORY consumer: in the Q3 2026 season the
+// archive took in 88-157 filings per UTC day, so `?days=90` returned 500
+// filings covering 4 trading days (11-05..11-10) while echoing `days: 90`
+// back with no truncation marker — a product endpoint (and its keyed v1
+// mirror) silently misreporting its own window, and the pre-registered QoQ
+// gate-2 test could no longer be fed from a session. This reader is the
+// honest version: an explicit [from, to] window of ARCHIVE days, whole days
+// included atomically (a day's file is appended as a unit, so a day is
+// either fully in the page or not at all), an explicit `truncated` flag,
+// and a `next_to` cursor so a consumer can walk a whole season in pages
+// with neither gaps nor duplicates. The cap is soft by at most ONE day: if
+// the newest day alone exceeds it, that day is still returned whole (the
+// page must always make progress). `includeText=false` strips the ~23 KB
+// average exhibit text so a season of metadata fits one call. ───────────────
+
+/** Oldest archive day — the poll loop has appended every extracted filing
+ *  since this date (COLLECT-EVERYTHING). */
+export const EARNINGS8K_ARCHIVE_START = "2026-07-04";
+/** Default and maximum filings per page (a 500-filing page with text is
+ *  ~12 MB — the pre-existing cap, now reported instead of hidden). */
+export const EARNINGS8K_HISTORY_MAX_FILINGS = 500;
+/** Legacy `?days=` lookback cap (unchanged from the route's original bound;
+ *  deeper reads use from/to + the cursor). */
+export const EARNINGS8K_HISTORY_MAX_DAYS = 90;
+/** Widest [from, to] span scanned in one request — bounds the day loop even
+ *  on a sparse archive (ENOENT per missing day is cheap, but not free). */
+export const EARNINGS8K_HISTORY_MAX_SPAN_DAYS = 400;
+
+export interface Earnings8kHistoryWindow {
+  /** inclusive UTC archive day, YYYY-MM-DD */
+  from: string;
+  /** inclusive UTC archive day, YYYY-MM-DD */
+  to: string;
+  /** page cap (soft by at most one day, see above) */
+  maxFilings: number;
+  /** false strips `text` from every filing (textLength/truncated/exhibitUrl stay) */
+  includeText: boolean;
+  /** the legacy `?days=` value when the window came from it (echoed for compat) */
+  days: number | null;
+}
+
+export interface Earnings8kHistoryPage {
+  filings: Array<Earnings8K | Omit<Earnings8K, "text">>;
+  window: { from: string; to: string };
+  /** archive days read IN FULL into this page (newest = `to`). NOTE: a
+   *  filing's `filedAt` can be one day earlier than its archive day (filed
+   *  late in the US evening, archived on the next UTC day). */
+  covered: { from: string; to: string };
+  /** true when older days inside `window` were NOT read because the page cap
+   *  would have been exceeded — continue with `?from=<window.from>&to=<next_to>` */
+  truncated: boolean;
+  next_to: string | null;
+  days_scanned: number;
+  max_filings: number;
+  text_omitted: boolean;
+  /** archive lines in the covered days that did not parse as a filing (a
+   *  torn line from a kill mid-append) — reported, never silently dropped */
+  malformed_lines: number;
+}
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+const dayMs = (day: string): number => Date.parse(`${day}T00:00:00Z`);
+const isValidDay = (s: unknown): s is string =>
+  typeof s === "string" && DAY_RE.test(s) && !Number.isNaN(dayMs(s)) && utcDay(dayMs(s)) === s;
+
+/** Turns a route's query object into a validated window. Legacy `?days=N`
+ *  (1..90, default 30) still works and means [today-(N-1), today]; `from`/
+ *  `to` (YYYY-MM-DD UTC archive days) take precedence over `days`; `to` is
+ *  clamped to today, `from` to the archive start and to `to`; the span is
+ *  bounded to EARNINGS8K_HISTORY_MAX_SPAN_DAYS by raising `from`. `limit`
+ *  1..500 (default 500). `text=0|false|no` or `fields=meta` omits text.
+ *  Never throws on bad input — a malformed value falls back to its default,
+ *  and the effective window is echoed in the response so nothing is silent. */
+export function parseEarnings8kHistoryQuery(query: Record<string, unknown>, nowMs = Date.now()): Earnings8kHistoryWindow {
+  const today = utcDay(nowMs);
+  const str = (k: string): string | undefined => {
+    const v = query[k];
+    return typeof v === "string" ? v.trim() : Array.isArray(v) && typeof v[0] === "string" ? String(v[0]).trim() : undefined;
+  };
+  const toRaw = str("to");
+  const fromRaw = str("from");
+  const daysRaw = str("days");
+  let days: number | null = null;
+  if (!isValidDay(fromRaw) && !isValidDay(toRaw)) {
+    const parsed = parseInt(daysRaw ?? "", 10);
+    days = Math.min(EARNINGS8K_HISTORY_MAX_DAYS, Math.max(1, Number.isFinite(parsed) ? parsed : 30));
+  }
+  let to = isValidDay(toRaw) ? toRaw : today;
+  if (dayMs(to) > dayMs(today)) to = today;
+  let from: string;
+  if (isValidDay(fromRaw)) from = fromRaw;
+  else if (days !== null) from = utcDay(dayMs(to) - (days - 1) * 86400_000);
+  else from = utcDay(dayMs(to) - 29 * 86400_000);
+  if (dayMs(from) < dayMs(EARNINGS8K_ARCHIVE_START)) from = EARNINGS8K_ARCHIVE_START;
+  if (dayMs(from) > dayMs(to)) from = to;
+  const spanDays = Math.round((dayMs(to) - dayMs(from)) / 86400_000) + 1;
+  if (spanDays > EARNINGS8K_HISTORY_MAX_SPAN_DAYS) from = utcDay(dayMs(to) - (EARNINGS8K_HISTORY_MAX_SPAN_DAYS - 1) * 86400_000);
+  const limitParsed = parseInt(str("limit") ?? "", 10);
+  const maxFilings = Math.min(EARNINGS8K_HISTORY_MAX_FILINGS, Math.max(1, Number.isFinite(limitParsed) ? limitParsed : EARNINGS8K_HISTORY_MAX_FILINGS));
+  const text = (str("text") ?? "").toLowerCase();
+  const includeText = !(text === "0" || text === "false" || text === "no" || (str("fields") ?? "").toLowerCase() === "meta");
+  return { from, to, maxFilings, includeText, days };
+}
+
+function readArchiveDay(dir: string, day: string): { rows: Earnings8K[]; malformed: number } {
+  const rows: Earnings8K[] = [];
+  let malformed = 0;
+  for (const fp of [path.join(dir, `${day}.jsonl`), path.join(dir, `${day}.jsonl.gz`)]) {
+    let text: string | null = null;
+    try {
+      text = fp.endsWith(".gz")
+        ? zlib.gunzipSync(fs.readFileSync(fp)).toString("utf8")
+        : fs.readFileSync(fp, "utf8");
+    } catch { continue; }
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try {
+        const f = JSON.parse(line);
+        if (f && f.accession) rows.push(f); else malformed++;
+      } catch { malformed++; } // a torn line (kill mid-append) is counted, never silently dropped
+    }
+  }
+  return { rows, malformed };
+}
+
+/** Drops the exhibit text; everything that says what the text WAS
+ *  (textLength, truncated, exhibitUrl) stays so a consumer can fetch it. */
+export function omitEarnings8kText(f: Earnings8K): Omit<Earnings8K, "text"> {
+  const { text: _text, ...rest } = f;
+  return rest;
+}
+
+/** Reads the archive over an explicit [from, to] window of UTC archive days,
+ *  newest day first, whole days at a time, stopping BEFORE the day that
+ *  would push the page over `maxFilings` (except the first day, which is
+ *  always included whole). Deduped by accession, sorted newest-first by
+ *  filedAt. See the section comment above for why this exists beside
+ *  readEarnings8kHistory. */
+export function readEarnings8kHistoryWindow(win: Earnings8kHistoryWindow, baseDir?: string): Earnings8kHistoryPage {
+  const dir = earnings8kDir(baseDir);
+  const out: Earnings8K[] = [];
+  const seen = new Set<string>();
+  let truncated = false;
+  let nextTo: string | null = null;
+  let coveredFrom = win.to;
+  let daysScanned = 0;
+  let malformed = 0;
+  const fromMs = dayMs(win.from);
+  for (let ms = dayMs(win.to); ms >= fromMs; ms -= 86400_000) {
+    const day = utcDay(ms);
+    const read = readArchiveDay(dir, day);
+    const rows = read.rows.filter((f) => !seen.has(f.accession));
+    if (out.length > 0 && out.length + rows.length > win.maxFilings) {
+      truncated = true;
+      nextTo = day;
+      break;
+    }
+    for (const f of rows) { seen.add(f.accession); out.push(f); }
+    malformed += read.malformed;
+    coveredFrom = day;
+    daysScanned++;
+  }
+  out.sort((a, b) => String(b.filedAt || "").localeCompare(String(a.filedAt || "")));
+  return {
+    filings: win.includeText ? out : out.map(omitEarnings8kText),
+    window: { from: win.from, to: win.to },
+    covered: { from: coveredFrom, to: win.to },
+    truncated,
+    next_to: nextTo,
+    days_scanned: daysScanned,
+    max_filings: win.maxFilings,
+    text_omitted: !win.includeText,
+    malformed_lines: malformed,
+  };
+}
+
+/** The query string a consumer sends to continue a truncated page — or null
+ *  when the page already reached `window.from`. */
+export function earnings8kHistoryNextQuery(page: Earnings8kHistoryPage): string | null {
+  if (!page.truncated || !page.next_to) return null;
+  const parts = [`from=${page.window.from}`, `to=${page.next_to}`];
+  if (page.max_filings !== EARNINGS8K_HISTORY_MAX_FILINGS) parts.push(`limit=${page.max_filings}`);
+  if (page.text_omitted) parts.push("text=0");
+  return `?${parts.join("&")}`;
+}
+
 // ── In-memory cache + poll loop (mirrors edgarForm4.ts's boot pattern) ──────
 
 let cache: { at: number; filings: Earnings8K[] } | null = null;
