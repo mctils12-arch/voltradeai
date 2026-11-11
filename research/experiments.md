@@ -116549,3 +116549,38 @@ TRANSITION RISK: the first boot deletes the archive. If that boot's first fetch 
 ROLLBACK TRIGGER: the gamma probe shows the filter inactive with "no SqueezeMetrics GEX rows cached yet" more than 6h after the deploy while squeeze_gex last_refresh_ok is false, or a GAMMA-SKIP row whose rank differs from the squeeze_gex status rank. Reverting re-archives the full history on the first poll, so do it only with SqueezeMetrics' permission; otherwise fix forward.
 TESTS: TS: squeezeGex 7 (parse; rank; in-memory summary equals the old archive report on 4 pinned fixtures; a poll writes only the summary and no raw value; a failed poll writes nothing; the boot cleanup deletes only that dir, once, with an audit row, unlinks a symlink without following it, and reports an error path; wiring), dealerGamma 5 (the `feed` pin updated), streamsInventory 11 (+1: no peek even from a surviving dir; ages from the summary), manifests 3, signalLadder 7, diag 35, layerFreshness 6, repoFiles 6. Python: test_dealer_gamma 26 (the 30-case parity hash; read_summary accepts the server's file and rejects 13 malformed shapes; the path mirrors the server's; fails open on an unreadable or corrupt summary; Tier-1 and scanner wiring unchanged), test_edge_p1_gate1 10 (+2), edge_p1 gate 2 / gate 3 30, registry checks 22, tiered_strategy + options scanner 28. Ratchets: counter OK (28; silent_py_handlers held at 243), tsc 6 (pre-existing), test_ts_code_only 11.
 STARVED: no.
+
+## 2026-11-06 [REPAIR] KEEP ALIVE — T-DATACORE (new server/archivePermanentTier.ts + test; server/archiveOffload.ts tick/status/boot wiring; server/datacoreArchive.ts readArchiveDay cold fallback) — permanent R2 tier for the _tracks rollups: 667 MiB off the volume, a local copy deleted only after a byte-for-byte read-back
+VERSION: v1.0.1355 (shipped 2026-11-11 by the parent session; main was v1.0.1354)
+WHY: live 2026-11-06 ~14:42Z, the volume had 1,055,342,592 bytes free. The rolling R2 tier could free nothing more: aircraft hour files were at their 22-day floor (oldest 10-16) and vessel hour files at their 8-day floor (oldest 10-30). Its own note read "volume under pressure ... but no day is both past its kind's floor ... and fully verified in R2 yet". The next-largest thing on the volume that no live reader needs is the per-entity daily rollups the raw tier leaves behind: vessels_tracks 474.8 MiB, aircraft_tracks 176.0 MiB, trains_tracks 16.6 MiB (699,866,051 bytes; /api/data/archive/stats). They grow ~5-6 MiB/day and were "never offloaded". A grep of `_tracks` over server/, scripts/, *.py and client/ finds one reader: readArchiveDay behind /api/diag/archive (research; scripts/portdwell_gate1_rollup.ts reads vessels_tracks through it). portPresenceFromRollup is pure (rows in). platformStats and streamsInventory skip or don't list them; port dwell, shadow fleet, GNSS and the Time Machine read raw hour files. Research read first: wishlist "VOLUME CAPACITY 2026-10-12" (build-first option 1, offload vessels; option 3, grow the volume, is a human decision), and the 2026-11-04 "A1 volume guard" and 2026-10-29 "panel disk floor" entries ("grow the volume before ~2026-11-28").
+CHANGE: server/archivePermanentTier.ts, flag ARCHIVE_PERMANENT_TIER, default on. It runs at the end of the existing 30-minute offload tick and keeps its own manifest (archive_permanent_manifest.json).
+- Offload: each closed `<stream>/<date>.jsonl.gz` qualifies when its date is 2+ days old, it has been idle for 1 h, and its gzip reads end to end. It is PUT byte-for-byte to permanent/<stream>/<file>, with its SHA-256 as the signed payload hash (R2 rejects a body that does not match it), then HEAD size-checked, and recorded with bytes, sha256 and line count.
+- No overwrite: an existing object is never overwritten. Identical bytes are adopted; different bytes are a sticky conflict that is never uploaded over or evicted.
+- Evict: a local copy whose date is more than 7 days old is deleted only after the object is read back and its SHA-256 and length equal the local file at that moment. Any failure deletes nothing, and 3 consecutive failures stop the tick.
+- Reconcile, daily: re-adopts listed objects a lost manifest forgot. An evicted object that vanished is reported MISSING. That stays sticky through a failed or partial listing and is never dropped.
+- Nothing deletes under permanent/. The rolling tier only lists and deletes under archive/.
+- Reads: readArchiveDay reads a day that has no local file through the tier. The cache lives in os.tmpdir(), capped at 256 MiB, and is SHA-checked against the manifest. Every recorded entry stays readable even when the flag is off or a stream leaves the list.
+- Status: offload-status gains `permanentTier`, and its R2 cost estimate now counts these never-expiring bytes.
+DOWNSTREAM:
+(1) Volume: ~667 MiB freed over ~5 ticks after deploy (308 files at 64 per tick). Free is expected at ~1.64 GiB, from 0.98, before other growth. Global-scope archiving (1 GiB floor) resumes. New rollups (~5-6 MiB/day) leave the volume after 7 days.
+(2) Second-order:
+- Above ~1.43 GiB free, the dual-mode DTCC store re-creates its ~185 MB SQLite DB by design. That takes back ~0.18 GiB unless VOLTRADE_DTCC_IDS_STORE=memory; that is a DTCC-owner/parent decision.
+- R2 rises from ~3.2 GB to ~3.9 GB of the 10 GB free tier (including tiles) and grows ~2 GB/year: $0 for now.
+- Each evicted day costs one HEAD, one PUT, one HEAD and one GET once. Reading an evicted day through /api/diag/archive costs one GET (cached).
+ROLLBACK TRIGGER: any MISSING key in permanentTier.missing; a conflict count that grows each tick; a read-through sha256 error; or offload-status lastError naming permanent/. ARCHIVE_PERMANENT_TIER=0 stops uploads and evictions; already-evicted days stay readable from R2. A git revert also stops it, but evicted days then read only from R2 by hand. Prefer the flag.
+TESTS: server/archivePermanentTier.test.ts, 19 tests:
+- byte-for-byte upload with the signed SHA-256 and HEAD verify; idempotent;
+- eviction only past 7 days and after a matching GET;
+- a failed PUT or a truncated object records nothing and deletes nothing;
+- a same-size corrupted copy or a failed GET deletes nothing;
+- R2 down aborts after 3 failures;
+- never overwrite, on both the HEAD and the listing path;
+- a changed file, or a different file reappearing, never replaces R2;
+- a corrupt gzip is never offloaded;
+- flag off, and reads after a stream leaves the list;
+- read-through rows, name, cache and SHA refusal;
+- reconcile re-adopt and MISSING kept through a failed listing;
+- not configured;
+- integration: the rolling daily delete spares permanent/, and the status and cost estimate.
+archiveOffload 23/23; the 17 other archive-reading suites (datacoreArchive, durability, aircraftWindow, queryEngine, siteTimeline, portDwell, shadowFleet, gnssIntegrityDaily, globalAircraft, …) 290/290. Ratchets: counter OK, tsc 6, ts_code_only 11; the esbuild server bundle builds.
+STARVED: no.
