@@ -268,18 +268,32 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
     rss = daemon.get("rss_mb")
     if rss is None:
         return finding(WARN, "daemon_memory", "rss_mb missing from /api/diag/daemon response")
+    # [REPAIR] 2026-11-11: before v1.0.1354 the probe's rss_mb WAS ru_maxrss
+    # (the process's all-time peak), so this classifier compared a high-water
+    # mark to the guard's current-RSS thresholds and ALARMed on daemons whose
+    # guard was not tripping. The probe now reports current VmRSS as rss_mb
+    # and the peak separately; an old server (no peak_rss_mb key) is labeled
+    # so the reader knows the number is an upper bound, not the present.
+    peak = daemon.get("peak_rss_mb")
+    source = daemon.get("rss_source")
+    if peak is None and source is None:
+        basis = " [pre-v1.0.1354 probe: this is the ru_maxrss PEAK, an upper bound on current RSS]"
+    elif source == "ru_maxrss":
+        basis = f" [rss_source=ru_maxrss: /proc unavailable, reading is the peak]"
+    else:
+        basis = f" (peak {peak}MB)" if peak is not None else ""
     if rss >= skip_mb:
         return finding(
             ALARM, "daemon_memory",
-            f"daemon rss={rss}MB >= skip_mb={skip_mb}MB — deep_score guard likely "
+            f"daemon rss={rss}MB{basis} >= skip_mb={skip_mb}MB — deep_score guard likely "
             "latched off again (same shape as the pre-v1.0.314 recurrence)",
         )
     if rss >= trim_mb:
         return finding(
             WARN, "daemon_memory",
-            f"daemon rss={rss}MB >= trim_mb={trim_mb}MB — deep_score running in trimmed mode",
+            f"daemon rss={rss}MB{basis} >= trim_mb={trim_mb}MB — deep_score running in trimmed mode",
         )
-    return finding(OK, "daemon_memory", f"daemon rss={rss}MB, well under trim_mb={trim_mb}MB")
+    return finding(OK, "daemon_memory", f"daemon rss={rss}MB{basis}, well under trim_mb={trim_mb}MB")
 
 
 def check_tier2_daemon_timeouts(tier2_error_entries, cluster_threshold=3):

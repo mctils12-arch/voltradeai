@@ -394,3 +394,76 @@ class TestActiveDispatchLiveSocket(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHealthReportsCurrentNotPeakRss(unittest.TestCase):
+    """[REPAIR] 2026-11-11 ratchet — _health()'s `rss_mb` used to be ru_maxrss,
+    the process's all-time high-water mark. bot_engine's deep_score skip/trim
+    guard (KNOWN BROKEN #21, v1.0.311) reads CURRENT VmRSS, so the probe that
+    reports on the guard was publishing a different quantity than the guard
+    compares, and scripts/session_health_check.py's daemon_memory classifier
+    ALARMed "guard likely latched off" against a peak that never decreases.
+    These pin: rss_mb is the current VmRSS when /proc is readable, the peak is
+    reported separately and labeled, and the fallback is explicit."""
+
+    def test_current_rss_reads_vmrss_from_proc_status(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".status", delete=False) as f:
+            f.write("Name:\tpython3\nVmPeak:\t 900000 kB\nVmRSS:\t  262144 kB\nThreads:\t9\n")
+            path = f.name
+        try:
+            self.assertEqual(voltrade_daemon._current_rss_mb(path), 256.0)
+        finally:
+            os.unlink(path)
+
+    def test_current_rss_is_none_when_proc_unavailable(self):
+        self.assertIsNone(voltrade_daemon._current_rss_mb("/nonexistent/proc/self/status"))
+
+    def test_current_rss_is_none_when_vmrss_line_malformed(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".status", delete=False) as f:
+            f.write("VmRSS:\tnot-a-number kB\n")
+            path = f.name
+        try:
+            self.assertIsNone(voltrade_daemon._current_rss_mb(path))
+        finally:
+            os.unlink(path)
+
+    def test_health_rss_is_current_and_peak_is_separate_and_labeled(self):
+        dispatcher = RPCDispatcher()
+        result = dispatcher._health({})
+        self.assertIn("peak_rss_mb", result)
+        self.assertIn("rss_source", result)
+        self.assertGreater(result["peak_rss_mb"], 0)
+        # Current RSS cannot meaningfully exceed the process's own high-water
+        # mark. ru_maxrss and VmRSS are kept by different kernel accounting
+        # paths and round differently (measured 76.0 vs 75.9 locally), so
+        # allow 1MB of slack — the live bug this pins was a ~250MB gap.
+        self.assertLessEqual(result["rss_mb"], result["peak_rss_mb"] + 1.0)
+        if os.path.exists("/proc/self/status"):
+            self.assertEqual(result["rss_source"], "vmrss")
+            self.assertEqual(result["rss_mb"], voltrade_daemon._current_rss_mb())
+        else:
+            self.assertEqual(result["rss_source"], "ru_maxrss")
+            self.assertEqual(result["rss_mb"], result["peak_rss_mb"])
+
+    def test_health_falls_back_to_peak_when_proc_is_unreadable(self):
+        dispatcher = RPCDispatcher()
+        original = voltrade_daemon._current_rss_mb
+        voltrade_daemon._current_rss_mb = lambda status_path="/proc/self/status": None
+        try:
+            result = dispatcher._health({})
+        finally:
+            voltrade_daemon._current_rss_mb = original
+        self.assertEqual(result["rss_source"], "ru_maxrss")
+        self.assertEqual(result["rss_mb"], result["peak_rss_mb"])
+
+    def test_peak_is_the_quantity_the_watchdog_compares(self):
+        # _memory_watchdog still measures ru_maxrss against MAX_RSS_MB; the
+        # probe's peak_rss_mb must be that same number so an operator reading
+        # the probe sees exactly what the self-kill will act on.
+        import resource as _res
+        rss_kb = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
+        if sys.platform == "darwin":
+            rss_kb //= 1024
+        self.assertAlmostEqual(voltrade_daemon._peak_rss_mb(), round(rss_kb / 1024, 1), delta=1.0)

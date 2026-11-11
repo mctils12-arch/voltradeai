@@ -821,3 +821,33 @@ def test_adsb_upstream_self_pacing_is_not_a_human_step_until_the_floor():
     assert f["severity"] == hc.OK and "self-pacing at 0.1 of 0.4" in f["detail"]
     g = hc.check_adsb_upstream(_gov(eff=0.04))
     assert g["severity"] == hc.WARN and "GLOBAL_SWEEP_RPS=0.2" in g["fix"] and "floor" in g["detail"]
+
+
+# ── check_daemon_memory reads current RSS, labels the peak ([REPAIR] 2026-11-11)
+
+def test_daemon_memory_ok_when_current_is_low_even_if_peak_is_past_skip():
+    # The exact live shape that produced two days of false ALARMs: a peak past
+    # the 550MB skip line, a current RSS well under it. The classifier must key
+    # off rss_mb (current) and only mention the peak.
+    f = hc.check_daemon_memory({"alive": True, "rss_mb": 310.2, "peak_rss_mb": 566.8, "rss_source": "vmrss"})
+    assert f["severity"] == hc.OK
+    assert "peak 566.8MB" in f["detail"]
+
+
+def test_daemon_memory_labels_pre_fix_probe_reading_as_a_peak():
+    # An older server has no peak_rss_mb/rss_source keys: its rss_mb IS the
+    # ru_maxrss peak, so the finding must say so rather than claim it is current.
+    f = hc.check_daemon_memory({"alive": True, "rss_mb": 566.8})
+    assert f["severity"] == hc.ALARM
+    assert "PEAK" in f["detail"] and "upper bound" in f["detail"]
+
+
+def test_daemon_memory_labels_ru_maxrss_fallback():
+    f = hc.check_daemon_memory({"alive": True, "rss_mb": 600.0, "peak_rss_mb": 600.0, "rss_source": "ru_maxrss"})
+    assert f["severity"] == hc.ALARM
+    assert "rss_source=ru_maxrss" in f["detail"]
+
+
+def test_daemon_memory_still_alarms_when_current_is_past_skip():
+    f = hc.check_daemon_memory({"alive": True, "rss_mb": 560.0, "peak_rss_mb": 580.0, "rss_source": "vmrss"})
+    assert f["severity"] == hc.ALARM
