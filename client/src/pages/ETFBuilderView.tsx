@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
+import { ON_FOCUS } from "@/lib/liveRefresh";
 import {
   PieChart, AlertTriangle, TrendingUp, TrendingDown,
   Calendar, Layers, Info, Calculator,
@@ -1105,6 +1106,7 @@ export default function ETFBuilderView({ ticker }: ETFBuilderViewProps = {}) {
     retry: retryTransient, // deploy/restart blips retry; real errors don't
     retryDelay: transientRetryDelay,
     staleTime: 5 * 60 * 1000, // 5 min — backend already caches 15 min
+    ...ON_FOCUS, // 2026-11-11: re-read on returning to the tab (the Trade page keeps this panel mounted)
   });
 
   const holdings = data?.holdings || [];

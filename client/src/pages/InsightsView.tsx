@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
+import { ON_FOCUS } from "@/lib/liveRefresh";
 import {
   TrendingUp, TrendingDown, Minus, AlertTriangle, Eye,
   Users, Building2, Layers, Target, Activity, Lock,
@@ -678,6 +679,7 @@ export default function InsightsView({ ticker, filter = "all" }: InsightsViewPro
     retry: retryTransient, // deploy/restart blips retry; real errors don't
     retryDelay: transientRetryDelay,
     staleTime: 60_000,  // Cache 1 min — insights data isn't real-time
+    ...ON_FOCUS, // 2026-11-11: re-read on returning to the tab (the Trade page keeps this panel mounted)
   });
 
   if (!ticker) {

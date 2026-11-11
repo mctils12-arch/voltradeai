@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { LIVE_SCANNER } from "@/lib/liveRefresh";
 import { Search, RefreshCw, TrendingUp, TrendingDown, BarChart2, ChevronUp, ChevronDown } from "lucide-react";
 import SectorHeatmap from "@/components/SectorHeatmap";
 
@@ -84,6 +85,7 @@ export function ScannerBody({ onSelectTicker, compact }: { onSelectTicker: (tick
       return res.json();
     },
     staleTime: 120000, // 2 minutes
+    ...LIVE_SCANNER, // 2026-11-11: re-read while open, not only at page-open
   });
 
   const handleSort = (key: SortKey) => {
