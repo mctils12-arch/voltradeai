@@ -3834,6 +3834,30 @@
     later in the day once several hourly DIAGNOSTIC entries have
     accumulated post-restart.
 
+    UPDATE 2026-11-11 20:20Z ([REPAIR], v1.0.1354 — the PROBE, not the
+    guard) — the "daemon rss >= 550MB skip guard" ALARM that
+    `scripts/session_health_check.py` raised in every session since
+    2026-11-10 (587, 573, 566.8 MB) was comparing the wrong quantity:
+    `voltrade_daemon._health()` published `resource.getrusage().ru_maxrss`
+    as `rss_mb` — the process HIGH-WATER MARK that never decreases — while
+    `bot_engine._mem_rss_mb()` (this item's own v1.0.311 fix) reads CURRENT
+    VmRSS for the skip/trim decision. The same mis-read this item removed
+    from the guard was still in the probe that reports on the guard, so
+    the classifier could not tell "guard latched at 567MB" from "one scan
+    once peaked at 567MB, now idle". Indirect live evidence the guard was
+    NOT tripping: `alt_data_enrichment` read OK (wikipedia/gdelt/fred
+    fresh) in the same runs — deep_score's fetchers were running. FIX:
+    `_health()` now returns `rss_mb` = current VmRSS, `peak_rss_mb` =
+    ru_maxrss, `rss_source` (vmrss | ru_maxrss fallback); the classifier
+    labels a pre-fix reading as a peak/upper bound. The first post-deploy
+    probe read is the honest answer to "is the guard actually in skip
+    mode" — the next session reads it (experiments.md NEXT). Thresholds
+    untouched. `_memory_watchdog` still measures ru_maxrss against
+    MAX_RSS_MB=1024 — unchanged here, flagged as a question in
+    experiments.md (a one-time peak past 1 GB self-kills the daemon even
+    after the memory is freed; whether that is the intended respawn-to-
+    reclaim behavior or the same mis-read is a separate decision).
+
 22. **[RESOLVED 2026-07-19 — ≥44h live confirmation clean, v1.0.380]**
     ~~Floor-basket ETFs (SMH/KWEB/VXUS/GLD) were subject to active
     stop-loss/take-profit/time-stop logic meant only for actively-traded

@@ -75,6 +75,42 @@ log = logging.getLogger("voltrade_daemon")
 # ── Constants ────────────────────────────────────────────────────────────────
 SOCKET_PATH = os.environ.get("VOLTRADE_DAEMON_SOCKET", "/tmp/voltrade_daemon.sock")
 MAX_RSS_MB = int(os.environ.get("VOLTRADE_DAEMON_MAX_RSS_MB", "1024"))  # 1 GB
+
+
+def _peak_rss_mb() -> float:
+    """The process's HIGH-WATER-MARK RSS in MB (POSIX ru_maxrss — never
+    decreases for the life of the process). This is what _memory_watchdog
+    compares against MAX_RSS_MB, unchanged."""
+    rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if sys.platform == "darwin":
+        rss_kb //= 1024
+    return round(rss_kb / 1024, 1)
+
+
+def _current_rss_mb(status_path: str = "/proc/self/status"):
+    """The process's CURRENT RSS in MB from /proc/self/status (Linux — what
+    Railway runs), or None when /proc is unavailable or malformed.
+
+    [REPAIR] 2026-11-11: _health() used to publish ru_maxrss as `rss_mb`. That
+    is the peak, not the present — the exact mis-read KNOWN BROKEN #21's
+    v1.0.311 fix removed from bot_engine._mem_rss_mb(), left behind in the
+    probe that reports ON the guard. The deep_score skip/trim guard reads
+    current VmRSS; the probe reported the all-time peak; the session health
+    check compared the peak to the guard's 550MB skip line and ALARMed
+    "deep_score guard likely latched off" on a daemon whose guard may not
+    have been tripping at all. Same /proc read, same fallback discipline as
+    bot_engine._mem_rss_mb(); kept separate on purpose so the daemon never
+    imports bot_engine for a health probe."""
+    try:
+        with open(status_path) as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return round(int(parts[1]) / 1024, 1)
+    except (OSError, ValueError):
+        pass
+    return None
 REQUEST_TIMEOUT_SEC = 300  # DAEMON-TIMEOUT 2026-04-23: was 60s, too tight for full scan. scan_market can legitimately take 90-180s on 11,400 tickers.
 
 
@@ -587,16 +623,23 @@ class RPCDispatcher:
                     "traceback": traceback.format_exc()[:2000]}
 
     def _health(self, args):
-        """Health check — returns daemon status, memory, uptime."""
-        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        # On Linux ru_maxrss is in KB; on macOS it's in bytes
-        if sys.platform == "darwin":
-            rss_kb //= 1024
-        rss_mb = rss_kb / 1024
+        """Health check — returns daemon status, memory, uptime.
+
+        `rss_mb` is the CURRENT RSS (what bot_engine's deep_score skip/trim
+        guard actually compares against 550/400MB); `peak_rss_mb` is the
+        ru_maxrss high-water mark (what _memory_watchdog compares against
+        `max_rss_mb`). `rss_source` says which read produced `rss_mb` —
+        "vmrss" normally, "ru_maxrss" only where /proc is unavailable (then
+        rss_mb == peak_rss_mb and the reading is an upper bound, not the
+        present). See _current_rss_mb() for the 2026-11-11 repair note."""
+        peak_mb = _peak_rss_mb()
+        current_mb = _current_rss_mb()
         return {
             "alive": True,
             "uptime_seconds": int(time.time() - _DAEMON_START),
-            "rss_mb": round(rss_mb, 1),
+            "rss_mb": current_mb if current_mb is not None else peak_mb,
+            "rss_source": "vmrss" if current_mb is not None else "ru_maxrss",
+            "peak_rss_mb": peak_mb,
             "max_rss_mb": MAX_RSS_MB,
             "modules_loaded": list(_modules_loaded.keys()),
             "active_dispatches": _active_dispatch_count,
