@@ -285,6 +285,21 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_LAZY_PRICES off",
   },
   {
+    // earningsQoq.ts bootEarningsQoq: 30-min tick, acts Sunday 18:00-19:00 ET
+    // once per ISO week — a run (scripts/earnings_language_qoq_gate2.py, 75-min
+    // budget: the pre-registered 8-K QoQ language-delta gate 2 over the volume's
+    // earnings8k archive) or one "skipped" beat (low disk / fresh result).
+    id: "earnings_qoq_weekly", label: "8-K earnings-language QoQ delta gate-2 test (weekly, Sun 18:00-19:00 ET)",
+    source: "server/earningsQoq.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 2 * HOUR,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_EARNINGS_QOQ;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_EARNINGS_QOQ off",
+  },
+  {
     // lazyPricesBackfill.ts bootLazyPricesBackfill: 30-min tick, acts every day
     // 21:00-23:00 ET once per ET day — a run (lazy_prices_backfill.py, 3.5 h
     // budget, 4 h kill: the gate-2 INPUT rows accumulating on the volume) or one

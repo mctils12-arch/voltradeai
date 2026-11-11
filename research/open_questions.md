@@ -10128,6 +10128,20 @@ arbitraged category so expectations low); USPTO fourth (clean licensing,
    `datacore/signal_ladder.json`'s `sec_8k_earnings_language.readiness_
    trigger` (the second-filing-quarter fallback condition is not
    machine-checkable and stays a manual judgment call).]
+   [QoQ DELTA SCRIPT + WEEKLY JOB SHIPPED 2026-11-11 (v1.0.1349, EDGE
+   session, experiments.md that date): `scripts/earnings_language_qoq_
+   gate2.py` is the paired-filing test this item has deferred since the
+   07-12 pilot (anchors >= 50 d apart per CIK, pairs <= 130 d; F1 dtone
+   primary, F2 cosine similarity secondary; the level script's verdict
+   rule + robustness gate by import; root PASS = F1 PASS+robust+
+   REPLICATES at >= 2 of 3 horizons; variants=2; first sufficient run is
+   the registered verdict). `server/earningsQoq.ts` runs it Sundays
+   18:00-19:00 ET on the volume's earnings8k archive — necessary, not
+   optional: the public /history route caps at 500 filings and in the
+   Q3 season those cover < 1 week, so the 2026-11-15 test could not be
+   fed from a session. Read `/api/diag/earnings_qoq` after 11-15. Real-
+   data pairing smoke (no returns): 65.7% coverage, 1,040 pairs on 35
+   probe days. Status here UNCHANGED (gate2_pending) until that read.]
    **[V1 API MIRROR SHIPPED 2026-08-02, v1.0.573]** `GET /api/v1/data/
    earnings-language` (server/routes.ts + server/apiProduct.ts) —
    distribution plumbing only, gate 2 above unchanged/still incomplete.
