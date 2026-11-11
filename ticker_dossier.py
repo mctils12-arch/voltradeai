@@ -404,6 +404,14 @@ def _io_fetch_bars(symbols: List[str], start: str, end: str) -> Tuple[Dict[str, 
     return DR._default_fetch(symbols, start, end, time.monotonic() + 40)
 
 
+def _io_live(symbol: str, last_bar_date: Optional[str]) -> Optional[dict]:
+    """The symbol's snapshot when its session is newer than the last bar
+    (live_price.py, 2026-11-11): the bar fetch ends at today's date, which
+    Alpaca reads as 00:00 UTC, so today's partial bar never arrived."""
+    import live_price
+    return live_price.latest(symbol, last_bar_date)
+
+
 def _io_regime() -> Optional[dict]:
     import regime_engine
     return regime_engine.load_state()
@@ -502,7 +510,7 @@ def _io_shadow_deciles() -> Optional[dict]:
 
 
 DEFAULT_IO: Dict[str, Callable[..., Any]] = {
-    "bars": _io_fetch_bars, "regime": _io_regime, "sector": _io_sector, "edgar": _io_edgar, "news": _io_news,
+    "bars": _io_fetch_bars, "live": _io_live, "regime": _io_regime, "sector": _io_sector, "edgar": _io_edgar, "news": _io_news,
     "chain": _io_chain, "earnings": _io_earnings, "forecast_store": _io_forecast_store, "shadow": _io_shadow_deciles,
     "record": DR.record, "ledger_report": DR.ledger_report,
 }
@@ -572,7 +580,23 @@ def build(symbol: str, now: Optional[datetime] = None, io: Optional[Dict[str, Ca
         return out
     closes = _closes(sb)
     spy_c = _closes(done.get("SPY") or [])
-    last_bar = (all_bars.get(sym) or sb)[-1]
+    # LIVE PRICE (2026-11-11 [REPAIR]; human: tickers showed "what they were at
+    # the start of the day"): the bar fetch ends at today's date — 00:00 UTC to
+    # Alpaca — so the newest bar was the previous session and live_price was
+    # yesterday's close all day (price_is_partial_session could never be true).
+    # A snapshot of a newer session supplies today's partial bar; the completed
+    # bars (`done`, every range and indicator) are unchanged.
+    series = all_bars.get(sym) or sb
+    live = None
+    if "live" in io:
+        try:
+            live = io["live"](sym, str(series[-1].get("t", ""))[:10])
+        except Exception as e:  # best-effort: the bar close stands
+            out["errors"]["live_price"] = _err(e)
+    if live and isinstance(live.get("bar"), dict):
+        series = series + [live["bar"]]
+        all_bars[sym] = series
+    last_bar = series[-1]
     live_price = float(last_bar["c"])
     live_day = str(last_bar.get("t", ""))[:10]
     base_date = str(sb[-1].get("t"))[:10]

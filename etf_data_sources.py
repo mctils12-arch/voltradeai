@@ -917,6 +917,9 @@ def compute_returns_for_symbols(symbols, history_days=1900):
             out[sym] = {
                 "performance": returns_from_history(hist),
                 "price": latest_close_from_history(hist),
+                # 2026-11-11: the session that close belongs to, so a display
+                # caller can tell it from a newer live price (live_price.py)
+                "last_date": str(hist[-1][0])[:10],
                 "history_points": len(hist),
             }
         else:
