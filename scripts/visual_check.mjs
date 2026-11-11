@@ -729,6 +729,10 @@ const PAGES = {
   // Signal-strength dashboard (MAP V2 ROADMAP R6(a), 2026-07-30) — same
   // Phase 5 ratchet rule as streams/quality above.
   signals: { route: "/app#/data/signals", map: false },
+  // Signals PRODUCT hub (PLATFORM INTEGRATION PROGRAM — the nav's "Signals"
+  // leaf, live from this PR): gate-2-passed roots as products. Same Phase 5
+  // ratchet rule as the dashboards above.
+  validatedsignals: { route: "/app#/data/validated-signals", map: false },
   // Pipeline-health dashboard (MAP V2 ROADMAP R6(c), 2026-07-31) — same
   // Phase 5 ratchet rule as streams/quality/signals above; closes the R6
   // dashboard trio.
@@ -2576,6 +2580,53 @@ const FIXTURES = {
   // server/gnssIntegritySignal.ts's computeGnssIntegritySignal(), with one
   // band of each elevated/not-elevated state so both table badge colors
   // render at every canonical width.
+  // Signals PRODUCT catalog (server/signalProducts.ts buildSignalProducts()).
+  // Two products (one live, one warming up — both dot colors render), one
+  // in-validation row with a truncated note, and the five gate definitions.
+  "/api/data/signal-products": {
+    generated_at: "2026-11-11T00:00:00.000Z",
+    ladder_compiled: "2026-11-10",
+    products: [
+      {
+        root_id: "gnss_integrity_adsb", product: "GNSS interference — Baltic corridor",
+        measures: "Per-altitude-band GPS position-integrity degradation over the Gdańsk–Bornholm–Gotland corridor (fixture text).",
+        validated_channel: "Elevation at cruise and mid altitude only; gate 1 is PARTIAL (fixture text).",
+        cadence: "Rolling 21-day window, recomputed every 10 minutes (fixture text).",
+        data_route: "/api/data/gnss-integrity-signal", v1_path: "/api/v1/data/gnss-integrity-signal", detail_route: "#/data/gnss-integrity",
+        license_key: "data/gnss-integrity-signal",
+        name: "GPS-interference-from-ADS-B (GNSS integrity field passthrough)", category: "geopolitical_intelligence",
+        status: "gate2_pass", current_gate: 2, last_update_date: "2026-09-26", source_ref: "experiments.md:1 (fixture)",
+        tradeable: false,
+        license: { resell: "share-alike", attribution: "VolTradeAI datacore over adsb.lol (ODbL 1.0)", note: "Fixture license note." },
+        live: { state: "live", generated_at: "2026-11-10T23:48:00.000Z", headline: "PASS — 2/2 expected bands elevated (cruise, mid) over 21 archive days" },
+      },
+      {
+        root_id: "wikimedia_pageviews_attention", product: "Attention spike → forward volume",
+        measures: "A Wikipedia pageview spike (z ≥ 2.0 against a trailing baseline) on a 23-ticker seed (fixture text).",
+        validated_channel: "Small/mid-cap tickers: elevated forward VOLUME at 1/3/5 days, net of a same-day 8-K; no price claim (fixture text).",
+        cadence: "Computed per request from the daily pageviews archive (fixture text).",
+        data_route: "/api/data/wiki-attention-signal", v1_path: "/api/v1/data/wiki-attention-signal", detail_route: "#/data/wiki-attention-signal",
+        license_key: "data/wiki-attention-signal",
+        name: "Wikimedia pageviews (retail-attention proxy, pytrends replacement)", category: "other",
+        status: "gate2_pass", current_gate: 2, last_update_date: "2026-09-28", source_ref: "experiments.md:2 (fixture)",
+        tradeable: false,
+        license: { resell: "ok", attribution: "Wikimedia pageviews API (Wikimedia Foundation, CC0)", note: "Fixture license note." },
+        live: { state: "warming_up", generated_at: null, headline: "first archive scan in progress" },
+      },
+    ],
+    unwired: [],
+    in_validation: [
+      { id: "sec_8k_earnings_language", name: "SEC 8-K Item 2.02 earnings-language tone signal", category: "other", status: "gate2_pending", current_gate: 2, last_update_date: "2026-10-02", note: "Gate-2 90-day re-run: mechanical PASS at 1/3/5d but FRAGILE across months, so not promoted; QoQ language-delta feature untested (fixture text)…" },
+    ],
+    gate_definitions: [
+      { gate: 1, name: "DATA", test: "the reading is verified against an external truth source (fixture)" },
+      { gate: 2, name: "SIGNAL", test: "predictive power is measured statistically, out of sample (fixture)" },
+      { gate: 3, name: "LOGIC", test: "entry/exit rules are backtested by ablation (fixture)" },
+      { gate: 4, name: "SIZING", test: "results compared against equal-weight (fixture)" },
+      { gate: 5, name: "EXECUTION", test: "the slippage gap isolates fill quality (fixture)" },
+    ],
+    honesty: "A signal is listed here only after ladder gate 2. None has passed gate 3, so nothing here is a trade recommendation (fixture text).",
+  },
   "/api/data/gnss-integrity-signal": {
     kind: "signal", root_id: "gnss_integrity_adsb", generated_at: "2026-08-16T00:00:00.000Z",
     gate: { current_gate: 2, status: "gate2_pass" }, verdict: "PASS",

@@ -34,6 +34,7 @@ import GraphView from "./graph";
 import StreamsView from "./streams";
 import QualityDashboardView from "./qualityDashboard";
 import SignalLadderView from "./signalLadder";
+import ValidatedSignalsView from "./validatedSignals";
 import PipelineHealthDashboardView from "./pipelineHealthDashboard";
 import GridStressView from "./gridstress";
 import MethaneHotspotsView from "./methaneHotspots";
@@ -2911,6 +2912,11 @@ export default function DataMapPage() {
   // Signal-strength dashboard (#/data/signals) — same overlay pattern (MAP V2
   // ROADMAP R6(a), 2026-07-30): ladder position of every root.
   const [signalsOpen, setSignalsOpen] = useState(() => window.location.hash === "#/data/signals");
+  // Signals PRODUCT hub (#/data/validated-signals) — the nav's "Signals" leaf
+  // (PLATFORM INTEGRATION PROGRAM): only gate-2-passed roots, as products.
+  // Same overlay pattern; distinct from the ladder dashboard above, which
+  // lists EVERY root including killed/failed ones.
+  const [validatedSignalsOpen, setValidatedSignalsOpen] = useState(() => window.location.hash === "#/data/validated-signals");
   // Pipeline-health dashboard (#/data/pipeline-health) — same overlay pattern
   // (MAP V2 ROADMAP R6(c), 2026-07-31): closes the R6 dashboard trio.
   const [pipelineHealthOpen, setPipelineHealthOpen] = useState(() => window.location.hash === "#/data/pipeline-health");
@@ -3494,6 +3500,7 @@ export default function DataMapPage() {
       setStreamsOpen(window.location.hash === "#/data/streams");
       setQualityOpen(window.location.hash === "#/data/quality");
       setSignalsOpen(window.location.hash === "#/data/signals");
+      setValidatedSignalsOpen(window.location.hash === "#/data/validated-signals");
       setPipelineHealthOpen(window.location.hash === "#/data/pipeline-health");
       setGridStressOpen(window.location.hash === "#/data/grid-stress");
       setCropCondOpen(window.location.hash === "#/data/crop-conditions");
@@ -14699,6 +14706,9 @@ export default function DataMapPage() {
       {signalsOpen && (
         <SignalLadderView onBack={() => { window.location.hash = "#/data"; setSignalsOpen(false); }} />
       )}
+      {validatedSignalsOpen && (
+        <ValidatedSignalsView onBack={() => { window.location.hash = "#/data"; setValidatedSignalsOpen(false); }} />
+      )}
       {pipelineHealthOpen && (
         <PipelineHealthDashboardView onBack={() => { window.location.hash = "#/data"; setPipelineHealthOpen(false); }} />
       )}
@@ -15292,6 +15302,14 @@ export default function DataMapPage() {
             {/* Signal-strength dashboard launcher (MAP V2 ROADMAP R6(a),
                 2026-07-30): ladder position of every root, page-wide like
                 the two launchers above. */}
+            {/* Signals PRODUCT hub launcher (PLATFORM INTEGRATION PROGRAM):
+                the gate-2-passed roots as products — the customer-facing
+                sibling of the ladder dashboard below. */}
+            <button type="button" className="vt-streams-launch" data-vt-validated-signals-launch
+                    onClick={() => { window.location.hash = "#/data/validated-signals"; setValidatedSignalsOpen(true); }}>
+              <Sparkles size={13} /> Signals
+              <span className="vt-streams-launch-sub">validated signal products · gate 2 passed · live boards + API</span>
+            </button>
             <button type="button" className="vt-streams-launch" data-vt-signals-launch
                     onClick={() => { window.location.hash = "#/data/signals"; setSignalsOpen(true); }}>
               <TrendingUp size={13} /> Signal strength
