@@ -403,6 +403,13 @@ export const DIAG_PROBES = [
   // per-block spreads, join drop counts. Derived statistics only: no ticker, CIK,
   // price or URL; no network; no Python; no query parameters.
   "lazy_prices",
+  // ADDED 2026-11-11 ([PIPELINE]): read-only status of the weekly gate-2 test of
+  // the 8-K earnings-language root's QoQ language-delta feature
+  // (server/earningsQoq.ts earningsQoqStatus) — root verdict, per-feature/
+  // horizon aggregates, pairing counts, first_sufficient_run. Derived statistics
+  // only: no ticker, CIK, company, price or URL; no network; no Python; no query
+  // parameters.
+  "earnings_qoq",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job

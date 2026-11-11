@@ -141,6 +141,7 @@ import { bootWalkforward } from "./walkforward";
 import { bootEdgeP2 } from "./edgeP2";
 import { bootLazyPrices } from "./lazyPrices";
 import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
+import { bootEarningsQoq } from "./earningsQoq";
 import { platformStats } from "./platformStats";
 import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
@@ -1711,6 +1712,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // stay in container tmp; 21:00-23:00 ET start, once per ET day, 3.5 h budget.
   // VOLTRADE_LAZY_PRICES_BACKFILL=0 disables.
   bootLazyPricesBackfill();
+
+  // Weekly gate-2 test of the 8-K earnings-language root's PAIRED-FILING QoQ
+  // language-delta feature (server/earningsQoq.ts): Sunday 18:00-19:00 ET start,
+  // after lazyPrices closes and done before the 20:15 panel build; reads the
+  // volume's earnings8k archive (the public route caps at 500 filings).
+  // VOLTRADE_EARNINGS_QOQ=0 disables.
+  bootEarningsQoq();
 
   // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
   // trains archiving was REQUEST-driven (fetch functions archive as a side
