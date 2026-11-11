@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, FileSearch, RefreshCw, Search } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { LIVE_ANALYSIS, ON_FOCUS } from "@/lib/liveRefresh";
 import {
   type Dossier, type RangeH, type LayerMeta, type Plan, type Trend, type EventItem,
   fmtPx, fmtPct, fmtRate, parseSymbol, symbolFromHash, bandGeometry, ladderGeometry, positionSize, decileFor, decileLine,
@@ -185,8 +186,8 @@ export default function TickerDossierPage() {
   }, []);
   useEffect(() => { if (!sym) inputRef.current?.focus(); }, [sym]);
 
-  const q = useQuery({ queryKey: ["/api/ticker-dossier", sym], enabled: !!sym, queryFn: () => getJson<Dossier>(`/api/ticker-dossier/${sym}`, 125_000), staleTime: 4 * 60_000, retry: 1 });
-  const lk = useQuery({ queryKey: ["/api/bot/lookup", sym], enabled: !!sym, queryFn: () => getJson<LookupResult>(`/api/bot/lookup/${sym}`, 120_000), staleTime: 60_000, retry: 0 });
+  const q = useQuery({ queryKey: ["/api/ticker-dossier", sym], enabled: !!sym, queryFn: () => getJson<Dossier>(`/api/ticker-dossier/${sym}`, 125_000), staleTime: 4 * 60_000, retry: 1, ...LIVE_ANALYSIS });
+  const lk = useQuery({ queryKey: ["/api/bot/lookup", sym], enabled: !!sym, queryFn: () => getJson<LookupResult>(`/api/bot/lookup/${sym}`, 120_000), staleTime: 60_000, retry: 0, ...ON_FOCUS });
   const lg = useQuery({ queryKey: ["/api/bot/lookup-ledger"], enabled: !!sym, queryFn: () => getJson<LedgerReport>("/api/bot/lookup-ledger", 20_000), staleTime: 5 * 60_000, retry: 0 });
 
   useEffect(() => {

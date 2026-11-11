@@ -2,6 +2,7 @@ import { useState } from "react";
 import { getActiveTicker, setActiveTicker } from "@/lib/activeTicker";
 import { useQuery, useIsFetching } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay } from "@/lib/queryClient";
+import { ON_FOCUS } from "@/lib/liveRefresh";
 import { Search, RefreshCw, Scale, ShieldAlert, FileText, Layers, Target, Megaphone, Newspaper } from "lucide-react";
 
 // ── Types (mirror alphadesk JSON contract) ──────────────────────────────────
@@ -171,6 +172,7 @@ export function ResearchBody({ ticker }: { ticker: string | null }) {
     },
     enabled: !!ticker,
     staleTime: 5 * 60 * 1000,
+    ...ON_FOCUS, // 2026-11-11: re-read on returning to the tab (the Trade page keeps this panel mounted)
     retry: retryTransient, // deploy/restart blips retry; real errors don't
     retryDelay: transientRetryDelay,
   });

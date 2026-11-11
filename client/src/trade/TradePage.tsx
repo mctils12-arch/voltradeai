@@ -41,6 +41,8 @@ import { Panel, LookupBox, NotRecorded, ICONS } from "@/bot/panels";
 import { spreadsEmptyMessage } from "@/lib/spreadsEmpty";
 import { getActiveTicker, normalizeTicker, setActiveTicker, subscribeActiveTicker } from "@/lib/activeTicker";
 import { resetTradeBackdrop, setTradeBackdrop } from "@/lib/tradeBackdrop";
+// the hero tile states its PRICE's own as-of (2026-11-11): "alpaca · 2 s" read as fresh while the price was the previous close
+import { priceAsOfLabel } from "@/lib/liveRefresh";
 import {
   useAnalyze, AnalyzeEmptyState, RecommendationCard, VolSurfaceChart, VolMetricsPanel, EdgeFactorsPanel,
   SentimentPanel, EarningsIntelPanel, FundamentalsPanel, ValuationPanel, SpreadCard, LivePriceBar,
@@ -266,7 +268,7 @@ export default function TradePage({ tab, section, authenticated, isOwner }: { ta
     <div className="vt-bot-kpi vt-bot-area-kpi" data-testid="trade-kpi">
       <Tile label={sym ? <>{sym}{data?.company_name && data.company_name !== sym ? <span style={{ textTransform: "none", letterSpacing: 0 }}> · {data.company_name}</span> : null}</> : "Symbol"} hero
         value={sym ? (data ? <>${fmtPx(data.spot)} <span className={`${(change ?? 0) < 0 ? "vt-bot-r" : "vt-bot-g"}`} style={{ fontSize: 14 }}>{fmtSignedPct(change)}</span></> : q.isLoading ? "…" : "—") : "—"}
-        sub={sym ? (data ? `${data.data_source ?? "chain"} · ${ageMs !== null ? `${Math.round(ageMs / 1000)} s` : ""}` : "type a symbol or press /") : "one symbol, every panel"} />
+        sub={sym ? (data ? (priceAsOfLabel(data) || `${data.data_source ?? "chain"} · ${ageMs !== null ? `${Math.round(ageMs / 1000)} s` : ""}`) : "type a symbol or press /") : "one symbol, every panel"} />
       <Tile label="ATM IV · 20-day RV" value={data ? <>{fmtPx(atmIv, 1)}% <span className="vt-bot-t3" style={{ fontSize: 14 }}>/ {fmtPx(rv20, 1)}%</span></> : "—"} sub={data ? "implied vs realized, 30-day basis" : undefined} />
       <Tile label="Vol risk premium" value={data ? <span className={vrpCls}>{vrp !== null ? `${vrp < 0 ? MINUS : "+"}${Math.abs(vrp).toFixed(1)}` : "—"}</span> : "—"} sub={data ? `${vrpWord ?? "—"} · skew ${fmtPx(data.skew, 1)}` : undefined} />
       <Tile label="Put / call" value={ef ? fmtPx(ef.put_call_ratio) : "—"} sub={ef ? `${ef.put_call_signal ?? ""}${ef.gamma_pin ? ` · pin ${ef.gamma_pin}` : ""}` : undefined} />

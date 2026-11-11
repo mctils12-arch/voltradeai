@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, retryTransient, transientRetryDelay, isTransientError } from "@/lib/queryClient";
+import { LIVE_ANALYSIS, priceAsOfLabel } from "@/lib/liveRefresh";
 
 // The moving world map behind this page is the Trade world's shared backdrop
 // now (components/TradeBackdrop.tsx, mounted once by the app shell for every
@@ -157,6 +158,8 @@ export interface Fundamentals {
 export interface AnalyzeData {
   ticker: string; company_name: string;
   spot: number; price_change: number; price_change_pct: number;
+  // 2026-11-11 (analyze.py live price): where `spot` came from and when
+  price_asof?: string | null; price_source?: string; price_is_partial_session?: boolean; last_close?: number;
   atm_iv: number | null; rv10: number; rv20: number; rv30: number;
   vrp: number | null; vrp_regime: string; vrp_signal: string;
   high_52: number | null; low_52: number | null;
@@ -1849,6 +1852,7 @@ export function useAnalyze(ticker: string | null, { enabled = true }: { enabled?
     retry: retryTransient, // deploy/restart blips retry; real errors don't
     retryDelay: transientRetryDelay,
     staleTime: 30000,
+    ...LIVE_ANALYSIS, // 2026-11-11: a mounted panel re-reads its price every 5 min while visible
   });
 }
 
@@ -2117,6 +2121,11 @@ export default function AnalyzePage({ initialTicker, section }: AnalyzePageProps
                   {priceUp ? <ChevronUp size={14} className="inline" /> : <ChevronDown size={14} className="inline" />}
                   {Math.abs(data.price_change).toFixed(2)} ({Math.abs(data.price_change_pct).toFixed(2)}%)
                 </span>
+                {priceAsOfLabel(data) ? (
+                  <span className="text-[11px] text-slate-400 ml-2" data-testid="text-price-asof" title={data.price_source || undefined}>
+                    {priceAsOfLabel(data)}
+                  </span>
+                ) : null}
               </div>
             </div>
 

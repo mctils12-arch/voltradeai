@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { LIVE_QUOTES } from "@/lib/liveRefresh";
 import { Plus, Trash2, TrendingUp, TrendingDown, Search, RefreshCw } from "lucide-react";
 
 // ── Watchlist Row ─────────────────────────────────────────────────────────────
@@ -171,6 +172,7 @@ export function WatchlistBody({ onSelectTicker, authenticated }: { onSelectTicke
     },
     enabled: tickers.length > 0,
     staleTime: 30_000,
+    ...LIVE_QUOTES, // 2026-11-11: re-read while open (the Trade page keeps this panel mounted all day)
     retry: 2,
   });
 
