@@ -8,8 +8,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   lazyPricesBackfillFlag, lazyPricesBackfillCmd, lazyPricesBackfillPairsDir, lazyPricesBackfillTmpArchive, inLazyPricesBackfillWindow,
+  lazyPricesBackfillNightOf, lazyPricesBackfillNightEndMs, lazyPricesBackfillBudgetSeconds, lazyPricesBackfillTimeoutMs,
   decideLazyPricesBackfill, parseLazyPricesBackfillSummary, runLazyPricesBackfill, lazyPricesBackfillStatus,
   LAZY_PRICES_BACKFILL_TIMEOUT_MS, LAZY_PRICES_BACKFILL_BUDGET_S, LAZY_PRICES_BACKFILL_MIN_FREE_BYTES,
+  LAZY_PRICES_BACKFILL_KILL_GRACE_MS, LAZY_PRICES_BACKFILL_NIGHT_END_MIN, LAZY_PRICES_BACKFILL_MIN_SLICE_S,
 } from "./lazyPricesBackfill";
 import { lazyPricesPairsDir, lazyPricesStatus, LAZY_PRICES_WINDOW_START_MIN, inLazyPricesWindow } from "./lazyPrices";
 import { WALKFORWARD_ENV_CAPS, type WalkforwardExec } from "./walkforward";
@@ -32,14 +34,16 @@ test("flag: env present wins; registry enabledWhen agrees", () => {
   }
 });
 
-test("window is 21:00-23:00 ET any day; the 4h kill ends before the 04:00 ET daily branch; disjoint from the Sunday gate-2 slot", () => {
+test("window: the night opens 21:00 ET any day and a slice may start until 03:10 ET; nothing starts in the daytime or at 20:30 ET", () => {
   assert.equal(inLazyPricesBackfillWindow(TUE_IN), true);
   assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T01:30:00Z")), false);   // 20:30 ET
-  assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T04:30:00Z")), false);   // 23:30 ET
+  assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T04:30:00Z")), true);    // 23:30 ET — the 2026-11-10 night's lost case
+  assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T06:00:00Z")), true);    // 01:00 ET
+  assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T08:09:00Z")), true);    // 03:09 ET: a 21-min slice still fits
+  assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T08:10:00Z")), false);   // 03:10 ET: 20 min left is not a slice
+  assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T08:30:00Z")), false);   // 03:30 ET
+  assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-11T18:00:00Z")), false);   // 13:00 ET
   assert.equal(inLazyPricesBackfillWindow(Date.parse("2026-11-15T02:30:00Z")), true);    // Saturday night too
-  // latest start 22:59 ET + 4 h hard kill = 02:59 ET, before the 04:00 ET branch
-  assert.ok(23 * 60 + LAZY_PRICES_BACKFILL_TIMEOUT_MS / 60_000 <= 28 * 60);
-  assert.ok(LAZY_PRICES_BACKFILL_BUDGET_S * 1000 < LAZY_PRICES_BACKFILL_TIMEOUT_MS, "Python budget must end before the kill");
   // the Sunday 16:00-18:00 ET weekly gate-2 run never coincides with a backfill start
   const sun16 = Date.parse("2026-11-15T21:00:00Z");
   assert.equal(inLazyPricesWindow(sun16), true);
@@ -47,13 +51,52 @@ test("window is 21:00-23:00 ET any day; the 4h kill ends before the 04:00 ET dai
   assert.ok(LAZY_PRICES_WINDOW_START_MIN < 21 * 60);
 });
 
+test("night: the small hours belong to the night that opened the evening before; its end is 03:30 ET the next morning", () => {
+  assert.equal(lazyPricesBackfillNightOf(TUE_IN), "2026-11-10");                              // 21:30 ET Nov 10
+  assert.equal(lazyPricesBackfillNightOf(Date.parse("2026-11-11T06:00:00Z")), "2026-11-10");  // 01:00 ET Nov 11 -> still Nov 10's night
+  assert.equal(lazyPricesBackfillNightOf(Date.parse("2026-11-12T02:05:00Z")), "2026-11-11");  // 21:05 ET Nov 11
+  const end = lazyPricesBackfillNightEndMs(TUE_IN);
+  assert.equal(end, Date.parse("2026-11-11T08:30:00Z"));                                      // 03:30 EST Nov 11
+  assert.equal(lazyPricesBackfillNightEndMs(Date.parse("2026-11-11T06:00:00Z")), end, "same night, same end");
+  // the night DST ends (2026-11-01, 02:00 EDT -> 01:00 EST): 21:00 EDT Oct 31 is 01:00Z; 03:30 EST Nov 1 is 08:30Z
+  assert.equal(lazyPricesBackfillNightEndMs(Date.parse("2026-11-01T01:30:00Z")), Date.parse("2026-11-01T08:30:00Z"));
+  assert.equal(lazyPricesBackfillNightOf(Date.parse("2026-11-01T06:30:00Z")), "2026-10-31");  // 01:30 EST Nov 1, after the repeat hour
+});
+
+test("budget: the 3.5 h cap early in the night, what is left of it later; the kill is budget + 30 min and never past 4 h; everything ends before the 04:00 ET daily branch", () => {
+  assert.equal(lazyPricesBackfillBudgetSeconds(TUE_IN), LAZY_PRICES_BACKFILL_BUDGET_S);                      // 21:30 ET: 6 h left, capped
+  assert.equal(lazyPricesBackfillBudgetSeconds(Date.parse("2026-11-11T05:00:00Z")), LAZY_PRICES_BACKFILL_BUDGET_S); // 00:00 ET: exactly 3.5 h left
+  assert.equal(lazyPricesBackfillBudgetSeconds(Date.parse("2026-11-11T06:00:00Z")), 2.5 * 3600);              // 01:00 ET
+  assert.equal(lazyPricesBackfillBudgetSeconds(Date.parse("2026-11-11T08:10:00Z")), LAZY_PRICES_BACKFILL_MIN_SLICE_S); // 03:10 ET: the floor, not started
+  assert.equal(lazyPricesBackfillBudgetSeconds(Date.parse("2026-11-11T09:00:00Z")), 0);                       // 04:00 ET: nothing left (never negative)
+  assert.equal(lazyPricesBackfillTimeoutMs(2.5 * 3600), 2.5 * 3600_000 + LAZY_PRICES_BACKFILL_KILL_GRACE_MS);
+  assert.equal(lazyPricesBackfillTimeoutMs(), LAZY_PRICES_BACKFILL_TIMEOUT_MS);
+  assert.equal(lazyPricesBackfillTimeoutMs(10 * 3600), LAZY_PRICES_BACKFILL_TIMEOUT_MS, "never past the 4 h maximum");
+  assert.equal(LAZY_PRICES_BACKFILL_TIMEOUT_MS, 4 * 60 * 60_000);
+  assert.ok(LAZY_PRICES_BACKFILL_BUDGET_S * 1000 < LAZY_PRICES_BACKFILL_TIMEOUT_MS, "Python budget must end before the kill");
+  // latest budget end 03:30 ET + 30 min grace = 04:00 ET, the daily branch — never after it
+  assert.ok((LAZY_PRICES_BACKFILL_NIGHT_END_MIN + LAZY_PRICES_BACKFILL_KILL_GRACE_MS / 60_000) <= 4 * 60);
+  // the longest slice from the night's opening ends 00:30 ET, well inside the night
+  assert.ok(21 * 60 + LAZY_PRICES_BACKFILL_BUDGET_S / 60 <= 24 * 60 + LAZY_PRICES_BACKFILL_NIGHT_END_MIN);
+});
+
 test("decide: idle outside/disabled/already-attempted; skip on low disk; otherwise run (no freshness skip)", () => {
   assert.equal(decideLazyPricesBackfill(TUE_IN, { ...base, enabled: false }).action, "idle");
   assert.equal(decideLazyPricesBackfill(Date.parse("2026-11-11T01:30:00Z"), base).action, "idle");
   const run = decideLazyPricesBackfill(TUE_IN, base);
   assert.equal(run.action, "run");
-  assert.equal((run as { day: string }).day, "2026-11-10");                 // the ET day, not the UTC one
+  assert.equal((run as { day: string }).day, "2026-11-10");                 // the ET night, not the UTC day
+  assert.equal((run as { budgetS: number }).budgetS, LAZY_PRICES_BACKFILL_BUDGET_S);
   assert.equal(decideLazyPricesBackfill(TUE_IN, { ...base, lastAttemptDay: "2026-11-10" }).action, "idle");
+  // the restart case: a fresh process (lastAttemptDay "") at 01:00 ET re-attempts the SAME night with what is left of it
+  const late = decideLazyPricesBackfill(Date.parse("2026-11-11T06:00:00Z"), base);
+  assert.equal(late.action, "run");
+  assert.equal((late as { day: string }).day, "2026-11-10");
+  assert.equal((late as { budgetS: number }).budgetS, 2.5 * 3600);
+  assert.match(late.reason, /150 min of budget until 03:30 ET/);
+  // ...but a process that already attempted that night does not run twice in it
+  assert.equal(decideLazyPricesBackfill(Date.parse("2026-11-11T06:00:00Z"), { ...base, lastAttemptDay: "2026-11-10" }).action, "idle");
+  assert.equal(decideLazyPricesBackfill(Date.parse("2026-11-11T08:10:00Z"), base).action, "idle", "03:10 ET: too little night left");
   assert.equal(decideLazyPricesBackfill(TUE_IN, { ...base, freeBytes: LAZY_PRICES_BACKFILL_MIN_FREE_BYTES - 1 }).action, "skip");
   assert.equal(decideLazyPricesBackfill(TUE_IN, { ...base, freeBytes: 1_020_000_000 }).action, "run", "today's live free space (~1.02 GB) must not block");
   assert.equal(decideLazyPricesBackfill(TUE_IN, { ...base, freeBytes: null }).action, "run");
@@ -73,7 +116,15 @@ test("run: own long-job lane — budget flag, SIGKILL group, thread caps, parsed
   assert.equal(calls[0].opts.killSignal, "SIGKILL");
   for (const [k, v] of Object.entries(WALKFORWARD_ENV_CAPS)) assert.equal((calls[0].opts.env as Record<string, string>)[k], v);
   const killed: WalkforwardExec = async () => { throw Object.assign(new Error("x"), { killed: true }); };
-  assert.match((await runLazyPricesBackfill({}, killed)).detail, /hard budget — process group killed/);
+  assert.match((await runLazyPricesBackfill({}, killed)).detail, /exceeded the 240-minute hard budget — process group killed/);
+  // a late slice: the Python gets the clamped budget and the kill follows it by the grace, not the 4 h maximum
+  calls.length = 0;
+  await runLazyPricesBackfill({ PATH: "/usr/bin" }, ok, 2.5 * 3600);
+  assert.match(calls[0].cmd, /--budget-seconds 9000 /);
+  assert.equal(calls[0].opts.timeout, 2.5 * 3600_000 + LAZY_PRICES_BACKFILL_KILL_GRACE_MS);
+  assert.match((await runLazyPricesBackfill({}, killed, 2.5 * 3600)).detail, /exceeded the 180-minute hard budget/);
+  assert.match(lazyPricesBackfillCmd("1.0.1", {}, 1234.9), /--budget-seconds 1234 /, "whole seconds on the command line");
+  assert.match(lazyPricesBackfillCmd("1.0.1", {}, 99 * 3600), new RegExp(`--budget-seconds ${LAZY_PRICES_BACKFILL_BUDGET_S} `), "never above the cap");
   assert.equal(parseLazyPricesBackfillSummary('{"status":"skipped","reason":"only 200 MB free on the volume (< 268 MB)"}').status, "skipped");
   const plan = parseLazyPricesBackfillSummary('{"status":"ok","phase":"plan","plan_complete":false,"plan_ciks_listed":4000,"plan_ciks_total":9000,"plan_filings":21000,"elapsed_s":12600}');
   assert.equal(plan.status, "ok");
@@ -134,4 +185,8 @@ test("wiring: booted from routes.ts, no mutex/daemon/order path, never ticks on 
   assert.ok(!/execPythonSerialized|pythonRunning|pythonRpc/.test(src));
   assert.ok(!src.includes("/orders") && !/method:\s*"(POST|PUT|PATCH|DELETE)"/.test(src));
   assert.ok(src.includes('beat("lazy_prices_backfill_nightly", "start")') && src.includes('beat("lazy_prices_backfill_nightly", "finish"'));
+  // the tick passes the decision's clamped budget to the run (a late restart must not get the full 3.5 h)
+  assert.ok(boot.includes("runLazyPricesBackfill(env, execGroupKill, d.budgetS)"));
+  // the attempt marker stays in process memory on purpose: a redeploy's fresh process re-attempts the night
+  assert.ok(/let lastAttemptDay = "";/.test(boot) && !/lastAttemptDay.*(readFileSync|writeFileSync)/.test(boot));
 });

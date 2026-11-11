@@ -300,11 +300,12 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_EARNINGS_QOQ off",
   },
   {
-    // lazyPricesBackfill.ts bootLazyPricesBackfill: 30-min tick, acts every day
-    // 21:00-23:00 ET once per ET day — a run (lazy_prices_backfill.py, 3.5 h
-    // budget, 4 h kill: the gate-2 INPUT rows accumulating on the volume) or one
-    // "skipped" beat (low disk). A start lands every ~24 h.
-    id: "lazy_prices_backfill_nightly", label: "Lazy Prices 10-K similarity rows backfill (nightly, 21:00-23:00 ET start)",
+    // lazyPricesBackfill.ts bootLazyPricesBackfill: 30-min tick, acts every night
+    // from 21:00 ET, once per night PER PROCESS (a redeploy re-attempts) — a run
+    // (lazy_prices_backfill.py, <= 3.5 h budget clamped to end by 03:30 ET, kill
+    // +30 min: the gate-2 INPUT rows accumulating on the volume) or one "skipped"
+    // beat (low disk). A start lands every ~24 h; after a late restart up to ~30 h.
+    id: "lazy_prices_backfill_nightly", label: "Lazy Prices 10-K similarity rows backfill (nightly, 21:00-03:10 ET start, ends by 03:30 ET)",
     source: "server/lazyPricesBackfill.ts", kind: "interval", window: { kind: "always" },
     cadenceMs: 24 * HOUR, graceMs: 6 * HOUR, maxRunMs: 5 * HOUR,
     enabledWhen: (env) => {
