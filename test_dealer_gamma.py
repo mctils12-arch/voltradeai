@@ -1,13 +1,15 @@
 """
 dealer_gamma.py — Edge P1's short-premium filter (2026-11-06). Pins: the rank is
-gate 2's formula bit-for-bit; the server's squeeze_gex cache is read as the
-server writes it; stale / thin / missing data makes the filter INACTIVE (never
+gate 2's formula bit-for-bit; the server's derived squeeze_gex SUMMARY is read
+as the server writes it (2026-11-06: nothing of SqueezeMetrics' file is stored,
+and the summary path gives exactly the states, labels and decisions the old
+archive path gave); stale / thin / missing data makes the filter INACTIVE (never
 blocks); only SOLD premium is ever skipped and one-sided short puts are only
 logged by default (gate 3); every skip / would-skip is logged once per ET day
 (JSON line + WARNING + scan field) with a plain-English reason; the Tier-1 and
 scanner wiring; no raw GEX value in the outward state.
 """
-import gzip
+import hashlib
 import json
 import logging
 import os
@@ -30,7 +32,7 @@ CFG = {"enabled": True, "low_rank": 0.2, "max_stale_sessions": 3, "enforce_short
 
 
 def rows_ending(last_day: str, n: int = 260, last_gex: float = -1.0, seed: int = 0):
-    """n archive rows on consecutive weekdays ending at last_day; the last GEX
+    """n GEX rows on consecutive weekdays ending at last_day; the last GEX
     value is `last_gex` (the others are N(0,1) + 5, so -1 ranks at the bottom)."""
     rng = np.random.default_rng(seed)
     days, d = [], date.fromisoformat(last_day)
@@ -41,6 +43,28 @@ def rows_ending(last_day: str, n: int = 260, last_gex: float = -1.0, seed: int =
     days.reverse()
     vals = list(rng.normal(5, 1, n - 1)) + [last_gex]
     return [{"date": x, "gex": float(v), "fetched_at": "T"} for x, v in zip(days, vals)]
+
+
+def summary_of(rows):
+    """What server/squeezeGex.ts summarizeSqueeze writes for these rows (the
+    keys read_summary returns), its rank by gate 2's own trailing_pct_rank."""
+    if not rows:
+        return None
+    gex = [r["gex"] for r in rows]
+    return {"asOf": rows[-1]["date"], "rows": len(rows), "rank252": p1.trailing_pct_rank(gex, window=252)[-1],
+            "gexNegative": gex[-1] < 0, "fetchedAt": "T"}
+
+
+def summary_ending(last_day: str, n: int = 260, last_gex: float = -1.0, seed: int = 0):
+    return summary_of(rows_ending(last_day, n, last_gex, seed))
+
+
+def write_summary(base, summary):
+    """The file as the server writes it (JSON object + newline)."""
+    os.makedirs(base, exist_ok=True)
+    doc = {"v": 1, "source": dg.SOURCE, "firstDate": None, "rankRows": 0, **summary}
+    with open(os.path.join(base, dg.SUMMARY_FILE), "w") as f:
+        f.write(json.dumps(doc) + "\n")
 
 
 @pytest.fixture
@@ -58,53 +82,133 @@ def _lines(p):
 
 
 # ── rank math ───────────────────────────────────────────────────────────────
-def test_last_rank_is_gate2s_trailing_pct_rank_bit_for_bit():
+def fixture_gex(last_gex, n=300):
+    """The synthetic DIX.csv's gex column squeezeGex.test.ts builds (integers:
+    the two generators print the same file): ((i*7919) % 1009) * 1e6, last row set."""
+    return [float(((i * 7919) % 1009) * 1000000) for i in range(n - 1)] + [float(last_gex)]
+
+
+def test_the_rank_the_server_writes_is_gate2s_trailing_pct_rank_bit_for_bit():
+    # 2026-11-06: the rank moved into the server's summary (dg.last_rank, its Python twin, is gone with
+    # the archive). The server pins these exact values on the same synthetic file (squeezeGex.test.ts
+    # OLD_ARCHIVE_REPORT); gate 2's own function gives them here.
+    assert p1.trailing_pct_rank(fixture_gex(50000000))[-1] == 12.5 / 251
+    assert p1.trailing_pct_rank(fixture_gex(900000000))[-1] == 224 / 251
+    assert p1.trailing_pct_rank(fixture_gex(-5000000))[-1] == 0.0
+    assert p1.trailing_pct_rank(fixture_gex(50000000, n=200))[-1] is None   # 200 rows: still burn-in
     vals = list(np.random.default_rng(3).normal(size=600))
     full = p1.trailing_pct_rank(vals, window=252)
-    for t in (251, 300, 599):
-        assert dg.last_rank(vals[:t + 1]) == full[t]
-    assert dg.last_rank(vals[:251]) is None                     # 251 rows: still burn-in
+    for t in (251, 300, 599):   # the last-252 rank the server computes == the full-history rank
+        assert p1.trailing_pct_rank(vals[t - 251:t + 1], window=252)[-1] == full[t]
+    assert p1.trailing_pct_rank(vals[:251], window=252)[-1] is None         # 251 rows: still burn-in
     # the server fixture (squeezeGex.test.ts): window 5 over [5,1,2,3,4] -> 0.75; ties -> 0.5
-    assert dg.last_rank([5, 1, 2, 3, 4], window=5) == 0.75
-    assert dg.last_rank([2, 2, 2, 2, 2], window=5) == 0.5
-    assert dg.last_rank([1, 2, 3, 4, 5], window=5) == 1.0 and dg.last_rank([5, 4, 3, 2, 1], window=5) == 0.0
+    assert p1.trailing_pct_rank([5, 1, 2, 3, 4], window=5)[-1] == 0.75
+    assert p1.trailing_pct_rank([2, 2, 2, 2, 2], window=5)[-1] == 0.5
+    assert p1.trailing_pct_rank([1, 2, 3, 4, 5], window=5)[-1] == 1.0
+    assert p1.trailing_pct_rank([5, 4, 3, 2, 1], window=5)[-1] == 0.0
 
 
-# ── reading the server's cache ──────────────────────────────────────────────
-def _write_year(d, year, rows, gz=False):
-    os.makedirs(d, exist_ok=True)
-    text = "".join(json.dumps(r) + "\n" for r in rows)
-    if gz:
-        with gzip.open(os.path.join(d, f"{year}.jsonl.gz"), "wt") as f:
+# ── reading the server's summary ────────────────────────────────────────────
+# The exact object squeezeGex.test.ts pins for the "low" synthetic file (the server's file, keys and all).
+SERVER_LOW_SUMMARY = {"v": 1, "source": "SqueezeMetrics DIX.csv (published estimate, not ours)",
+                      "fetchedAt": "2026-11-06T05:00:00.000Z", "asOf": "2026-11-05", "firstDate": "2025-09-12",
+                      "rows": 300, "rank252": 12.5 / 251, "rankRows": 49, "gexNegative": False}
+
+
+def test_read_summary_reads_the_servers_file_and_rejects_junk(tmp_path):
+    base = str(tmp_path)
+    assert dg.read_summary(base) is None                                       # none yet: inactive, not an error
+    with open(os.path.join(base, dg.SUMMARY_FILE), "w") as f:
+        f.write(json.dumps(SERVER_LOW_SUMMARY) + "\n")
+    assert dg.read_summary(base) == {"asOf": "2026-11-05", "rows": 300, "rank252": 12.5 / 251,
+                                     "gexNegative": False, "fetchedAt": "2026-11-06T05:00:00.000Z"}
+    zero = {**SERVER_LOW_SUMMARY, "rank252": 0, "gexNegative": True}            # JSON 0 from the server
+    with open(os.path.join(base, dg.SUMMARY_FILE), "w") as f:
+        f.write(json.dumps(zero))
+    r = dg.read_summary(base)
+    assert r["rank252"] == 0.0 and isinstance(r["rank252"], float) and r["gexNegative"] is True
+    junk = ["not json", json.dumps([1]), json.dumps({**SERVER_LOW_SUMMARY, "v": 2}),
+            json.dumps({**SERVER_LOW_SUMMARY, "rows": -1}), json.dumps({**SERVER_LOW_SUMMARY, "rows": "300"}),
+            json.dumps({**SERVER_LOW_SUMMARY, "rows": True}), json.dumps({**SERVER_LOW_SUMMARY, "asOf": "bad"}),
+            json.dumps({**SERVER_LOW_SUMMARY, "asOf": None}), json.dumps({**SERVER_LOW_SUMMARY, "rank252": 1.5}),
+            json.dumps({**SERVER_LOW_SUMMARY, "rank252": None}),                 # 300 rows but no rank
+            json.dumps({**SERVER_LOW_SUMMARY, "rows": 100}),                     # a rank from 100 rows
+            json.dumps({**SERVER_LOW_SUMMARY, "gexNegative": "no"}), json.dumps({**SERVER_LOW_SUMMARY, "fetchedAt": 5})]
+    for text in junk:
+        with open(os.path.join(base, dg.SUMMARY_FILE), "w") as f:
             f.write(text)
-    else:
-        with open(os.path.join(d, f"{year}.jsonl"), "w") as f:
-            f.write(text)
+        with pytest.raises(ValueError):
+            dg.read_summary(base)
+    with open(os.path.join(base, dg.SUMMARY_FILE), "w") as f:    # a stray raw value is never read
+        f.write(json.dumps({**SERVER_LOW_SUMMARY, "gex": 1844749552.52}))
+    assert "gex" not in dg.read_summary(base)
 
 
-def test_read_rows_reads_plain_and_gz_years_sorted_deduped_and_skips_junk(tmp_path):
-    d = str(tmp_path / "squeeze_gex")
-    _write_year(d, "2025", [{"date": "2025-12-31", "price": 1, "dix": 0.4, "gex": 7.0, "fetched_at": "a"}], gz=True)
-    _write_year(d, "2026", [{"date": "2026-01-05", "gex": 9.0}, {"date": "2026-01-02", "gex": 8.0}])
-    with open(os.path.join(d, "2026.jsonl"), "a") as f:
-        f.write("not json\n" + json.dumps({"date": "bad", "gex": 1}) + "\n" + json.dumps({"date": "2026-01-06"}) + "\n")
-    # a gz copy of a year that also has a plain file is ignored (the plain file is current)
-    _write_year(d, "2026", [{"date": "2026-01-02", "gex": -999.0}], gz=True)
-    with open(os.path.join(d, "notes.txt"), "w") as f:
-        f.write("ignored")
-    rows = dg.read_rows(base=str(tmp_path))
-    assert [(r["date"], r["gex"]) for r in rows] == [("2025-12-31", 7.0), ("2026-01-02", 8.0), ("2026-01-05", 9.0)]
-    assert dg.read_rows(base=str(tmp_path / "missing")) == []
-
-
-def test_archive_dir_mirrors_the_servers_archive_base_dir(monkeypatch):
+def test_summary_path_mirrors_the_servers_data_dir(monkeypatch):
     monkeypatch.setattr(dg, "_data_dir", REAL_DATA_DIR)
     monkeypatch.setenv("DATA_DIR", "/srv/x")
-    assert dg.archive_dir() == "/srv/x/datacore_archive/squeeze_gex"
+    assert dg.summary_path() == "/srv/x/voltrade_squeeze_gex_summary.json"
     monkeypatch.delenv("DATA_DIR")
     import storage_config
-    assert dg.archive_dir() == os.path.join(storage_config.DATA_DIR, "datacore_archive", "squeeze_gex")
-    assert dg.archive_dir("/b") == "/b/squeeze_gex"
+    assert dg.summary_path() == os.path.join(storage_config.DATA_DIR, "voltrade_squeeze_gex_summary.json")
+    assert dg.summary_path("/b") == "/b/voltrade_squeeze_gex_summary.json"
+    # the server writes the same name (server/squeezeGex.ts) and its summary carries every key read_summary reads
+    with open(os.path.join(ROOT, "server", "squeezeGex.ts")) as f:
+        ts = f.read()
+    assert f'export const SQUEEZE_SUMMARY_FILE = "{dg.SUMMARY_FILE}";' in ts
+    i = ts.index("export function summarizeSqueeze(")
+    body = ts[i:ts.index("\n}\n", i)]
+    for key in ("v: 1,", "fetchedAt,", "asOf:", "rows:", "rank252,", "gexNegative:"):
+        assert key in body, key
+
+
+# ── the in-memory path == the old archive path ──────────────────────────────
+# OLD_ARCHIVE_PATH_SHA256: sha256 of the canonical JSON (sort_keys, no spaces) of the projection below,
+# produced by the ARCHIVE path on main a017a2be before it was removed (2026-11-06): server/squeezeGex.ts
+# archiveSqueezeRows wrote the synthetic files' rows into <archive>/squeeze_gex/<year>.jsonl,
+# dealer_gamma.read_rows read them back, compute_state + public_state + decide ran on those rows.
+OLD_ARCHIVE_PATH_SHA256 = "2fff47edebf1d5803d31b70ec9555479c35c52d36821bbe230f06f9c49303535"
+_F = "2026-11-06T05:00:00.000Z"
+SERVER_SUMMARIES = {    # what the server writes for each synthetic file (squeezeGex.test.ts pins the same numbers)
+    "low": {"asOf": "2026-11-05", "rows": 300, "rank252": 12.5 / 251, "gexNegative": False, "fetchedAt": _F},
+    "normal": {"asOf": "2026-11-05", "rows": 300, "rank252": 224 / 251, "gexNegative": False, "fetchedAt": _F},
+    "negative": {"asOf": "2026-11-05", "rows": 300, "rank252": 0.0, "gexNegative": True, "fetchedAt": _F},
+    "thin": {"asOf": "2026-11-05", "rows": 200, "rank252": None, "gexNegative": False, "fetchedAt": _F},
+    "empty": None,
+}
+
+
+def test_the_summary_path_gives_the_old_archive_paths_states_labels_and_decisions_exactly(tmp_path):
+    cfgs = {"default": CFG, "enforce_puts": {**CFG, "enforce_short_puts": True}, "disabled": {**CFG, "enabled": False}}
+    todays = {"fresh": date(2026, 11, 6), "stale": date(2026, 11, 11)}       # 1 session old; 4 sessions old
+    strats = [("iron_condor", "sell"), ("sell_cash_secured_put", "sell"), ("bull_put_credit_spread", "sell"),
+              ("covered_call", "sell"), ("buy_put", "buy"), ("mystery_structure", "sell")]
+    keep = ("asOf", "rank252", "lowGamma", "threshold", "stale", "ageSessions", "active", "enabled",
+            "enforceShortPuts", "maxStaleSessions", "rows", "reason")
+    out = {}
+    for scen, summ in SERVER_SUMMARIES.items():
+        base = str(tmp_path / scen)
+        if summ:
+            write_summary(base, summ)                          # through the file, as the live path reads it
+        read = dg.read_summary(base)
+        assert read == summ
+        for tname, today in todays.items():
+            for cname, cfg in cfgs.items():
+                st = dg.compute_state(read, today, cfg)
+                pub = dg.public_state(st)
+                out[f"{scen}|{tname}|{cname}"] = {"state": {k: st[k] for k in keep}, "gexNegative": pub["gexNegative"],
+                                                  "label": pub["label"], "decisions": [dict(dg.decide(s, side, st)) for s, side in strats]}
+    canon = json.dumps(out, sort_keys=True, separators=(",", ":"))
+    assert hashlib.sha256(canon.encode()).hexdigest() == OLD_ARCHIVE_PATH_SHA256, "states, labels, reasons and decisions all byte-identical"
+    # readable spot checks of the same table
+    low = out["low|fresh|default"]
+    assert [d["action"] for d in low["decisions"]] == ["skip", "would_skip", "would_skip", "skip", "allow", "skip"]
+    assert low["label"] == "dealer gamma: low (rank 0.05) — no new condors / strangles; cash-secured puts and put spreads logged only"
+    assert {d["action"] for d in out["normal|fresh|default"]["decisions"]} == {"allow"}
+    assert [d["action"] for d in out["low|fresh|enforce_puts"]["decisions"]] == ["skip", "skip", "skip", "skip", "allow", "skip"]
+    assert out["low|stale|default"]["state"]["reason"] == "latest SqueezeMetrics GEX is 4 sessions old (as of 2026-11-05; limit 3) - filter inactive"
+    assert out["negative|fresh|default"]["gexNegative"] is True and out["empty|fresh|default"]["gexNegative"] is None
+    assert out["low|fresh|disabled"]["state"]["active"] is False and out["low|fresh|disabled"]["state"]["lowGamma"] is True
 
 
 # ── staleness -> inactive ───────────────────────────────────────────────────
@@ -117,16 +221,16 @@ def test_sessions_since_counts_nyse_sessions():
 
 
 def test_fresh_low_rank_is_active_low_gamma():
-    st = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    st = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     assert st["active"] and st["lowGamma"] and not st["stale"] and st["ageSessions"] == 1
     assert st["rank252"] == 0.0 and st["asOf"] == "2026-11-05" and st["threshold"] == 0.2
     assert "SqueezeMetrics" in st["source"] and "not ours" in st["source"]
 
 
 def test_staleness_over_three_sessions_makes_the_filter_inactive():
-    ok = dg.compute_state(rows_ending("2026-11-03"), date(2026, 11, 6), CFG)      # 3 sessions: still active
+    ok = dg.compute_state(summary_ending("2026-11-03"), date(2026, 11, 6), CFG)      # 3 sessions: still active
     assert ok["active"] and ok["ageSessions"] == 3
-    st = dg.compute_state(rows_ending("2026-11-02"), date(2026, 11, 6), CFG)      # 4 sessions
+    st = dg.compute_state(summary_ending("2026-11-02"), date(2026, 11, 6), CFG)      # 4 sessions
     assert st["stale"] and not st["active"] and not st["lowGamma"]
     assert "inactive" in st["reason"] and "4 sessions old" in st["reason"]
     d = dg.decide("iron_condor", "sell", st)
@@ -134,27 +238,30 @@ def test_staleness_over_three_sessions_makes_the_filter_inactive():
 
 
 def test_thin_missing_or_disabled_data_is_inactive():
-    thin = dg.compute_state(rows_ending("2026-11-05", n=200), date(2026, 11, 6), CFG)
+    thin = dg.compute_state(summary_ending("2026-11-05", n=200), date(2026, 11, 6), CFG)
     assert not thin["active"] and thin["rank252"] is None and "252" in thin["reason"]
-    none = dg.compute_state([], date(2026, 11, 6), CFG)
+    none = dg.compute_state(None, date(2026, 11, 6), CFG)
     assert not none["active"] and none["asOf"] is None and "inactive" in none["reason"]
-    off = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enabled": False})
+    off = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enabled": False})
     assert not off["active"] and "switched off" in off["reason"]
     assert dg.decide("iron_condor", "sell", off)["action"] == "allow"
 
 
-def test_get_state_fails_open_on_a_read_error(files):
-    with patch.object(dg, "read_rows", side_effect=OSError("disk")):
+def test_get_state_fails_open_on_a_read_error(files, tmp_path):
+    with patch.object(dg, "read_summary", side_effect=OSError("disk")):
         st = dg.get_state(force=True)
     assert not st["active"] and "error" in st["reason"]
+    base = tmp_path / "data"                                    # a corrupt summary on disk: inactive, says so
+    base.mkdir()
+    (base / dg.SUMMARY_FILE).write_text("{torn")
+    with patch.object(dg, "_data_dir", return_value=str(base)):
+        st = dg.get_state(force=True)
+    assert not st["active"] and "error" in st["reason"] and dg.decide("iron_condor", "sell", st)["action"] == "allow"
 
 
-def test_get_state_reads_the_cache_and_writes_the_public_state_file(files, tmp_path):
+def test_get_state_reads_the_summary_and_writes_the_public_state_file(files, tmp_path):
     base = tmp_path / "data"
-    d = base / "datacore_archive" / "squeeze_gex"
-    rows = rows_ending("2026-11-05")
-    _write_year(str(d), "2026", [r for r in rows if r["date"] >= "2026"])
-    _write_year(str(d), "2025", [r for r in rows if r["date"] < "2026"], gz=True)
+    write_summary(str(base), summary_ending("2026-11-05"))
     now = datetime(2026, 11, 6, 10, 0, tzinfo=ET)
     with patch.object(dg, "_data_dir", return_value=str(base)):
         st = dg.get_state(force=True, now=now)
@@ -163,8 +270,10 @@ def test_get_state_reads_the_cache_and_writes_the_public_state_file(files, tmp_p
         assert on_disk["asOf"] == "2026-11-05" and on_disk["label"].startswith("dealer gamma: low (rank 0.00)")
         assert "gex" not in on_disk and on_disk["gexNegative"] is True
         # cached: the same dict comes back without re-reading
-        with patch.object(dg, "read_rows", side_effect=AssertionError("re-read")):
+        with patch.object(dg, "read_summary", side_effect=AssertionError("re-read")):
             assert dg.get_state(now=now)["asOf"] == "2026-11-05"
+            assert dg.get_state(force=True, now=now)["asOf"] == "2026-11-05", "an unchanged file is not re-read"
+    assert sorted(os.listdir(base)) == [dg.SUMMARY_FILE], "the filter writes nothing beside the server's summary"
 
 
 # ── only short premium is filtered ──────────────────────────────────────────
@@ -182,7 +291,7 @@ def test_structure_classification_covers_every_live_strategy_name():
 
 
 def test_decide_skips_only_sold_premium_and_logs_csps_by_default():
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     assert dg.decide("buy_put", "buy", low)["action"] == "allow"
     assert dg.decide("buy_call", "buy", low)["shortPremium"] is False
     condor = dg.decide("iron_condor", "sell", low)
@@ -190,18 +299,18 @@ def test_decide_skips_only_sold_premium_and_logs_csps_by_default():
     assert condor["reason"].startswith("dealer gamma low (rank 0.00): realized vol tends to exceed implied, no new short premium")
     csp = dg.decide("sell_cash_secured_put", "sell", low)
     assert csp["action"] == "would_skip" and not csp["enforced"] and "logged only" in csp["reason"]
-    enforced = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enforce_short_puts": True})
+    enforced = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enforce_short_puts": True})
     assert dg.decide("sell_cash_secured_put", "sell", enforced)["action"] == "skip"
-    normal = dg.compute_state(rows_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), CFG)
+    normal = dg.compute_state(summary_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), CFG)
     assert not normal["lowGamma"] and dg.decide("iron_condor", "sell", normal)["action"] == "allow"
     # the threshold is configurable and strict: rank == threshold is NOT low
-    at = dg.compute_state(rows_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), {**CFG, "low_rank": 1.0})
+    at = dg.compute_state(summary_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), {**CFG, "low_rank": 1.0})
     assert at["rank252"] == 1.0 and not at["lowGamma"]
 
 
 # ── logging ─────────────────────────────────────────────────────────────────
 def test_record_logs_json_warning_and_pending_once_per_day(files, caplog):
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     d = dg.decide("iron_condor", "sell", low)
     t1 = datetime(2026, 11, 6, 10, 0, tzinfo=ET)
     with caplog.at_level(logging.WARNING, logger="dealer_gamma"):
@@ -236,7 +345,7 @@ def test_shadow_slot_bounds_writes_per_scan_and_drain_resets():
 
 
 def test_scan_field_carries_state_without_raw_gex_and_drains(files):
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     with patch.object(dg, "get_state", return_value=low):
         dg.check("iron_condor", "sell", "AMD", "src", setup="high_iv_premium_sale")
         f = dg.scan_field()
@@ -251,11 +360,11 @@ def test_scan_field_carries_state_without_raw_gex_and_drains(files):
 
 
 def test_labels_are_plain_english():
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enforce_short_puts": True})
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enforce_short_puts": True})
     assert dg.label(low) == "dealer gamma: low (rank 0.00) — no new short premium"
-    normal = dg.compute_state(rows_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), CFG)
+    normal = dg.compute_state(summary_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), CFG)
     assert dg.label(normal) == "dealer gamma: normal (rank 1.00) — no restriction"
-    assert dg.label(dg.compute_state([], date(2026, 11, 6), CFG)).startswith("dealer gamma: filter inactive")
+    assert dg.label(dg.compute_state(None, date(2026, 11, 6), CFG)).startswith("dealer gamma: filter inactive")
 
 
 def test_config_keys_live_in_system_config_with_the_preregistered_threshold():
@@ -286,15 +395,15 @@ def _run_t1(state):
 
 
 def test_tier1_inactive_filter_is_the_baseline(files):
-    actions, logged = _run_t1(dg.compute_state([], date(2026, 11, 6), CFG))
+    actions, logged = _run_t1(dg.compute_state(None, date(2026, 11, 6), CFG))
     assert [a.ticker for a in actions] == UNIVERSE[:3] and logged == []
     assert {a.metadata["dealer_gamma"]["action"] for a in actions} == {"allow"}
     assert _lines(files["decisions"]) == []
 
 
 def test_tier1_low_gamma_logs_would_skip_for_the_returned_csps_only(files):
-    base, _ = _run_t1(dg.compute_state([], date(2026, 11, 6), CFG))
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    base, _ = _run_t1(dg.compute_state(None, date(2026, 11, 6), CFG))
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     actions, logged = _run_t1(low)
     assert [a.ticker for a in actions] == [a.ticker for a in base]                 # nothing blocked
     assert [a.size_pct for a in actions] == [a.size_pct for a in base]
@@ -305,7 +414,7 @@ def test_tier1_low_gamma_logs_would_skip_for_the_returned_csps_only(files):
 
 
 def test_tier1_enforced_puts_propose_nothing_and_log_the_three_it_would_have(files):
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enforce_short_puts": True})
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), {**CFG, "enforce_short_puts": True})
     actions, logged = _run_t1(low)
     assert actions == []
     assert [(r["ticker"], r["decision"]) for r in logged] == [(t, "rejected_dealer_gamma") for t in UNIVERSE[:3]]
@@ -340,7 +449,7 @@ def _run_scanner(state):
 
 
 def test_scanner_low_gamma_skips_condors_and_logs_the_put_spread(files):
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     trades, shadow = _run_scanner(low)
     assert [t["ticker"] for t in trades] == ["SPY"]
     assert trades[0]["dealer_gamma"]["action"] == "would_skip"
@@ -352,8 +461,8 @@ def test_scanner_low_gamma_skips_condors_and_logs_the_put_spread(files):
 
 
 def test_scanner_inactive_or_normal_gamma_changes_nothing(files):
-    for st in (dg.compute_state([], date(2026, 11, 6), CFG),
-               dg.compute_state(rows_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), CFG)):
+    for st in (dg.compute_state(None, date(2026, 11, 6), CFG),
+               dg.compute_state(summary_ending("2026-11-05", last_gex=50.0), date(2026, 11, 6), CFG)):
         trades, shadow = _run_scanner(st)
         assert [t["ticker"] for t in trades] == ["NVDA", "SPY", "TSLA"] and shadow == []
     assert _lines(files["decisions"]) == []
@@ -361,7 +470,7 @@ def test_scanner_inactive_or_normal_gamma_changes_nothing(files):
 
 def test_scanner_gate_never_touches_a_bought_option(files):
     import options_scanner as osc
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     opp = {"ticker": "QQQ", "setup": "x", "options_strategy": "buy_put", "side": "buy", "score": 70, "price": 500}
     with patch.object(dg, "get_state", return_value=low):
         assert osc._dealer_gamma_gate(opp, 1.0, "BULL")["action"] == "allow"
@@ -370,7 +479,7 @@ def test_scanner_gate_never_touches_a_bought_option(files):
 
 def test_scanner_shadow_writes_are_bounded_per_scan(files):
     import options_scanner as osc
-    low = dg.compute_state(rows_ending("2026-11-05"), date(2026, 11, 6), CFG)
+    low = dg.compute_state(summary_ending("2026-11-05"), date(2026, 11, 6), CFG)
     shadow = []
     with patch.object(dg, "get_state", return_value=low), \
          patch("shadow_portfolio.log_candidate", side_effect=lambda **kw: shadow.append(kw)):

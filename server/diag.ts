@@ -420,14 +420,16 @@ export const DIAG_PROBES = [
   // query parameters.
   "heartbeats",
   // ADDED 2026-10-29 (Edge P1 shadow stream, T-DATACORE): server/squeezeGex.ts
-  // report — archived-row count, first/latest date, latest trailing-252 rank R
-  // and negative-GEX flag, refresh status. Aggregates only (no raw gex/dix/
-  // price rows: DIX.csv licence unverified, gate 1 open). No query parameters.
+  // status — since 2026-11-06 the file is read in memory and NOT stored
+  // (SqueezeMetrics' terms): the last read's row count, first/latest date,
+  // latest trailing-252 rank R, negative-GEX flag, refresh health and this
+  // boot's deletion of the old archive. No raw gex/dix/price value. No query
+  // parameters.
   "squeeze_gex",
   // ADDED 2026-11-06 (Edge P1 short-premium filter): server/dealerGamma.ts —
   // dealer_gamma.py's last state (rank, as-of, stale/active, the plain-English
   // label), its recent skip / would-skip decisions and per-day counts, beside
-  // the squeeze_gex archive's freshness. Rank and verdict only (no raw GEX).
+  // the squeeze_gex feed's status (`feed`). Rank and verdict only (no raw GEX).
   // Read-only, no query parameters.
   "gamma",
   // ADDED 2026-10-27 (human Phase 4 "Fix the model"): the v3 CANDIDATE

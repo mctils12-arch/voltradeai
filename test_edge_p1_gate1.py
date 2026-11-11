@@ -80,14 +80,73 @@ def test_none_own_days_excluded_and_spearman_perfect():
 
 
 def test_load_end_to_end_with_gz_and_missing_oi_day(tmp_path):
+    # 2026-11-06: SqueezeMetrics' side is the live file's own history (no squeeze_gex archive any more)
     ch = tmp_path / "optionchains"
     (ch / "oi").mkdir(parents=True)
-    (tmp_path / "squeeze_gex").mkdir()
     for d in ("2026-10-29", "2026-10-30"):
         (ch / f"{d}.jsonl").write_text(json.dumps(_row(C)) + "\n")
-    (ch / "oi" / "2026-10-29.jsonl").write_text(json.dumps({"s": C, "u": "SPY", "oi": 10}) + "\n")
-    with gzip.open(tmp_path / "squeeze_gex" / "2026.jsonl.gz", "wt") as f:
-        f.write(json.dumps({"date": "2026-10-29", "gex": 2e9}) + "\n")
-    own, sq, st = g1.load(str(tmp_path))
+    with gzip.open(ch / "oi" / "2026-10-29.jsonl.gz", "wt") as f:
+        f.write(json.dumps({"s": C, "u": "SPY", "oi": 10}) + "\n")
+    squeeze = g1.parse_dix_gex("date,price,dix,gex\n2026-10-29,7750,0.4,2000000000\n")
+    own, sq, st = g1.load(str(tmp_path), squeeze)
     assert list(own) == ["2026-10-29"] and own["2026-10-29"] > 0 and sq == {"2026-10-29": 2e9}
     assert g1.compare(own, sq)["overlap_days"] == 1
+
+
+def test_parse_dix_gex_follows_the_servers_rules():
+    text = "\n".join([
+        "date,price,dix,gex",
+        "2026-10-27,7722.6,0.4549768975156808,5515099082.650005",
+        "2026-10-28,7743.98,0.46105040243405043,5605140552.230006",
+        "garbage,1,2,3",                      # not a date
+        "2026-10-29,7750,0.4,notanumber",     # not a number
+        "2026-10-30,7750,inf,1",              # not finite
+        "2026-10-31,1,0.4",                   # too few columns
+        "2026-10-28,7743.98,0.46,-1.5",       # a repeated date keeps the last row
+    ]) + "\n"
+    g1.MALFORMED_DIX_ROWS[0] = 0
+    assert g1.parse_dix_gex(text) == {"2026-10-27": 5515099082.650005, "2026-10-28": -1.5}
+    assert g1.MALFORMED_DIX_ROWS[0] == 4, "every skipped row is counted (and reported by main)"
+    assert g1.parse_dix_gex("nope\n2026-10-27,1,2,3\n") == {}
+    assert g1.parse_dix_gex("") == {}
+
+
+def test_main_reads_the_live_file_in_memory_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    ch = tmp_path / "archive" / "optionchains"
+    (ch / "oi").mkdir(parents=True)
+    (ch / "2026-10-29.jsonl").write_text(json.dumps(_row(C)) + "\n")
+    (ch / "oi" / "2026-10-29.jsonl").write_text(json.dumps({"s": C, "u": "SPY", "oi": 10}) + "\n")
+    before = sorted(str(p) for p in tmp_path.rglob("*"))
+    seen = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"date,price,dix,gex\n2026-10-29,7750,0.4,2000000000\n"
+
+    def fake_urlopen(req, timeout):
+        seen["url"], seen["agent"], seen["timeout"] = req.full_url, req.get_header("User-agent"), timeout
+        return _Resp()
+
+    monkeypatch.setattr(g1.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(g1, "MALFORMED_DIX_ROWS", [0])
+    monkeypatch.chdir(tmp_path)
+    assert g1.main(["--archive-dir", str(tmp_path / "archive"), "--json"]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert seen["url"] == g1.DIX_URL == "https://squeezemetrics.com/monitor/static/DIX.csv"
+    assert seen["agent"].startswith("voltradeai-datacore/1.0") and seen["timeout"] == 30
+    assert rep["overlap_days"] == 1 and rep["squeeze_rows"] == 1 and rep["squeeze_last_day"] == "2026-10-29"
+    assert rep["squeeze_source"] == g1.DIX_URL and rep["malformed_dix_rows"] == 0
+    assert sorted(str(p) for p in tmp_path.rglob("*")) == before, "nothing written: no copy of their file anywhere"
+    # --dix PATH: a local copy, no fetch
+    local = tmp_path / "DIX.csv"
+    local.write_text("date,price,dix,gex\n2026-10-29,7750,0.4,-3\n")
+    monkeypatch.setattr(g1.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("fetched")))
+    assert g1.main(["--archive-dir", str(tmp_path / "archive"), "--dix", str(local), "--json"]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert rep["squeeze_source"] == str(local) and rep["sign_disagree_days"] == 1

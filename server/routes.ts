@@ -3460,7 +3460,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // out frozen/oversized, this is the live keyless replacement). Serves
   // the poller's cached latest day + a 30-day recent window.
   bootCboeVixPoll();
-  bootSqueezeGexPoll(); // Edge P1 internal shadow stream — no route, aggregates via diag probe "squeeze_gex"
+  // Edge P1 internal stream — no route, status via diag probe "squeeze_gex".
+  // [REPAIR] 2026-11-06: SqueezeMetrics' file is read in memory, never stored;
+  // the boot deletes the old squeeze_gex archive once and says so here.
+  bootSqueezeGexPoll({
+    audit: (type, message) => {
+      try {
+        db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
+          new Date().toISOString(), type, message.slice(0, 500)
+        );
+      } catch (e: unknown) {
+        console.error("[datacore] squeeze_gex audit row:", (e as Error)?.message || e);
+      }
+    },
+  });
   app.get("/api/data/vix-term-structure", (_req, res) => {
     const hit = latestCboeVix();
     if (!hit) {
