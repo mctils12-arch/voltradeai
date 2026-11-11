@@ -23596,3 +23596,40 @@ Closed the same night (kept for the record):
 - `/api/scan` launched up to 20 analyze.py processes, and boot launched 10. Removed in #1680 (v1.0.1337): no caller existed.
 - Earnings beats over the last 3 quarters were not logged forward. #1682 (v1.0.1339) adds a Tier-3 cache fill with a cache-only read in deep_score, and #1683 (v1.0.1340) adds the logged-only source-validation entry.
 - Credit multi-leg entries are sent without a working limit (frozen `_submit_mleg_order` sends `abs(limit_price)`, and Alpaca's mleg limit is signed). Filed in research/wishlist.md (#1671) for human approval; nothing changed in the frozen path.
+
+## SETTLEMENT-STRESS GATE 2 — the registered test cannot resolve; a design decision is owed (filed 2026-11-11, [PRODUCT] session re-run)
+
+`scripts/settlement_stress_gate2.ts` (pre-registered 2026-09-22) needs >= 20
+DOMESTIC independent episodes before any forward-return correlation is read;
+foreign-listing (ADR/ordinary-share) episodes are excluded by design because
+Reg SHO threshold persistence for them is plausibly cross-border settlement
+plumbing, not short-squeeze economics. Re-run 2026-11-11 against production:
+16 independent episodes, 1 domestic / 15 foreign — the domestic count has not
+moved since the first run (1 of 8 on 2026-09-22) while foreign doubled. At the
+observed rate the bar is ~6 years away: the test as registered is effectively
+unreachable on this archive, which is a different state from "accumulating".
+
+NOT done this session (deliberately): loosening the bar, pooling ADRs into the
+domestic test, or reading the exploratory n=16 ADR returns (+5d -3.69%, +20d
++0.74%, non-gating) as a lean — any of those after seeing the data is the
+optional-stopping fault Reasoning Standard #4 forbids.
+
+THE DECISION (a future session makes it in writing BEFORE the next look at
+returns; either is legitimate):
+(a) Register a SEPARATE foreign-ADR hypothesis with its own mechanism and
+    prior: "ADR threshold-list persistence reflects depositary/custodian
+    conversion delay; forward returns are NOT predicted by the composite
+    (null expected), and if anything the +20d sign is unrelated to
+    entryScore." Bar: its own minimum (e.g. >= 30 independent ADR episodes,
+    reachable in ~1 quarter at the current rate), its own correction for the
+    variants tried (this would be variant #2 on the composite). A null
+    result here is itself a finding: it would confirm the confound the
+    header predicted and justify excluding ADRs from the composite's JOIN,
+    not just its readiness count.
+(b) Keep the domestic-only test as registered and accept that it may never
+    render a verdict; the monthly re-run stays informational. Honest, cheap,
+    and the composite stays gate1_pass with a RAW display only.
+Ladder: datacore/signal_ladder.json settlement_stress_composite note
+(2026-11-10 UPDATE). Related: github_org_engineering_momentum is one week
+short of its own bar (14/15) and resolves on its next run after 2026-11-15 —
+no decision needed there.

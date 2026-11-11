@@ -179,3 +179,15 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   only (HUMAN-GATED) — no more OpenAPI-schema queue item; a future
   session should re-check this file's P1-P4 status fresh rather than
   assume this specific thread continues.
+- 2026-11-11 (scheduled-routine PRODUCT session, v1.0.1348): the P1 nav's
+  "Signals — validated signal products" leaf, shipped `soon: true` on
+  2026-07-11, is now LIVE: `#/data/validated-signals` (client/src/pages/
+  validatedSignals.tsx) over `GET /api/data/signal-products` (server/
+  signalProducts.ts) — the gate-2-passed roots as products, each with live
+  reading + age, license posture, pasteable keyed endpoint, live board /
+  preview / ladder / docs links, plus an in-validation list and the
+  five-gate explainer. A REQUIRED test pins that every validated root in
+  datacore/signal_ladder.json has a wiring row, so the storefront can no
+  longer lag the ladder. Full trace in experiments.md. Program queue:
+  P5 only (HUMAN-GATED); follow-on filed: `/api/v1/signals` keyed
+  catalog (own PR, touches the 37/37 OpenAPI schema pin).

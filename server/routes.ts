@@ -121,6 +121,7 @@ import { bootSqueezeGexPoll } from "./squeezeGex";
 import { bootReactorStatusPoll, latestReactorStatus } from "./nrcReactorStatus";
 import { bootAttentionPoll, latestAttention, lastAttentionCycle, lookupTickerHistory, readAggregateHistory, ARTICLES as WIKI_ARTICLES } from "./wikiAttention";
 import { computeWikiAttentionSignal } from "./wikiAttentionSignal";
+import { buildSignalProducts, gnssReading, wikiReading } from "./signalProducts";
 import { bootFaaPoll, latestFaaStatus } from "./faaStatus";
 import { bootBorderWaitPoll, latestBorderWaits } from "./cbpBorderWait";
 import { bootOosPoll, latestOosOrders } from "./fmcsaOutOfService";
@@ -4297,6 +4298,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     res.set("Cache-Control", "public, max-age=300");
     res.json(gnssSignalCache.data);
+  });
+
+  // Signals PRODUCT catalog (#/data/validated-signals; PLATFORM INTEGRATION
+  // PROGRAM — the nav's "Signals" leaf, disabled as "soon" since 2026-07-11).
+  // Pure composition in server/signalProducts.ts over the hand-compiled ladder
+  // + the two live summaries the routes above/below already serve: the GNSS
+  // poller cache and the per-request wiki board. No new computation, no new
+  // poller, no token. A validated root with no wiring surfaces as `unwired`
+  // (never hidden) and signalProducts.test.ts pins that list to [].
+  app.get("/api/data/signal-products", (_req, res) => {
+    try {
+      const ladder = loadSignalLadder();
+      let wiki: ReturnType<typeof computeWikiAttentionSignal> | null = null;
+      try {
+        wiki = computeWikiAttentionSignal();
+      } catch (e: unknown) {
+        console.error("[datacore] signal-products wiki board:", (e as Error)?.message || e);
+      }
+      res.set("Cache-Control", "public, max-age=300");
+      res.json(buildSignalProducts(ladder.roots, ladder.compiled, {
+        gnss_integrity_adsb: gnssReading(gnssSignalCache?.data),
+        wikimedia_pageviews_attention: wikiReading(wiki),
+      }));
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message || "signal catalog failed" });
+    }
   });
 
   // Everything Graph v1 (datacore/EVERYTHING_GRAPH.md, build step 2) — joins
