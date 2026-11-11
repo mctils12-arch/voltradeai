@@ -116703,3 +116703,74 @@ TESTS: test_automerge_deploy_window.py, 51 tests, all passing.
 - Also run: server/ciCheckoutBudget, ciEnvHonesty, gatedTests, counterRatchet and tscRatchet tests (25/25); test_ts_code_only.py (11/11); counter_ratchet.sh OK (it reports tests_run_in_ci 823->824 and assertions up, for the ship-time re-pin); tsc 6 errors (no TS changed); actionlint 1.7.12 clean on all workflows.
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — CI / SHARED (scripts/automerge.sh merge flags, new .github/workflows/branch-hygiene.yml, new scripts/branch_hygiene.py, scripts/branch_cleanup_apply.sh, new ops/branch_keep.txt, test_branch_hygiene.py) — BRANCH HYGIENE: merges delete their head branch; a weekly Actions run archives and deletes the rest
+VERSION: v1.0.1360 (shipped 2026-11-11 by the parent session; main was v1.0.1359)
+
+FROZEN PATH, human-approved 2026-11-06 ("fix all of this", replying to the audit item "Run the branch cleanup and turn on GitHub's auto-delete setting"). The cleanup policy itself was approved 2026-10-28: "Delete the merged and superseded branches and the data-backup branch. Tag the unique ones as archive/<name>, then delete them. Keep celestial-catalog-data. Skip any branch with an open PR." Stacked on the DEPLOY WINDOW change; ship that one first.
+
+WHY / EVIDENCE:
+- No merged branch was ever deleted. Live 2026-11-06: 1,056 remote heads (986 claude/*), 0 archive tags. The repository's `delete_branch_on_merge` is false (GitHub API).
+- Three attempts stalled because sessions cannot write other refs:
+  - 2026-10-21 (experiments.md; github_branch_cleanup.sh): the session's permission classifier refused the delete.
+  - 2026-10-28 (experiments.md; the branch_cleanup_plan TSV and branch_cleanup_apply.sh): the agent proxy answered 403.
+  - 2026-11-04 (wishlist.md "CI CHECKOUT BUDGET" (C)): HTTP 403 on every branch delete, including the session's own.
+- Why it matters: CI's `changes` job checks out with fetch-depth: 0, which is every branch (wishlist.md 2026-11-03: 959 refs, a 1.26 GiB pack, 126 s of server-side enumeration). And every GitHub-integration picker lists every branch.
+- GitHub Actions can do it (GITHUB_TOKEN, contents: write). The repository setting is a human-only toggle, so the merges themselves pass --delete-branch instead.
+
+CHANGE:
+- scripts/automerge.sh: both merge paths pass --delete-branch.
+  - If only the branch delete fails, the API check still reports the PR as merged.
+  - The weekly run removes any head that is left behind.
+- scripts/branch_hygiene.py (new, read-only). It classifies every remote head from live data: git ls-remote, local commit dates, main's history, the REST PR list, and a code scan. It uses the 2026-10-28 plan's vocabulary and TSV format. First match wins:
+  - protected (main plus the ops/branch_keep.txt globs): skip.
+  - tip not available locally: skip.
+  - open-PR head: skip.
+  - tip committed under 24 h ago: skip.
+  - data-backup at its approved tip a23d708f: delete without a tag (the human named it apart from the branches to archive).
+  - named in tracked code: skip. The scan leaves out research/, docs/, ops/, *.md and the cleanup tooling.
+  - tip == the merged head of PR #N: delete.
+  - tip already on main: delete.
+  - anything else (a closed PR, a tip that moved after its merge, no PR at all): archive tag, then delete.
+- scripts/branch_cleanup_apply.sh (adapted). Same PLAN/--apply interface, still a dry run by default, and the old 10-28 plan still runs.
+  - It reads the remote fresh with ls-remote, and keeps any branch that moved since the plan.
+  - It pushes archive/<name> first, and deletes a unique branch only once its tag reads back at the planned sha. A reused name gets archive/<name>-<sha12>.
+  - Every delete is leased on the planned tip. A refused batch is retried one ref at a time.
+  - It verifies against the remote and exits 1 when a tag or a delete did not land.
+- ops/branch_keep.txt (new): main, celestial-catalog-data, gridvision-pod-result*, gv-res-*. These are the permanent skip rows of the 10-28 plan; the GRID VISION result branches hold the only copies of gv_best.pt (experiments.md 2026-10-21).
+- .github/workflows/branch-hygiene.yml (new):
+  - Saturdays 14:41 UTC, plus workflow_dispatch.
+  - Permissions: contents write, pull-requests read.
+  - Checkout: fetch-depth 0, blob:none.
+  - Steps: plan, then apply --apply.
+
+FIRST RUN, measured read-only (dry run) 2026-11-06 ~15:30Z against the live remote:
+- 93 archive tags pushed.
+- 986 branches deleted: 883 merged-PR heads, 9 already on main, data-backup, and 93 archived.
+- 70 kept: 13 protected, 54 with tips under 24 h (yesterday's and today's merges, gone in a later week), and 3 named in code: claude/gridvision-train-container, fix/tier2-full-scan-oom, and landing-page. landing-page is a false positive from a comment in server/qualityDashboard.ts, and errs toward keeping.
+- The old 10-28 snapshot, run through the new executor, would push 85 tags and delete 891, with 1 branch moved since then.
+- 9 branches the snapshot called unique (fix/full-audit, patch-12-strategy-key-alignment and others) are ancestors of main (checked with git merge-base --is-ancestor). The snapshot probably read a shallow history.
+
+DOWNSTREAM (2 steps):
+1. Merged heads stop piling up, and the weekly run catches closed PRs, branches with no PR, and hand merges. The remote drops to roughly the kept set (~70 tonight). Pickers list that. The `changes` job's full fetch no longer carries the merged branches' unique commits. The 93 archive tags still come with any full fetch (tags are fetched too), so that slice of the pack stays.
+2. Any branch can be restored: archived ones from archive/<name>, merged ones from refs/pull/<n>/head. A session that pushes to a deleted branch simply recreates it. The weekly run never touches main, so it never deploys.
+3. One unknown: no PR in the last 1,684 used a non-main base, so whether GitHub retargets a stacked PR when its base head is deleted by API was not exercised.
+4. Second unknown: GitHub may refuse GITHUB_TOKEN tags at commits that change workflow files. One of the 93 unique tips (claude/rendering-motion-overhaul-x0efmb) changes them against its merge base; more would count if GitHub compares a new ref against the default branch. If GitHub does refuse, those branches stay and are listed, and the run goes red and prints the one-line remedy: a human runs the same two commands from a clone, once.
+
+ROLLBACK TRIGGER: any branch deleted that the plan classed skip; any unique branch deleted without its archive tag; the weekly run red two weeks running; or the DEPLOY WINDOW triggers (a green, conflict-free claude/ PR unmerged more than 2 h after the close, or any merge during 09:30-16:00 ET). ROLLBACK: delete branch-hygiene.yml and drop --delete-branch from scripts/automerge.sh.
+
+TESTS: test_branch_hygiene.py has 20 tests. test_automerge_deploy_window.py has 52: its four exact merge-argument pins now include --delete-branch (updated to the new exact values), plus a test that both paths pass it. All pass.
+- Every rule and its precedence: open PR over recent, merged-PR over ancestor, the newest merged PR wins.
+- The data-backup pin, at the approved tip and after a move. Fork PRs are ignored.
+- The committed keep file. A keep file without main refuses to plan.
+- Each reference-scan exclusion on its own. The planner never writes a ref.
+- End to end on a throwaway bare origin:
+  - the plan; a dry run changes nothing; apply archives then deletes;
+  - a branch moved after the plan is kept; a branch moved mid-run is kept by its lease (a post-receive hook);
+  - a reused tag name gets a suffix; a refused tag (an all-or-nothing pre-receive hook) keeps only its own branch, and the run exits 1;
+  - a second run is a no-op.
+- The workflow: triggers, weekly cron, permissions, full-history checkout, the explicit --apply.
+- Mutation checks, each caught: delete before the tag verifies, no batch retry, no moved check, no lease, no open-PR rule, each exclusion removed, apply by default, no --delete-branch, moving an existing tag.
+- Also run: test_silent_except_ratchet, test_collection_health, test_broker_clock_gate, test_audit_critical, test_durability, test_spinout_boundary (82 passed, 1 skipped); test_ts_code_only (11/11); counter_ratchet.sh OK; tsc 6 errors (no TS changed); actionlint clean.
+
+STARVED: no.
