@@ -7,7 +7,9 @@ Pins: the bot_engine DD halt is re-baselined only on a re-baselining basis;
 risk_kill_switch's persisted DD kill is cleared only through its own
 reset_kill_state() and NEVER when a manual kill file exists; nothing is
 written for a non-paper base URL, a bad equity, or report-only calls; the
-shared tiered peak is reported, never lowered. Every path is redirected to a
+shared tiered peak is written DOWN with the others on a re-baselining basis
+(2026-11-11, KNOWN BROKEN #49 — the human's wishlist option (a); until then it
+was reported, never lowered) and left untouched otherwise. Every path is redirected to a
 tmp dir — no real state file is touched.
 """
 import json
@@ -18,6 +20,7 @@ import pytest
 import bot_engine
 import paper_resume_sync as prs
 import risk_kill_switch as rks
+import tiered_strategy
 
 
 @pytest.fixture
@@ -27,6 +30,8 @@ def iso(tmp_path, monkeypatch):
     monkeypatch.setattr(rks, "MANUAL_KILL_PATH", str(tmp_path / "voltrade_MANUAL_KILL"))
     monkeypatch.setattr(rks, "KILL_HISTORY_PATH", str(tmp_path / "voltrade_kill_history.json"))
     monkeypatch.setattr(rks, "_state_path", lambda name: str(tmp_path / name))
+    # the shared peak's writer in tiered_strategy resolves the same file by its own constant
+    monkeypatch.setattr(tiered_strategy, "PEAK_EQUITY_PATH", str(tmp_path / "voltrade_peak_equity.json"))
     monkeypatch.setattr(bot_engine, "ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
     return tmp_path
 
@@ -137,14 +142,38 @@ def test_non_dd_rks_kill_is_left_alone(iso):
     assert rks._load_state()["killed"] is True
 
 
-def test_shared_tiered_peak_is_reported_never_lowered(iso):
+def test_shared_tiered_peak_is_written_down_on_a_rebaselining_basis(iso):
+    # 2026-11-11 (KNOWN BROKEN #49): this test pinned "reported, never lowered"
+    # until the human chose wishlist option (a) — lower the shared peak with
+    # the other re-baselined peaks. The cases that must NOT lower it are pinned
+    # in the next test.
     _shared_peak(iso)
     r = prs.rebaseline_python_halts(equity=101094.07, basis="DATA_ANOMALY")
-    assert r["shared_peak"]["peak_equity"] == 110727.04
-    assert r["shared_peak"]["changed"] is False
+    assert r["shared_peak"]["peak_equity"] == 110727.04, "the report keeps the value it found"
+    assert r["shared_peak"]["changed"] is True
+    assert r["shared_peak"]["after"] == pytest.approx(101094.07)
     assert r["shared_peak"]["drawdown_pct_vs_equity"] == pytest.approx(-8.7, abs=0.01)
+    assert json.loads((iso / "voltrade_peak_equity.json").read_text())["peak_equity"] == pytest.approx(101094.07)
+    # the max-ratchet resumes from the new baseline
+    assert tiered_strategy.update_peak_equity(100000.0) == pytest.approx(101094.07)
+    assert tiered_strategy.update_peak_equity(102000.0) == pytest.approx(102000.0)
+
+
+@pytest.mark.parametrize("basis,apply", [("RECOVERED", True), ("DATA_ANOMALY", False), ("PAPER_REBASE", False)])
+def test_shared_tiered_peak_untouched_when_nothing_is_rebaselined(iso, basis, apply):
+    _shared_peak(iso)
+    r = prs.rebaseline_python_halts(equity=101094.07, basis=basis, apply=apply)
+    assert r["shared_peak"]["changed"] is False
     assert json.loads((iso / "voltrade_peak_equity.json").read_text())["peak_equity"] == 110727.04
-    assert any("stale peak" in n for n in r["notes"])
+    assert any("report only" in n for n in r["notes"])
+
+
+def test_shared_tiered_peak_untouched_off_paper(iso, monkeypatch):
+    _shared_peak(iso)
+    monkeypatch.setattr(bot_engine, "ALPACA_BASE_URL", "https://api.alpaca.markets")
+    r = prs.rebaseline_python_halts(equity=101094.07, basis="PAPER_REBASE")
+    assert r["shared_peak"]["changed"] is False
+    assert json.loads((iso / "voltrade_peak_equity.json").read_text())["peak_equity"] == 110727.04
 
 
 def test_report_is_json_serializable(iso):

@@ -66,6 +66,7 @@ import { readFilingHistory } from "./edgarForm4";
 import { DossierCache, parseDossierSymbol, dossierSubprocessCmd, insiderSummary, INSIDER_WINDOW_DAYS, TICKER_DOSSIER_TIMEOUT_MS } from "./tickerDossier";
 import { walkforwardStatus } from "./walkforward";
 import { edgeP2Status } from "./edgeP2";
+import { PEAK_CATCHUP_DELAY_MS, PEAK_CATCHUP_MAX_ATTEMPTS, PEAK_CATCHUP_RETRY_MS, decidePeakCatchUp, peakCatchUpCmd, peakCatchUpFlag, peakCatchUpMarkerPath, readPeakCatchUpMarker, summarizePeakCatchUp, writePeakCatchUpMarker } from "./peakCatchUp";
 import { lazyPricesStatus } from "./lazyPrices";
 import { earningsQoqStatus } from "./earningsQoq";
 import { githubGate2Status } from "./githubGate2";
@@ -10591,6 +10592,56 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // the persisted claim makes it once per ET day across restarts. The boot
   // check catches a process that starts inside the window.
   setInterval(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, DAILY_MAINTENANCE_CHECK_MS);
+
+  // ONE-TIME SHARED-PEAK CATCH-UP (2026-11-11, KNOWN BROKEN #49 — the human's
+  // pick of wishlist option (a); server/peakCatchUp.ts): the Python engine's
+  // -20% kill measured from the pre-re-baseline high and latched on 11-06 at
+  // a -10.6% drawdown from Node's re-baselined peak. Once per volume (marker),
+  // paper only, never while Node's own kill is latched: write the shared peak
+  // down to Node's equityPeak and clear a Portfolio-DD engine latch through
+  // risk_kill_switch's own reset. VOLTRADE_PEAK_CATCHUP=0 disables.
+  let peakCatchUpAttempts = 0;
+  const runPeakCatchUp = async (): Promise<boolean> => {
+    peakCatchUpAttempts++;
+    try {
+      const markerPath = peakCatchUpMarkerPath(process.env);
+      let equity: number | null = null;
+      try {
+        const acct = (await alpaca("/v2/account")) as { equity?: unknown } | null;
+        const e = parseFloat(String(acct?.equity ?? ""));
+        equity = Number.isFinite(e) && e > 0 ? e : null;
+      } catch (e: unknown) {
+        console.error("[peak-catch-up] account read:", e instanceof Error ? e.message : e);
+      }
+      const d = decidePeakCatchUp({
+        enabled: peakCatchUpFlag(process.env).on,
+        paper: allPaperAlpacaUrls([ALPACA_BASE, process.env.ALPACA_BASE_URL || ALPACA_BASE]),
+        marker: readPeakCatchUpMarker(markerPath) !== null,
+        nodeKillSwitch: state.killSwitch, nodePeak: state.equityPeak, equity,
+      });
+      if (!d.run) { console.log(`[peak-catch-up] not run: ${d.reason}`); return !d.retry; }
+      const target = state.equityPeak;
+      const py = await pythonCall(
+        "paper_resume_catch_up", { target_peak: Number(target.toFixed(2)), equity: Number((equity as number).toFixed(2)) },
+        peakCatchUpCmd(target, equity as number), { timeout: 60000 },
+      );
+      const s = summarizePeakCatchUp(py.success, py.result, py.via);
+      audit(s.ok ? "PEAK-CATCH-UP" : "PEAK-CATCH-UP-FAILED", `ONE-TIME shared-peak catch-up (KNOWN BROKEN #49, option (a)), attempt ${peakCatchUpAttempts}: ${s.line}`);
+      if (s.ok) {
+        writePeakCatchUpMarker(markerPath, { at: new Date().toISOString(), nodePeak: target, equity, report: py.result });
+        notify("alert", `Engine kill aligned with Node's peak: ${s.line}`);
+      }
+      return s.ok;
+    } catch (e: unknown) {
+      audit("PEAK-CATCH-UP-FAILED", `attempt ${peakCatchUpAttempts}: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  };
+  const peakCatchUpLoop = async () => {
+    const done = await runPeakCatchUp();
+    if (!done && peakCatchUpAttempts < PEAK_CATCHUP_MAX_ATTEMPTS) setTimeout(() => { void peakCatchUpLoop(); }, PEAK_CATCHUP_RETRY_MS);
+  };
+  setTimeout(() => { void peakCatchUpLoop(); }, PEAK_CATCHUP_DELAY_MS);
   setTimeout(() => { checkDailyMaintenance().catch((e) => console.error("[DAILY-MAINT]", e?.message || e)); }, 60_000);
   // Daily line (2026-11-05, measurement only): same unconditional poll;
   // dailyLineDue() decides and the saved line makes it once per ET day across
