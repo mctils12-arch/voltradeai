@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 import threading
 import os
 import requests
+import live_price  # 2026-11-11: the current price for analyze_ticker's display (see that block)
 
 
 # ── Timeout wrapper for yfinance calls (prevents indefinite hangs) ────────────
@@ -1974,6 +1975,21 @@ def analyze_ticker(ticker_symbol):
         except (TimeoutError, Exception):
             info = {}
     spot = float(hist['Close'].iloc[-1])
+    # LIVE PRICE (2026-11-11 [REPAIR], live_price.py; human: tickers showed
+    # "what they were at the start of the day"): the Alpaca history ends at the
+    # last COMPLETED session (_fetch_alpaca_bars' end is today 00:00 UTC, kept
+    # as is because backtest_v2 reads it), so `spot` was yesterday's close all
+    # session. A snapshot whose session is newer than the last bar replaces it;
+    # every indicator below still reads the completed bars (hist unchanged).
+    _last_bar_date = str(hist.index[-1])[:10]
+    _last_close = spot
+    _price_meta = {"price_source": f"{_data_source} daily close", "price_asof": _last_bar_date,
+                   "last_close": round(_last_close, 2), "price_is_partial_session": False}
+    _live = live_price.latest(ticker_symbol, _last_bar_date)
+    if _live:
+        spot = float(_live["price"])
+        _price_meta = {"price_source": f"alpaca snapshot ({_live['source']})", "price_asof": _live["asof"],
+                       "last_close": round(_last_close, 2), "price_is_partial_session": True}
     r    = 0.05  # risk-free rate
 
     # Realized volatility
@@ -2088,7 +2104,12 @@ def analyze_ticker(ticker_symbol):
     low_52  = round(float(hist['Low'].min()),  2) if not hist.empty else None
 
     # ── Price change ──────────────────────────────────────────────────────────
-    prev_close       = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else spot
+    # with a live price the day's change is against the last completed close
+    # (hist's last bar), not the session before it
+    if _price_meta["price_is_partial_session"]:
+        prev_close = _last_close
+    else:
+        prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else spot
     price_change     = round(spot - prev_close, 2)
     price_change_pct = round((price_change / prev_close) * 100, 2)
 
@@ -2422,6 +2443,7 @@ def analyze_ticker(ticker_symbol):
         "company_name":     company_name,
         "data_source":      _data_source,
         "spot":             round(spot, 2),
+        **_price_meta,
         "price_change":     price_change,
         "price_change_pct": price_change_pct,
         "atm_iv":           atm_iv,

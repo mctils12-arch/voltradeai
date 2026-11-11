@@ -455,6 +455,20 @@ def analyze_etf(ticker: str) -> dict:
         or info.get("previousClose")
         or info.get("navPrice")
     )
+    # LIVE PRICE (2026-11-11 [REPAIR], live_price.py): the batch's bars end at
+    # today 00:00 UTC, so its "price" is the previous session's close all day.
+    # A snapshot of a newer session replaces it for display; the performance
+    # windows stay on completed sessions.
+    price_meta = {"price_source": "alpaca daily close", "price_asof": etf_pkg.get("last_date"), "last_close": etf_pkg.get("price")}
+    try:
+        import live_price
+        live = live_price.latest(ticker, etf_pkg.get("last_date"))
+    except Exception as e:  # best-effort: the close stands
+        live = None
+        print(f"[etf_analyzer] live price for {ticker}: {e}", file=sys.stderr)
+    if live:
+        etf_price = live["price"]
+        price_meta = {"price_source": f"alpaca snapshot ({live['source']})", "price_asof": live["asof"], "last_close": etf_pkg.get("price")}
 
     etf_meta = {
         "ticker": ticker,
@@ -469,6 +483,7 @@ def analyze_etf(ticker: str) -> dict:
         "total_assets": _safe_int(info.get("totalAssets")),
         "nav_price": _safe_float(info.get("navPrice")),
         "current_price": etf_price,
+        **price_meta,
         "expense_ratio": expense_ratio,
         "yield": _safe_float(info.get("yield")),
         "ytd_return": _safe_float(info.get("ytdReturn")),
