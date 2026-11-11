@@ -380,7 +380,7 @@ thing being measured in the same session.
 
 Debt is anything stale that costs attention: dead code, obsolete rules,
 expired adapters. Three audits run on the register at the top of
-research/experiments.md {audit · cadence · last run}; when a session's
+research/experiments.md {audit · cadence · last run · next due}; when a session's
 fall-through reaches the research tier, run the most overdue and update
 the register.
 
@@ -470,6 +470,8 @@ If a change seems to require touching a frozen path, write the proposal to
 
 At session start, read in order:
 1. This file
+1a. PRODUCT/EDGE sessions only: VISION.md and GIP.md, per the
+    VISION.md + GIP.md NORTH STAR standing behavior (STANDING BEHAVIORS)
 2. `research/experiments.md` — what was tried, what happened
 3. `research/open_questions.md` — current hypotheses ranked by expected value
 4. `research/wishlist.md` — data/access you lack (human reviews this)
@@ -758,7 +760,11 @@ experiments.md.
   (DAILY 21:30 ET) + voltrade-weekly-review (Sun 10:00 ET); DELIVERY =
   the routine's final session output in the Claude Code Notifications
   tab (the Gmail connector is draft-only — never a send path). Revisit
-  ~2026-07-24: once readings flatten, drop back to weekly mode.
+  trigger under BLIND MODE: the human either resumes sending usage
+  screenshots or explicitly says usage has stabilized — either
+  signals a return to weekly-cadence review; no standing calendar
+  date, since BLIND MODE removed the periodic-screenshot signal the
+  original date depended on.
 - ACTIVE ANGLE-HUNTING (human-approved 2026-07-04): the system does
   not only execute directed roadmaps — it generates its OWN novel
   hypotheses. Every EDGE session not consumed by repair or a
@@ -830,6 +836,39 @@ experiments.md.
   conventions stay fixed in both systems: knots (vessels/aircraft/
   wind), hPa (barometric), MW, Kelvin (fire radiative power), µSv/h,
   quake magnitude.
+- DEPLOY WINDOW (human-directed 2026-11-05, verbatim: "nothing restarts
+  the bot during market hours, ship after the 4pm ET close, one change
+  per deploy, tests pass and commit before each deploy, and tell me
+  what shipped"; approved for installation 2026-11-06 on the human's
+  "fix all of this"): a merge to main deploys and restarts the bot (open
+  orders are cancelled), so no session or routine opens a PR during NYSE
+  regular hours (09:30-16:00 ET on trading days). It prepares, tests
+  and commits, then ships after the close or before the next open,
+  one change per deploy, and tells the human what shipped. There is no
+  automatic exception for a live bug; the human may still merge by hand
+  at any time (HUMAN SOVEREIGNTY). Mechanical enforcement: the CI
+  automerge gate (2026-11-11) holds a green PR opened during market
+  hours until its after-close sweep.
+- PAPER-FIRST LIVE TESTING (human-directed 2026-11-05: "i want as much
+  on as possible to see if it work and not gate everything ... we have
+  a paper account so use it"; approved for installation 2026-11-06 on
+  the human's "fix all of this"): on the paper account, new strategy,
+  sizing and model rules ship ON by default as EXPLORATORY experiments
+  under PROMOTION RULE 3 — each with a kill date, a one-setting off
+  switch, a rollback trigger, and every decision it makes logged for
+  evaluation. Shadow-only is the exception, for changes one setting
+  cannot undo. Risk-limit changes still need the human (RULE REVIEW).
+- SESSION READ ACCESS TO THE LIVE BOOK (2026-11-02, human-directed "I
+  cannot read your live Book from this session… fix this so you can"):
+  sessions hold DIAG_TOKEN; `GET /api/diag/book` (header x-diag-token)
+  serves the SAME body as the owner's /api/bot/positions (the Book's rows,
+  the engine's exit levels, each option's recorded strategy); `lots` the
+  sleeve ledger's closed-lot walk (symbol, open/close, qty, basis, P&L,
+  entry/exit); `option_bars` Alpaca daily option bars for ≤10 OCC
+  contracts over ≤400 days; `positions-detail` / `orders` / `sleeves` /
+  `benchmark` / `account` existed before (2026-07-07, 09-10, 10-20
+  widenings). A session never has to say the Book is unreadable again —
+  read it with the token before describing the account.
 
 ## RENDERING & MOTION LAW (Amendment 6, human-approved 2026-08-12)
 
@@ -945,7 +984,9 @@ is currently the most expensive layer on the map.
 
 ### Definition of done — any layer PR
 
-A layer PR does not merge unless all of these are true:
+A layer PR does not merge unless all of these are true (in addition to,
+not instead of, STANDING BEHAVIORS' PREMIUM EXPERIENCE STANDARD
+checklist, which already applies to this PR as a user-facing surface):
 
 - [ ] No visual state updates in any map-event handler (Law I)
 - [ ] Animated values are springs/lerps toward a target, not assignments
@@ -1029,14 +1070,3 @@ guards, the same anisotropy/mip rules through raw GL calls
 (`EXT_texture_filter_anisotropic`, `WEBGL_compressed_texture_*`). Where a
 named three.js API appears in the article, read it as "the equivalent
 capability", not as an import.
-- SESSION READ ACCESS TO THE LIVE BOOK (2026-11-02, human-directed "I
-  cannot read your live Book from this session… fix this so you can"):
-  sessions hold DIAG_TOKEN; `GET /api/diag/book` (header x-diag-token)
-  serves the SAME body as the owner's /api/bot/positions (the Book's rows,
-  the engine's exit levels, each option's recorded strategy); `lots` the
-  sleeve ledger's closed-lot walk (symbol, open/close, qty, basis, P&L,
-  entry/exit); `option_bars` Alpaca daily option bars for ≤10 OCC
-  contracts over ≤400 days; `positions-detail` / `orders` / `sleeves` /
-  `benchmark` / `account` existed before (2026-07-07, 09-10, 10-20
-  widenings). A session never has to say the Book is unreadable again —
-  read it with the token before describing the account.

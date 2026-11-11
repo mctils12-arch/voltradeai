@@ -52,7 +52,9 @@ NOT A SPEND REQUEST. RULE REVIEW note: none of (a)/(b)/(c) changes a
 threshold constant; (a) changes which equity the constant is applied to,
 which is the decision you already made for Node on 09-28 and 11-05.
 
-## ⚠ CONSTITUTIONAL AUDIT 2026-11-08 (fourth run) — 1 new consolidation proposal; 4 older ones still pending, human approval needed
+## ✅ CONSTITUTIONAL AUDIT 2026-11-08 (fourth run) — ALL FIVE PROPOSALS APPROVED AND INSTALLED 2026-11-11
+
+**APPROVED by the human 2026-11-06 ("fix all of this", answering the 11-06 audit that filed these same proposals — its write-up never merged because that night's ship queue stalled) and INSTALLED in CLAUDE.md 2026-11-11** (constitution-amendments PR). Installed as written: 08-16 P1-P2 (08-16 P2's "above" read as "(STANDING BEHAVIORS)": that section sits below MEMORY PROTOCOL), 09-20 P1-P2, this audit's Proposal 3 (the SESSION READ ACCESS bullet moved, text unchanged, to the end of STANDING BEHAVIORS), plus two STANDING BEHAVIORS the 11-06 audit proposed from the human's 11-05 directives: DEPLOY WINDOW (strict: no automatic market-hours exception) and PAPER-FIRST LIVE TESTING.
 
 Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule (the audit never edits rules). Re-checked against the live CLAUDE.md this session: the 2026-08-16 Proposals 1-2 and the 2026-09-20 Proposals 1-2 are all still present verbatim, unresolved. They change no behavior; they are wording fixes. NOT A SPEND REQUEST.
 
@@ -215,7 +217,7 @@ Live /api/data/archive/offload-status (2026-10-12 ~16:08Z): volume free 1.39 GB,
 BUILD-FIRST: (1) vessels dominate bytes: thin or earlier-offload vessel hour files (free, a session can do it, needs a retention/ladder-safe design); (2) lower SWEEP_ARCHIVE_MIN_FREE_BYTES (free, but thin safety margin for the bot's own state); (3) grow the Railway volume (paid, human; the honest fix if sweep fixes are meant to be archived at all).
 Ask: pick (3) or authorize (1)/(2).
 
-## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-09-20 (third-ever run, prior were 2026-07-03 and 2026-08-16) — 2 new consolidation proposals, human approval needed before either ships; both 2026-08-16 proposals below still unaddressed after 5 weeks, re-flagged for visibility only
+## ✅ CONSTITUTIONAL AUDIT FINDINGS 2026-09-20 (BOTH PROPOSALS APPROVED 2026-11-06 AND INSTALLED 2026-11-11; third-ever run, prior were 2026-07-03 and 2026-08-16) — 2 new consolidation proposals, human approval needed before either ships; both 2026-08-16 proposals below still unaddressed after 5 weeks, re-flagged for visibility only
 
 Filed per CLAUDE.md's CONSTITUTIONAL AUDIT rule ("the audit NEVER changes
 rules itself — it files exact before/after proposals in wishlist.md...
@@ -1110,7 +1112,7 @@ stale-PR sweep, as before.
 
 ---
 
-## ⚠ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (second-ever run, first was
+## ✅ CONSTITUTIONAL AUDIT FINDINGS 2026-08-16 (BOTH PROPOSALS APPROVED 2026-11-06 AND INSTALLED 2026-11-11; second-ever run, first was
 ## 2026-07-03) — 2 consolidation proposals, human approval needed before
 ## either ships
 
