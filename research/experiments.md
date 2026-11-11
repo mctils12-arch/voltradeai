@@ -116652,3 +116652,54 @@ TESTS: archivePermanentTier +2, now 22/22:
 - the reader-window ratchet.
 The scope pin is updated to the six streams. queryEngine, siteTimeline, occVolume, platformStatsIncremental, streamsInventory, archiveOffload, datacoreArchive, durability, diag, aircraftWindow, manifests, layerFreshness and qualityDashboard pass: 223/223 across the 15 files. Ratchets: counter OK, tsc 6, ts_code_only 11; the esbuild server bundle builds.
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — CI / SHARED (.github/workflows/ci.yml automerge merge step, new .github/workflows/automerge-sweep.yml, scripts/automerge.sh, test_automerge_deploy_window.py) — DEPLOY WINDOW: auto-merge no longer merges during market hours; an after-close sweep merges the deferred PRs one per run
+VERSION: v1.0.1359 (shipped 2026-11-11 by the parent session; main was v1.0.1358)
+
+FROZEN PATH, human-approved 2026-11-06 ("fix all of this", replying to the audit item "making auto-merge respect market hours (flagged Aug 15 and Sep 14)"). Approval scope: the automerge job's merge step, plus new scheduled/dispatch workflows. No other CI job, trigger, permission or check changed; the automerge job's `needs:` and `if:` are byte-identical (pinned by a test).
+
+WHY / EVIDENCE:
+- The human's rule (2026-11-05): nothing restarts the bot during market hours; ship after the 4pm ET close.
+- Every merge to main redeploys. Every deploy sends SIGTERM, and server/bot.ts gracefulShutdown cancels every open order (DELETE /v2/orders). research/wishlist.md 2026-10-15 measured the cost: 17 merges, 17 cancel-alls on 2026-10-14, most in market hours.
+- ci.yml's automerge job ran `gh pr merge --squash` as soon as the required jobs settled, at any hour. Live:
+  - #1631 merged 2026-11-05 16:12:46Z; the bot booted 16:14:52Z (11:14 ET).
+  - #1632 merged 20:17:57Z; the bot booted 20:20:01Z (15:20 ET).
+  - Both were merged by github-actions[bot] (GitHub API).
+- Filed twice and never fixed, because the path is frozen: research/wishlist.md "PROCESS GAP FOUND 2026-08-15" (five occurrences logged by 08-18) and "2026-09-14" (#1076, option 2 = a real gate). The 2026-10-15 entry's option B is the same gate.
+- Merge-to-boot lag, measured over the 100 STARTUP rows of 2026-11-02..06 (diag audit) against the PR list: 164 s median, 197 s p90, 675 s max. So a merge at 09:29 ET would restart the bot after the open.
+
+CHANGE:
+- scripts/automerge.sh (new, the logic):
+  - `<PR_URL>`, called by the automerge job: merges outside the window. Inside it, it defers: exit 0, job-log lines, a `::notice`, a step summary, and a best-effort `deploy-window-deferred` label.
+  - `--sweep`: merges the oldest open, non-draft claude/ PR from this repository whose head commit passed every job automerge `needs`. `changes` must be success; python-tests, node-build, docker-build and test must be success, skipped or neutral. Failed, cancelled, timed-out, queued, in-progress or missing blocks.
+  - The sweep merges ONE PR per run, with `--match-head-commit`. Whether a PR merged comes from the API (pulls/N .merged), not from gh's exit code.
+  - `--window` prints the decision.
+  - The window: Monday-Friday, America/New_York, 09:15-16:00. The 15-minute pre-open guard is longer than the 675 s worst-case lag. DST comes from the tz database. If the zone cannot be read, the script fails closed (defers).
+- .github/workflows/ci.yml: the automerge job's steps only. It does a sparse checkout of scripts/automerge.sh and runs `bash scripts/automerge.sh "$PR_URL"`.
+- .github/workflows/automerge-sweep.yml (new):
+  - cron `7,37 20-23 * * 1-5` (UTC) plus workflow_dispatch.
+  - Permissions: contents write, pull-requests write, checks read.
+  - A concurrency group that is never cancelled.
+  - That gives 6 runs after the close in EST and 8 in EDT. Four fall in the first two hours either way. The two 20:xxZ runs land inside the window in winter and merge nothing.
+
+DOWNSTREAM (2 steps):
+1. No merge between 09:15 and 16:00 ET on weekdays. So no Railway deploy then, so no market-hours SIGTERM, cancel-all or wiped in-memory order state (the KNOWN BROKEN #46 class).
+2. Green PRs queue up during the day and land after the close, 30 minutes apart, one change per deploy. Most PRs bump package.json, so after the first merge the rest conflict. The sweep skips a PR whose merge fails and tries the next. Conflicted PRs need a rebase, as today, only now in the evening. Attribution is unchanged: still one merge and one code_version per deploy.
+3. Merges after 16:00 still restart the bot during the extended session, as before; the human's rule covers regular hours only. Holidays and half-days are treated as full market days, so merges wait until 16:00 (harmless).
+4. Merges by GITHUB_TOKEN still trigger no main-branch CI run (unchanged; the last main push run was 2026-10-19, a human merge).
+
+ROLLBACK TRIGGER: any green, conflict-free claude/ PR still unmerged more than 2 hours after the close, or any merge during 09:30-16:00 ET. ROLLBACK: restore the one-line merge step (`gh pr merge --squash "$PR_URL"`) and delete automerge-sweep.yml.
+
+TESTS: test_automerge_deploy_window.py, 51 tests, all passing.
+- Market hours at 09:29 / 09:30 / 15:59 / 16:00 ET on an EST and an EDT date, written as UTC instants from the calendar offsets.
+- The Mondays after both 2026 DST switches, and weekends.
+- The pre-open guard at 09:14 / 09:15 / 09:29, and failing closed without a tz database.
+- Both merge paths against a fake gh:
+  - deferral, a label failure, merging outside the window, and a merge error that stays red;
+  - the API check when gh errs after merging;
+  - the sweep merging only the oldest green claude/ PR (drafts, forks and non-claude heads ignored), every non-green state blocking with its reason, skipped/neutral accepted, falling through a failed merge, stopping after one merge even when gh misreported it, and reading every page.
+- YAML: ci.yml parses with PyYAML; the automerge needs/if/permissions block is byte-identical to a017a2be; the merge step runs the script; the sweep's required list equals automerge's `needs`; the sweep schedule gives at least 2 runs after the close (and at least 2 within 2 h) in both EST and EDT; no workflow sets the test clock (AUTOMERGE_NOW_EPOCH).
+- Mutation checks, each caught: a fixed EST offset, no zone check, accepting `cancelled`, no guard, the old YAML step, an edited `if:`, two merges per run, and ignoring the API merged check.
+- Also run: server/ciCheckoutBudget, ciEnvHonesty, gatedTests, counterRatchet and tscRatchet tests (25/25); test_ts_code_only.py (11/11); counter_ratchet.sh OK (it reports tests_run_in_ci 823->824 and assertions up, for the ship-time re-pin); tsc 6 errors (no TS changed); actionlint 1.7.12 clean on all workflows.
+
+STARVED: no.
