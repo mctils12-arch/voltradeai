@@ -358,7 +358,7 @@ export function apiMeta() {
       { path: "/api/v1/stats/midas", params: "-", desc: "SEC MIDAS individual-security market-structure metrics: cross-sectional lit/hidden/odd-lot/cancel data per (date, ticker), quarterly files with a multi-quarter publish lag. Rank scale differs by kind (Stock deciles 1-10, ETF quartiles 1-4, never comparable). RAW, no predictive claim — public-domain US federal data, resell ok. A candidate HFT-colonization filter; gate-2 signal testing not yet attempted (see research/open_questions.md).", preview: "/api/data/microstructure" },
       { path: "/api/v1/stats/occ-volume", params: "-", desc: "OCC daily cleared options volume, top underlyings by customer/market-maker put-call split (qty counts each clearing side; totals halved). GATE 1 (DATA) PASSED 2026-08-03 (0 diff vs. OCC's own published June-2026 monthly total across 21 trading days). GATE 2 (SIGNAL) on the customer call/put-skew hypothesis was KILLED 2026-08-03/08-05 (the pre-registered direction reversed and a reversed-direction offshoot also failed disjoint out-of-sample replication) — not a validated trading signal. RAW display + archive only, no predictive claim. OCC informational-use terms, not government work product — conditional resell, see license_marks.", preview: "/api/data/occ-volume" },
       { path: "/api/v1/data/earnings-language", params: "-", desc: "Most-recent SEC 8-K Item 2.02 (earnings-results) filings: as-filed Exhibit 99 press-release text, resolved ticker, filing/acceptance timestamps (lookahead-free). RAW as-filed display, no predictive claim — gate-2 (does guidance-language tone predict forward returns) has only an encouraging but INCOMPLETE preliminary pilot (research/open_questions.md). Exhibit text is issuer-authored, not government work product — conditional resell, see license_marks.", preview: "/api/data/earnings-language" },
-      { path: "/api/v1/data/earnings-language-history", params: "?days<=90 (default 30)", desc: "Accumulated SEC 8-K Item 2.02 filing archive (recording since 2026-07-04) merged with the latest poll — the multi-day companion to /api/v1/data/earnings-language above, which mirrors only the newest poll cache. Same filing shape, same GATE 1 PASS / GATE 2 INCOMPLETE-pilot status, and the same conditional-resell posture as data/earnings-language (not a separate root, not a separate license).", preview: "/api/data/earnings-language/history" },
+      { path: "/api/v1/data/earnings-language-history", params: "?days<=90 (default 30) | ?from=YYYY-MM-DD&to=YYYY-MM-DD (UTC archive days, back to 2026-07-04) · ?limit<=500 · ?text=0 omits exhibit text", desc: "Accumulated SEC 8-K Item 2.02 filing archive (recording since 2026-07-04) merged with the latest poll — the multi-day companion to /api/v1/data/earnings-language above, which mirrors only the newest poll cache. PAGED BY WHOLE ARCHIVE DAYS: a page holds at most `limit` filings (default 500; the newest day is always returned whole), `covered` names the days actually read, `truncated` is true when older days in the window were not, and `next` is the query string that continues the walk — so a season can be read in pages with no gaps or duplicates, and a page never presents fewer days than it claims. Same filing shape, same GATE 1 PASS / GATE 2 INCOMPLETE-pilot status, and the same conditional-resell posture as data/earnings-language (not a separate root, not a separate license).", preview: "/api/data/earnings-language/history" },
       { path: "/api/v1/data/appstore-rankings", params: "-", desc: "Daily App Store chart rank + rating counts for a 16-app hand-verified consumer watchlist (US/GB/CA storefronts, top-free/top-grossing). RAW display, no predictive claim — GATE 2 (vs company-reported metrics) needs ~90 days of history, not attempted before ~2026-10-30 (research/open_questions.md NEW DATA ROOTS #3). Android excluded (ToS-blocked); rank:null means outside the top 100 that day, never fabricated. Conditional resell, see license_marks.", preview: "/api/data/appstore-rankings" },
       { path: "/api/v1/data/appstore-rankings-history", params: "?days<=90 (default 30), ?ticker=TICKER (optional)", desc: "Accumulated App Store rank/rating archive — the multi-day companion to /api/v1/data/appstore-rankings above, which mirrors only the latest poll cache. No ticker: the watchlist-wide daily trend (ranked_slots/total_slots is the day's own fetched-row ratio, never a hardcoded denominator). ?ticker=TICKER: that app's own rank+rating series read directly from the day-archive. Same GATE 1 PASS / GATE 2 NOT-ATTEMPTED status and the same conditional-resell posture as data/appstore-rankings (not a separate root, not a separate license).", preview: "/api/data/appstore-rankings/history" },
       { path: "/api/v1/data/github-activity", params: "-", desc: "Weekly merged-PR + commit + unique-actor counts for a 15-org hand-verified develop-in-public engineering watchlist (small-cap devtools through large-cap controls). RAW display, no predictive claim — GATE 2 (does public commit/PR velocity lead or confirm market-priced trends) has NOT been attempted; the module's own sober prior expects real structure for at most a third of the panel. mergedPRs excludes bot-app PRs; commits is unfiltered; uniqueActorsSample is bot-filtered but capped at a 100-item page (actorSampleCapped:true undercounts). Conditional resell, see license_marks.", preview: "/api/data/github-activity" },
@@ -517,15 +517,19 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
     },
     {
       name: "voltrade_earnings_language_history",
-      description: "Accumulated SEC 8-K Item 2.02 earnings-language filing archive (recording since 2026-07-04, up to 90 days), merged with the latest poll so the newest filing shows even before its day file is re-read. The multi-day companion to voltrade_earnings_language above, which returns only the newest poll cache — same as-filed Exhibit 99 shape and the same conditional-resell posture, not a separate root or a separate license. GATE 1 (DATA) PASSED for extraction. NOT a trading signal — gate-2 (does guidance-language tone predict forward returns) has only an encouraging but INCOMPLETE preliminary pilot.",
+      description: "Accumulated SEC 8-K Item 2.02 earnings-language filing archive (recording since 2026-07-04; `days` reaches back 90, from/to reaches any window back to the start), merged with the latest poll so the newest filing shows even before its day file is re-read. Paged by whole archive days: `covered` names the days actually read, `truncated` says whether older days in the window were left out, `next` continues the walk. The multi-day companion to voltrade_earnings_language above, which returns only the newest poll cache — same as-filed Exhibit 99 shape and the same conditional-resell posture, not a separate root or a separate license. GATE 1 (DATA) PASSED for extraction. NOT a trading signal — gate-2 (does guidance-language tone predict forward returns) has only an encouraging but INCOMPLETE preliminary pilot.",
       input_schema: {
         type: "object",
         properties: {
-          days: { type: "integer", minimum: 1, maximum: 90, default: 30, description: "Lookback window in days (max 90)." },
+          days: { type: "integer", minimum: 1, maximum: 90, default: 30, description: "Legacy lookback window in days ending today (max 90). Ignored when from/to is given." },
+          from: { type: "string", description: "Oldest UTC archive day to read, YYYY-MM-DD (clamped to the archive start, 2026-07-04)." },
+          to: { type: "string", description: "Newest UTC archive day to read, YYYY-MM-DD (clamped to today). Continue a truncated page by sending the response's `next` query, which sets this to its `next_to`." },
+          limit: { type: "integer", minimum: 1, maximum: 500, default: 500, description: "Page cap in filings. Whole archive days are atomic, so a page stops BEFORE the day that would exceed it (the newest day is always included whole)." },
+          text: { type: "string", enum: ["0", "1"], default: "1", description: "`0` omits the ~23 KB exhibit text from every filing (textLength/exhibitUrl stay) so a season of metadata fits one page." },
         },
         required: [],
       },
-      endpoint: "GET /api/v1/data/earnings-language-history?days={days}",
+      endpoint: "GET /api/v1/data/earnings-language-history?days={days}&from={from}&to={to}&limit={limit}&text={text}",
       returns_provenance: ["data/earnings-language"],
     },
     {
@@ -948,6 +952,7 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
 const ARR = { type: "array", items: {} } as const;
 const STR = { type: "string" } as const;
 const INT = { type: "integer" } as const;
+const BOOL = { type: "boolean" } as const;
 const ANY = {} as const;
 function dataObj(properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> {
   return { type: "object", properties, required };
@@ -965,7 +970,12 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
     report_date: STR, underlyings: ANY, count: INT, top: ARR,
   }, ["report_date", "count", "top"]),
   voltrade_earnings_language: dataObj({ count: INT, filings: ARR }, ["count", "filings"]),
-  voltrade_earnings_language_history: dataObj({ days: INT, count: INT, filings: ARR }, ["count", "filings"]),
+  // `days` is null when the window came from from/to; `covered` is the set of
+  // archive days actually read in full; `next` is a query string or null.
+  voltrade_earnings_language_history: dataObj({
+    days: ANY, window: dataObj({ from: STR, to: STR }, ["from", "to"]), covered: dataObj({ from: STR, to: STR }, ["from", "to"]),
+    truncated: BOOL, next: ANY, max_filings: INT, days_scanned: INT, archive_start: STR, text_omitted: BOOL, malformed_lines: INT, count: INT, filings: ARR,
+  }, ["window", "covered", "truncated", "count", "filings"]),
   voltrade_appstore_rankings: dataObj({ count: INT, records: ARR }, ["count", "records"]),
   // branches on ?ticker= (single-app series) vs. no query (watchlist-wide trend).
   voltrade_appstore_rankings_history: dataObj({ ticker: STR, days: INT, count: INT, note: STR, series: ARR, today: ANY, trend: ARR }),

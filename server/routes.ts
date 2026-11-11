@@ -143,7 +143,10 @@ import { bootLazyPrices } from "./lazyPrices";
 import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { bootEarningsQoq } from "./earningsQoq";
 import { platformStats } from "./platformStats";
-import { bootEarnings8kPoll, latestEarnings8Ks, readEarnings8kHistory } from "./sec8kEarnings";
+import {
+  bootEarnings8kPoll, latestEarnings8Ks, parseEarnings8kHistoryQuery, readEarnings8kHistoryWindow,
+  earnings8kHistoryNextQuery, omitEarnings8kText, EARNINGS8K_ARCHIVE_START,
+} from "./sec8kEarnings";
 import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
@@ -1857,23 +1860,55 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // One page of the earnings-language archive for both the RAW preview route
+  // and its keyed v1 mirror. Live (not-yet-archived) poll rows are merged in
+  // only when the page's `to` is today — a page from the past must not gain
+  // today's rows. `days` is echoed for consumers that sent it (null when the
+  // window came from from/to); `count` is the true row count of THIS page.
+  const earnings8kHistoryPage = (query: Record<string, unknown>) => {
+    const win = parseEarnings8kHistoryQuery(query);
+    const page = readEarnings8kHistoryWindow(win);
+    const today = new Date().toISOString().slice(0, 10);
+    let filings = page.filings;
+    if (win.to === today) {
+      const seen = new Set(filings.map((f) => f.accession));
+      const live = (latestEarnings8Ks()?.filings || []).filter((f) => !seen.has(f.accession));
+      filings = [...(win.includeText ? live : live.map(omitEarnings8kText)), ...filings];
+    }
+    return {
+      days: win.days,
+      window: page.window,
+      covered: page.covered,
+      truncated: page.truncated,
+      next: earnings8kHistoryNextQuery(page),
+      max_filings: page.max_filings,
+      days_scanned: page.days_scanned,
+      archive_start: EARNINGS8K_ARCHIVE_START,
+      text_omitted: page.text_omitted,
+      malformed_lines: page.malformed_lines,
+      count: filings.length,
+      filings,
+    };
+  };
+
   // Accumulated earnings-language history from the archive (COLLECT-
   // EVERYTHING: the poll loop appends every extracted filing to disk; free
   // substitute for a paid transcript-history product per BUILD-FIRST rule
   // #2 — every day not archived is permanently lost).
+  // WINDOWED + PAGED (2026-11-11): `?days=N` (<=90) still works; `?from=
+  // YYYY-MM-DD&to=YYYY-MM-DD` reads an explicit window of UTC archive days,
+  // `?limit=` (<=500) sets the page cap, `?text=0` omits the exhibit text.
+  // Whole archive days are atomic; `truncated`/`covered`/`next` say exactly
+  // what was read and how to continue. Before this the route returned the
+  // newest 500 filings and echoed `days` back unmodified — in the Q3 2026
+  // season that was 4 trading days presented as 90 with no marker.
   app.get("/api/data/earnings-language/history", (req, res) => {
-    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
     try {
-      const archived = readEarnings8kHistory(days);
-      const live = latestEarnings8Ks()?.filings || [];
-      const seen = new Set(archived.map((f) => f.accession));
-      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
+      const page = earnings8kHistoryPage(req.query as Record<string, unknown>);
       res.json({
         kind: "raw",
         source: "SEC EDGAR (8-K Item 2.02 / Exhibit 99) — accumulated archive (began 2026-07-04)",
-        days,
-        count: merged.length,
-        filings: merged,
+        ...page,
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
@@ -4560,9 +4595,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // SEC 8-K earnings-language accumulated filing-history keyed mirror — the
   // multi-day companion to /api/v1/data/earnings-language above (that
   // endpoint mirrors only the latest poll cache; this one mirrors
-  // /api/data/earnings-language/history's up-to-90-day accumulated archive).
-  // Reuses readEarnings8kHistory() and latestEarnings8Ks() directly — no new
-  // fetch, no new computation. Same underlying pipeline and license as
+  // /api/data/earnings-language/history's accumulated archive, windowed by
+  // from/to and paged by whole archive days since 2026-11-11). Reuses the
+  // same page helper as the preview route — no new fetch, no new computation. Same underlying pipeline and license as
   // data/earnings-language (GATE 1 PASSED for extraction, GATE 2 an
   // encouraging but INCOMPLETE preliminary pilot only, not a validated
   // signal), so this reuses the "data/earnings-language" LICENSE_MARKS entry
@@ -4572,17 +4607,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/v1/data/earnings-language-history", (req, res) => {
     const auth = requireApiKey(req, res);
     if (!auth) return;
-    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
     try {
-      const archived = readEarnings8kHistory(days);
-      const live = latestEarnings8Ks()?.filings || [];
-      const seen = new Set(archived.map((f) => f.accession));
-      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
-      res.json(v1Envelope("data/earnings-language", {
-        days,
-        count: merged.length,
-        filings: merged,
-      }));
+      // Same windowed/paged reader as the RAW preview route (from/to/limit/
+      // text, truncated + next cursor) — a keyed customer must never again
+      // receive 4 days labelled 90.
+      res.json(v1Envelope("data/earnings-language", earnings8kHistoryPage(req.query as Record<string, unknown>)));
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/earnings-language-history", status: 200, tier: auth.tier });
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error)?.message });

@@ -496,3 +496,134 @@ test("history route + poll-loop archiving are wired", () => {
   const mod = fs2.readFileSync(path2.join(path2.dirname(new URL(import.meta.url).pathname), "sec8kEarnings.ts"), "utf8");
   assert.ok(mod.includes("archiveEarnings8Ks(filings)"), "refresh loop must archive every poll");
 });
+
+// ── Windowed history reader (2026-11-11): the /history routes used to
+// answer `?days=90` with the newest 500 filings and echo `days: 90` back —
+// in the Q3 2026 season that was 4 trading days presented as 90 with no
+// marker. These tests pin the honest replacement. ───────────────────────────
+import {
+  parseEarnings8kHistoryQuery, readEarnings8kHistoryWindow, earnings8kHistoryNextQuery,
+  omitEarnings8kText, EARNINGS8K_ARCHIVE_START, EARNINGS8K_HISTORY_MAX_FILINGS,
+  EARNINGS8K_HISTORY_MAX_SPAN_DAYS,
+} from "./sec8kEarnings";
+
+/** Writes `perDay` filings into each listed UTC archive day. Accessions carry
+ *  a per-seed tag because archiveEarnings8Ks dedups through a MODULE-level
+ *  accession set that outlives each test's temp dir — the same accession
+ *  string reused by a later test would be silently dropped as "already
+ *  archived" (the first version of these tests hit exactly that). */
+let seedTag = 0;
+function seedArchiveDays(base: string, days: string[], perDay: number): void {
+  const tag = `S${++seedTag}`;
+  for (const day of days) {
+    const t = Date.parse(`${day}T12:00:00Z`);
+    const rows = Array.from({ length: perDay }, (_, i) => mkFiling8k(`${tag}-${day}-${i}`, day));
+    assert.equal(archiveEarnings8Ks(rows, base, t), perDay);
+  }
+}
+
+const NOW_11_11 = Date.UTC(2026, 10, 11, 13, 0, 0);
+
+test("parseEarnings8kHistoryQuery: legacy ?days keeps working (today-(N-1)..today, capped at 90, default 30) and never throws on junk", () => {
+  const w = parseEarnings8kHistoryQuery({ days: "7" }, NOW_11_11);
+  assert.deepEqual([w.from, w.to, w.days], ["2026-11-05", "2026-11-11", 7]);
+  assert.equal(parseEarnings8kHistoryQuery({ days: "200" }, NOW_11_11).days, 90, "the 90-day legacy cap is unchanged");
+  assert.equal(parseEarnings8kHistoryQuery({}, NOW_11_11).days, 30);
+  assert.equal(parseEarnings8kHistoryQuery({ days: "banana" }, NOW_11_11).days, 30);
+  const junk = parseEarnings8kHistoryQuery({ from: "not-a-day", to: "2026-13-45", limit: "-4", text: "maybe" }, NOW_11_11);
+  assert.deepEqual([junk.from, junk.to, junk.maxFilings, junk.includeText, junk.days], ["2026-10-13", "2026-11-11", 1, true, 30],
+    "malformed from/to fall back to the legacy default window; limit clamps to >= 1");
+  assert.equal(parseEarnings8kHistoryQuery({ days: "7", limit: "9999" }, NOW_11_11).maxFilings, EARNINGS8K_HISTORY_MAX_FILINGS);
+});
+
+test("parseEarnings8kHistoryQuery: explicit from/to is an archive-day window — clamped to today, to the archive start, to from<=to, and to the max span; text=0 / fields=meta omit text", () => {
+  const w = parseEarnings8kHistoryQuery({ from: "2026-09-01", to: "2026-09-30", text: "0" }, NOW_11_11);
+  assert.deepEqual([w.from, w.to, w.includeText, w.days], ["2026-09-01", "2026-09-30", false, null], "from/to wins; `days` is null (not echoed as a fake lookback)");
+  assert.equal(parseEarnings8kHistoryQuery({ from: "2026-09-01", to: "2027-01-01" }, NOW_11_11).to, "2026-11-11", "to is clamped to today");
+  assert.equal(parseEarnings8kHistoryQuery({ from: "2020-01-01", to: "2026-07-10" }, NOW_11_11).from, EARNINGS8K_ARCHIVE_START, "nothing exists before the archive start");
+  const swapped = parseEarnings8kHistoryQuery({ from: "2026-10-20", to: "2026-10-01" }, NOW_11_11);
+  assert.equal(swapped.from, swapped.to, "from > to collapses to a one-day window rather than throwing");
+  const span = parseEarnings8kHistoryQuery({ from: "2026-07-04", to: "2028-06-01" }, Date.UTC(2028, 5, 1));
+  assert.equal(Math.round((Date.parse(span.to) - Date.parse(span.from)) / 86400_000) + 1, EARNINGS8K_HISTORY_MAX_SPAN_DAYS, "span bounded by raising from");
+  assert.equal(parseEarnings8kHistoryQuery({ days: "3", fields: "meta" }, NOW_11_11).includeText, false);
+  assert.equal(parseEarnings8kHistoryQuery({ to: "2026-11-10" }, NOW_11_11).from, "2026-10-12", "to alone => 30 days ending at to");
+});
+
+test("readEarnings8kHistoryWindow: whole archive days are atomic, the page stops BEFORE the day that would exceed the cap, and truncated/covered/next_to say exactly what was read", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-win-"));
+  // 6 archive days x 40 filings = 240; cap 100 => page 1 holds 11-10 + 11-09 (80), stops before 11-06
+  seedArchiveDays(base, ["2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-09", "2026-11-10"], 40);
+  const win = parseEarnings8kHistoryQuery({ from: "2026-11-01", to: "2026-11-10", limit: "100" }, NOW_11_11);
+  const page = readEarnings8kHistoryWindow(win, base);
+  assert.equal(page.filings.length, 80, "80 not 100 — a day is never split");
+  assert.equal(page.truncated, true);
+  assert.deepEqual(page.covered, { from: "2026-11-07", to: "2026-11-10" },
+    "covered names the days read in full — including the empty weekend days 11-07/11-08, which WERE read (an empty day is covered, not skipped)");
+  assert.equal(page.next_to, "2026-11-06", "the first day NOT read is the cursor");
+  assert.deepEqual(page.window, { from: "2026-11-01", to: "2026-11-10" }, "the requested window is echoed, not silently rewritten");
+  assert.equal(page.days_scanned, 4);
+  assert.equal(page.text_omitted, false);
+  assert.equal(earnings8kHistoryNextQuery(page), "?from=2026-11-01&to=2026-11-06&limit=100");
+  assert.ok((page.filings[0] as any).filedAt >= (page.filings[79] as any).filedAt, "newest first");
+});
+
+test("readEarnings8kHistoryWindow: walking the cursor to the end covers every filing exactly once (no gaps, no duplicates) and the last page is not truncated", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-walk-"));
+  const days = ["2026-10-28", "2026-10-29", "2026-10-30", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-09", "2026-11-10"];
+  seedArchiveDays(base, days, 35); // 350 total
+  assert.equal(gzipOldEarnings8kDays(base, NOW_11_11), 9, "every day older than 2 days gzips (11-10 stays plain) — a mixed gz/plain archive must page identically");
+  const seen = new Set<string>();
+  let win = parseEarnings8kHistoryQuery({ from: "2026-10-25", to: "2026-11-10", limit: "100", text: "0" }, NOW_11_11);
+  let pages = 0;
+  for (;;) {
+    const page = readEarnings8kHistoryWindow(win, base);
+    pages++;
+    for (const f of page.filings) {
+      assert.ok(!seen.has(f.accession), `duplicate across pages: ${f.accession}`);
+      seen.add(f.accession);
+      assert.ok(!("text" in f), "text=0 strips the exhibit text");
+      assert.equal((f as any).textLength, 12, "textLength survives so the consumer knows what it skipped");
+    }
+    if (!page.truncated) {
+      assert.equal(page.next_to, null);
+      assert.equal(earnings8kHistoryNextQuery(page), null);
+      assert.equal(page.covered.from, "2026-10-25", "the final page reaches window.from even through empty days");
+      break;
+    }
+    const next = earnings8kHistoryNextQuery(page)!;
+    assert.match(next, /^\?from=2026-10-25&to=2026-\d\d-\d\d&limit=100&text=0$/);
+    const q = Object.fromEntries(new URLSearchParams(next.slice(1)));
+    win = parseEarnings8kHistoryQuery(q, NOW_11_11);
+    assert.ok(pages < 20, "cursor must terminate");
+  }
+  assert.equal(seen.size, 350);
+  assert.equal(pages, 5, "350 filings at 35/day with a 100 cap => 2 days per page => 5 pages");
+});
+
+test("readEarnings8kHistoryWindow: the cap is soft by at most ONE day — a newest day larger than the cap is still returned whole so the page always makes progress; an empty window is honest (0 filings, not truncated, covered = the window)", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-soft-"));
+  seedArchiveDays(base, ["2026-11-10"], 7);
+  seedArchiveDays(base, ["2026-11-09"], 2);
+  const page = readEarnings8kHistoryWindow(parseEarnings8kHistoryQuery({ from: "2026-11-09", to: "2026-11-10", limit: "5" }, NOW_11_11), base);
+  assert.equal(page.filings.length, 7, "the first day exceeds the cap and is still whole");
+  assert.equal(page.truncated, true);
+  assert.equal(page.next_to, "2026-11-09");
+  assert.equal(page.malformed_lines, 0);
+  // a torn line (kill mid-append) is counted, not silently dropped
+  fs2.appendFileSync(path2.join(base, "earnings8k", "2026-11-10.jsonl"), '{"accession":"T-1","cik":"1","company');
+  const torn = readEarnings8kHistoryWindow(parseEarnings8kHistoryQuery({ from: "2026-11-10", to: "2026-11-10" }, NOW_11_11), base);
+  assert.deepEqual([torn.filings.length, torn.malformed_lines], [7, 1]);
+  const empty = readEarnings8kHistoryWindow(parseEarnings8kHistoryQuery({ from: "2026-08-01", to: "2026-08-05" }, NOW_11_11), base);
+  assert.deepEqual([empty.filings.length, empty.truncated, empty.next_to, empty.days_scanned], [0, false, null, 5]);
+  assert.deepEqual(empty.covered, { from: "2026-08-01", to: "2026-08-05" });
+  const stripped = omitEarnings8kText(mkFiling8k("S-1", "2026-11-10"));
+  assert.ok(!("text" in stripped) && stripped.exhibitUrl.endsWith("ex99.htm"));
+});
+
+test("readEarnings8kHistory (legacy newest-N reader) is unchanged — the cold-cache backfill still gets the newest `limit` rows across days", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-legacy-"));
+  seedArchiveDays(base, ["2026-11-09", "2026-11-10"], 4);
+  const hist = readEarnings8kHistory(5, base, NOW_11_11, 3);
+  assert.equal(hist.length, 3);
+  assert.ok(hist.every((f) => f.filedAt === "2026-11-10"), "newest-first then sliced, exactly as before");
+});
