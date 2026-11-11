@@ -17,6 +17,7 @@ import {
   defaultVolumeFiles,
 } from "./streamsInventory";
 import { SQUEEZE_SUMMARY_FILE } from "./squeezeGex";
+import { setColdDayFileSource } from "./datacoreArchive";
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "sinv-"));
@@ -273,5 +274,38 @@ test("peek:false in a manifest withholds every record, even from a surviving arc
     assert.equal(defaultVolumeFiles().cot, path.join("/srv/v", "voltrade_cot_archive.json"));
   } finally {
     if (prev === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prev;
+  }
+});
+
+test("day files held only in the permanent R2 tier count in files/bytes, with a cold breakdown; freshness stays local", async () => {
+  const mdir = tmp(); const base = tmp();
+  writeManifest(mdir, "occvolume", "daily");
+  writeManifest(mdir, "alpha", "daily");
+  const NOW = Date.parse("2026-11-06T12:00:00Z");
+  fs.mkdirSync(path.join(base, "occvolume"));
+  const fp = path.join(base, "occvolume", "2026-11-05.jsonl.gz");
+  fs.writeFileSync(fp, zlib.gzipSync('{"a":1}\n'));
+  fs.utimesSync(fp, new Date(NOW - 3.6e6), new Date(NOW - 3.6e6));
+  setColdDayFileSource({
+    resolve: async () => [],
+    heldOnlyInR2: () => [
+      { stream: "occvolume", file: "2026-10-01.jsonl.gz", bytes: 1000, lines: 5 },
+      { stream: "occvolume", file: "2026-10-02.jsonl.gz", bytes: 500, lines: 2 },
+      { stream: "vessels_tracks", file: "2026-10-01.jsonl.gz", bytes: 9, lines: 1 },
+    ],
+  });
+  try {
+    const inv = await buildStreamsInventory(base, mdir, NOW);
+    const by = Object.fromEntries(inv.streams.map((s) => [s.stream, s]));
+    assert.equal(by.occvolume.files, 3);
+    assert.equal(by.occvolume.bytes, fs.statSync(fp).size + 1500);
+    assert.equal(by.occvolume.cold_files, 2);
+    assert.equal(by.occvolume.cold_bytes, 1500);
+    assert.equal(by.occvolume.newest_file, "2026-11-05.jsonl.gz", "age and peek come from the local newest file");
+    assert.equal(by.occvolume.records_newest_file, 1);
+    assert.equal(by.alpha.cold_files, 0);
+    assert.equal(by.alpha.files, 0);
+  } finally {
+    setColdDayFileSource(null);
   }
 });

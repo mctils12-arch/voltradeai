@@ -16,7 +16,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import readline from "readline";
-import { archiveBaseDir, PRIVATE_ARCHIVE_DIRS } from "./datacoreArchive";
+import { archiveBaseDir, coldDayFilesHeldInR2, PRIVATE_ARCHIVE_DIRS } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
 import { registerHeapGauge } from "./heapDiag";
 
@@ -108,7 +108,12 @@ function useBase(base: string): void {
 
 /** Real total archived records across all non-operational streams. A file
  *  whose size and mtime are unchanged since it was last counted is not read
- *  again; files that disappeared (offloaded, pruned) leave the total. */
+ *  again; files that disappeared (pruned, or evicted by the rolling R2 tier)
+ *  leave the total. EXCEPTION (2026-11-06): a day file the permanent R2 tier
+ *  holds as its only copy (archivePermanentTier.ts: local copy deleted after
+ *  a byte-for-byte read-back, never expired) is still archived — it keeps its
+ *  last local count, or the tier's own count of that file when this cache
+ *  never saw it. Files the tier reports MISSING are not held and not counted. */
 export async function countObservations(base = archiveBaseDir()): Promise<number> {
   useBase(base);
   let total = 0;
@@ -130,6 +135,17 @@ export async function countObservations(base = archiveBaseDir()): Promise<number
       fileCounts.set(key, { size: st.size, mtimeMs: st.mtimeMs, lines });
       total += lines;
     }
+  }
+  for (const f of coldDayFilesHeldInR2()) {
+    if (OPERATIONAL_DIRS.has(f.stream) || f.stream.endsWith("_tracks")) continue;
+    const key = `${f.stream}/${f.file}`;
+    if (seen.has(key)) continue; // still local: counted above
+    const hit = fileCounts.get(key);
+    const lines = hit ? hit.lines : f.lines;
+    if (lines == null) continue; // adopted from a listing, never counted: unknown, not guessed
+    if (!hit) fileCounts.set(key, { size: f.bytes, mtimeMs: -1, lines });
+    seen.add(key);
+    total += lines;
   }
   for (const k of Array.from(fileCounts.keys())) if (!seen.has(k)) fileCounts.delete(k);
   return total;
@@ -226,7 +242,8 @@ export async function platformStats(
   opts: { firstWaitMs?: number } = {},
 ): Promise<{ layers_live: number; layers_total: number; streams_recording: number; observations: number | null; observations_as_of: string | null; observations_pending: boolean; sentinel2_last_reading: string | null; sentinel2_reading_age_days: number | null }> {
   const live = layers.filter((l) => l.status === "live").map((l) => l.id);
-  const dirs = listArchiveDirs(base);
+  // a stream whose day files now sit only in the permanent R2 tier is still recorded
+  const dirs = Array.from(new Set([...listArchiveDirs(base), ...coldDayFilesHeldInR2().map((f) => f.stream)]));
   if (!cache || cache.base !== base) {
     const persisted = loadPersistedCounts(base);       // a restart serves the last total at once
     cache = persisted ? { base, ...persisted } : null;

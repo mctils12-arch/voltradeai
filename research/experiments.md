@@ -116584,3 +116584,24 @@ TESTS: server/archivePermanentTier.test.ts, 19 tests:
 - integration: the rolling daily delete spares permanent/, and the status and cost estimate.
 archiveOffload 23/23; the 17 other archive-reading suites (datacoreArchive, durability, aircraftWindow, queryEngine, siteTimeline, portDwell, shadowFleet, gnssIntegrityDaily, globalAircraft, …) 290/290. Ratchets: counter OK, tsc 6, ts_code_only 11; the esbuild server bundle builds.
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-DATACORE (server/datacoreArchive.ts coldDayFilesHeldInR2; server/platformStats.ts; server/streamsInventory.ts; server/archivePermanentTier.ts heldOnlyInR2; tests) — the archive's counters count day files held only in the permanent R2 tier
+VERSION: v1.0.1356 (shipped 2026-11-11 by the parent session; main was v1.0.1355)
+WHY: this is a prerequisite for moving any COUNTED stream to the permanent tier. The landing hero's `observations` (live 142,538,288) is a count of local lines, and per its own doc "files that disappeared (offloaded, pruned) leave the total". `streams_recording` counts dirs that hold a local .jsonl file. The streams page shows each stream's local files and bytes plus a total. Evicting occvolume (~90M of the 142.5M lines; 389.9 MiB) would make all three fall although every record is still held. Tagged [RULE-REVIEW] and shipped alone because it changes the definition of public counters (MEASUREMENT INTEGRITY spirit; not a trading metric).
+CHANGE:
+- datacoreArchive exposes coldDayFilesHeldInR2(). These are the tier's evicted entries that are not MISSING, with bytes and the line count taken when the gzip was validated. It covers every recorded entry, including streams later removed from the tier's list.
+- platformStats.countObservations keeps such a file's last local count, else the tier's own count. An adopted entry with no count is skipped, not guessed. `_tracks` and operational dirs stay excluded exactly as for local files, and files not held in R2 still leave the total.
+- streams_recording keeps a stream whose files sit only in R2.
+- The streams inventory adds R2-held files to `files`/`bytes` and reports `cold_files`/`cold_bytes`. Age, health and the peek still come from the newest local file.
+BEFORE vs AFTER on identical inputs: identical whenever the tier holds no counted stream. That is the state this ships into, since only `_tracks` are in the tier and every counter excludes them, so no live number moves on this deploy. BIAS: the change can only stop a count from falling. It would overstate only if an R2 object vanished between daily listings; the listing marks such files MISSING and they leave the total.
+DOWNSTREAM: (1) when occvolume/fires/buoys join (next two changes), the hero total, streams_recording and the streams page stay where they are instead of dropping by ~90M+ lines and ~730 MB. (2) The persisted .platform_stats_cache.json keeps entries for R2-held files (one small row each, mtime −1 when seeded from the tier); its size is unchanged in practice.
+ROLLBACK TRIGGER: the hero's observations rising by more than the day's new lines in one refresh (double counting), or cold_bytes on /api/data/streams exceeding permanentTier.evictedBytes on /api/data/archive/offload-status. Revert; the counters fall back to local-only.
+TESTS: platformStatsIncremental +2, now 9/9:
+- an evicted file keeps its count;
+- the tier count stands in after a lost cache;
+- a MISSING or never-counted entry is not counted;
+- the `_tracks`/operational exclusions still apply;
+- a pruned non-R2 file still leaves the total;
+- streams_recording keeps an all-R2 stream.
+streamsInventory +1, now 11/11: R2-held files in files/bytes plus the cold breakdown; freshness stays local. heldOnlyInR2 is pinned in archivePermanentTier.test.ts (19/19), including MISSING exclusion. layerFreshness, qualityDashboard, platformStats and repoFiles pass. Ratchets: counter OK, tsc 6, ts_code_only 11.
+STARVED: no.

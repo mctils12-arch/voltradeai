@@ -25,7 +25,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { promisify } from "util";
-import { archiveBaseDir, newestDataFile } from "./datacoreArchive";
+import { archiveBaseDir, coldDayFilesHeldInR2, newestDataFile } from "./datacoreArchive";
 import { repoDataPath } from "./repoFiles";
 import { snapshotStreams, type SnapshotStamp } from "./snapshotStreams";
 import { SQUEEZE_SUMMARY_FILE } from "./squeezeGex";
@@ -55,8 +55,13 @@ export interface StreamInventoryEntry {
   storage: string;
   written_by: string;
   // dynamic (archive scan)
+  /** day files held: on the volume + only in the permanent R2 tier */
   files: number;
   bytes: number;
+  /** of which held only in the permanent R2 tier (archivePermanentTier.ts:
+   *  local copy deleted after a byte-for-byte read-back, never expired) */
+  cold_files: number;
+  cold_bytes: number;
   newest_file: string | null;
   age_hours: number | null; // newest file mtime → now
   // records in the NEWEST file only — full-archive record counts already
@@ -177,6 +182,12 @@ export async function buildStreamsInventory(
   const dirFound = fs.existsSync(mdir);
   const manifests = readManifests(mdir);
   const streams: StreamInventoryEntry[] = [];
+  const cold = new Map<string, { files: number; bytes: number }>();
+  for (const f of coldDayFilesHeldInR2()) {
+    const c = cold.get(f.stream) || { files: 0, bytes: 0 };
+    c.files++; c.bytes += f.bytes;
+    cold.set(f.stream, c);
+  }
   for (const name of Object.keys(manifests).sort()) {
     const m = manifests[name];
     const dir = path.join(base, name);
@@ -245,7 +256,10 @@ export async function buildStreamsInventory(
       hypothesis: String(m.confidence_model || "").slice(0, 500),
       storage: String(m.storage || "").slice(0, 300),
       written_by: String(m.written_by || "").slice(0, 200),
-      files: snapFiles || volNote ? 1 : files, bytes,
+      files: (snapFiles || volNote ? 1 : files) + (cold.get(name)?.files ?? 0),
+      bytes: bytes + (cold.get(name)?.bytes ?? 0),
+      cold_files: cold.get(name)?.files ?? 0,
+      cold_bytes: cold.get(name)?.bytes ?? 0,
       newest_file: newest,
       age_hours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
       records_newest_file: records,
