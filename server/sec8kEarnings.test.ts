@@ -620,6 +620,28 @@ test("readEarnings8kHistoryWindow: the cap is soft by at most ONE day — a newe
   assert.ok(!("text" in stripped) && stripped.exhibitUrl.endsWith("ex99.htm"));
 });
 
+test("readEarnings8kHistoryWindow dedups the SAME accession repeated INSIDE one day file (and across days in one page) — the production archive holds same-day repeats from overlapping deploy containers, and v1.0.1350's filter-then-add pass let them through (379 rows / 365 unique on the 07-24..07-29 page)", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-dupday-"));
+  const dir = path2.join(base, "earnings8k");
+  fs2.mkdirSync(dir, { recursive: true });
+  // written directly (archiveEarnings8Ks's in-memory dedup is exactly what two
+  // overlapping containers do NOT share) — same accession, ticker cold then warm
+  const a = mkFiling8k("DUP-ACC-1", "2026-11-10");
+  fs2.writeFileSync(path2.join(dir, "2026-11-10.jsonl"),
+    [JSON.stringify({ ...a, ticker: null }), JSON.stringify(mkFiling8k("UNIQ-1", "2026-11-10")), JSON.stringify(a), JSON.stringify(a)].join("\n") + "\n");
+  // the same accession again in the previous day's file (restart re-seed gap)
+  fs2.writeFileSync(path2.join(dir, "2026-11-09.jsonl"),
+    [JSON.stringify(a), JSON.stringify(mkFiling8k("UNIQ-2", "2026-11-09"))].join("\n") + "\n");
+  const page = readEarnings8kHistoryWindow(parseEarnings8kHistoryQuery({ from: "2026-11-09", to: "2026-11-10" }, NOW_11_11), base);
+  const accs = page.filings.map((f) => f.accession).sort();
+  assert.deepEqual(accs, ["DUP-ACC-1", "UNIQ-1", "UNIQ-2"], "one row per accession, within a day and across days");
+  assert.equal(page.filings.length, 3);
+  assert.equal(page.malformed_lines, 0, "a duplicate is not a malformed line");
+  // and the cap counts UNIQUE rows: 3 unique across 6 lines must fit a limit of 3 untruncated
+  const capped = readEarnings8kHistoryWindow(parseEarnings8kHistoryQuery({ from: "2026-11-09", to: "2026-11-10", limit: "3" }, NOW_11_11), base);
+  assert.deepEqual([capped.filings.length, capped.truncated], [3, false], "the page cap is measured on deduped rows, not raw lines");
+});
+
 test("readEarnings8kHistory (legacy newest-N reader) is unchanged — the cold-cache backfill still gets the newest `limit` rows across days", () => {
   const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-legacy-"));
   seedArchiveDays(base, ["2026-11-09", "2026-11-10"], 4);

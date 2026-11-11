@@ -544,7 +544,20 @@ export function readEarnings8kHistoryWindow(win: Earnings8kHistoryWindow, baseDi
   for (let ms = dayMs(win.to); ms >= fromMs; ms -= 86400_000) {
     const day = utcDay(ms);
     const read = readArchiveDay(dir, day);
-    const rows = read.rows.filter((f) => !seen.has(f.accession));
+    // Dedup ROW BY ROW, not by filtering the day against `seen` first: the
+    // live archive holds the same accession more than once INSIDE one day
+    // file (overlapping containers during a deploy both poll and append,
+    // one with the CIK->ticker map still cold), and a filter-then-add pass
+    // lets every same-day repeat through. Found on production the hour
+    // v1.0.1350 deployed (page 07-24..07-29: 379 rows, 365 unique);
+    // readEarnings8kHistory had always deduped line by line.
+    const rows: Earnings8K[] = [];
+    const dayAccessions = new Set<string>();
+    for (const f of read.rows) {
+      if (seen.has(f.accession) || dayAccessions.has(f.accession)) continue;
+      dayAccessions.add(f.accession);
+      rows.push(f);
+    }
     if (out.length > 0 && out.length + rows.length > win.maxFilings) {
       truncated = true;
       nextTo = day;
