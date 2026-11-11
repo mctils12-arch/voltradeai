@@ -292,7 +292,8 @@ export const DIAG_PROBES = [
   // params.
   "reconstruct_pnl",
   // ADDED 2026-09-21 (scheduled-routine session): unblocks the 2026-09-18
-  // FOREIGN-FIELD IMPORT (axis c) — scripts/insider_cusum_probe.py's
+  // FOREIGN-FIELD IMPORT (axis c) — insider_cusum_probe.py's (repo root
+  // since 2026-11-06, KNOWN BROKEN #44; scripts/ keeps a CLI shim)
   // "does a Page-CUSUM-detected shift in market-wide aggregate insider
   // buying/selling lead forward SPY returns?" GATE 2 test — which that
   // session shipped built and unit-tested but could not run: SEC Form 4

@@ -4594,13 +4594,16 @@ print(json.dumps(get_source_validation_report()))
         case "insider_cusum_gate2": {
           // ADDED 2026-09-21 (scheduled-routine session): see the
           // "insider_cusum_gate2" entry in diag.ts's DIAG_PROBES for why —
-          // runs scripts/insider_cusum_probe.py's pre-registered GATE 2
+          // runs insider_cusum_probe.py's pre-registered GATE 2
           // test server-side, over the real SEC Form 4 archive this
           // instance's own Tier 3 loop maintains. No query parameters by
           // design (see diag.ts) — always the probe's own pre-registered
           // defaults, never caller-tunable.
+          // KNOWN BROKEN #44 (2026-11-06): the module and its by-path loader
+          // chain live at the repo root. The image copies root *.py and never
+          // scripts/, so importing it through a scripts/ path entry failed
+          // live with ModuleNotFoundError (test_production_image_imports.py).
           const { stdout } = await execPythonSerialized(`python3 -c "
-import sys; sys.path.insert(0, 'scripts')
 import json
 import insider_cusum_probe
 print(json.dumps(insider_cusum_probe.run_probe()))
