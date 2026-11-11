@@ -113,11 +113,15 @@ export interface CspDispatchContext {
   // book, so a fresh container forgets both. The broker remembers.
   closedOrders?: OpenOrderLike[];
   staleMinutes?: number; // an order that rested at least this long "would not fill"
+  // RESTING MULTI-LEG ORDERS (2026-11-06): underlyings with a multi-leg opening
+  // order still working (server/mlegOpenOrders.openMlegUnderlyings). An mleg
+  // order's top-level side/symbol are empty, so `openOrders` alone never shows it.
+  openStructureUnderlyings?: string[];
 }
 
 export type CspDispatchDecision =
   | { dispatch: true }
-  | { dispatch: false; reason: "swept_cooldown" | "open_sell_to_open" | "broker_unfilled_rested"; detail: string };
+  | { dispatch: false; reason: "swept_cooldown" | "open_sell_to_open" | "open_structure" | "broker_unfilled_rested"; detail: string };
 
 /**
  * True when `order` is a closed, never-filled sell-to-open on `underlying`
@@ -149,7 +153,8 @@ export function isRecentUnfilledRestedCsp(
  * Skips (a) an underlying whose CSP limit was swept within `cooldownMinutes`
  * — re-submitting the same non-marketable limit just restarts the
  * submit/cancel loop — and (b) an underlying that already has a resting
- * sell-to-open option order (a second one would double the commitment).
+ * sell-to-open option order (a second one would double the commitment), or
+ * (2026-11-06) a resting multi-leg opening order (ctx.openStructureUnderlyings).
  */
 export function shouldDispatchCsp(ticker: string, ctx: CspDispatchContext): CspDispatchDecision {
   const sym = String(ticker).toUpperCase();
@@ -169,6 +174,14 @@ export function shouldDispatchCsp(ticker: string, ctx: CspDispatchContext): CspD
       dispatch: false,
       reason: "open_sell_to_open",
       detail: `open sell-to-open order already resting (${resting.symbol})`,
+    };
+  }
+  if ((Array.isArray(ctx.openStructureUnderlyings) ? ctx.openStructureUnderlyings : [])
+    .some((u) => String(u).toUpperCase() === sym)) {
+    return {
+      dispatch: false,
+      reason: "open_structure",
+      detail: `a multi-leg opening order on ${sym} is already resting`,
     };
   }
   if (typeof ctx.staleMinutes === "number") {

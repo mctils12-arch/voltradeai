@@ -2897,16 +2897,17 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
     # 2026-11-06: + "new" (Alpaca's status for an accepted, routed order; the
     # entry ladder above already counted it) and the opening order id, which
     # keeps a resting multi-leg entry's state until the order resolves.
+    legs = []
     if order.get("status") in ("submitted", "filled", "pending_new", "accepted", "new"):
         try:
-            register_contract_entry(contract, decision["strategy"], trade.get("ticker", ""), trade.get("setup", ""),
-                                    order_id=order.get("order_id", ""))
+            legs = register_contract_entry(contract, decision["strategy"], trade.get("ticker", ""), trade.get("setup", ""),
+                                           order_id=order.get("order_id", ""))
         except Exception as _reg_err:
             import logging
             logging.getLogger("voltrade.options").warning(
                 f"[register_options_entry] failed for {trade.get('ticker','?')}: {_reg_err}"
             )
-    
+
     return {
         "instrument": "options",
         "strategy": decision["strategy"],
@@ -2914,6 +2915,9 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
         "contract": contract,
         "order": order,
         "reasoning": decision["reason"],
+        # 2026-11-06: the legs registered. More than one = one multi-leg order,
+        # which bot.ts hands to its stale-order sweeper (it can rest).
+        "legs": legs,
     }
 
 
