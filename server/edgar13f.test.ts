@@ -363,3 +363,54 @@ test("routes.ts boots the 13F poll and registers the API routes; manifest exists
   assert.ok(String(manifest.license).toLowerCase().includes("public"), "license line required");
   assert.ok(JSON.stringify(manifest).includes("250"), "focused-manager cap must be stated in the manifest, never silent");
 });
+
+// ── Windowed + paged history (2026-11-12) — the honest reader behind
+// /api/data/filings13f/history and /api/v1/data/13f-holdings-history ────────
+import {
+  filings13fHistoryPage, filings13fHistoryArchive,
+  FILINGS13F_ARCHIVE_START, FILINGS13F_HISTORY_MAX_FILINGS, FILINGS13F_HISTORY_MAX_DAYS,
+} from "./edgar13f";
+
+test("filings13fHistoryPage: REGRESSION (live 2026-11-11, Q3 season, both the preview route and the SOLD v1 mirror) — `?days=120` over a season-heavy archive is a WHOLE-days page that says truncated/covered/next, never 500 filings spanning two days labelled 120; holdings are trimmed per route (25 RAW display vs FOCUSED_MAX_HOLDINGS keyed) on archived AND live rows", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt13f-page-"));
+  const dir = path.join(base, "filings13f");
+  fs.mkdirSync(dir, { recursive: true });
+  const t = Date.UTC(2026, 10, 11, 13, 0, 0); // 2026-11-11T13:00Z
+  const withHoldings = (f: Filing13F, n: number): Filing13F => ({
+    ...f, holdings: Array.from({ length: n }, (_, i) => ({ issuer: `ISSUER ${i}`, titleOfClass: "COM", cusip: `${String(i).padStart(9, "0")}`, value: n - i, shares: 1, shareType: "SH", putCall: null, discretion: "SOLE", votingSole: 1, votingShared: 0, votingNone: 0 } as any)),
+  });
+  // production's own shape on 2026-11-11: 11-10 400 rows, 11-09 well over the 100 the old reader cut it to
+  const counts: Record<string, number> = { "2026-11-10": 400, "2026-11-09": 300, "2026-11-06": 50 };
+  for (const [day, n] of Object.entries(counts)) {
+    fs.writeFileSync(path.join(dir, `${day}.jsonl`),
+      Array.from({ length: n }, (_, i) => JSON.stringify(withHoldings(mkFiling13F(`${day}-${i}`, `${day}T16:00:00`), 40))).join("\n") + "\n");
+  }
+  const a = filings13fHistoryArchive(25, base);
+  assert.deepEqual([a.dir, a.archiveStart, a.maxFilings, a.maxDays], [dir, FILINGS13F_ARCHIVE_START, FILINGS13F_HISTORY_MAX_FILINGS, FILINGS13F_HISTORY_MAX_DAYS]);
+  assert.deepEqual([FILINGS13F_HISTORY_MAX_FILINGS, FILINGS13F_HISTORY_MAX_DAYS], [500, 120], "the page cap IS read13FHistory's historical 500 and the routes' 120-day bound — reported, not changed");
+  const raw = filings13fHistoryPage({ days: "120" }, 25, base, t, []);
+  assert.equal(raw.days, 120);
+  assert.deepEqual([raw.count, raw.truncated, raw.covered, raw.next], [400, true, { from: "2026-11-10", to: "2026-11-11" }, "?from=2026-07-15&to=2026-11-09"],
+    "11-10's 400 fit; 11-09's 300 would make 700 > 500 -> the page stops at the day boundary and SAYS so");
+  assert.ok(raw.filings.every((f) => f.holdings?.length === 25), "RAW route trim: 25 holdings per filing");
+  assert.equal(raw.archive_start, "2026-07-05");
+  const keyed = filings13fHistoryPage({ days: "120" }, FOCUSED_MAX_HOLDINGS, base, t, []);
+  assert.ok(keyed.filings.every((f) => f.holdings?.length === 40), "keyed mirror keeps the full as-filed table (40 < FOCUSED_MAX_HOLDINGS)");
+  // the old reader returned 500 rows (400 + the first 100 of 11-09) labelled days=120 with no marker
+  assert.equal(read13FHistory(120, base, t).length, 500, "the legacy reader still caps at 500 (cold-cache backfill keeps using it)");
+  // the cursor walk reaches the oldest day
+  const next = filings13fHistoryPage(Object.fromEntries(new URLSearchParams(raw.next!.slice(1))), 25, base, t, []);
+  assert.deepEqual([next.count, next.truncated, next.covered.from, next.days], [350, false, "2026-07-15", null]);
+  // live merge only on a page that ends today, deduped by accession, trimmed like the archived rows
+  const live = [withHoldings(mkFiling13F("2026-11-10-0", "2026-11-10T16:00:00"), 60), withHoldings(mkFiling13F("LIVE-1", "2026-11-11T12:30:00"), 60)];
+  const today = filings13fHistoryPage({ days: "2" }, 25, base, t, live);
+  assert.equal(today.count, 401, "one live row added, the already-archived one dropped");
+  assert.equal(today.filings.find((f) => f.accession === "LIVE-1")?.holdings?.length, 25, "live rows pass through the same trim");
+  assert.equal(filings13fHistoryPage({ from: "2026-11-01", to: "2026-11-10" }, 25, base, t, live).filings.some((f) => f.accession === "LIVE-1"), false);
+  // the archive writer and the page agree on the day file (round-trip through the real writer)
+  const base2 = fs.mkdtempSync(path.join(os.tmpdir(), "vt13f-page-w-"));
+  assert.equal(archive13FFilings([mkFiling13F("W-1", "2026-11-11T09:00:00")], base2, t), 1);
+  assert.equal(filings13fHistoryPage({ days: "1" }, 25, base2, t, []).count, 1);
+  fs.rmSync(base, { recursive: true, force: true });
+  fs.rmSync(base2, { recursive: true, force: true });
+});

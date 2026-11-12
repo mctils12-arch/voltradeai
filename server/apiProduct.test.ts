@@ -309,6 +309,20 @@ test("13f-holdings-history (SEC EDGAR 13F-HR accumulated archive) shares the 13f
   const entry = meta.endpoints.find((e) => e.path === "/api/v1/data/13f-holdings-history");
   assert.ok(entry, "voltrade_thirteenf_holdings_history must have a matching apiMeta().endpoints entry");
   assert.equal(entry.preview, "/api/data/filings13f/history");
+  // 2026-11-12: the route is paged by whole archive days with an explicit
+  // window and cursor (server/filingHistoryPage.ts, the same contract as
+  // insider-history and earnings-language-history) — the spec must advertise
+  // the window/limit params and the response schema must carry the
+  // truncation contract, so a consumer cannot read a two-day page as a
+  // 120-day one again (live on 2026-11-11: 500 filings, 11-09..11-10, days=120).
+  for (const k of ["from", "to", "limit"]) assert.ok(tool.input_schema.properties[k], `input_schema must advertise ?${k}=`);
+  assert.equal(tool.input_schema.properties.limit.maximum, 500, "page cap advertised = the reader's FILINGS13F_HISTORY_MAX_FILINGS");
+  assert.match(entry.params, /from=YYYY-MM-DD&to=YYYY-MM-DD/, "apiMeta params string must show the window form");
+  assert.match(entry.desc, /truncated/, "honesty: the endpoint description must name the truncation flag");
+  assert.match(tool.description, /truncated/, "honesty: the tool description must name the truncation flag");
+  const schema = RESPONSE_DATA_SCHEMAS.voltrade_thirteenf_holdings_history as any;
+  for (const k of ["window", "covered", "truncated", "next", "count", "focused_cap", "filings"]) assert.ok(schema.properties[k], `response schema must carry ${k}`);
+  for (const k of ["window", "covered", "truncated", "focused_cap"]) assert.ok(schema.required.includes(k), `${k} must be REQUIRED`);
 });
 
 test("eu-macro license mark: commercial reuse permitted with attribution resells freely like the public-domain CAMD/FTD/MIDAS/crop-conditions/NRC streams, not conditional like OCC/Cboe/issuer-authored data; agent tool documents it as a REGIME INPUT with gate-2 unattempted", () => {
