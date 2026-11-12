@@ -117690,3 +117690,10 @@ TESTS (subject removed; each change states why): pyJobQueue.test.ts — the over
 ROLLBACK TRIGGER: an audit or heartbeat consumer that breaks on the missing job, or any change in morning-queue or scan behavior → revert (git revert restores the dead engine verbatim).
 
 STARVED: no.
+
+## 2026-11-06 [NO-ACTION] — CLAUDE.md KNOWN STATE + CODEBASE MAP (factual update only) — what the 2026-11-05/06 refocus shipped
+VERSION: v1.0.1392 (shipped 2026-11-12 by the parent session; main was v1.0.1391)
+WHY: MEMORY PROTOCOL. Every session reads CLAUDE.md first. Its CODEBASE MAP still described the old floor ("SPY floor ... defensive floor"), and KNOWN STATE did not mention the refocus: the new floor, the −20% kill, the price-only benchmark, the new decision stages and measurement, composite v2's neutral terms, or the removed scanner. A session would rediscover each from code. CLAUDE.md permits factual updates to KNOWN STATE and CODEBASE MAP without an amendment.
+CHANGE: one KNOWN STATE bullet (the refocus facts, each with its PR number) and the CODEBASE MAP's bot_engine line (the floor and its rollback; the convexity overlay is off). No rule is added, softened or excepted. FROZEN sections are untouched.
+TESTS: none read CLAUDE.md. The diff is limited to the two non-frozen sections (verified in the PR).
+STARVED: no.

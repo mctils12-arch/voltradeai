@@ -288,9 +288,12 @@ self-kills over 1GB RSS).
   ML retrain, macro, diagnostics). Calls Python via pythonRpc → daemon,
   subprocess fallback via pythonCall. Audit log, SSE, fills tracking WITH
   synthetic volume-tiered slippage haircut, equity curve, strategy weights.
-- `bot_engine.py` (240KB) — scan_market, deep_score, manage_positions,
-  SPY floor, convexity overlay (QQQ puts), defensive floor, sector
-  correlation, portfolio drawdown tracking.
+- `bot_engine.py` (~400KB) — scan_market, deep_score, manage_positions,
+  the floor (since 2026-11-05 the volatility-managed SPY/SSO floor,
+  `floor_vol_managed.py`, system_config FLOOR_MODE "vol_managed_spy";
+  "basket" is the rollback to the old QQQ/SMH/KWEB/VXUS + GLD basket),
+  convexity overlay (QQQ puts; CONVEXITY_OVERLAY.enabled False since
+  2026-04-17), sector correlation, portfolio drawdown tracking.
 - `ml_model_v2.py` — LightGBM, triple-barrier labels, purged walk-forward
   CV, regime classification, trade_feedback training with code_version
   gating (legacy weighted 0.4x), poisoned-record cleanup on startup.
@@ -666,6 +669,50 @@ read-before-write review.
   state and requires 200 within Railway's 60s. Diagnosing a 502 outage:
   build + boot locally FIRST (the smoke does it), never re-log "still
   down" without the health payload's `serving.failing`.
+
+- REFOCUS shipped 2026-11-05/06 (human spec: beat the S&P after tax,
+  risk-adjusted, drawdown control as the edge; PRs #1633-#1684,
+  v1.0.1290-v1.0.1341, one deploy each, per-PR entries in
+  research/experiments.md). Facts a session needs before touching
+  the bot:
+  - FLOOR: SPY + SSO at E* = min(1.5, 16%/sigma20) of 85% equity
+    (#1634, EXPLORATORY), marketable limits 09:45-15:54 ET; its idle
+    cash parks in BOXX, which accrues the T-bill rate in its price,
+    because paper credits no interest (#1652). Rollback is FLOOR_MODE
+    "basket".
+  - KILL SWITCH: the Node max-drawdown kill is -20% from peak (#1637;
+    prior -10%); while it is tripped the floor may only reduce
+    exposure (#1640). Python's 18% DD halt is unchanged.
+  - BENCHMARK: SPY price return, because paper receives no dividends
+    (#1646, measurement).
+  - NEW DECISION STAGES, each ON in paper with a one-setting off switch
+    and every decision logged:
+    - regime risk budget (regime_engine, #1649);
+    - flows/calendar ESTIMATE (flows_model.py, calendar_effects.py,
+      #1650);
+    - dealer-gamma condor filter (dealer_gamma.py, #1651; the
+      SqueezeMetrics terms question is in wishlist.md);
+    - option fair value (#1654), exit ladders (#1644, #1645, #1655)
+      and bought-option profit taking (#1653);
+    - tax filter, long-term hold and harvesting (tax_filter.py,
+      server/taxAware.ts, #1656-#1658);
+    - scale-in by thirds (position_mgmt.py, #1663);
+    - regime cash reserve and capital rotation (#1662).
+  - MEASUREMENT: decision journal (#1664), loss attribution (#1665),
+    signal attribution (#1659), daily line (#1648), after-tax series
+    (#1669), instrument counterfactual (#1681), earnings-beat history
+    (#1682, #1683).
+  - SCORE: composite score v2 holds the measured anti-predictive terms
+    AND the ML input neutral (#1660, EXPLORATORY, kill date
+    2027-02-05). The October "deep_score is ANTI-PREDICTIVE" reading
+    was a duplicate-row artifact: each candidate was logged ~30x a day.
+  - UI: the AI Engine page opens on an Overview
+    (client/src/bot/overview.tsx: after-tax vs SPY, why we are losing,
+    a card per pick); the Trade cockpit is one page (#1675-#1678).
+  - REMOVED: the dead public scanner GET /api/scan and its boot
+    pre-warm (#1680).
+  - OPEN: findings in research/open_questions.md, 2026-11-06
+    section.
 
 ## STANDING BEHAVIORS (each human-approved, dated)
 
