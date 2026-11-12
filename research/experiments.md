@@ -117728,3 +117728,19 @@ VERDICTS (5d): volume, vol_premium and rel_strength negative (Bonferroni-signifi
 EVENT STUDY: the event-reaction panel job had not shipped (ships 11-11 evening); its first run is Saturday 11-14.
 NEXT: the 11-14 run — pre-rank gate-2 per candidate vs the prior, reproducibility at 39 tests (each p_bonf back to the 11-01 values), composite v2 trigger 1 again.
 STARVED: no.
+
+## 2026-11-11 [RULE-REVIEW] — CLAUDE.md (STANDING BEHAVIORS, MEMORY PROTOCOL, AUDITS & DEBT, RENDERING & MOTION LAW lead-in) + research/wishlist.md stamps — constitutional amendments the human approved on 2026-11-06 ("fix all of this")
+VERSION: v1.0.1397 (shipped 2026-11-12 by the parent session; main was v1.0.1396)
+WHY (installed 2026-11-11; approved 2026-11-06 — that night's ship queue stalled on the account's weekly usage limit, and the 11-08 routine audit re-filed the same SESSION READ ACCESS proposal as its Proposal 3): the 2026-11-06 constitutional audit filed three proposals, and four from 2026-08-16 and 2026-09-20 had waited 7-12 weeks. The human read the audit's open list (item 9: "the deploy window (and whether a money-losing bug may deploy mid-session), shadow-first vs on-in-paper, one misplaced CLAUDE.md line. Four older proposals from Aug–Sep") and replied "fix all of this", then "or work on it and finish it all".
+CHANGE (installed as proposed, with two choices the human delegated):
+(1) DEPLOY WINDOW, strict, in the human's own words "nothing restarts the bot during market hours". No automatic exception for a live bug; the human can always merge by hand.
+(2) PAPER-FIRST LIVE TESTING, from the human's 2026-11-05 directive, newer than the routines' shadow-first line. New rules ship ON in paper as EXPLORATORY experiments under PROMOTION RULE 3 (kill date, off switch, rollback trigger, every decision logged). Risk limits stay human-only.
+(3) The 2026-11-02 SESSION READ ACCESS bullet moved, text unchanged, out of RENDERING & MOTION LAW's STACK NOTE to the end of STANDING BEHAVIORS — the 11-08 audit's placement (Proposal 3), not the 11-06 draft's KNOWN STATE: the bullet carries a behaviour rule ("read it with the token before describing the account") and KNOWN STATE "stays pure facts". Both proposals agree on moving it verbatim; only the destination differs.
+(4) USAGE-CALIBRATION's dead "Revisit ~2026-07-24" replaced by the BLIND MODE trigger.
+(5) MEMORY PROTOCOL gains 1a, VISION.md/GIP.md for PRODUCT/EDGE sessions. The proposal said "above"; it reads "(STANDING BEHAVIORS)" because that section sits below.
+(6) The AUDITS & DEBT register has four fields, with next due.
+(7) RENDERING & MOTION LAW's Definition of done references the PREMIUM EXPERIENCE STANDARD.
+FROZEN sections (FROZEN PATHS, PROMOTION RULES) are untouched. The 11-08, 09-20 and 08-16 wishlist sections are stamped approved and installed.
+DOWNSTREAM: the improve routines' text is aligned the same day: no midday PR, and paper-first for new rules. The CI automerge gate (shipped earlier tonight) makes the deploy window mechanical.
+TESTS: test_research_state_check.py; no code reads CLAUDE.md.
+STARVED: no.
