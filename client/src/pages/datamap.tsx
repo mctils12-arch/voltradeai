@@ -86,7 +86,7 @@ const TimeScrubber = lazy(() => import("@/components/TimeScrubber"));
 import { mmsiFlag } from "@/lib/mmsiFlag";
 import { skyForRenderer } from "@/lib/globeAtmosphere";
 import { classifyDevice, govInit, govStep, median, setOverloaded, isOverloaded, overloadFromState, isFragileGpu } from "@/lib/deviceTier";
-import { scaleReading, zoomLabel } from "@/lib/mapScale";
+import { MapScaleReadout } from "@/components/MapScaleReadout";
 import {
   OCEAN_BASEMAP_SOURCE_ID, OCEAN_BASEMAP_LAYER_ID,
   oceanBasemapSource, oceanBasemapFallbackSource, oceanBasemapLayer,
@@ -5592,23 +5592,14 @@ export default function DataMapPage() {
   const [imageryDate, setImageryDate] = useState<{ label: string; known: boolean }>(
     { label: "…", known: false });
   // COMBINED BOTTOM STATUS BAR (2026-07-22): our own scale + zoom readout
-  // (lib/mapScale) fused with the capture date into ONE element. Tracks the
-  // camera on move (throttled to a frame) and the site-wide unit toggle.
-  const [scaleView, setScaleView] = useState<{ zoom: number; lat: number }>({ zoom: 3.6, lat: 37.5 });
+  // (lib/mapScale) fused with the capture date into ONE element. The scale
+  // and zoom part is components/MapScaleReadout, which follows the camera
+  // itself: a camera move re-renders that readout, never this page. The
+  // page keeps its unit tick, so a unit-system change re-renders it as before.
   const [unitsTick, setUnitsTick] = useState(0);
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    let raf: number | null = null;
-    const sync = () => {
-      raf = null;
-      try { const c = map.getCenter(); setScaleView({ zoom: map.getZoom(), lat: c.lat }); } catch {}
-    };
-    const onMove = () => { if (raf == null) raf = requestAnimationFrame(sync); };
-    sync();
-    map.on("move", onMove);
-    const offUnits = subscribeUnits(() => setUnitsTick((n) => n + 1));
-    return () => { if (raf != null) cancelAnimationFrame(raf); try { map.off("move", onMove); } catch {} offUnits(); };
+    if (!mapRef.current || !mapReady) return;
+    return subscribeUnits(() => setUnitsTick((n) => n + 1));
   }, [mapReady]);
   useEffect(() => {
     const map = mapRef.current;
@@ -14881,16 +14872,10 @@ export default function DataMapPage() {
           (a ground-scale readout is meaningless on a shrinking globe). */}
       {!spaceActive && (() => {
         void unitsTick; // re-render on unit-system change
-        const sc = scaleReading(scaleView.zoom, scaleView.lat, getUnits() === "imperial" ? "imperial" : "metric");
         return (
           <div className="vt-map-statusbar" data-testid="imagery-date" role="status"
                title="Map scale · zoom level · Esri World Imagery capture date at the view centre (varies within a view and by zoom)">
-            <span className="vt-statusbar-scale" aria-label={`scale ${sc.label}`}>
-              <span className="vt-statusbar-bar" style={{ width: `${Math.round(sc.widthPx)}px` }} />
-              {sc.label}
-            </span>
-            <span className="vt-statusbar-sep">·</span>
-            <span className="vt-statusbar-zoom">{zoomLabel(scaleView.zoom)}</span>
+            <MapScaleReadout map={mapReady ? mapRef.current : null} />
             {enabled.imagery && (
               <>
                 <span className="vt-statusbar-sep">·</span>
