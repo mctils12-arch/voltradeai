@@ -117321,3 +117321,92 @@ ROLLBACK TRIGGER: observations falls by more than those two files' lines; or a f
 TESTS: server/platformStats.test.ts gains 3 tests (7 total): accepted and rejected names; the two bookkeeping files and a bookkeeping-only dir excluded (old rule 11, new rule 5; 2 streams); the move from a pre-change persisted cache (served first, then dropped without re-reading any file). platformStatsIncremental 7/7; datacoreArchive + repoFiles 54/54. Ratchets: counter OK (28), tsc 6 (pre-existing), test_ts_code_only 11.
 NOTE: server/dtccSwapsStall.test.ts:171 (the queued dtcc-stall PR) has the comment "platformStats counts both (it lists every *.jsonl.gz, the index included)". Its assertion calls countFileLines directly and stays true, but the comment is stale once this ships.
 STARVED: no.
+
+## 2026-11-06 [RESEARCH] — T-DATACORE (event_reaction.py, event_reaction_panel.py, server/eventStudy.ts + wiring) — Event-reaction study re-run on the delisting-inclusive panel: server-side weekly job, PRIOR stated before any run
+VERSION: v1.0.1378 (shipped 2026-11-12 by the parent session; main was v1.0.1377)
+
+WHY / EVIDENCE:
+- research/event_reaction_study.md (#1542, run 2026-10-29) priced CURRENT tickers on Yahoo, a survivor panel. Its own pre-registration names the 2016+ delisting-inclusive panel as the fix (§1.2). It also forbids any positive-drift pass until that panel runs (§1.5 rule 4: "positive on survivors — unconfirmed, needs the delisting-inclusive panel"), and §8.3 lists the re-run as a next step. research/master_status.md parks it ("rerun on the delisting-inclusive panel"). It never ran.
+- The panel exists only on the Railway volume (server/pricePanel.ts; build b20261029, complete 2026-10-30, next refresh after 30 days). It is Alpaca data under derived-statistics-only terms, so the re-run has to happen there.
+- The production image copies only root *.py (Dockerfile `COPY *.py ./`). scripts/event_reaction_study.py therefore cannot run or be imported in production, so its code moved to the root.
+- Live state read this session through the diag API:
+  - The walkforward last ran 2026-11-01, 262 s, 518 MB peak, 20,848 panel series.
+  - edge_p2 has never run. It skipped 2026-11-01 on the old 1.5 GB disk floor, with 1,184 MB free on the volume.
+- Dated CIK→ticker map: sec_issuer_pairs + sec_cik_symbol_map (experiments 2026-11-05: about 70% of 10-K filers join; unmapped names skew small and quiet).
+
+PRIOR (stated before any panel run; verbatim in event_reaction_panel.PRIOR and in every latest.json):
+- Survivorship flatters post-event returns, so adding delisted names should move post-event excess CARs DOWN. The biggest moves should be in small caps and in E3 restatements, whose worst cases are the delisted ones.
+- E1 insider clusters: [0,1] stays about +2%. Pooled [2,20] falls from +0.79% to about +0.3..+0.6%. No cell reaches |t| 3.02 (P 0.95).
+- E2 Item 1.01: small-cap [2,20] about −1.2..−1.6%, but the 2016–2020 half stays near 0, so the halves rule fails again (P 0.90 of no pass).
+- E3 Item 4.02: [0,1] more negative, about −2..−3%. [2,20] about −0.5..−2%, still underpowered (P 0.95 of no pass).
+- E4 CEO/CFO exits: [0,1] about −1.2%; pooled [2,20] about −1.0..−1.5%. Small caps are the likeliest cell to cross 2.87 (P 0.10).
+- Overall P(no candidate cell) is about 0.73: the re-run most likely CONFIRMS "no tradeable post-event drift".
+- WHAT WOULD CHANGE THE CONCLUSION:
+  - (a) Any [2,20] cell passes all four pre-registered tests here. A negative cell becomes a gate-2 CANDIDATE (next: gate-3 ablation with borrow cost). A positive cell becomes a PROVISIONAL candidate.
+  - (b) The survivor subset on the panel fails to reproduce the 10-29 Yahoo cells within their SEs. That would be a gate-1 price-source fault, to diagnose first.
+  - (c) A type's full-panel [2,20] moves by more than its MDE versus the survivor subset: survivorship mattered for that type.
+
+CHANGE:
+1. The study core moved to `event_reaction.py`. Code is unchanged except ROOT and two keyword-only options on `measure_ticker` (`delisting_return`, `floor_close`).
+   - The defaults reproduce the 2026-10-29 behaviour exactly. Checked against origin/main's function on 300 synthetic tickers with gaps and sub-$1 prices: 1,949 records, byte-identical JSON. The 46 existing tests pass unchanged.
+   - `scripts/event_reaction_study.py` is now a shim. The documented commands and the test's import path still work.
+2. `event_reaction_panel.py` adds:
+   - the panel price source;
+   - the universe expansion: pre-registered survivors plus delisted CIKs (not currently exchange-listed) identified by their dated Form 3/4/5 ticker;
+   - the SEC stages: Form 345 zips parsed in memory into compact rows, resumable submissions, and the core's E4 stage restricted to this run's seeded sample;
+   - the run, writing `DATA_DIR/event_study/latest.json` and `last_run.json` (aggregate tables only).
+   - The pre-registration is untouched. Windows, cells, bars (2.87, 3.02 for E1), controls and verdict functions are all imported from the core.
+   - Declared deviations PD1–PD9 (in code and in every result, all before any run):
+     - PD1: Alpaca prices.
+     - PD2: the universe rule.
+     - PD3: delisting via walkforward.delisting_return (0% at a dated merger or rename, −30% otherwise; SPY after; entry close must be a real bar; events and controls need bars on day −1 and day 0).
+     - PD4: the $1 floor reads the raw close.
+     - PD5: the panel starts in 2016 (no 2016 size buckets).
+     - PD6: rule 4 on the panel (a positive pass is PROVISIONAL; the core verdict is kept beside it).
+     - PD7: reused-ticker guards (span overlap).
+     - PD8: the E4 sample is drawn from the larger population.
+     - PD9: SEC inputs are fetched at run time.
+   - Integrity guards:
+     - more than 2% failed SEC fetches gives "insufficient", never a thinned "ok";
+     - errored E4 documents are retried;
+     - a missing insider quarter before as_of gives "insufficient" (only the latest unpublished quarter is tolerated).
+   - It also writes a survivor-subset table, which separates the price-source change from the delisted names.
+3. `server/eventStudy.ts` schedules it:
+   - Saturday 07:00–15:00 ET, at most once per ISO week, 5 h budget (ends by 20:00 ET, before the 20:15 panel build), 1,200 MB, SEC at 5 req/s, niceness 19, own long-job lane.
+   - It waits without spending the week while walkforward_weekly, edge_p2_weekly or price_panel_build has an open heartbeat run.
+   - Freshness = panel build + a study-code hash, not the package version, so an unrelated deploy does not repeat about 40–45k SEC requests. A result older than 27 days also re-runs.
+   - Heartbeat `event_study_weekly`; read-only diag probe `event_study`; booted from routes.ts; flag VOLTRADE_EVENT_STUDY, default ON.
+4. `storage_config.EVENT_STUDY_DIR` added.
+
+FOOTPRINT:
+- Volume: two JSON files, about 40–80 KB. The synthetic end-to-end latest.json is 37 KB, and the table size does not depend on n.
+- Container tmp: a SEC cache of about 15–25 MB, in a per-build directory; other builds' directories are deleted. Measured on real SEC data for 2016q1 and 2026q2: 11–14 MB zip, about 3 s each, 40–70 KB gz of purchase rows plus about 95 KB gz of issuer pairs per quarter, 134 MB peak.
+- Network: about 40–45k requests per full run (2.5 h at 5/s), once per panel build, which refreshes monthly.
+
+DOWNSTREAM (traced two steps):
+1. No trade path reads DATA_DIR/event_study. The dossier's static survivor-run context (ticker_dossier.py EVENT_STUDY, client tickerDossier) is unchanged until a result is judged under §1.7.
+2. Load on one Saturday a month:
+   - SEC traffic at 5 req/s stays under SEC's 10 req/s and leaves room for the live EDGAR feeds.
+   - CPU is niced to 19.
+   - Memory stays at or below 1.2 GB against the 22.9 GB cgroup limit read 2026-09-16. A walkforward started late cannot collide with the start of this job, because this job waits.
+
+ROLLBACK TRIGGER: `event_study_weekly` errors on two consecutive Saturdays, or a live EDGAR feed logs 403/429 during a run. Then set VOLTRADE_EVENT_STUDY=0 (one setting) and diagnose. There is no trading behaviour to roll back.
+
+TESTS:
+- test_event_reaction_panel.py: 20 new.
+- server/eventStudy.test.ts: 9 new.
+- test_event_reaction_study.py: 46, unchanged and green.
+- Related Python suites (price_panel, sec_cik_symbol_map, sec_issuer_pairs, walkforward, edge_p2): 122 passed.
+- Related TS suites: 92 + 79 passed.
+- counter_ratchet: OK, 28 counters at or better. tests 823→825 and assertions →33088, pins left for the re-pin on main.
+- tsc: 6, at the limit. test_ts_code_only: 11 passed.
+
+FIRST RUN: if this deploys before Saturday 2026-11-07 07:00 ET, the first tick in the window (07:00–07:30 ET = 12:00–12:30Z) runs it, after the walkforward's 06:00 slot (it waits if that is still running). A result is expected around 10:00 ET (15:00Z): read `/api/diag/event_study`. Otherwise it runs on the first Saturday after deploy.
+
+NEXT:
+- Judge each type against the PRIOR.
+- If (b) fires, do a gate-1 price-source diagnosis before reading any cell.
+- Append a §9 panel re-run section to research/event_reaction_study.md with the result and PD1–PD9.
+- Change the dossier's context lines only as §1.7 allows.
+
+STARVED: no.

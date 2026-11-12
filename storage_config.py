@@ -49,6 +49,11 @@ PRICE_PANEL_DIR = os.path.join(DATA_DIR, "price_panel")
 # panel (walkforward.py, weekly via server/walkforward.ts): latest.json (last
 # success, read by the Brain page) + last_run.json (every run). Not created here.
 WALKFORWARD_DIR = os.path.join(DATA_DIR, "walkforward")
+# 2026-11-06 the pre-registered event-reaction study re-run on that panel
+# (event_reaction_panel.py, Saturdays via server/eventStudy.ts): latest.json
+# (last success, aggregate tables only) + last_run.json. Its SEC cache lives in
+# the container tmp dir, never here. Not created here.
+EVENT_STUDY_DIR = os.path.join(DATA_DIR, "event_study")
 
 # Weekly forecast screen (forecast.py, 2026-10-27, SHADOW): append-only JSONL
 # — the calls (+ one batch line per week) and, separately, their scores.

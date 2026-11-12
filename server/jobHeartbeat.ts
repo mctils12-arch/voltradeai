@@ -331,6 +331,22 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     },
     disabledReason: "VOLTRADE_LAZY_PRICES_BACKFILL off",
   },
+  {
+    // eventStudy.ts bootEventStudy: 30-min tick, acts Saturday 07:00-15:00 ET
+    // once per ISO week — a run (event_reaction_panel.py, up to 5 h) or one
+    // "skipped" beat (no panel / low disk / fresh result). A tick that finds
+    // another panel reader running waits without a beat, so the 2-day grace
+    // also covers a Saturday spent waiting.
+    id: "event_study_weekly", label: "Pre-registered event-reaction study on the delisting-inclusive panel (weekly, Sat 07:00-15:00 ET)",
+    source: "server/eventStudy.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 6 * HOUR,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_EVENT_STUDY;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_EVENT_STUDY off",
+  },
 ];
 
 // ── calendar ────────────────────────────────────────────────────────────────
