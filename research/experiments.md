@@ -117040,3 +117040,68 @@ GATES: `scripts/tsc_ratchet.sh` 6 = pin (TS2304 0); `scripts/counter_ratchet.sh`
 DOWNSTREAM CHAIN: cap unchanged (500), so a consumer that got 500 rows gets ≤500 rows (whole days) with `truncated: true` and a `next` cursor; the /data 13F page shows the same count field; metering unchanged; memory one day file at a time. Sequenced as its own PR behind v1.0.1366 (it imports that PR's helper) — pushed to the designated branch only after #1719 merged, per the merge-order protocol.
 
 NEXT (unchanged from the entry above, minus item 1): fold the earnings reader onto the helper (a `projectDay` hook for mergeCoRegistrants); the /data filings + 13F pages show `covered`/`truncated` (T-CLIENT, visual harness); `/api/v1/signals` keyed catalog. STARVED: yes.
+
+## 2026-11-06 [REPAIR] — T-DATACORE (new server/dtccIdSet.ts; server/dtccSwaps.ts, server/dtccIdsStore.ts, server/heapGauges.ts; new server/dtccIdSet.test.ts, server/dtccSwapsCompact.test.ts) — the DTCC dedup set is an exact compact set (a typed-array table for the 19-digit IDs): ~529 MB of heap to ~80 MB
+VERSION: v1.0.1368 (shipped 2026-11-12 by the parent session; main was v1.0.1367)
+WHY / EVIDENCE:
+- Live /api/health, 2026-11-06: checks.memory.detail.caches["dtcc.seenIds"] = {entries 6,939,910, bytes 499,673,520 (the 72 B/ID estimate), mode dual, dbCount null, diskGuard true}. The volume guard refuses the dedup DB (the volume is short of space; that call is the human's), so the in-memory Set is the only dedup, in a heap of ~1.87 GB.
+- Measured on a synthetic 6.94M-ID index, a Set<string> retains 529 MB (446 MB after the stacked stall fix).
+- The ID format, established from evidence before choosing a structure:
+  - the live values (2026-11-06 /api/data/dtcc-swaps top_rows) are 100 of 100 19-digit decimals with no leading zero, all above 2^53 (e.g. 6192117454000002001). A float64 cannot hold them, and a "≤15 digits in a Float64Array" design would have put every live ID in the string fallback and saved nothing.
+  - the public spec is the CFTC Parts 43/45 Technical Specification v3.3, Appendix A, D1 "Dissemination identifier": "SDR generated unique and random identifier for each publicly disseminated message", Format Varchar(52), "Up to 52 alphanumeric characters". So arbitrary strings must keep working. The test fixtures use "A1".
+CHANGE:
+- server/dtccIdSet.ts (new), CompactIdSet: has/add/size, iteration, addBytes.
+  - A canonical decimal ("0", or 1-19 digits with no leading zero, so below 10^19 < 2^64) is packed EXACTLY into two uint32 words with no BigInt: v = a·10^9 + b, hi = floor(a/4), lo = (a mod 4)·2^30 + b. This is a bijection, so "0123" can never meet "123".
+  - The words are stored in an open-addressing, linear-probing table: one Uint32Array of 8 B per slot, any capacity (multiply-shift), new tables at 0.7 fill and a resize past 0.85.
+  - Everything else (non-digits, leading zeros, over 19 digits, non-strings from a malformed archive row) stays in a plain Set, with Set semantics.
+  - A hash only chooses where a probe starts, and a hit compares the full 64-bit key, so there are no false positives.
+  - Growth: reserveAsync builds the larger table in slices while the old one answers. If members were added meanwhile it discards the copy and redoes the resize synchronously (correct before fast). add() resizes synchronously only as the fallback.
+- dtccSwaps.ts:
+  - seenIds is a CompactIdSet.
+  - Both index loaders count the lines first (sync: countBufferLines; async: a streamed count pass), so the set is allocated once at its final size, with no resize and no second table while loading. They then add each line from the bytes, with no 6.94M strings.
+  - The async archive path reserves room for the poll's rows before the verdict, so the claim never resizes in one block.
+  - dtccIdsStats gains memoryTableBytes (exact) and memoryFallbackCount.
+- heapGauges.ts: dtcc.seenIds `bytes` = the table's exact bytes + fallbackCount × the old 72 B per-string estimate (`tableBytes`, `fallbackCount` shown). It was memoryCount × 72 B.
+- dtccIdsStore.ts: rebuildIds accepts any sized iterable, and the rebuild backfill inserts batch by batch off the iterator, so a CompactIdSet is never decoded into 6.94M strings at once.
+RESULT (same harness as the stall fix, commit a81a54eb, load average ~4.4):
+- retained memory 529 MB (original) / 446 MB (stall fix) -> 80.4 MB (heapUsed +1.1 MB, arrayBuffers +79.3 MB; the gauge reports 79.3 MB, exact);
+- max event-loop delay:
+  - boot re-served: 85 ms (repeat 71), from 413;
+  - boot new file: 107 ms, from 307;
+  - warm 6 h poll: 114 ms, from 197;
+  - originally 8,410 / 17,029 / 9,907 ms;
+- the boot load takes 5.5-6.5 s of wall time (9.3 s originally);
+- unit level: a 1M-ID table is 11.4 MB (11.43 B/ID); 136,701 lookups take 65-82 ms;
+- the longest probe at 0.85 fill is 488 slots for the live ID shape vs 445 for random 19-digit keys, so the hash spreads the structured IDs like random ones.
+DOWNSTREAM (two steps):
+1. Memory: the structure's V8 heap drops from 446-529 MB to ~1 MB. Its 79.3 MB table is an ArrayBuffer, which lives outside the --max-old-space-size heap. The measured retained total drops by 366 MB vs the stall fix and by 449 MB vs the original; process RSS was not measured. Major GCs no longer mark 6.94M strings.
+2. Growth: the set is sized at 0.7 fill at each boot. Without a restart it reaches 0.85 after ~1.49M more IDs (~11 days at ~128k/day). The next poll then resizes in slices, with a transient second table (~96 MB) for the copy.
+3. The health gauge number changes meaning: `bytes` was an estimate (72 B × entries) and is now the real table bytes. For the same 6.94M IDs it moves from 499.7 MB to ~79 MB. This is a diagnostic, not a trading metric.
+4. Iteration order is now fallback-first then table order, no longer insertion order. Only the legacy rebuild's index line order depends on it, and the format is unchanged.
+ROLLBACK TRIGGER: revert this commit. Nothing on disk changes format, so a revert needs no migration. Do it if any of these happen:
+- the dtcc.seenIds gauge's `entries` differs from /api/data/dtcc-swaps total_archived after the first poll;
+- a re-served source file archives new_rows_archived > 0, or total_archived drops (a lost member);
+- `mismatches` > 0 once the DB is back on.
+- A non-zero `fallbackCount` is NOT a rollback signal: it means non-decimal IDs appeared, which is supported and only costs more memory.
+TESTS:
+- New server/dtccIdSet.test.ts, 10 tests:
+  - canonical decimals of every length 1-19 and at the boundaries (2^32, 2^53±1, 10^19-1, the live shape) round-trip exactly, and their neighbors are absent;
+  - non-canonical values stay distinct members ("0123"/"123", "00"/"0", 20 digits, 2^64, signs, spaces, "\r", fullwidth and Arabic-Indic digits, non-strings);
+  - a 300k-operation randomized corpus (adds by string and by bytes, lookups) answers like a plain Set at every step;
+  - simulated polls judge the same rows fresh in the same order, in-poll duplicates included;
+  - growth from 1,024 slots to 300k;
+  - a sized set never resizes;
+  - reserveAsync with concurrent adds mid-copy;
+  - addBytes == add(toString) on invalid UTF-8;
+  - hash quality;
+  - memory (tableBytes exact, the arrayBuffers delta within 10%).
+- New server/dtccSwapsCompact.test.ts, 5 tests:
+  - both loaders hold exactly the strings the original split("\n") reader produced, invalid UTF-8 included;
+  - one-time sizing and identical tables;
+  - the gauge's true bytes;
+  - a warm poll past the fill limit grows before the claim, with the sync and async paths byte-identical;
+  - the DB rebuild backfill from a CompactIdSet.
+- One message string in server/dtccSwapsStall.test.ts was corrected: "insertion order" -> "iteration order". The assertion is unchanged.
+- Related suites: 163 passed across 12 files. Existing dtccSwaps/dtccIdsStore/dtccIdsDiskGuard/heapDiag tests are unchanged.
+- tsc reports 6 errors (the pinned six). The counter ratchet is OK (tests 823->826, assertions 32916->33053; pins not edited). test_ts_code_only.py passes 11. The esbuild server bundle builds.
+STARVED: no.

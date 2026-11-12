@@ -226,7 +226,7 @@ test("loadSeenIdsAsync == loadSeenIds: same members in the same order over a mul
   const sync = loadSeenIds(dir);
   const asyncSet = await loadSeenIdsAsync(dir);
   assert.equal(asyncSet.size, sync.size);
-  assert.deepEqual([...asyncSet], [...sync], "identical members AND insertion order");
+  assert.deepEqual([...asyncSet], [...sync], "identical members AND iteration order (both loaders size and fill the set the same way)");
   assert.ok(asyncSet.has("0123") && asyncSet.has("123") && asyncSet.has("with\rcarriage") && asyncSet.has("tail-without-newline"));
   assert.equal(asyncSet.has(""), false, "empty lines are skipped, as split+if(line) does");
   fs.rmSync(dir, { recursive: true, force: true });
