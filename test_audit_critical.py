@@ -433,20 +433,38 @@ class TestBacktestV2Engine(unittest.TestCase):
         json.dumps(out)  # bot.ts JSON.parses stdout — must be serializable
 
     def test_artifact_trade_schema(self):
-        """Trade records must match backtest_10yr_results.json's trade keys."""
+        """Trade records must match backtest_10yr_results.json's trade keys.
+
+        2026-11-06 (KNOWN BROKEN #48 close-out): the engine's default exit
+        model is "live" (prior "legacy"). The legacy schema pin below is
+        unchanged and now names its model; the default gets its own exact pin:
+        the same keys plus scale_outs, and the live engine's exit vocabulary."""
         from backtest_v2 import run_backtest
         bars = self._synth_bars(420, daily=0.004)
-        out = run_backtest("TEST", "momentum", 1, bars=bars, spy=bars,
-                           vxx=self._bull_vxx(bars))
         expected = {"date_exit", "date_entry", "ticker", "instrument",
                     "strategy", "entry_price", "exit_price", "holding_days",
                     "pnl", "net_pct", "exit_reason", "score", "vxx_ratio", "vrp"}
+        out = run_backtest("TEST", "momentum", 1, bars=bars, spy=bars,
+                           vxx=self._bull_vxx(bars), exit_model="legacy")
         trades = out["all_trades"]["momentum"]
         self.assertTrue(trades, "expected at least one trade under BULL")
         for t in trades:
             self.assertEqual(set(t.keys()), expected)
             self.assertIn(t["exit_reason"], {"stop_loss", "take_profit",
                                              "time_stop", "end_of_backtest"})
+        # the default (live) model
+        out = run_backtest("TEST", "momentum", 1, bars=bars, spy=bars,
+                           vxx=self._bull_vxx(bars))
+        self.assertEqual(out["exit_model"], "live")
+        trades = out["all_trades"]["momentum"]
+        self.assertTrue(trades, "expected at least one trade under BULL")
+        for t in trades:
+            self.assertEqual(set(t.keys()), expected | {"scale_outs"})
+            self.assertIn(t["exit_reason"], {"stop_loss", "trailing_stop",
+                                             "breakeven_stop", "take_profit",
+                                             "time_stop", "end_of_backtest"})
+            self.assertIsInstance(t["scale_outs"], int)
+            self.assertGreaterEqual(t["scale_outs"], 0)
 
     def test_squeeze_refuses_to_fabricate(self):
         """No historical short-interest data -> squeeze must report zero trades

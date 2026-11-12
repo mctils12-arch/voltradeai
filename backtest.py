@@ -11,9 +11,11 @@ Contract (server/bot.ts — POST /api/bot/backtest and the overnight scheduler):
 
 strategy: momentum | mean_reversion | squeeze | all   (default all)
 years: 0.5 .. 10                                       (default 3)
-exit_model: legacy | live                              (default legacy —
-  bot.ts never passes it; "live" simulates server/bot.ts checkPositionOnTick,
-  see backtest_v2.EXIT_MODELS and research/open_questions.md KNOWN BROKEN #48)
+exit_model: live | legacy | time_only | wide_stop      (default live since
+  2026-11-06, was legacy — bot.ts never passes it, so its backtests now score
+  the exits server/bot.ts checkPositionOnTick executes; "legacy" reproduces
+  the pre-2026-11-06 numbers. See backtest_v2.EXIT_MODELS and
+  research/open_questions.md KNOWN BROKEN #48)
 
 The engine simulates the bot's equity strategy logic with live-identical
 regime gating; options/squeeze legs are not simulated (no historical data —
