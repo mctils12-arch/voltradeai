@@ -39,12 +39,18 @@ export interface BotAccount {
 }
 /** server/todayTile.ts: equity now vs the prior close (Alpaca equity − last_equity, the
  *  daily-loss halt's own evaluateDailyPnl) beside SPY's move on the same ET day from the
- *  benchmark's cached bars; a missing side is null with its reason, never a zero. */
+ *  benchmark's cached bars; a missing side is null with its reason, never a zero.
+ *  BETWEEN SESSIONS (2026-11-06): `day` is the session the numbers describe — the last one
+ *  that ran (phase "between"), picked by the broker clock and the NYSE calendar; the change
+ *  runs from the close before it to equity now or, once Alpaca has rolled last_equity, to
+ *  that session's own close (end_basis). The phase fields are absent from an older server. */
 export interface TodayTile {
   day: string;
+  phase?: "session" | "between"; when?: string; phase_source?: string; prev_day?: string | null;
   equity_now: number | null; equity_prev_close: number | null;
+  prev_close_source?: "last_equity" | "daily_line" | null; equity_end?: number | null; end_basis?: "now" | "close" | null;
   pnl_usd: number | null; pnl_pct: number | null; pnl_reason: string | null;
-  spy_pct_today: number | null; spy_asof: string | null; spy_bar_date: string | null; spy_reason: string | null;
+  spy_pct_today: number | null; spy_asof: string | null; spy_bar_date: string | null; spy_reason: string | null; spy_final?: boolean;
   excess_pct: number | null;
   asof: string; source: string;
 }

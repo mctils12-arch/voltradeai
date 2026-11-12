@@ -61,17 +61,38 @@ const COCKPIT_PAGES = new Map([
 // Pages under test: name -> app hash route
 // Pages under test: map pages get the full map/perf/self-see battery;
 // non-map pages get layout + interaction checks only.
-/** server/todayTile.ts's body from an equity, its prior close and SPY's move (null + a reason when SPY is missing) */
+/** the weekday before an ET date (YYYY-MM-DD): the fixtures' previous session (holidays aside — a fixture) */
+function prevWeekday(day) {
+  let d = new Date(`${day}T12:00:00Z`);
+  do d = new Date(d.getTime() - 86_400_000); while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
+/** server/todayTile.ts's body from an equity, its prior close and SPY's move (null + a reason when SPY is missing) —
+ *  during a session (phase "session", 2026-11-06 fields: the broker clock said open; the change runs to equity now) */
 function todayFixture(equityNow, prevClose, spyPct, now, ago, spyReason) {
   const r2 = (x) => Math.round(x * 100) / 100;
   const day = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const pct = r2(((equityNow - prevClose) / prevClose) * 100);
-  return { day, equity_now: equityNow, equity_prev_close: prevClose, pnl_usd: r2(equityNow - prevClose), pnl_pct: pct, pnl_reason: null,
-    spy_pct_today: spyPct, spy_asof: spyPct === null ? null : ago(4), spy_bar_date: spyPct === null ? null : day, spy_reason: spyReason,
+  return { day, phase: "session", when: "during the session", phase_source: "broker clock", prev_day: prevWeekday(day),
+    equity_now: equityNow, equity_prev_close: prevClose, prev_close_source: "last_equity", equity_end: equityNow, end_basis: "now",
+    pnl_usd: r2(equityNow - prevClose), pnl_pct: pct, pnl_reason: null,
+    spy_pct_today: spyPct, spy_asof: spyPct === null ? null : ago(4), spy_bar_date: spyPct === null ? null : day, spy_reason: spyReason, spy_final: false,
     excess_pct: spyPct === null ? null : r2(pct - spyPct), asof: new Date(now).toISOString(),
     source: "Alpaca paper account: equity now vs last_equity (the prior session's 16:00 ET close) · SPY: today's daily bar vs the prior close, price only, no dividends, like the paper account (Alpaca bars, adjustment=split, feed iex)" };
 }
-function botFixtures({ latched }) {
+/** BETWEEN SESSIONS ([REPAIR] 2026-11-06, server/todayTile.ts): the pre-market tile — the last session (the weekday
+ *  before the run's ET date), from the close before it (its daily line's record) to its own close (Alpaca has rolled
+ *  last_equity overnight), SPY's final bar; on the idle fixture's account (equity now 99,655.03, −$57 since that close). */
+function todayBetweenFixture(now) {
+  const day = prevWeekday(new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }));
+  return { day, phase: "between", when: "pre-market", phase_source: "broker clock", prev_day: prevWeekday(day),
+    equity_now: 99655.03, equity_prev_close: 100423.31, prev_close_source: "daily_line", equity_end: 99712.4, end_basis: "close",
+    pnl_usd: -710.91, pnl_pct: -0.71, pnl_reason: null,
+    spy_pct_today: -0.4, spy_asof: new Date(now - 12 * 60_000).toISOString(), spy_bar_date: day, spy_reason: null, spy_final: true,
+    excess_pct: -0.31, asof: new Date(now).toISOString(),
+    source: "Between sessions, the last session: Alpaca paper account equity now, or that session's own 16:00 ET close once Alpaca has rolled last_equity to it, vs the close before it (last_equity while Alpaca still holds it, else the session's daily line's record of it) · SPY: that session's daily bar vs the prior close, price only, no dividends, like the paper account (Alpaca bars, adjustment=split, feed iex)" };
+}
+function botFixtures({ latched, between = false }) {
   const now = Date.now();
   const ago = (min) => new Date(now - min * 60_000).toISOString();
   const row = (min, type, message) => ({ time: ago(min), type, action: type, message, detail: message });
@@ -295,7 +316,10 @@ function botFixtures({ latched }) {
     // TODAY tile (B1, 2026-11-03; server/todayTile.ts shape): the fixture's own equity against its prior close — latched
     // −$251 · −0.25 % against SPY +0.25 % (the benchmark fixture's spyLast) = −0.50 pp; idle −$768 · −0.77 % with no SPY
     // series yet, the designed null state (the live fixture server moves equity_now with equity from the third poll on)
-    "/api/bot/account": { equity: latched ? 100172.07 : 99655.03, lastEquity: 100423.31, cash: 17601.75, buyingPower: 175355.48, dailyPnL: latched ? -251.24 : -155.28, dailyPnLPct: latched ? -0.25 : -0.16, equityPeak: 110727.04, drawdownPct: latched ? -9.53 : -10.0,
+    "/api/bot/account": between
+      // between sessions (2026-11-06): pre-market, Alpaca has rolled last_equity to the last session's close
+      ? { equity: 99655.03, lastEquity: 99712.4, cash: 17601.75, buyingPower: 175355.48, dailyPnL: -57.37, dailyPnLPct: -0.06, equityPeak: 110727.04, drawdownPct: -10.0, today: todayBetweenFixture(now) }
+      : { equity: latched ? 100172.07 : 99655.03, lastEquity: 100423.31, cash: 17601.75, buyingPower: 175355.48, dailyPnL: latched ? -251.24 : -155.28, dailyPnLPct: latched ? -0.25 : -0.16, equityPeak: 110727.04, drawdownPct: latched ? -9.53 : -10.0,
       today: todayFixture(latched ? 100172.07 : 99655.03, 100423.31, latched ? 0.25 : null, now, ago, latched ? null : "no SPY bars fetched yet") },
     "/api/bot/positions": positions,
     "/api/bot/bars": { bars, ticker: "QQQ", timeframe: "1Hour" },
@@ -327,7 +351,10 @@ function botFixtures({ latched }) {
           asOf: ago(4), source: "alpaca fills via sleeve ledger", cached_s: 240, stale: false, lastError: null };
       })() : null,
       brokerReason: latched ? null : "sleeve ledger not loaded yet; the next poll fills it" },
-    "/api/bot/market-status": { isOpen: true, nextOpen: new Date(now + 20 * 3600_000).toISOString(), nextClose, timestamp: new Date(now).toISOString() },
+    "/api/bot/market-status": between
+      // pre-market: the open is 3 h 40 min away (05:50 ET)
+      ? { isOpen: false, nextOpen: new Date(now + 220 * 60_000).toISOString(), nextClose: new Date(now + 610 * 60_000).toISOString(), timestamp: new Date(now).toISOString() }
+      : { isOpen: true, nextOpen: new Date(now + 20 * 3600_000).toISOString(), nextClose, timestamp: new Date(now).toISOString() },
     "/api/bot/calendar": { earlyCloses: [], holidays: [], tomorrowStatus: "open" },
     "/api/ml/status": { model_exists: true, enabled: true, model_age_hours: 9.7, last_accuracy: 58, last_samples: 10000, last_status: "trained" },
     "/api/bot/insight": insight,
@@ -914,6 +941,9 @@ const PAGES = {
   // also at 1920 since the Today tile (2026-11-03): the one width where the KPI strip is a single row of seven
   bot: { route: "/app#/bot", map: false, widths: WIDE, fixtures: botFixtures({ latched: true }) },
   botidle: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: false }) },
+  // BETWEEN SESSIONS ([REPAIR] 2026-11-06): the same idle page pre-market — the market closed, the Today tile naming
+  // the last session ("Thu Nov 5 session"), close to close, SPY's final bar. Its own battery below (the Today tile).
+  botnight: { route: "/app#/bot", map: false, fixtures: botFixtures({ latched: false, between: true }) },
   // POP-OUT PANE (slice D, 2026-10-21): one panel popped out into its own
   // browser window — the same app at /app#/bot/pane/<id>, rendered alone
   // (no shell), the window IS the panel. Same fixtures as `bot`.
@@ -2952,7 +2982,10 @@ function startServer() {
           if (u === "/api/bot/audit") return res.end(JSON.stringify([{ time: new Date(Date.now() - 2000).toISOString(), type: "MORNING-TRADE", message: `KWEB: bought 120 @ 31.42 (score 75) — live fixture ${n}` }, ...base]));
           const eq = Number(base.equity) + 12.5 * (n - 2);
           const t = base.today;
-          const today = t ? todayFixture(eq, t.equity_prev_close, t.spy_pct_today, Date.now(), (min) => new Date(Date.now() - min * 60_000).toISOString(), t.spy_reason) : undefined;
+          const today = !t ? undefined : t.phase === "between"
+            // between sessions the change runs close to close: only equity now (the hover's drift) moves
+            ? { ...t, equity_now: eq, asof: new Date().toISOString() }
+            : todayFixture(eq, t.equity_prev_close, t.spy_pct_today, Date.now(), (min) => new Date(Date.now() - min * 60_000).toISOString(), t.spy_reason);
           return res.end(JSON.stringify({ ...base, equity: eq, ...(today ? { today } : {}) }));
         }
       }
@@ -4113,11 +4146,17 @@ async function main() {
             const text = (t.textContent || "").replace(/\s+/g, " ").trim();
             const lines = [...t.querySelectorAll(".vt-kpi-today-ln > span")].map((s) => ({ text: s.textContent || "", cut: s.scrollWidth - s.clientWidth > 1 }));
             const r = t.getBoundingClientRect();
-            return { text, lines, over: Math.max(0, t.scrollHeight - t.clientHeight), w: Math.round(r.width), h: Math.round(r.height), help: !!t.querySelector('button.vt-help[data-help="today"]'), title: t.querySelector(".vt-kpi-today")?.getAttribute("title") || "", headline: t.querySelector(".vt-bot-kpiv")?.textContent || "" };
+            const eb = t.querySelector(".vt-kpi-today-eb");
+            return { text, lines, over: Math.max(0, t.scrollHeight - t.clientHeight), w: Math.round(r.width), h: Math.round(r.height), help: !!t.querySelector('button.vt-help[data-help="today"]'), title: t.querySelector(".vt-kpi-today")?.getAttribute("title") || "", headline: t.querySelector(".vt-bot-kpiv")?.textContent || "",
+              phase: t.getAttribute("data-phase"), eb: (eb?.innerText || "").replace(/\s+/g, " ").trim(), ebCut: eb ? eb.scrollWidth - eb.clientWidth > 1 : true };
           });
           if (!td) fail("today: no tile in the KPI strip");
           else {
-            console.log(`  today tile ${vp.w}px: ${td.w}×${td.h} — "${td.text}"`);
+            console.log(`  today tile ${vp.w}px: ${td.w}×${td.h} — eyebrow "${td.eb}" — "${td.text}"`);
+            // BETWEEN SESSIONS (2026-11-06): these two pages are in-session fixtures — the eyebrow stays "Today"
+            if (td.phase !== "session") fail(`today: the in-session fixture's tile reads phase "${td.phase}"`);
+            if (!/^today · vs spy\??$/i.test(td.eb)) fail(`today: the eyebrow reads "${td.eb}" during a session (expected "Today · vs SPY")`);
+            if (td.ebCut) fail(`today: the eyebrow is cut short — "${td.eb}"`);
             if (/NaN|undefined|null/.test(td.text)) fail(`today: a bare NaN / undefined / null in "${td.text}"`);
             if (td.over > 1) fail(`today: the tile clips ${td.over}px of its own content`);
             for (const l of td.lines) if (l.cut) fail(`today: a line is cut short — "${l.text}"`);
@@ -4731,6 +4770,91 @@ async function main() {
           }
         } catch (e) {
           fail(`overview shots: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+        }
+      }
+
+      // ── TODAY TILE BETWEEN SESSIONS ([REPAIR] 2026-11-06; server/todayTile.ts, client/src/bot/today.ts): the
+      // pre-market page. The eyebrow names the last session ("Thu Nov 5 session"; the phone and the folded l-tier strip
+      // drop the word "session"), never "Today", and is not cut; the change runs close to close, from the close before
+      // that session (its daily line's record) to its own close, and the printed numbers ADD UP (end − prior = the
+      // change; the change ÷ prior = its percent; percent − SPY = the headline); SPY's note says "close" (its final
+      // bar); the last line names both days ("Wed $X → Thu $Y"; the phone keeps the numbers); the hover says when the
+      // read fell and where every number came from, and calls nothing "today". The tile never clips its content.
+      if (name === "botnight") {
+        const fail = (m) => checks.failures.push("today-between: " + m);
+        try {
+          for (let i = 0; i < 40; i++) { if (await page.locator('.vt-bot-kpi .vt-bot-panel[data-kpi="today"][data-phase="between"]').count()) break; await page.waitForTimeout(100); }
+          const fx = PAGE_FIXTURES["/api/bot/account"] && PAGE_FIXTURES["/api/bot/account"].today;
+          const td = await page.evaluate(() => {
+            const t = document.querySelector('.vt-bot-kpi .vt-bot-panel[data-kpi="today"]');
+            if (!t) return null;
+            const eb = t.querySelector(".vt-kpi-today-eb");
+            const lines = [...t.querySelectorAll(".vt-kpi-today-ln > span")].map((x) => ({ text: (x.textContent || "").trim(), shown: (x.innerText || "").replace(/\s+/g, " ").trim(), cut: x.scrollWidth - x.clientWidth > 1 }));
+            const r = t.getBoundingClientRect();
+            return { phase: t.getAttribute("data-phase"), text: (t.textContent || "").replace(/\s+/g, " ").trim(), eb: (eb?.innerText || "").replace(/\s+/g, " ").trim(), ebCut: eb ? eb.scrollWidth - eb.clientWidth > 1 : true,
+              lines, over: Math.max(0, t.scrollHeight - t.clientHeight), w: Math.round(r.width), h: Math.round(r.height),
+              title: t.querySelector(".vt-kpi-today")?.getAttribute("title") || "", headline: (t.querySelector(".vt-bot-kpiv")?.textContent || "").trim() };
+          });
+          if (!td) fail("no Today tile in the KPI strip");
+          else if (!fx || fx.phase !== "between") fail("the botnight fixture carries no between-sessions today block");
+          else {
+            console.log(`  today (between) ${vp.w}px: ${td.w}×${td.h} — eyebrow "${td.eb}" — "${td.text}"`);
+            const M = "\u2212";
+            const words = (day) => { const d = new Date(`${day}T12:00:00Z`); return { wd: d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }), mon: d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }), dd: d.getUTCDate() }; };
+            const cur = words(fx.day), prev = words(fx.prev_day);
+            const money = (v) => `$${Math.round(Math.abs(v)).toLocaleString("en-US")}`;
+            const signed = (v, suffix) => `${v < 0 ? M : v > 0 ? "+" : ""}${Math.abs(v).toFixed(2)}${suffix}`;
+            const folded = vp.w >= 1180 && vp.w < 1920;
+            const wordShown = vp.w >= 640 && !folded;
+            if (td.phase !== "between") fail(`the tile reads phase "${td.phase}"`);
+            const ebWant = new RegExp(`^${cur.wd} ${cur.mon} ${cur.dd}${wordShown ? " session" : ""} · vs SPY\\??$`, "i");
+            if (!ebWant.test(td.eb)) fail(`the eyebrow reads "${td.eb}" (expected "${cur.wd} ${cur.mon} ${cur.dd}${wordShown ? " session" : ""} · vs SPY")`);
+            if (/today/i.test(td.eb)) fail(`the eyebrow still says today between sessions — "${td.eb}"`);
+            if (td.ebCut) fail(`the eyebrow is cut short — "${td.eb}"`);
+            if (/NaN|undefined|null/.test(td.text)) fail(`a bare NaN / undefined / null in "${td.text}"`);
+            if (td.over > 1) fail(`the tile clips ${td.over}px of its own content`);
+            if (td.lines.length !== 3) fail(`${td.lines.length} caption lines (expected the change, SPY, and prior → close)`);
+            for (const l of td.lines) if (l.cut) fail(`a line is cut short — "${l.text}"`);
+            const chgWant = `${fx.pnl_usd < 0 ? M : "+"}${money(fx.pnl_usd)} · ${signed(fx.pnl_pct, "%")}`;
+            if (td.lines[0]?.text !== chgWant) fail(`the change line reads "${td.lines[0]?.text}" (expected "${chgWant}")`);
+            const spyWant = `SPY ${signed(fx.spy_pct_today, "%")} · close`;
+            if (td.lines[1]?.text !== spyWant) fail(`the SPY line reads "${td.lines[1]?.text}" (expected "${spyWant}": the final bar)`);
+            const pathWant = `${prev.wd} ${money(fx.equity_prev_close)} → ${cur.wd} ${money(fx.equity_end)}`;
+            if (td.lines[2]?.text !== pathWant) fail(`the last line reads "${td.lines[2]?.text}" (expected "${pathWant}")`);
+            // the phone and the folded strip drop the first day, never the second ("→ Thu": the session's close, not equity now)
+            const shownWant = vp.w < 640 || folded ? `${money(fx.equity_prev_close)} → ${cur.wd} ${money(fx.equity_end)}` : pathWant;
+            if (td.lines[2]?.shown !== shownWant) fail(`the last line shows "${td.lines[2]?.shown}" at ${vp.w}px (expected "${shownWant}")`);
+            if (td.headline !== signed(fx.excess_pct, " pp")) fail(`the headline reads "${td.headline}" (expected "${signed(fx.excess_pct, " pp")}")`);
+            // the arithmetic, from the printed numbers
+            const num = (x) => Number(String(x).replace(/\u2212/g, "-").replace(/[$,%+]/g, "").replace(/ pp$/, ""));
+            const m = /([−+]?\$[\d,]+) · ([−+]?\d+\.\d\d)%/.exec(td.lines[0]?.text || "");
+            const pm = /(\$[\d,]+) → \S+ (\$[\d,]+)/.exec(td.lines[2]?.text || "");
+            const sm = /SPY ([−+]?\d+\.\d\d)%/.exec(td.lines[1]?.text || "");
+            if (!m || !pm || !sm) fail(`the printed numbers could not be read — "${td.text}"`);
+            else {
+              if (Math.abs(num(pm[2]) - num(pm[1]) - num(m[1])) > 1) fail(`${pm[1]} → ${pm[2]} does not agree with the change ${m[1]}`);
+              if (Math.abs((num(m[1]) / num(pm[1])) * 100 - num(m[2])) > 0.011) fail(`${m[1]} on ${pm[1]} is not ${m[2]}%`);
+              if (Math.abs(num(m[2]) - num(sm[1]) - num(td.headline)) > 0.011) fail(`${m[2]}% − SPY ${sm[1]}% is not the headline ${td.headline}`);
+            }
+            // the hover: which session, when the read fell, where each number came from — and nothing called today
+            if (!new RegExp(`^${cur.wd} ${cur.mon} ${cur.dd} session \\(${fx.day} ET, shown pre-market\\)`).test(td.title)) fail(`the hover does not name the session and the moment — "${td.title.slice(0, 160)}"`);
+            if (!/last_equity/.test(td.title) || !/price only, no dividends/.test(td.title)) fail(`the hover carries no provenance — "${td.title.slice(0, 160)}"`);
+            if (!/after the close: the final bar/.test(td.title)) fail("the hover does not say SPY's bar is the final close");
+            if (!/daily line recorded Alpaca's last_equity/.test(td.title)) fail("the hover does not say the prior close is the daily line's record");
+            if (!/since that close \(after-hours and pre-market marks\)/.test(td.title)) fail("the hover does not carry equity now and the drift since the close");
+            if (/\btoday\b/i.test(td.title)) fail(`the hover calls something today between sessions — "${td.title.slice(0, 200)}"`);
+            if (!/session: pre-market, by the broker clock/.test(td.title)) fail("the hover does not say what decided the session");
+          }
+          const strip = page.locator(".vt-bot-kpi").first();
+          if (await strip.count()) {
+            await strip.evaluate((e) => e.scrollIntoView({ block: "start" }));
+            await page.waitForTimeout(150);
+            const bb = await strip.boundingBox();
+            if (bb && bb.y >= 0 && bb.y + bb.height <= vp.h) await page.screenshot({ path: path.join(OUT, `${name}-today-${vp.w}.png`), clip: { x: bb.x, y: bb.y, width: bb.width, height: bb.height }, animations: "disabled" });
+            else await page.screenshot({ path: path.join(OUT, `${name}-today-${vp.w}.png`), animations: "disabled" });
+          }
+        } catch (e) {
+          fail(`driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
         }
       }
 

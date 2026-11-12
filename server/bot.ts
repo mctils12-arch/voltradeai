@@ -84,6 +84,8 @@ import { fetchHistoricalFailures } from "./fdicBanks";
 import { eventStudy, type Bar as Gate2Bar } from "./fdicGate2";
 import { benchmarkVsSpy, SPY_BENCH_CACHE_MS, SPY_BENCH_ADJUSTMENT, SPY_BENCH_BASIS, type DailyClose, type Benchmark } from "./spyBenchmark";
 import { todayTile, type TodayTile } from "./todayTile";
+// the tile between sessions ([REPAIR] 2026-11-06): its clock + daily-line inputs (todayFor below)
+import { todayLineRecord, TODAY_CLOCK_LIVE_MS, TODAY_LINES_KEEP, TODAY_LINES_TTL_MS, type TileClock, type TodayLineRecord } from "./todayTile";
 import { buildScoreboard, SCOREBOARD_CACHE_MS } from "./scoreboard";
 import { afterTaxBenchmark, type AfterTaxBenchmark } from "./afterTaxBenchmark";
 import { readTaxDecisions, taxBody, taxLimit, taxHoldOf, taxDeferLine, TaxDeferAudit, ltApproachingRows, taxRealizedSnapshot, writeTaxRealized, readHarvestReview, taxHarvestAuditRows, TAX_REALIZED_REFRESH_MS, type TaxBody, type LtApproachingRow } from "./taxAware";
@@ -123,6 +125,7 @@ import { squeezeReport } from "./squeezeGex";
 import { dealerGammaAuditRows, dealerGammaDataDir, dealerGammaProbeBody, readDealerGammaDecisions, readDealerGammaState } from "./dealerGamma";
 import { marketHolidays, marketHalfDays } from "./optionsChainArchive";
 import { createOrderGate } from "./brokerClockGate"; // BROKER CLOCK ORDER GATE 2026-11-05
+import { clockStateFrom, parseClockReading, type ClockReading } from "./brokerClockGate"; // the Today tile's session (2026-11-06)
 import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { heapDiagnostic, trackSet } from "./heapDiag"; // memory audit 2026-11-03 A0
 import { registerBuiltinHeapGauges } from "./heapGauges";
@@ -2675,9 +2678,33 @@ print(json.dumps({
   // keeps its own SPY_BENCH_CACHE_MS cadence, so this adds no fetch the
   // benchmark route would not make. One warm-up in flight at a time.
   let spyWarming = false;
+  // BETWEEN SESSIONS ([REPAIR] 2026-11-06, server/todayTile.ts): which session
+  // the tile describes comes from the broker clock POS-KILL and the order gate
+  // share (posKillClockCache, refreshed every minute by the position sync) —
+  // READ, never awaited, extrapolated from its last good reading when the
+  // newest read failed or is old, and the market calendar decides when there
+  // is none; between sessions the prior close comes from that session's
+  // stored daily line (re-read at most once a minute).
+  let todayClockLastGood: ClockReading | null = null;
+  function todayClock(nowMs: number): TileClock {
+    const reading = posKillClockCache ? parseClockReading(posKillClockCache.clock, posKillClockCache.at) : null;
+    if (reading) todayClockLastGood = reading;
+    const live = reading && nowMs - reading.readAtMs <= TODAY_CLOCK_LIVE_MS ? reading : null;
+    const st = clockStateFrom(live, todayClockLastGood, nowMs);
+    return { state: st.state, source: st.source };
+  }
+  let todayLinesMemo: { at: number; lines: TodayLineRecord[] } | null = null;
+  function todayLines(nowMs: number): TodayLineRecord[] {
+    if (!todayLinesMemo || nowMs - todayLinesMemo.at > TODAY_LINES_TTL_MS) {
+      const lines = loadDailyLines(dailyLineDir(process.env)).slice(-TODAY_LINES_KEEP).map(todayLineRecord).filter((l): l is TodayLineRecord => l !== null);
+      todayLinesMemo = { at: nowMs, lines };
+    }
+    return todayLinesMemo.lines;
+  }
   function todayFor(acct: { equity: unknown; last_equity: unknown }): TodayTile {
     const nowMs = Date.now();
-    const body = todayTile({ equity: acct.equity, lastEquity: acct.last_equity, spyBars: spyBenchCache?.bars ?? null, spyFetchedAt: spyBenchCache?.at ?? null, nowMs });
+    const body = todayTile({ equity: acct.equity, lastEquity: acct.last_equity, spyBars: spyBenchCache?.bars ?? null, spyFetchedAt: spyBenchCache?.at ?? null, nowMs,
+      clock: todayClock(nowMs), calendar: { holidays: marketHolidays(), halfDays: marketHalfDays() }, lines: todayLines(nowMs) });
     if (!spyWarming && (!spyBenchCache || nowMs - spyBenchCache.at > SPY_BENCH_CACHE_MS)) {
       // the benchmark's own range when the curve exists; ten days otherwise (a fresh install still gets its SPY side)
       const oldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : new Date(nowMs - 10 * 86_400_000).toISOString().slice(0, 10);
