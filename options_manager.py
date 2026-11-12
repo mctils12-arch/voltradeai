@@ -1070,6 +1070,121 @@ def _pursue_entry_ladders() -> list:
         return []
 
 
+# ── RESTING MULTI-LEG ENTRIES (2026-11-06): their legs' state outlives the prune ──
+# A multi-leg entry's legs are registered at SUBMISSION, each carrying its
+# opening order id (register_options_entry(opening_order_id=...)). The prune in
+# manage_options_positions deleted every state key that is not a held position,
+# so the first pass on which that order had not filled dropped the legs' state.
+# The mid-first debit entries rest by design, and since the mleg limit-sign fix
+# a credit entry rests whenever the market moved against it. A leg that filled
+# after that pass came back with no strategy: "unknown" single legs, with no
+# group profit target, max-loss exit or 21-DTE close. Now, per distinct opening
+# order (followed through its replacements, i.e. the ladder's re-prices):
+#   - still working: the legs' state is kept;
+#   - filled: kept until the legs are held (at most OPENING_FILL_GRACE_SECONDS),
+#     then the entry clock moves to the fill time, as an immediate fill would
+#     have recorded it, and the marker is cleared;
+#   - canceled / expired / rejected / not found: the legs not held are dropped;
+#   - unreadable: kept, unless older than OPENING_ORDER_MAX_AGE_SECONDS (a DAY
+#     order is gone by then).
+OPENING_ORDER_KEY = "opening_order_id"
+OPENING_ORDER_MAX_AGE_SECONDS = 20 * 3600
+OPENING_FILL_GRACE_SECONDS = 15 * 60
+_REPLACE_HOPS = 12
+
+
+def _resolve_opening_order(order_id: str):
+    """(order or None, current id): the order after following its replacements
+    (each mid-first ladder step is an Alpaca replace, a new order id). None
+    when a read failed, so it is judged again next pass."""
+    oid = str(order_id)
+    for _ in range(_REPLACE_HOPS):
+        order = _get_order(oid)
+        if order is None:
+            return None, oid
+        if str(order.get("status", "")).lower() == "replaced" and order.get("replaced_by"):
+            oid = str(order["replaced_by"])
+            continue
+        return order, oid
+    return None, oid
+
+
+def _fill_clock(order: dict):
+    """The order's filled_at as this module's entry clock (naive local time,
+    as register_options_entry's datetime.now() writes it), or None."""
+    raw = str((order or {}).get("filled_at") or "")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _move_entry_clock(st: dict, fill_at) -> None:
+    """A late fill's entry clock is its fill time (MIN_HOLD counts from there)."""
+    if fill_at is None:
+        return
+    try:
+        registered = datetime.fromisoformat(str(st.get("entry_timestamp")))
+    except (TypeError, ValueError):
+        registered = None
+    if registered is None or fill_at > registered:
+        st["entry_timestamp"] = fill_at.isoformat()
+        st["entry_date"] = fill_at.strftime("%Y-%m-%d")
+
+
+def _resting_entry_pass(state: dict, held: set, now: float = None):
+    """(state keys to keep although not held, state changed?) for every leg
+    carrying an opening order id. One order read (plus replacements) per
+    distinct order."""
+    now = time.time() if now is None else now
+    keep, changed = set(), False
+    by_order: dict = {}
+    for sym, st in state.items():
+        if isinstance(st, dict) and st.get(OPENING_ORDER_KEY):
+            by_order.setdefault(str(st[OPENING_ORDER_KEY]), []).append(sym)
+    for oid, syms in by_order.items():
+        order, current = _resolve_opening_order(oid)
+        if current != oid:
+            for s in syms:
+                state[s][OPENING_ORDER_KEY] = current
+            changed = True
+        waiting = [s for s in syms if s not in held]
+        status = str((order or {}).get("status", "")).lower()
+        if order is None:
+            if all(now - float(state[s].get("opening_order_at") or now) <= OPENING_ORDER_MAX_AGE_SECONDS for s in waiting):
+                keep.update(waiting)
+            else:
+                logger.warning(f"resting entry {current}: order unreadable past {OPENING_ORDER_MAX_AGE_SECONDS}s — "
+                               f"state of {len(waiting)} unfilled leg(s) dropped")
+            continue
+        if status in _WORKING_ORDER_STATUSES:
+            keep.update(waiting)      # legs already held (a partial fill) keep the marker until it resolves
+            continue
+        if status == "filled":
+            fill_at = _fill_clock(order)
+            if waiting and (fill_at is None or now - fill_at.timestamp() <= OPENING_FILL_GRACE_SECONDS):
+                keep.update(waiting)  # the legs reach /v2/positions within moments of the fill
+            for s in syms:
+                if s in held:
+                    _move_entry_clock(state[s], fill_at)
+                    state[s].pop(OPENING_ORDER_KEY, None)
+                    state[s].pop("opening_order_at", None)
+                    changed = True
+            continue
+        # canceled / expired / rejected / done_for_day / not_found: nothing more fills.
+        # Legs a partial fill left held stay (held state is never pruned); the rest go.
+        for s in syms:
+            if s in held:
+                state[s].pop(OPENING_ORDER_KEY, None)
+                state[s].pop("opening_order_at", None)
+                changed = True
+        if waiting:
+            logger.info(f"resting entry {current} ended {status or '?'}: state of {len(waiting)} unfilled leg(s) dropped")
+    return keep, changed
+
+
 def _stamp_group_close(state: dict, occ_symbols: list, rule: str, reason: str, result: dict) -> None:
     """Record the close request on every leg WITHOUT dropping the leg's
     strategy/entry fields — the grouping must survive a failed close."""
@@ -2597,6 +2712,8 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     actions.extend(_pursue_exit_ladders(options_positions))
     # MID-FIRST MULTI-LEG ENTRIES (2026-11-06): walk working entries toward the natural.
     actions.extend(_pursue_entry_ladders())
+    # RESTING MULTI-LEG ENTRIES (2026-11-06): legs whose opening order is unresolved survive both prunes below.
+    keep_resting, resting_changed = _resting_entry_pass(state, {p.get("symbol", "") for p in options_positions})
 
     if not options_positions:
         # Clean stale state entries — but NEVER the convexity overlay's
@@ -2608,8 +2725,8 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
         # re-identify the hedge legs by. Orphaned hedge puts then get managed
         # as ordinary positions on the next cycle. Preserve every
         # convexity-managed entry; drop only the truly stale rest.
-        preserved = {k: v for k, v in state.items() if k in convexity_symbols}
-        if state != preserved:
+        preserved = {k: v for k, v in state.items() if k in convexity_symbols or k in keep_resting}
+        if state != preserved or resting_changed:
             _save_options_state(preserved)
         return {"actions": actions, "positions_checked": 0, "options_state": preserved}
 
@@ -3271,10 +3388,11 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
         pos_state["last_checked"] = time.strftime("%Y-%m-%d %H:%M:%S")
         state[occ_symbol] = pos_state
 
-    # Clean stale state entries (positions no longer held)
+    # Clean stale state entries (positions no longer held; a resting multi-leg
+    # entry's legs stay while its opening order is unresolved)
     held_symbols = {p.get("symbol", "") for p in options_positions}
     for old_sym in list(state.keys()):
-        if old_sym not in held_symbols:
+        if old_sym not in held_symbols and old_sym not in keep_resting:
             del state[old_sym]
 
     _save_options_state(state)
@@ -3300,7 +3418,7 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
 def register_options_entry(occ_symbol: str, entry_price: float, side: str,
                            strategy: str, delta: float = 0, qty: int = 1,
                            ticker: str = "", setup: str = "",
-                           max_loss: float = 0):
+                           max_loss: float = 0, opening_order_id: str = ""):
     """
     Called when a new options position is opened. Records the entry state
     so the manager can track profit targets, delta drift, etc.
@@ -3308,6 +3426,9 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
     v1.0.34: Added ticker and setup params for proper strategy grouping.
     Also extracts ticker from OCC symbol as fallback.
     Added max_loss param for iron condor 50%-of-max-loss early exit.
+    2026-11-06: opening_order_id (a multi-leg entry's order) keeps this state
+    through the stale-state prune until that order resolves (RESTING
+    MULTI-LEG ENTRIES, above manage_options_positions).
     """
     # Extract ticker from OCC symbol if not provided
     if not ticker:
@@ -3331,6 +3452,9 @@ def register_options_entry(occ_symbol: str, entry_price: float, side: str,
         "qty": qty,
         "max_loss": max_loss,  # v1.0.34: for 50%-of-max-loss early exit
     }
+    if opening_order_id:
+        state[occ_symbol][OPENING_ORDER_KEY] = str(opening_order_id)
+        state[occ_symbol]["opening_order_at"] = time.time()
     # KNOWN BROKEN #12(c) FURTHER REPAIR (found live 2026-09-08): this used
     # to call track_fill() unconditionally right here, at order SUBMISSION
     # time — but `register_options_entry` is called for every status in

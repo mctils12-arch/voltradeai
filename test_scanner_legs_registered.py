@@ -53,7 +53,8 @@ CSP = {"strategy": "sell_cash_secured_put", "occ_symbol": occ("AMD", 40, "P", 14
 
 
 class _ScannerCase(_ManagerCase):
-    def run_script(self, contract, ticker, strategy, setup):
+    def run_script(self, contract, ticker, strategy, setup, order=None):
+        order = dict(order or {"status": "pending_new", "order_id": "o-1"})
         payload = os.path.join(os.path.dirname(self.state_path), "payload.json")
         with open(payload, "w") as f:
             json.dump({"ticker": ticker, "strategy": strategy, "price": 100.0, "equity": 100000, "setup": setup}, f)
@@ -63,11 +64,11 @@ class _ScannerCase(_ManagerCase):
                 patch.object(storage_config, "DATA_DIR", os.path.dirname(self.state_path)), \
                 patch.dict(sys.modules, {"options_execution": types.SimpleNamespace(
                     select_contract=lambda *a, **k: dict(contract),
-                    submit_options_order=lambda c: {"status": "pending_new", "order_id": "o-1"},
+                    submit_options_order=lambda c: dict(order),
                     register_contract_entry=real_oe.register_contract_entry)}), \
                 patch("builtins.print", side_effect=lambda *a, **k: printed.append(a[0] if a else "")):
             exec(compile(code, "bot.ts:scanner-direct", "exec"), {"__name__": "__bot_ts__"})
-        self.assertEqual(json.loads(printed[-1])["order"]["status"], "pending_new")
+        self.assertEqual(json.loads(printed[-1])["order"]["status"], order["status"])
         return self.read_state()
 
 

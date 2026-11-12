@@ -948,7 +948,8 @@ def _contract_leg_entries(contract: dict, entry_side: str) -> list:
     return out
 
 
-def register_contract_entry(contract: dict, strategy: str, ticker: str, setup: str = "") -> list:
+def register_contract_entry(contract: dict, strategy: str, ticker: str, setup: str = "",
+                            order_id: str = "") -> list:
     """Record an accepted entry with options_manager.register_options_entry. Both
     entry paths call this one leg walk: evaluate_and_execute and the bot.ts
     scanner-direct script. Until 2026-11-06 the scanner kept its own key list,
@@ -956,8 +957,10 @@ def register_contract_entry(contract: dict, strategy: str, ticker: str, setup: s
     registered neither leg, and it put every condor leg on the contract's "side".
     Every leg a multi-leg contract names (CONTRACT_LEG_KEYS) is registered on its
     own side, under one strategy and the structure's max_loss, so the manager
-    groups them. A single-leg contract is registered by its occ_symbol. Returns
-    the OCC symbols registered."""
+    groups them. A multi-leg entry's legs also carry `order_id`, the opening
+    order, so their state survives until that order resolves (2026-11-06). A
+    single-leg contract is registered by its occ_symbol. Returns the OCC
+    symbols registered."""
     from options_manager import register_options_entry
     entry_side = contract.get("side", "buy")
     entry_qty = contract.get("qty", 1)
@@ -973,6 +976,7 @@ def register_contract_entry(contract: dict, strategy: str, ticker: str, setup: s
                 delta=dlt, qty=entry_qty,
                 ticker=ticker, setup=setup,
                 max_loss=shared_max_loss,
+                opening_order_id=str(order_id or ""),
             )
         return [occ for occ, _px, _side, _dlt in leg_occs]
     # Single-leg path (buy_call, sell_cash_secured_put, covered_call, etc.)
@@ -2890,9 +2894,13 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
     # Fix: detect leg keys and register each leg under the SAME strategy and
     # shared max_loss so manager._manage_strategy_group() can reassemble them
     # (register_contract_entry, shared with the bot.ts scanner-direct script).
-    if order.get("status") in ("submitted", "filled", "pending_new", "accepted"):
+    # 2026-11-06: + "new" (Alpaca's status for an accepted, routed order; the
+    # entry ladder above already counted it) and the opening order id, which
+    # keeps a resting multi-leg entry's state until the order resolves.
+    if order.get("status") in ("submitted", "filled", "pending_new", "accepted", "new"):
         try:
-            register_contract_entry(contract, decision["strategy"], trade.get("ticker", ""), trade.get("setup", ""))
+            register_contract_entry(contract, decision["strategy"], trade.get("ticker", ""), trade.get("setup", ""),
+                                    order_id=order.get("order_id", ""))
         except Exception as _reg_err:
             import logging
             logging.getLogger("voltrade.options").warning(
