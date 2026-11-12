@@ -33,6 +33,7 @@ import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonEx
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { floorAuditRows } from "./floorAudit";
+import { leg3AuditRows } from "./leg3Audit";
 import { flowsBody, readFlows, flowsAuditMessage, FLOWS_REFRESH_CMD, FLOWS_REFRESH_TIMEOUT_MS } from "./flowsReport";
 import { earningsRefreshAuditMessage, EARNINGS_HISTORY_REFRESH_CMD, EARNINGS_HISTORY_REFRESH_TIMEOUT_MS } from "./earningsHistory";
 import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isRegularSessionMinute, pushRegularBar,
@@ -6700,6 +6701,9 @@ print(json.dumps(get_auto_fix_params(server_uptime_s=${Math.round(process.uptime
       // 2026-11-05: the floor's trades (scan_market's spy_floor) were never
       // audited either (server/floorAudit.ts).
       for (const row of floorAuditRows(result.spy_floor, "scan")) audit(row.type, row.message);
+      // 2026-11-06 (rule call: SVXY stop / cooldown kept): the SVXY third leg's
+      // buys, exits, cooldown-blocked buys and errors (server/leg3Audit.ts).
+      for (const row of leg3AuditRows(result.third_leg)) audit(row.type, row.message);
       // 2026-11-06 Edge P1 dealer-gamma filter: each new short-premium skip /
       // would-skip Python logged this scan (server/dealerGamma.ts).
       for (const row of dealerGammaAuditRows(result.dealer_gamma)) audit(row.type, row.message);
