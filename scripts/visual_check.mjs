@@ -792,6 +792,45 @@ const tradeFx = (name) => JSON.parse(readFileSync(path.join(ROOT, "scripts", "fi
 const OWNER_ME = { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } };
 const TRADE_LOADED = { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json"), "/api/research/SPY": tradeFx("trade_research_spy.json"), "/api/insights/SPY": tradeFx("trade_insights_spy.json"), "/api/market/scanner": tradeFx("trade_scanner.json"), "/api/market/news": tradeFx("trade_news.json"), "/api/watchlist": tradeFx("trade_watchlist_empty.json") };
 
+// EDGAR ARCHIVE PAGES (2026-11-12): the Form 4 / 13F-HR / 8-K earnings pages
+// read a WINDOWED, PAGED `*-history` route (server/filingHistoryPage.ts): a
+// page stops at the archive's filing cap and names the days it covered
+// (`covered`, `truncated`, `next`). Live that day, "last 30 days" sat over 7
+// archive days (13F: one day of 45). Each page's fixture is a function of the
+// request: the first read answers a TRUNCATED page (4 of the days requested),
+// a `?from=` read answers the complete older page — so the honest coverage
+// line renders and "Load older days" has a page to load. Bodies extend the
+// global fixture for the same route (FIXTURES is initialised before any
+// request arrives).
+const filingHistoryFx = (route, days, olderFilings) => (req) => {
+  const base = FIXTURES[route];
+  const qs = (req.url || "").split("?")[1] || "";
+  const from = days === 45 ? "2026-05-22" : "2026-06-06"; // inclusive: 45 or 30 days ending 2026-07-05
+  if (/(^|&)from=/.test(qs)) {
+    return { ...base, days: null, window: { from, to: "2026-07-01" }, covered: { from, to: "2026-07-01" },
+             truncated: false, next: null, count: olderFilings.length, filings: olderFilings };
+  }
+  return { ...base, days, window: { from, to: "2026-07-05" }, covered: { from: "2026-07-02", to: "2026-07-05" },
+           truncated: true, next: `?from=${from}&to=2026-07-01`, max_filings: base.filings.length };
+};
+const FORM4_OLDER = [{
+  accession: "0001-26-0", filedAt: "2026-06-20", indexUrl: "https://www.sec.gov/x/0/",
+  issuerName: "FIXTURE MINERALS CORP", issuerTradingSymbol: "FXMN",
+  owners: [{ cik: "3", name: "Example Director", isDirector: true, isOfficer: false, isTenPercentOwner: false, officerTitle: null }],
+  transactions: [{ table: "nonDerivative", kind: "open_market_buy", shares: 2500, pricePerShare: 12.4, transactionDate: "2026-06-18" }],
+}];
+const EARNINGS_OLDER = [{
+  accession: "0001-26-8", cik: "8", companyName: "OLDER FIXTURE PLC", filedAt: "2026-06-18", itemCodes: ["2.02"],
+  indexUrl: "https://www.sec.gov/x/8/", exhibitUrl: "https://www.sec.gov/x/8/ex99.htm",
+  text: "Older Fixture plc reported first-quarter results in line with guidance.", textLength: 70, truncated: false,
+}];
+const F13_OLDER = [{
+  accession: "0001234567-26-000099", filedAt: "2026-06-15T00:00:00.000Z", cik: "0001234567",
+  indexUrl: "https://www.sec.gov/Archives/edgar/data/1234567/000123456726000099/",
+  managerCik: "0001234567", managerName: "Older Fixture Advisors LP", periodOfReport: "2026-03-31", submissionType: "13F-HR",
+  entryTotal: 12, valueTotal: 91000000, otherManagersCount: 0, holdingsOmitted: false, holdings: [],
+}];
+
 const PAGES = {
   // TRADE WORLD (2026-10-29, human: "I want this moving map like this but
   // more modern as well for some of the screens … it needs to look like the
@@ -862,7 +901,7 @@ const PAGES = {
   eumacro: { route: "/app#/data/eu-macro", map: false },
   // Institutional 13F-HR holdings (2026-08-08) — same Phase 5 ratchet rule
   // as streams/vixtermstructure/eumacro above.
-  filings13f: { route: "/app#/data/filings13f", map: false },
+  filings13f: { route: "/app#/data/filings13f", map: false, fixtures: { "/api/data/filings13f/history": filingHistoryFx("/api/data/filings13f/history", 45, F13_OLDER) } },
   // US macro regime cluster — FRED, 28 public series (2026-08-08) — same
   // Phase 5 ratchet rule as streams/eumacro/filings13f above.
   fredmacro: { route: "/app#/data/fred-macro", map: false },
@@ -972,8 +1011,9 @@ const PAGES = {
   // map programmatically. dtcc-swaps is the freshest instance (shipped
   // 2026-08-23, three weeks unverified) — see server/visualPagesWiring.test.ts,
   // the new ratchet this session added so this class can't recur silently.
-  filings: { route: "/app#/data/filings", map: false },
-  earnings: { route: "/app#/data/earnings", map: false },
+  // both carry the EDGAR archive-coverage fixtures (filingHistoryFx above)
+  filings: { route: "/app#/data/filings", map: false, fixtures: { "/api/data/insider/history": filingHistoryFx("/api/data/insider/history", 30, FORM4_OLDER) } },
+  earnings: { route: "/app#/data/earnings", map: false, fixtures: { "/api/data/earnings-language/history": filingHistoryFx("/api/data/earnings-language/history", 30, EARNINGS_OLDER) } },
   shortvolume: { route: "/app#/data/short-volume", map: false },
   cot: { route: "/app#/data/cot", map: false },
   graph: { route: "/app#/data/graph", map: false },
@@ -3620,6 +3660,34 @@ async function main() {
         if (/service unavailable/i.test(txt)) fail("outage banner rendered for a 401");
         if (/Not authenticated/.test(txt)) fail("raw 401 body shown to the user");
         if (!/#\/forecast/.test(page.url())) fail(`hash left the forecast tab (${page.url()}) — sign-in would not return there`);
+      }
+      // ── EDGAR ARCHIVE COVERAGE (2026-11-12): the Form 4 / 13F-HR / earnings
+      // pages print the archive days their page actually covers (the route
+      // pages by whole day at a filing cap — live, "last 30 days" sat over 7
+      // archive days) and "Load older days" walks the route's own `next`.
+      // Fixture: first page truncated (07-02..07-05 of a window from 06-06 or
+      // 05-22), the older page complete. Runs at every width; the control
+      // must be a 44px touch target on the phone.
+      if (name === "filings" || name === "filings13f" || name === "earnings") {
+        const fail = (m) => checks.failures.push("archive-coverage: " + m);
+        const cov = page.locator("[data-vt-coverage]").first();
+        const before = (await cov.count()) ? await cov.innerText() : "";
+        if (!/2026-07-02 → 2026-07-05/.test(before)) fail(`coverage line does not name the covered days: "${before}"`);
+        if (!/4 of the (30|45) days requested — older days not loaded/.test(before)) fail(`coverage line does not say the window is truncated: "${before}"`);
+        if (/last (30|45) days/.test(before)) fail("the echoed-days phrasing is still printed over a truncated page");
+        const btn = page.locator("[data-vt-load-older]");
+        if (!(await btn.count())) fail("no 'Load older days' control on a truncated page");
+        else {
+          const h = await btn.first().evaluate((el) => el.getBoundingClientRect().height);
+          if (vp.touch && h < 44) fail(`'Load older days' is ${Math.round(h)}px tall on touch`);
+          await btn.first().click({ timeout: 3000 }).catch((e) => fail("click failed: " + e.message));
+          let after = before;
+          for (let i = 0; i < 20; i++) { await page.waitForTimeout(150); after = await cov.innerText(); if (/all (30|45) days requested/.test(after)) break; }
+          if (!/(2026-06-06|2026-05-22) → 2026-07-05 · all (30|45) days requested/.test(after)) fail(`after loading the older page the line reads "${after}"`);
+          if (await btn.count()) fail("'Load older days' still offered after the window was read in full");
+          const n = (s) => Number(((s.replace(/^as filed · /, "").match(/^(\d[\d,]*) /) || [])[1] || "").replace(/,/g, ""));
+          if (!(n(after) > n(before))) fail(`filing count did not grow (${n(before)} → ${n(after)})`);
+        }
       }
       if (name === "botpane") {
         const fail = (m) => checks.failures.push("bot-pane: " + m);

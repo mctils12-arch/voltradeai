@@ -8,8 +8,12 @@
 // number; GATE 2 (new-position clustering vs forward returns) has not been
 // attempted, no predictive claim is made here. Reuses vt-filings-* CSS only
 // — no new styles needed.
-import { useEffect, useMemo, useState } from "react";
+// The sub-line states the archive days actually loaded (deadline week fills
+// the 500-filing page from ONE day; 2026-11-12) and "Load older days" walks
+// the route's own `next` — see client/src/lib/filingHistory.ts.
+import { useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, Landmark } from "lucide-react";
+import { useFilingHistory } from "../lib/useFilingHistory";
 
 interface Holding13F {
   issuer: string | null;
@@ -36,14 +40,9 @@ interface Filing13F {
   holdings: Holding13F[] | null;
   holdingsOmitted: boolean;
 }
-interface HistoryPayload {
-  kind: string;
+interface HistoryExtras {
   warming_up?: boolean;
-  source?: string;
-  days?: number;
-  count?: number;
   focused_cap?: number;
-  filings: Filing13F[];
 }
 
 function fmtUSD(v: number | null): string {
@@ -55,26 +54,15 @@ function fmtUSD(v: number | null): string {
   return `$${v.toLocaleString()}`;
 }
 
+const HISTORY_URL = "/api/data/filings13f/history?days=45";
+
 export default function Institutional13FView({ onBack }: { onBack: () => void }) {
-  const [data, setData] = useState<HistoryPayload | null>(null);
-  const [error, setError] = useState(false);
+  const hist = useFilingHistory<Filing13F>(HISTORY_URL, 45, "filings");
   const [selected, setSelected] = useState<string | null>(null);
 
-  useEffect(() => {
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/data/filings13f/history?days=45");
-        const d = await r.json();
-        if (!stop) setData(d);
-      } catch {
-        if (!stop) setError(true);
-      }
-    })();
-    return () => { stop = true; };
-  }, []);
-
-  const filings = data?.filings ?? [];
+  const data = hist.first as (HistoryExtras & { filings?: Filing13F[] }) | null;
+  const error = hist.error;
+  const filings = hist.filings ?? [];
   const active = useMemo(
     () => filings.find((f) => f.accession === selected) ?? null,
     [filings, selected],
@@ -91,21 +79,33 @@ export default function Institutional13FView({ onBack }: { onBack: () => void })
         <Landmark size={16} />
         <div>
           <div className="vt-filings-title">Institutional holdings — SEC 13F-HR</div>
-          <div className="vt-filings-sub">
-            as filed · {(data?.count ?? filings.length).toLocaleString()} filings, last {data?.days ?? 45} days
-            (archive began 2026-07-05) · gate 1 (data) passed, gate 2 (new-position clustering) not attempted ·
-            filers over {(data?.focused_cap ?? 250).toLocaleString()} positions archive as summary-only ·{" "}
+          <div className="vt-filings-sub" data-vt-coverage>
+            as filed · {hist.label} (archive began 2026-07-05) · gate 1 (data) passed, gate 2 (new-position clustering)
+            not attempted · filers over {(data?.focused_cap ?? 250).toLocaleString()} positions archive as summary-only ·{" "}
             <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=13F-HR" target="_blank" rel="noreferrer">
               SEC EDGAR <ExternalLink size={11} />
             </a>
           </div>
         </div>
       </div>
+      {(hist.hasOlder || filings.length > 0) && (
+        <div className="vt-filings-filters" aria-label="Archive window">
+          {hist.hasOlder && (
+            <button className="vt-filings-filter" data-vt-load-older onClick={hist.loadOlder} disabled={hist.loadingOlder}
+                    aria-label="Load older archive days">
+              {hist.loadingOlder ? "Loading older days…" : "Load older days"}
+            </button>
+          )}
+          <span className="vt-filings-count">{filings.length.toLocaleString()} filings</span>
+        </div>
+      )}
+      {hist.olderError && <div className="vt-filings-state">The older page did not load — the days above are still what is shown; try again.</div>}
 
       {error && <div className="vt-filings-state">Feed error — the archive may still answer on refresh.</div>}
       {!error && data?.warming_up && (
         <div className="vt-filings-state">First poll still in progress — this can take a few minutes on a cold start.</div>
       )}
+      {!error && !data && <div className="vt-filings-state">Loading filings…</div>}
       {!error && !data?.warming_up && data && filings.length === 0 && (
         <div className="vt-filings-state">
           No filings archived yet — the poll runs every 15 minutes; 13F-HR filings cluster around the quarterly
