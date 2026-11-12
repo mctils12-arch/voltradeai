@@ -1944,8 +1944,9 @@ def get_shadow_stats() -> dict:
 # WHY. The old ruler (_label_from_path: +2% target / -4% stop / N-bar
 # timeout) says it "matches bot's take-profit" / "stop-loss" (the
 # WIN_THRESHOLD_PCT / LOSS_THRESHOLD_PCT comments above). It does not, and
-# neither does system_config.py's ATR_STOP_MULTIPLIER / TIME_STOP_DAYS block
-# (read by no exit code) nor backtest_v2.py's 1.5xATR / 2R model. The ONLY
+# neither did system_config.py's ATR_STOP_MULTIPLIER / TIME_STOP_DAYS block
+# (read by no exit code; deleted 2026-11-06, KB #48 step 3) nor does
+# backtest_v2.py's 1.5xATR / 2R model. The ONLY
 # code that places stock exits live is server/bot.ts checkPositionOnTick
 # (fed by syncMonitoredPositions' stop/TP levels): a 2xATR R-ladder with
 # scale-outs in thirds, breakeven, phase-dependent trails, a conditional

@@ -6,10 +6,11 @@ The only code that places live stock exits is server/bot.ts
 checkPositionOnTick (levels fed by syncMonitoredPositions from
 bot_engine.manage_positions' stop state). research/open_questions.md KNOWN
 BROKEN #48: the configured exits (system_config ATR_STOP_MULTIPLIER/
-TIME_STOP_DAYS block — read by nothing), the backtest's exits (backtest_v2
-1.5xATR clamp 2-6%, 2R TP, regime time stop) and these live exits were three
-different models. This module is the live one, written so any simulator can
-drive it on daily bars.
+TIME_STOP_DAYS block — read by nothing; deleted 2026-11-06), the backtest's
+exits (backtest_v2 1.5xATR clamp 2-6%, 2R TP, regime time stop) and these
+live exits were three different models. KB #48 step 3 (2026-11-06) made the
+live one — this module's — the stock exit policy of record. Written so any
+simulator can drive it on daily bars.
 
 PROVENANCE. The rule set is copied from the reviewed, fuzz-verified mirror
 merged in PR #1355 (shadow_portfolio._XaPosition / _label_exit_aligned).

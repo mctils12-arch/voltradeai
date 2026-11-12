@@ -604,18 +604,23 @@ BASE_CONFIG = {
     "TREND_EXIT_DEATH_CROSS_CAP":  0.20,  # Max 20% QQQ on death cross
     "TREND_EXIT_EARLY_WARNING_CAP": 0.50, # Max 50% QQQ on early warning
 
-    # ── STOP LOSS & TAKE PROFIT ────────────────────────────────────────────────
-    # v1.0.23 optimized values (324-combo backtest, best risk-adjusted vs SPY):
-    # tp=12%, sl=6%, hold=10d, score=63, bull_size=15%, opts=2x
-    # Result: CAGR +13.8%/yr vs SPY +12.3%/yr, Sharpe 1.22, only 2 years worse than -20%
-    # Optimization ran 324 combinations; this is the most consistent winner.
-    "ATR_STOP_MULTIPLIER":  1.5,   # 1.5x 10-day ATR
-    "MIN_STOP_PCT":         2.0,   # Never tighter than 2%
-    "MAX_STOP_PCT":         6.0,   # Optimized: 6% stop (was 8%) — tighter = faster capital recycle
-    "MIN_TP_PCT":           12.0,  # Optimized: 12% TP (was 8%) — let winners run further
-    "MAX_TP_PCT":           25.0,  # Maximum TP cap
-    "ATR_TP_MULTIPLIER":    4.0,   # TP = 4x stop distance (was 3x) — 2:1 min R:R
-    "TIME_STOP_DAYS":       10,    # Optimized: 10-day hold (was 7) — more time to work
+    # ── STOCK EXITS: the policy of record is the live R-ladder ─────────────────
+    # KNOWN BROKEN #48 step 3 ([RULE-REVIEW] 2026-11-06): the stock exit policy
+    # is the ladder server/bot.ts checkPositionOnTick executes, mirrored for
+    # backtests and labels by live_exit_policy.py: 1R = 2x ATR% fixed at entry;
+    # phase-1 stop clamp(2x ATR%, 1.5-8%); scale out 1/3 at 1R and 1/3 at
+    # 3R/2R/1.5R (bullish/neutral/bearish regime); breakeven after the first;
+    # phase trails; take-profit on the last third; flat time stop after 7
+    # calendar days within +-2%. Its numbers live in those two files.
+    # DELETED HERE (prior values, for the record): ATR_STOP_MULTIPLIER 1.5,
+    # MIN_STOP_PCT 2.0, MAX_STOP_PCT 6.0, MIN_TP_PCT 12.0, MAX_TP_PCT 25.0,
+    # ATR_TP_MULTIPLIER 4.0, TIME_STOP_DAYS 10, plus the get_adaptive_params
+    # overrides (PANIC MAX_STOP_PCT 5 / TIME_STOP_DAYS 3, BEAR TIME_STOP_DAYS 5,
+    # BULL ATR_STOP_MULTIPLIER 2.0 / TIME_STOP_DAYS 10). That block was the
+    # v1.0.23 best-of-324 grid pick; no Python or TypeScript code read it, so it
+    # never ran live, and its take-profit never ran in a backtest either
+    # (backtest_v2's "legacy" arm keeps its own copy of the stop clamp and
+    # uses a 2R target). Evidence: research/experiments.md 2026-11-06.
 
     # ── ML MODEL ──────────────────────────────────────────────────────────────
     # 34 features: 26 base + 3 intel re-added + 5 new professional features
@@ -758,7 +763,7 @@ BASE_CONFIG = {
     # DEFAULT_TAX_RATES). Off switch: ROTATION_ENABLED False.
     "ROTATION_ENABLED":           True,
     "ROTATION_MIN_HOLD_DAYS":     4,
-    "ROTATION_HORIZON_DAYS":      10,     # = TIME_STOP_DAYS, the system's planned hold
+    "ROTATION_HORIZON_DAYS":      10,     # the planned hold (value of the deleted TIME_STOP_DAYS config, KB #48)
     "ROTATION_COST_PCT_PER_SIDE": 0.10,   # % per side: SLIPPAGE_PCT 0.05 + ~half a 0.1% spread
     "ROTATION_MIN_EDGE_PCT":      0.25,   # % of the held position, after costs and tax
     "ROTATION_MAX_PER_SCAN":      1,      # one swap per scan keeps each one attributable
@@ -1044,15 +1049,17 @@ def get_adaptive_params(
     p = BASE_CONFIG.copy()
 
     # ── Regime adjustments ────────────────────────────────────────────────────
+    # (2026-11-06, KB #48 step 3: the stop / take-profit / time-stop overrides
+    # that used to sit in these branches were deleted with the unread configured
+    # exit block — see "STOCK EXITS" in BASE_CONFIG. Stock exits follow the live
+    # R-ladder, which reads the regime from the stop state, not from here.)
     if regime == "PANIC":
         # No new stock longs in PANIC. Options engine takes over (VXX spike = prime time for puts).
         p["MAX_POSITIONS"]          = 0      # No new stock longs in PANIC
         p["MAX_POSITION_PCT"]       = 0.06
         p["MIN_SCORE"]              = 75     # Would need to be extremely high conviction
-        p["MAX_STOP_PCT"]           = 5.0    # Tighter stops in panic
         p["MAX_TOTAL_EXPOSURE"]     = 0.30   # 70% cash in panic
         p["STREAM_VOL_SPIKE_RATIO"] = 3.0    # Higher bar for signals
-        p["TIME_STOP_DAYS"]         = 3      # Exit faster in panic
         p["regime"]                 = "PANIC"
 
     elif regime == "BEAR":
@@ -1065,21 +1072,15 @@ def get_adaptive_params(
         p["MIN_SCORE"]              = 75     # Very high bar if we do enter
         p["MAX_TOTAL_EXPOSURE"]     = 0.50
         p["STREAM_VOL_SPIKE_RATIO"] = 2.8
-        p["TIME_STOP_DAYS"]         = 5
         p["regime"]                 = "BEAR"
 
     elif regime == "BULL":
         # Aggressive: full size, momentum longs, buy calls
-        # NOTE: Stop/TP/time-stop improvements looked good in backtest but
-        # those results were inflated by survivorship bias (36 pre-selected
-        # winners). Keeping conservative values until live data confirms edge.
         p["MAX_POSITIONS"]          = 8
         p["MAX_POSITION_PCT"]       = 0.15
         p["MIN_SCORE"]              = 63     # More setups allowed in bull
         p["MAX_TOTAL_EXPOSURE"]     = 0.95   # FIX 2026-05-18: 1.00→0.95 (5% cash cushion, prevents margin calls)
         p["STREAM_VOL_SPIKE_RATIO"] = 2.2    # Lower bar — more signals
-        p["ATR_STOP_MULTIPLIER"]    = 2.0    # Standard stop multiplier
-        p["TIME_STOP_DAYS"]         = 10     # Standard hold period
         p["regime"]                 = "BULL"
 
     elif regime == "NEUTRAL":
