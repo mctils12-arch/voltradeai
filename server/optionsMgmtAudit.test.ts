@@ -103,7 +103,27 @@ test("a long earnings notice is cut at OPTIONS_EARNINGS_NOTICE_MAX_CHARS and nev
   assert.equal(rows[0].type, "OPTIONS-EARNINGS");
   assert.equal(rows[0].message.length, OPTIONS_EARNINGS_NOTICE_MAX_CHARS);
   assert.equal(rows.filter((r) => r.type === "OPTIONS-EXIT").length, OPTIONS_MGMT_AUDIT_CAP, "no '… more' row: the notice is not an exit");
-  assert.deepEqual(OPTIONS_EARNINGS_NOTICE_TYPES, ["earnings_backfill", "earnings_lookup_failed"]);
+  assert.deepEqual(OPTIONS_EARNINGS_NOTICE_TYPES, ["earnings_backfill", "earnings_lookup_failed", "earnings_setup_unknown"]);
+});
+
+// 2026-11-12: the earnings close closing a defined-risk structure whose state
+// records no strategy or setup (options_manager._unrecorded_structure_notices)
+const EARNINGS_SETUP_UNKNOWN = {
+  action: "WARNING", ticker: "GOOGL", type: "earnings_setup_unknown",
+  legs: ["GOOGL261217C00355000", "GOOGL261217C00365000", "GOOGL261217P00290000", "GOOGL261217P00300000"],
+  sold_legs: ["GOOGL261217C00355000", "GOOGL261217P00300000"], expiry: "2026-12-17",
+  report_date: "2026-11-06", report_hour: "bmo", close_session: "2026-11-05",
+  reason: "EARNINGS CLOSE: GOOGL's 4 option legs expiring 2026-12-17 (GOOGL261217C00355000, GOOGL261217C00365000, GOOGL261217P00290000, GOOGL261217P00300000) form a defined-risk structure, but their state records no strategy or setup (lost, or never written) — it cannot be exempted as an earnings play, so its sold option(s) (GOOGL261217C00355000, GOOGL261217P00300000) are closed for GOOGL's 2026-11-06 report like any other; noted once per ET day",
+};
+
+test("a structure closed with its setup unknown is one OPTIONS-EARNINGS row, beside the exits it explains", () => {
+  const close = (occ: string) => ({ action: "CLOSE", ticker: "GOOGL", occ_symbol: occ, type: "earnings_close",
+    reason: "EARNINGS CLOSE: GOOGL reports 2026-11-06 before the open; 2026-11-05 is the last session before it — closing the sold option rather than holding it through the report",
+    order: { status: "submitted" } });
+  const rows = formatOptionsMgmt({ actions: [EARNINGS_SETUP_UNKNOWN, ...EARNINGS_SETUP_UNKNOWN.sold_legs.map(close)] });
+  assert.deepEqual(rows.map((r) => r.type), ["OPTIONS-EARNINGS", "OPTIONS-EXIT", "OPTIONS-EXIT"]);
+  assert.equal(rows[0].message, EARNINGS_SETUP_UNKNOWN.reason, "the whole notice: it names the structure, its legs and why it is not exempt");
+  assert.ok(EARNINGS_SETUP_UNKNOWN.reason.length < OPTIONS_EARNINGS_NOTICE_MAX_CHARS);
 });
 
 test("the notice types are the ones options_manager.py emits", () => {
@@ -111,6 +131,7 @@ test("the notice types are the ones options_manager.py emits", () => {
   const om = fs.readFileSync(path.join(here, "..", "options_manager.py"), "utf8");
   assert.ok(om.includes('EARNINGS_BACKFILL_TYPE = "earnings_backfill"'));
   assert.ok(om.includes('EARNINGS_LOOKUP_FAILED_TYPE = "earnings_lookup_failed"'));
+  assert.ok(om.includes('EARNINGS_SETUP_UNKNOWN_TYPE = "earnings_setup_unknown"'));
 });
 
 test("bot.ts audits the scan's options_management rows", () => {

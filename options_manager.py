@@ -1942,6 +1942,20 @@ def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: s
 # FOR the report; closing it first would only pay the spread twice. The rule
 # targets a sold option held into a report by accident. A lone short leg is
 # never exempt.
+# Lost state (REPAIR 2026-11-12): the setup is recorded only in each leg's
+# options state. A Setup-1 condor whose state is gone is not a group at all:
+# its legs are managed one by one, and its sold legs are bought back before
+# the report it was opened for. Nothing else identifies it as an earnings
+# play:
+# - its shape: select_contract builds every iron_condor with one builder
+#   (_select_condor), whatever the setup;
+# - its timing: the entry time is part of the same lost state, and a condor
+#   another path opened days before a report (the calendar miss this rule
+#   exists to catch) would look the same;
+# - the broker: the opening order carries no setup.
+# So the exemption is never inferred. Such a structure is still closed, and
+# the pass says so in one "earnings_setup_unknown" WARNING per structure per
+# ET day (_unrecorded_structure_notices).
 # Report dates: Finnhub's per-symbol calendar (options_scanner.
 # _fetch_symbol_earnings_reports), looked up once per underlying per ET day. A
 # failed lookup closes nothing on a guess: one WARNING per underlying per ET
@@ -1957,11 +1971,13 @@ def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: s
 # already due is closed in that same pass.
 EARNINGS_BACKFILL_TYPE = "earnings_backfill"
 EARNINGS_LOOKUP_FAILED_TYPE = "earnings_lookup_failed"
+EARNINGS_SETUP_UNKNOWN_TYPE = "earnings_setup_unknown"
 EARNINGS_HOUR_WORDS = {"bmo": "before the open", "amc": "after the close",
                        "dmh": "during market hours", "": "at an unannounced hour"}
 _EARNINGS_REPORT_CACHE: dict = {}   # underlying -> (ET day, window end, [(date, hour), ...]); good answers only
 _EARNINGS_FAILED: dict = {}         # underlying -> ET day its own lookup last failed (it is asked last)
 _EARNINGS_WARNED: dict = {}         # underlying -> ET day of its last lookup-failure WARNING
+_EARNINGS_SETUP_NOTED: dict = {}    # (OCC root, expiry) of an unrecorded structure -> ET day of its last WARNING
 _EARNINGS_RUN = {"backfill_done": False, "unconfigured_logged": False}
 
 
@@ -2014,16 +2030,29 @@ def _earnings_close_exempt(group: dict) -> bool:
     with an uncovered sold leg (a lone short leg, or an adopted extra short) is
     never exempt."""
     setup = str(group.get("setup") or "")
-    try:
-        from system_config import BASE_CONFIG
-        exempt_setups = tuple(BASE_CONFIG.get("OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS", ()) or ())
-    except Exception as e:
-        logger.warning(f"system_config unreadable, no earnings-close exemption: {e}")
-        return False
+    exempt_setups = _earnings_exempt_setups()
     if not setup or setup not in exempt_setups:
         return False
+    return _defined_risk(group.get("legs"))
+
+
+def _earnings_exempt_setups() -> tuple:
+    """system_config OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS; () (nothing is
+    exempt) when it cannot be read."""
+    try:
+        from system_config import BASE_CONFIG
+        return tuple(BASE_CONFIG.get("OPTIONS_EARNINGS_CLOSE_EXEMPT_SETUPS", ()) or ())
+    except Exception as e:
+        logger.warning(f"system_config unreadable, no earnings-close exemption: {e}")
+        return ()
+
+
+def _defined_risk(legs: list) -> bool:
+    """True when the legs hold a sold contract and every sold contract is
+    covered by a bought contract of the same type (call/put) on the same
+    underlying: a condor or a credit spread with its wings."""
     sold, bought = {}, {}      # (underlying, call/put) -> contracts
-    for pos in group.get("legs") or []:
+    for pos in legs or []:
         parsed = _parse_occ_symbol(pos.get("symbol", ""))
         if not parsed:
             return False
@@ -2031,6 +2060,52 @@ def _earnings_close_exempt(group: dict) -> bool:
         kind = (parsed["ticker"], parsed["option_type"])
         book[kind] = book.get(kind, 0) + abs(int(float(pos.get("qty", 0) or 0)))
     return bool(sold) and all(bought.get(kind, 0) >= n for kind, n in sold.items())
+
+
+def _unrecorded_structure_notices(ctx: dict, options_positions: list, strategy_groups: dict, state: dict) -> list:
+    """One "earnings_setup_unknown" WARNING per ET day for each defined-risk
+    structure the earnings close is closing although nothing records what
+    opened it. Its legs are held outside every strategy group, their state
+    records no strategy (none, or the manager's own "unknown"), they share an
+    OCC root and an expiry, and every sold contract among them is covered
+    (_defined_risk, the exemption's own test). With a recorded exempt setup
+    the same legs would be an exempt group. A notice only: it reads the pass's
+    report dates and decides nothing. A recorded group, a lone sold leg, an
+    uncovered structure and a structure not yet due get none."""
+    if state is None or not _earnings_exempt_setups():
+        return []
+    day = ctx["today"].isoformat()
+    grouped = {leg.get("symbol", "") for group in (strategy_groups or {}).values() for leg in group.get("legs") or []}
+    loose: dict = {}       # (OCC root, expiry) -> the standalone legs with no recorded strategy
+    for p in options_positions:
+        occ = p.get("symbol", "")
+        recorded = state.get(occ) if isinstance(state.get(occ), dict) else {}
+        parsed = _parse_occ_symbol(occ)
+        if occ in grouped or not parsed or str(recorded.get("strategy") or "unknown") != "unknown":
+            continue
+        loose.setdefault((parsed["ticker"], parsed["expiry_date"]), []).append(p)
+    notices = []
+    for (root, expiry), legs in sorted(loose.items()):
+        if _EARNINGS_SETUP_NOTED.get((root, expiry)) == day or not _defined_risk(legs):
+            continue
+        parsed = _parse_occ_symbol(legs[0].get("symbol", ""))
+        earn = _earnings_close_due_for(ctx, parsed["underlying"], _expiry_date(parsed))
+        if not earn:
+            continue
+        _EARNINGS_SETUP_NOTED[(root, expiry)] = day
+        occs = sorted(p.get("symbol", "") for p in legs)
+        sold = sorted(p.get("symbol", "") for p in legs if p.get("side", "long") == "short")
+        notices.append({
+            "action": "WARNING", "ticker": parsed["underlying"], "type": EARNINGS_SETUP_UNKNOWN_TYPE,
+            "legs": occs, "sold_legs": sold, "expiry": expiry,
+            "report_date": earn[0].isoformat(), "report_hour": earn[1], "close_session": earn[2].isoformat(),
+            "reason": (f"EARNINGS CLOSE: {root}'s {len(occs)} option legs expiring {expiry} ({', '.join(occs)}) "
+                       f"form a defined-risk structure, but their state records no strategy or setup (lost, or "
+                       f"never written) — it cannot be exempted as an earnings play, so its sold option(s) "
+                       f"({', '.join(sold)}) are closed for {parsed['underlying']}'s {earn[0].isoformat()} report "
+                       f"like any other; noted once per ET day"),
+        })
+    return notices
 
 
 def _finnhub_configured() -> bool:
@@ -2065,13 +2140,16 @@ def _earnings_reports(root: str, today, horizon, fetch: bool = True):
     return list(reports), "fetched"
 
 
-def _earnings_close_context(options_positions: list, actions: list, strategy_groups: dict = None) -> dict:
+def _earnings_close_context(options_positions: list, actions: list, strategy_groups: dict = None,
+                            state: dict = None) -> dict:
     """This pass's earnings-close inputs: {"active", "today", "by_root":
     {underlying: {"ok", "how", "report"}}, "exempt": {occ: setup}}, where
     `report` is the underlying's next (date, hour) inside the latest expiry
     among its sold options (an exempt group's legs left out), or None. Appends
-    the lookup-failure WARNINGs (once per underlying per ET day) and, on the
-    first active pass since process start, the "earnings_backfill" summary."""
+    the lookup-failure WARNINGs (once per underlying per ET day), the
+    setup-unknown WARNINGs (`state` is the pass's options state; None: not
+    judged) and, on the first active pass since process start, the
+    "earnings_backfill" summary."""
     ctx = {"active": False, "today": None, "by_root": {}, "exempt": {}}
     if not _earnings_close_enabled():
         return ctx
@@ -2099,7 +2177,7 @@ def _earnings_close_context(options_positions: list, actions: list, strategy_gro
         horizon[root] = max(expiry, horizon.get(root, expiry))
     for root in [r for r, v in _EARNINGS_REPORT_CACHE.items() if v[0] != day]:
         _EARNINGS_REPORT_CACHE.pop(root, None)
-    for memo in (_EARNINGS_FAILED, _EARNINGS_WARNED):
+    for memo in (_EARNINGS_FAILED, _EARNINGS_WARNED, _EARNINGS_SETUP_NOTED):
         for root in [r for r, d in memo.items() if d != day]:
             memo.pop(root, None)
     # After one failed request the pass sends no more (a Finnhub outage costs
@@ -2129,6 +2207,10 @@ def _earnings_close_context(options_positions: list, actions: list, strategy_gro
                        f"option(s) not closed on a guess ({', '.join(legs)}); retried every tick, warned once "
                        f"per ET day"),
         })
+    try:
+        actions.extend(_unrecorded_structure_notices(ctx, options_positions, strategy_groups, state))
+    except Exception as e:      # a notice only: it must never stop the rule it describes
+        logger.warning(f"EARNINGS CLOSE: setup-unknown notice skipped this pass: {type(e).__name__}: {e}")
     if not _EARNINGS_RUN["backfill_done"]:
         _EARNINGS_RUN["backfill_done"] = True
         if shorts or exempt_shorts:
@@ -2847,7 +2929,7 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     # reports the schedule (the deploy backfill). A bug here must never stop
     # the other exit rules: it is logged with its traceback and skipped.
     try:
-        earnings = _earnings_close_context(options_positions, actions, strategy_groups)
+        earnings = _earnings_close_context(options_positions, actions, strategy_groups, state)
     except Exception as e:
         logger.exception(f"EARNINGS CLOSE skipped this pass: {type(e).__name__}: {e}")
         earnings = None
