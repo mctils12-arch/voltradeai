@@ -170,7 +170,7 @@ import {
 import { loadSignalLadder } from "./signalLadder";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
-import { bootDtccSwapsPoll, latestDtcc } from "./dtccSwaps";
+import { bootDtccSwapsPoll, latestDtcc, setDtccIdsAuditSink } from "./dtccSwaps";
 import { bootSettlementStressPoll } from "./settlementStress";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
@@ -3425,6 +3425,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // cycle" table (topRows, capped in dtccSwaps.ts — see its MEMORY LAW
   // comment) feeding the /data/dtcc-swaps client view shipped alongside
   // this route change.
+  // [REPAIR] 2026-11-06: the pipeline's DTCC-IDS-* and DTCC-ARCHIVE-ERROR lines
+  // went only to console.error (Railway logs no session can read): the sink was
+  // never wired. Same audit_log row the fold hooks below write.
+  setDtccIdsAuditSink((type, message) => {
+    try {
+      db.prepare("INSERT INTO audit_log (time, type, message) VALUES (?, ?, ?)").run(
+        new Date().toISOString(), type, message.slice(0, 500)
+      );
+    } catch (e: unknown) {
+      console.error("[datacore] dtccswaps audit row:", (e as Error)?.message || e);
+    }
+  });
   bootDtccSwapsPoll();
   app.get("/api/data/dtcc-swaps", (_req, res) => {
     const hit = latestDtcc();
