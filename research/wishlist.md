@@ -65,7 +65,7 @@ PRESERVES: every word of the directive and its authority. DROPS: nothing. RESOLV
 
 ### Observation (no proposal): the KNOWN STATE "PRODUCTION DEPLOY FREEZE ... RESOLVED" paragraph is a long recovered-outage history. It is factual and may stay; KNOWN STATE allows factual updates, so a later session may shorten it to one line plus a pointer to this file without amendment.
 
-## ⚠ FROZEN-PATH PROPOSAL 2026-11-06 — credit multi-leg entries are sent with an effectively unlimited price; human approval needed
+## ✅ FROZEN-PATH PROPOSAL 2026-11-06 — credit multi-leg entries are sent with an effectively unlimited price — APPROVED by the human 2026-11-06 ("fix all of this"; scope: the mleg limit's SIGN in `_submit_mleg_order` only) and INSTALLED 2026-11-12 as PR #1729 (v1.0.1376), after the three resting-order fixes it depends on (#1725 scanner legs registered, #1726 resting entry state, #1727 resting orders visible)
 
 WHAT: `options_execution._submit_mleg_order` (a FROZEN order-transmission path)
 sends `abs(limit_price)`. Alpaca's mleg limit price is signed: a CREDIT is a

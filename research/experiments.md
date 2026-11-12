@@ -117712,3 +117712,8 @@ WHY: research_state_check flagged the fix bundle 8 days behind the FAA's 28-day 
 CHANGE: `python3 scripts/refresh_nasr.py` downloaded the current cycle's public-domain FAA bundle and rebuilt the three files with the existing builders. Fixes: 71,589 idents (+227, −305, 96 moved). Airways: 1,503 ids. ATC: 7,641 airports, 814 center transmitters and 26 ARTCC boundaries. No code changed. `refresh_nasr.py --check` now reports "current".
 TESTS: test_refresh_nasr.py, test_build_nasr_atc.py, test_research_state_check.py (68 passed); server/atcFrequencies, repoFiles, routeParse (23 passed).
 STARVED: no.
+
+## 2026-11-12 [RULE-REVIEW] — research/wishlist.md only — the 2026-11-06 FROZEN-PATH proposal (credit multi-leg entries sent with an effectively unlimited price) is stamped approved and installed
+VERSION: v1.0.1395 (shipped 2026-11-12 by the parent session; main was v1.0.1394)
+The human approved it on 2026-11-06 ("fix all of this"), scope the mleg limit's SIGN in `_submit_mleg_order` only. It shipped 2026-11-12 as PR #1729 (v1.0.1376), last of four, after #1725 (scanner legs registered), #1726 (a resting entry's leg state survives) and #1727 (a resting multi-leg order is visible to slots, duplicates and the cash reserve). The wishlist heading said "human approval needed"; it now records the approval, its scope and the PRs.
+STARVED: no.
