@@ -23,6 +23,18 @@
  * 23:00 ET and the first night was lost twice: a 03:13Z deploy killed the
  * 02:05Z run and a 03:46Z research-only deploy killed its 03:44Z re-run two
  * minutes in; a restart after 23:00 ET would then have skipped the night.
+ * FIRST TICK 2 MIN AFTER BOOT (2026-11-12): the tick was one 30-min interval
+ * after boot, so a container had to live 30 minutes before the night could
+ * start. During the evening ship window it rarely does: 25 merges deployed on
+ * the night of 11-11/12 (eight between 00:41Z and 02:40Z alone, 11-29 min
+ * apart) and the night of 11-11 was lost a third time without a single slice
+ * starting until 03:02 ET (interrupted again, recentErrors 3). The re-attempt
+ * rule above cannot help a job whose process is replaced faster than its tick
+ * interval, so the first tick now lands LAZY_PRICES_BACKFILL_FIRST_TICK_MS
+ * after boot (archiveOffload.ts's pattern) and the 30-min cadence follows.
+ * Cost in a storm: every fresh container re-downloads the pairs cache to its
+ * tmp before scoring; benefit: any container that outlives that startup
+ * scores a chunk, and the Python's per-chunk checkpoint keeps every row.
  * Tier-2 scans stop at 20:00 ET. The 20:15-04:00 ET price-panel build may
  * overlap: it is one Alpaca request at a time, CPU-light, and currently
  * blocked by its own disk floor; this job is CPU-bound HTML extraction at
@@ -46,6 +58,7 @@ export const LAZY_PRICES_BACKFILL_BUDGET_S = 3.5 * 3600;           // the longes
 export const LAZY_PRICES_BACKFILL_KILL_GRACE_MS = 30 * 60_000;     // the hard kill lands this long after a slice's budget
 export const LAZY_PRICES_BACKFILL_TIMEOUT_MS = LAZY_PRICES_BACKFILL_BUDGET_S * 1000 + LAZY_PRICES_BACKFILL_KILL_GRACE_MS; // = 4 h, the longest hard kill
 export const LAZY_PRICES_BACKFILL_TICK_MS = 30 * 60_000;
+export const LAZY_PRICES_BACKFILL_FIRST_TICK_MS = 2 * 60_000;         // the first tick after boot: inside most container lifetimes during a deploy storm, after boot settles
 export const LAZY_PRICES_BACKFILL_MAX_RSS_MB = 1500;
 export const LAZY_PRICES_BACKFILL_WINDOW_START_MIN = 21 * 60;      // the night opens 21:00 ET
 export const LAZY_PRICES_BACKFILL_NIGHT_END_MIN = 3 * 60 + 30;     // ...and every slice's budget ends by 03:30 ET the next morning
@@ -198,7 +211,7 @@ export function lazyPricesBackfillStatus(env: Record<string, string | undefined>
   try { months = fs.readdirSync(path.join(root, "rows")).filter((n) => n.endsWith(".jsonl.gz")).length; } catch { months = 0; }
   return {
     flag: { value: flag.value, source: flag.source, on: flag.on },
-    schedule: `nightly from ${LAZY_PRICES_BACKFILL_WINDOW_START_MIN / 60}:00 ET, slices end by 0${Math.floor(LAZY_PRICES_BACKFILL_NIGHT_END_MIN / 60)}:${LAZY_PRICES_BACKFILL_NIGHT_END_MIN % 60} ET, once per night per process (a restart re-attempts), budget <= ${LAZY_PRICES_BACKFILL_BUDGET_S / 60} min (kill +${LAZY_PRICES_BACKFILL_KILL_GRACE_MS / 60_000}), ${LAZY_PRICES_BACKFILL_MAX_RSS_MB} MB`,
+    schedule: `nightly from ${LAZY_PRICES_BACKFILL_WINDOW_START_MIN / 60}:00 ET, slices end by 0${Math.floor(LAZY_PRICES_BACKFILL_NIGHT_END_MIN / 60)}:${LAZY_PRICES_BACKFILL_NIGHT_END_MIN % 60} ET, once per night per process (a restart re-attempts; first tick ${LAZY_PRICES_BACKFILL_FIRST_TICK_MS / 60_000} min after boot, then every ${LAZY_PRICES_BACKFILL_TICK_MS / 60_000}), budget <= ${LAZY_PRICES_BACKFILL_BUDGET_S / 60} min (kill +${LAZY_PRICES_BACKFILL_KILL_GRACE_MS / 60_000}), ${LAZY_PRICES_BACKFILL_MAX_RSS_MB} MB`,
     rows_months: months,
     plan: meta ? { complete: meta.complete ?? null, filings: meta.filings ?? null, ciks: Array.isArray(meta.done_ciks) ? meta.done_ciks.length : null,
       completed_at: str(meta.completed_at), list_errors: meta.list_errors ?? null } : null,
@@ -213,8 +226,9 @@ export function lazyPricesBackfillStatus(env: Record<string, string | undefined>
 
 let booted = false;
 
-/** Nightly tick (unref'd; first tick one interval after boot). One run at a time. */
-export function bootLazyPricesBackfill(env: NodeJS.ProcessEnv = process.env): void {
+/** Nightly tick (unref'd; first tick LAZY_PRICES_BACKFILL_FIRST_TICK_MS after boot, then every
+ *  LAZY_PRICES_BACKFILL_TICK_MS). One run at a time. `exec` is a test seam (the long-job lane by default). */
+export function bootLazyPricesBackfill(env: NodeJS.ProcessEnv = process.env, exec: WalkforwardExec = execGroupKill): void {
   if (booted) return;
   booted = true;
   let running = false;
@@ -234,7 +248,7 @@ export function bootLazyPricesBackfill(env: NodeJS.ProcessEnv = process.env): vo
     running = true;
     beat("lazy_prices_backfill_nightly", "start");
     try {
-      const out = await runLazyPricesBackfill(env, execGroupKill, d.budgetS);
+      const out = await runLazyPricesBackfill(env, exec, d.budgetS);
       beat("lazy_prices_backfill_nightly", "finish", out.status === "error" ? "error" : out.status === "ok" ? "ok" : "skipped", `${out.status}: ${out.detail}`);
     } catch (e) {
       beat("lazy_prices_backfill_nightly", "finish", "error", e instanceof Error ? e.message : String(e));
@@ -242,5 +256,8 @@ export function bootLazyPricesBackfill(env: NodeJS.ProcessEnv = process.env): vo
       running = false;
     }
   };
+  // The first tick is a short timeout, not the first interval: a container replaced by the next merge
+  // before its first interval fired never started the night (three nights lost, 11-10..11-12).
+  setTimeout(() => { void tick(); }, LAZY_PRICES_BACKFILL_FIRST_TICK_MS).unref?.();
   setInterval(() => { void tick(); }, LAZY_PRICES_BACKFILL_TICK_MS).unref?.();
 }

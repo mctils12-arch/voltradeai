@@ -1714,7 +1714,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Nightly backfill of that test's INPUT (server/lazyPricesBackfill.ts):
   // point-in-time 10-K similarity rows accumulate on the volume, raw filings
-  // stay in container tmp; nightly from 21:00 ET, slices end by 03:30 ET, <= 3.5 h budget.
+  // stay in container tmp; nightly from 21:00 ET, slices end by 03:30 ET, <= 3.5 h budget;
+  // first tick 2 min after boot so a redeploy-storm container still starts the night.
   // VOLTRADE_LAZY_PRICES_BACKFILL=0 disables.
   bootLazyPricesBackfill();
 
