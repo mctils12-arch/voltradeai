@@ -383,3 +383,40 @@ test("history route + poll-loop archiving are wired", () => {
   const mod = fs2.readFileSync(path2.join(path2.dirname(new URL(import.meta.url).pathname), "edgarForm4.ts"), "utf8");
   assert.ok(mod.includes("archiveFilings(filings)"), "refresh loop must archive every poll");
 });
+
+// ── Windowed + paged history (2026-11-12) — the honest reader behind
+// /api/data/insider/history and /api/v1/data/insider-history ───────────────
+import {
+  form4HistoryPage, form4HistoryArchive, FORM4_ARCHIVE_START, FORM4_HISTORY_MAX_FILINGS, FORM4_HISTORY_MAX_DAYS,
+} from "./edgarForm4";
+
+test("form4HistoryPage: REGRESSION (live 2026-11-11, both the preview route and the SOLD v1 mirror) — `?days=90` over a season-heavy archive is a WHOLE-days page that says truncated/covered/next, never 2,000 filings spanning five days labelled 90; the legacy readFilingHistory cap is the page cap, now reported", () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-form4-page-"));
+  const dir = path2.join(base, "filings");
+  fs2.mkdirSync(dir, { recursive: true });
+  const t = Date.UTC(2026, 10, 11, 13, 0, 0); // 2026-11-11T13:00Z
+  // production's own per-day counts on 2026-11-11 (614/465/448/371 + more), scaled so the test stays fast
+  const counts: Record<string, number> = { "2026-11-10": 614, "2026-11-09": 465, "2026-11-06": 448, "2026-11-05": 371, "2026-11-04": 300, "2026-11-03": 250, "2026-10-30": 200 };
+  for (const [day, n] of Object.entries(counts)) {
+    fs2.writeFileSync(path2.join(dir, `${day}.jsonl`),
+      Array.from({ length: n }, (_, i) => JSON.stringify(mkFiling(`${day}-${i}`, `${day}T12:00:00`))).join("\n") + "\n");
+  }
+  const a = form4HistoryArchive(base);
+  assert.deepEqual([a.dir, a.archiveStart, a.maxFilings, a.maxDays], [dir, FORM4_ARCHIVE_START, FORM4_HISTORY_MAX_FILINGS, FORM4_HISTORY_MAX_DAYS]);
+  assert.equal(FORM4_HISTORY_MAX_FILINGS, 2000, "the page cap IS readFilingHistory's historical 2,000 — reported, not changed");
+  const page = form4HistoryPage({ days: "90" }, base, t, []);
+  assert.equal(page.days, 90);
+  assert.equal(page.count, 1898, "614+465+448+371 = 1,898 fit under 2,000; 11-04's 300 would not");
+  assert.deepEqual([page.truncated, page.covered, page.next], [true, { from: "2026-11-05", to: "2026-11-11" }, "?from=2026-08-14&to=2026-11-04"]);
+  assert.equal(page.archive_start, "2026-07-04");
+  // the old reader returned the same 2,000-ish rows with `days` echoed and no marker — the page is strictly more honest
+  const legacy = readFilingHistory(90, base, t);
+  assert.equal(legacy.length, 2000, "the legacy reader still caps at 2,000 (cold-cache backfill keeps using it)");
+  // the cursor walk reaches the oldest day
+  const next = form4HistoryPage(Object.fromEntries(new URLSearchParams(page.next!.slice(1))), base, t, []);
+  assert.deepEqual([next.count, next.truncated, next.covered.from, next.days], [750, false, "2026-08-14", null]);
+  // live merge only on a page that ends today, deduped by accession
+  const live = [mkFiling("2026-11-10-0", "2026-11-10T12:00:00"), mkFiling("LIVE-1", "2026-11-11T12:30:00")];
+  assert.equal(form4HistoryPage({ days: "3" }, base, t, live).count, 614 + 465 + 1, "one live row added, the already-archived one dropped");
+  assert.equal(form4HistoryPage({ from: "2026-11-01", to: "2026-11-10" }, base, t, live).filings.some((f) => f.accession === "LIVE-1"), false);
+});

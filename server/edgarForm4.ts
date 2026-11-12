@@ -267,6 +267,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryResponse } from "./filingHistoryPage";
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
 
@@ -356,6 +357,48 @@ export function readFilingHistory(days = 30, baseDir?: string, nowMs?: number, m
   }
   out.sort((a, b) => String(b.filedAt || "").localeCompare(String(a.filedAt || "")));
   return out.slice(0, maxFilings);
+}
+
+// ── Windowed + paged history (2026-11-12) — the honest reader behind
+// /api/data/insider/history and the keyed /api/v1/data/insider-history.
+// readFilingHistory above (newest-N within `days`) stays for the cold-cache
+// backfill, but it is no longer what a route labels with `days`: live on
+// production, `?days=90` returned 2,000 filings spanning five archive days
+// (2026-11-04..11-10) with no marker. The contract (whole archive days
+// atomic, `covered`/`truncated`/`next`) and its reasons live in
+// server/filingHistoryPage.ts, shared with the sibling filing archives. ────
+
+/** Oldest Form 4 archive day — the poll loop has appended every filing since. */
+export const FORM4_ARCHIVE_START = "2026-07-04";
+/** Default and maximum filings per page (readFilingHistory's pre-existing
+ *  cap, now reported instead of hidden — ~1.2 MB/1,000 filings). */
+export const FORM4_HISTORY_MAX_FILINGS = 2000;
+/** Legacy `?days=` lookback cap (unchanged from the route's original bound). */
+export const FORM4_HISTORY_MAX_DAYS = 90;
+/** Widest [from, to] span scanned in one request. */
+export const FORM4_HISTORY_MAX_SPAN_DAYS = 400;
+
+export function form4HistoryArchive(baseDir?: string): FilingHistoryArchive<Form4Filing> {
+  return {
+    dir: filingsDir(baseDir),
+    archiveStart: FORM4_ARCHIVE_START,
+    maxFilings: FORM4_HISTORY_MAX_FILINGS,
+    maxDays: FORM4_HISTORY_MAX_DAYS,
+    defaultDays: 30,
+    maxSpanDays: FORM4_HISTORY_MAX_SPAN_DAYS,
+  };
+}
+
+/** One page of the Form 4 archive for both the RAW preview route and its
+ *  keyed v1 mirror; the live poll cache is merged on top only when the page
+ *  ends today. `live` defaults to the module's own cache. */
+export function form4HistoryPage(
+  query: Record<string, unknown>,
+  baseDir?: string,
+  nowMs?: number,
+  live: readonly Form4Filing[] | null = latestForm4Filings()?.filings ?? null,
+): FilingHistoryResponse<Form4Filing> {
+  return buildFilingHistoryPage(query, form4HistoryArchive(baseDir), live, nowMs);
 }
 
 // ── In-memory cache + poll loop (mirrors vesselStream.ts's boot pattern) ───

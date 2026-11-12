@@ -539,6 +539,20 @@ test("insider-history (SEC Form 4 accumulated archive) shares the insider licens
   const entry = meta.endpoints.find((e) => e.path === "/api/v1/data/insider-history");
   assert.ok(entry, "voltrade_insider_history must have a matching apiMeta().endpoints entry");
   assert.equal(entry.preview, "/api/data/insider/history");
+  // 2026-11-12: the route is paged by whole archive days with an explicit
+  // window and cursor (server/filingHistoryPage.ts, the same contract as
+  // earnings-language-history) — the spec must advertise the window/limit
+  // params and the response schema must carry the truncation contract, so a
+  // consumer (human or LLM) cannot read a five-day page as a 90-day one again
+  // (live on 2026-11-11: 2,000 filings, 11-04..11-10, labelled days=90).
+  for (const k of ["from", "to", "limit"]) assert.ok(tool.input_schema.properties[k], `input_schema must advertise ?${k}=`);
+  assert.equal(tool.input_schema.properties.limit.maximum, 2000, "page cap advertised = the reader's FORM4_HISTORY_MAX_FILINGS");
+  assert.match(entry.params, /from=YYYY-MM-DD&to=YYYY-MM-DD/, "apiMeta params string must show the window form");
+  assert.match(entry.desc, /truncated/, "honesty: the endpoint description must name the truncation flag");
+  assert.match(tool.description, /truncated/, "honesty: the tool description must name the truncation flag");
+  const schema = RESPONSE_DATA_SCHEMAS.voltrade_insider_history as any;
+  for (const k of ["window", "covered", "truncated", "next", "count", "filings"]) assert.ok(schema.properties[k], `response schema must carry ${k}`);
+  for (const k of ["window", "covered", "truncated"]) assert.ok(schema.required.includes(k), `${k} must be REQUIRED — a page that cannot say what it covered is not a page`);
 });
 
 test("earnings-language-history (SEC 8-K accumulated archive) shares the earnings-language license mark and gate status — not a separate root, and it must not silently drop the gate-2 INCOMPLETE status just because it's a windowed companion endpoint", () => {
