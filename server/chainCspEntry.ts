@@ -34,14 +34,17 @@
 // simulation uses only as a cross-check against the underlying's real bar.
 //
 // DERIVED CACHE: a day's rows are written once under
-// optionchains/derived/csp_entry/<day>.json — only for days strictly before
-// the current UTC day. Source files are never modified.
+// optionchains/derived/session/csp_entry/<day>.json — only for days strictly
+// before the current UTC day. Source files are never modified. `day` is the
+// trading SESSION (server/chainSession.ts, 2026-11-06); the label-keyed rows
+// under derived/csp_entry/ (one session late for 07-06..10-27) are untouched.
 
 import fs from "fs";
 import path from "path";
-import { parseOcc, chainDir, type ChainRecord } from "./optionsChainArchive";
+import { parseOcc, type ChainRecord } from "./optionsChainArchive";
 import { archiveBaseDir } from "./datacoreArchive";
 import { readChainDay } from "./chainIv";
+import { sessionDerivedDir } from "./chainSession";
 
 export const CSP_SIM_TARGET_DELTA = -0.30;   // options_execution._select_sell_put target_delta
 export const CSP_SIM_DTE_MIN = 30;           // options_execution.CSP_ENTRY_MIN_DTE
@@ -176,7 +179,7 @@ export function cspEntryForDay(records: readonly ChainRecord[], day: string): Cs
 // ── derived cache (same shape and rules as chainIv.iv30ForDays) ───────────
 
 export function derivedDir(baseDir?: string): string {
-  return path.join(chainDir(baseDir ?? archiveBaseDir()), "derived", "csp_entry");
+  return sessionDerivedDir("csp_entry", baseDir ?? archiveBaseDir());
 }
 
 function readDerived(fp: string): CspEntryRow[] | null {

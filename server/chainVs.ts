@@ -24,20 +24,22 @@
 // summary of this module's own output; the real-quote rank-correlation check
 // (second kill clause) needs an external sample and stays open.
 //
-// DAY LABEL: `day` is the chain file's label (the ET trading date since the
-// 2026-10-21 capture fix; older files carry the one-session shift documented
-// in audit 2026-10-27 §2.4). It is carried as-is, not re-derived.
+// DAY: `day` is the trading SESSION whose quotes were read (server/
+// chainSession.ts, 2026-11-06). Files labelled 07-06..10-27 hold the previous
+// session (audit 2026-10-27 §2.4) and are read under that session at read
+// time; no archive file is renamed or rewritten.
 //
 // DERIVED CACHE: a day's rows are written once under
-// optionchains/derived/vs/<day>.json — only for days strictly before the
-// current UTC day (same rule as chainIv / chainCspEntry). Source files are
-// never modified.
+// optionchains/derived/session/vs/<day>.json — only for days strictly before
+// the current UTC day (same rule as chainIv / chainCspEntry). Source files are
+// never modified; the label-keyed rows under derived/vs/ are untouched.
 
 import fs from "fs";
 import path from "path";
-import { parseOcc, chainDir, type ChainRecord } from "./optionsChainArchive";
+import { parseOcc, type ChainRecord } from "./optionsChainArchive";
 import { archiveBaseDir } from "./datacoreArchive";
 import { readChainDay } from "./chainIv";
+import { sessionDerivedDir } from "./chainSession";
 
 export const VS_MIN_DTE = 14;
 export const VS_MAX_DTE = 60;
@@ -157,7 +159,7 @@ export function vsGate1Summary(rows: readonly VsRow[]): VsGate1Summary {
 // ── derived cache (same shape and rules as chainIv.iv30ForDays) ───────────
 
 export function derivedDir(baseDir?: string): string {
-  return path.join(chainDir(baseDir ?? archiveBaseDir()), "derived", "vs");
+  return sessionDerivedDir("vs", baseDir ?? archiveBaseDir());
 }
 
 function readDerived(fp: string): VsRow[] | null {
