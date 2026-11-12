@@ -23,11 +23,13 @@ unfilled the order is canceled and the caller falls back to today's order.
 Alpaca's mleg limit_price is SIGNED: a debit is positive, a credit negative
 (signed_limit). Evidence, live /api/diag/orders 2026-10-19..11-04: every
 condor entry was sent with a POSITIVE limit (options_execution.
-_submit_mleg_order sends abs(limit_price)) and filled at a NEGATIVE price (a
-credit), three of them at a credit SMALLER than the limit (0.71 -> -0.70,
-4.59 -> -4.55, 3.56 -> -3.53): a positive limit on a credit order is "pay up
-to", which any credit satisfies. A credit close here is therefore sent with
-a negative limit; if the broker refuses that, the caller sends today's order.
+_submit_mleg_order sent abs(limit_price) until 2026-11-06) and filled at a
+NEGATIVE price (a credit), three of them at a credit SMALLER than the limit
+(0.71 -> -0.70, 4.59 -> -4.55, 3.56 -> -3.53): a positive limit on a credit
+order is "pay up to", which any credit satisfies. A credit close here is
+therefore sent with a negative limit; if the broker refuses that, the caller
+sends today's order. Entries use this same rule since 2026-11-06
+(options_execution._mleg_credit_limit / _mleg_debit_limit).
 
 Paper vs live: Alpaca paper fills a limit only once it is marketable at the
 NBBO (the natural), with no price improvement; the complex order book's

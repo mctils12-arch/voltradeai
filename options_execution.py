@@ -38,6 +38,9 @@ import broker_clock
 # 2026-11-05 (daily line, measurement only): the chain quote each order was
 # priced from and the order id Alpaca returned — see option_fill_ledger.py.
 import option_fill_ledger as _fill_ledger
+# 2026-11-06 (mleg limit sign): Alpaca's signed mleg limit rule, shared with
+# the mid-first closes (already loaded through options_manager below).
+import mleg_ladder
 # Alpaca rate limiter (OPT 2026-04-20): prevents silent 429s during busy scans
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -1005,9 +1008,11 @@ def _mid_first_entry(contract: dict) -> dict:
     and is walked to the natural over the next ticks by options_manager
     (register_entry_ladder / _pursue_entry_ladders). Sizing, max loss and the
     EV check stay on the natural (unchanged decisions); only the order's price
-    moves. Credit structures are left alone: _submit_mleg_order (frozen) sends
-    abs(limit), and Alpaca reads a positive mleg limit as a debit, so no
-    credit limit can be expressed through it (live evidence in mleg_ladder.py)."""
+    moves. Credit structures are left alone: they go out at their selector's
+    credit, sent as a negative limit since 2026-11-06 (_mleg_credit_limit;
+    until then _submit_mleg_order sent abs(limit), a debit cap any credit
+    satisfied — live evidence in mleg_ladder.py). Walking a credit entry from
+    the mid is not built."""
     quotes = contract.get("leg_quotes") if isinstance(contract, dict) else None
     if not quotes or contract.get("error"):
         return contract
@@ -2657,7 +2662,12 @@ def _submit_mleg_order(legs: list, qty: int, limit_price: float, label: str) -> 
         "order_class": "mleg",
         "qty": str(qty),
         "type": "limit",
-        "limit_price": str(round(abs(limit_price), 2)),
+        # MLEG LIMIT SIGN 2026-11-06 (human-approved frozen-path change, the
+        # sign only): Alpaca's mleg limit is signed (a debit positive, a credit
+        # negative), so it goes out as the caller signed it (_mleg_debit_limit /
+        # _mleg_credit_limit). Was abs(limit_price): a credit went out as a
+        # debit cap, which every credit satisfies.
+        "limit_price": str(round(limit_price, 2)),
         "time_in_force": "day",
         "legs": mleg_legs,
     }
@@ -2695,12 +2705,39 @@ def _submit_mleg_order(legs: list, qty: int, limit_price: float, label: str) -> 
         return {"status": "error", "detail": f"{label}: mleg submission error — {str(e)[:200]}"}
 
 
+# MLEG LIMIT SIGN (2026-11-06, human-approved: research/wishlist.md "credit
+# multi-leg entries are sent with an effectively unlimited price"). Alpaca's
+# API reference (Create an Order, limit_price): "In case of `mleg` ... A
+# positive value indicates a debit ... A negative value signifies a credit".
+# Every caller of _submit_mleg_order states its structure's side through one of
+# these two (test_mleg_signed_limit.py fails on a bare number), so a credit is
+# never again sent as a positive number: live, all five credit condor entries
+# of 2026-10-19..11-04 went out positive and filled at whatever credit the
+# market gave, three below the intended one. The rule is mleg_ladder's
+# signed_limit, the one the mid-first closes use. The sign comes from the
+# structure, never from the number: a magnitude is taken first.
+def _mleg_debit_limit(net_debit: float) -> float:
+    """A debit structure's mleg limit: positive, pay at most this much."""
+    return mleg_ladder.signed_limit("buy", abs(net_debit))
+
+
+def _mleg_credit_limit(net_credit: float) -> float:
+    """A credit structure's mleg limit: negative, receive at least this much."""
+    return mleg_ladder.signed_limit("sell", abs(net_credit)) or 0.0   # a zero credit is 0.0, not -0.0
+
+
 def _submit_spread_order(contract: dict) -> dict:
-    """Submit spread via Alpaca native mleg order."""
+    """Submit spread via Alpaca native mleg order. A credit vertical (its
+    selector records net_credit: bull_put_credit_spread) goes out with a
+    negative limit; a debit one (net_debit: bull_call / bear_put, and the
+    calendar / diagonal, which submit_options_order's "spread" match sends
+    here) with a positive one."""
     long_symbol = contract.get("long_leg", "")
     short_symbol = contract.get("short_leg", "")
     qty = contract.get("qty", 1)
+    is_credit = bool(contract.get("net_credit")) or "credit" in str(contract.get("strategy", ""))
     net_debit = contract.get("net_debit", 0) or contract.get("limit_price", 0)
+    net_credit = contract.get("net_credit", 0) or contract.get("limit_price", 0)
     if not long_symbol or not short_symbol:
         return {"status": "error", "detail": "Missing spread leg symbols"}
     return _submit_mleg_order(
@@ -2708,7 +2745,7 @@ def _submit_spread_order(contract: dict) -> dict:
             {"symbol": long_symbol, "side": "buy", "ratio_qty": 1},
             {"symbol": short_symbol, "side": "sell", "ratio_qty": 1},
         ],
-        qty=qty, limit_price=net_debit,
+        qty=qty, limit_price=_mleg_credit_limit(net_credit) if is_credit else _mleg_debit_limit(net_debit),
         label=f"Spread {long_symbol}/{short_symbol} x{qty}",
     )
 
@@ -2724,7 +2761,7 @@ def _submit_buy_straddle_order(contract: dict) -> dict:
             {"symbol": call_sym, "side": "buy", "ratio_qty": 1},
             {"symbol": put_sym,  "side": "buy", "ratio_qty": 1},
         ],
-        qty=qty, limit_price=net_debit,
+        qty=qty, limit_price=_mleg_debit_limit(net_debit),
         label=f"Buy straddle {call_sym}/{put_sym} x{qty}",
     )
 
@@ -2740,7 +2777,7 @@ def _submit_straddle_order(contract: dict) -> dict:
             {"symbol": call_sym, "side": "sell", "ratio_qty": 1},
             {"symbol": put_sym,  "side": "sell", "ratio_qty": 1},
         ],
-        qty=qty, limit_price=net_credit,
+        qty=qty, limit_price=_mleg_credit_limit(net_credit),
         label=f"Short straddle {call_sym}/{put_sym} x{qty}",
     )
 
@@ -2762,7 +2799,7 @@ def _submit_condor_order(contract: dict) -> dict:
             {"symbol": sp, "side": "sell", "ratio_qty": 1},
             {"symbol": lp, "side": "buy",  "ratio_qty": 1},
         ],
-        qty=qty, limit_price=net_credit,
+        qty=qty, limit_price=_mleg_credit_limit(net_credit),
         label=f"Iron condor x{qty}",
     )
 
@@ -2779,7 +2816,7 @@ def _submit_calendar_order(contract: dict) -> dict:
             {"symbol": long_sym, "side": "buy", "ratio_qty": 1},
             {"symbol": short_sym, "side": "sell", "ratio_qty": 1},
         ],
-        qty=qty, limit_price=net_debit,
+        qty=qty, limit_price=_mleg_debit_limit(net_debit),
         label=f"Calendar {long_sym}/{short_sym} x{qty}",
     )
 
@@ -2797,7 +2834,7 @@ def _submit_diagonal_order(contract: dict) -> dict:
             {"symbol": long_sym, "side": "buy", "ratio_qty": 1},
             {"symbol": short_sym, "side": "sell", "ratio_qty": 1},
         ],
-        qty=qty, limit_price=net_debit,
+        qty=qty, limit_price=_mleg_debit_limit(net_debit),
         label=f"Diagonal {long_sym}/{short_sym} x{qty}",
     )
 
