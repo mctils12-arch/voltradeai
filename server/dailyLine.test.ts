@@ -12,8 +12,8 @@ import { fileURLToPath } from "node:url";
 import { transformSync } from "esbuild";
 import {
   DAILY_LINE_KEEP, DAILY_LINE_SPY_MAX_AGE_MS, OPTION_FILL_LEDGER_FILENAME,
-  appendOptionFillLedger, buildDailyLine, dailyLineDue, dailyLineMessage, dailyLinePrecheck, fillsSlippage, floorExposure,
-  lastLineDay, loadDailyLines, openingWindowBlocks, optionFillsInWindow, optionLedgerRow, optionPnl, optionWindowStart,
+  appendOptionFillLedger, buildDailyLine, dailyLineBody, dailyLineDue, dailyLineMessage, dailyLinePrecheck, dailyLineSchedule, fillsSlippage, floorExposure,
+  lastLineDay, loadDailyLines, openingWindowBlocks, optionFillsInWindow, optionLedgerRow, optionPnl, optionWindowStart, readDailyLines,
   parseCalendarSession, parseFloorConfig, parseLedger, parsePositionsLite, readOptionFillLedger, realizedOptionPnl,
   sameBasis, saveDailyLine, type DailyLine, type DailyLineInputs, type FloorConfig, type LedgerRow, type OptionContract,
 } from "./dailyLine";
@@ -505,4 +505,72 @@ async function runTick(positions, env) {
   await tick([stock]);
   assert.equal(posts[posts.length - 1], "AXTI", "the stock kill still POSTs exactly as before");
   assert.equal(rows.length, 1, "a stock order writes no fill-ledger row");
+});
+
+// ── the owner route ([PRODUCT] 2026-11-06): GET /api/bot/daily-line and the diag probe serve ONE body ──────────
+
+const CAL = { holidays: new Set(["2026-11-26"]), halfDays: new Set(["2026-11-27"]) };
+
+test("readDailyLines: the job's reader, saying why when the file cannot be read; a missing file is no lines and no error", () => {
+  const dir = tmpDir();
+  try {
+    assert.deepEqual(readDailyLines(dir), { lines: [], error: null }, "a fresh volume: nothing written yet is not an error");
+    const base = fullLine();
+    saveDailyLine(dir, { ...base, day: "2026-11-05" });
+    saveDailyLine(dir, { ...base, day: "2026-11-04" });
+    const ok = readDailyLines(dir);
+    assert.equal(ok.error, null);
+    assert.deepEqual(ok.lines.map((l) => l.day), ["2026-11-04", "2026-11-05"], "oldest first, as loadDailyLines");
+    assert.deepEqual(loadDailyLines(dir), ok.lines, "loadDailyLines is the same read");
+    fs.writeFileSync(path.join(dir, "voltrade_daily_line.json"), "{not json");
+    const bad = readDailyLines(dir);
+    assert.deepEqual(bad.lines, []);
+    assert.match(bad.error ?? "", /^the daily line file is unreadable \(/);
+    assert.deepEqual(loadDailyLines(dir), [], "the job still sees no lines (the day is then due)");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dailyLineSchedule: today's line by the NYSE calendar — due at the close + 20 min (13:20 ET on a half day); no session on a weekend or holiday", () => {
+  assert.deepEqual(dailyLineSchedule(ms("2026-11-05T15:00:00Z"), CAL), { day: "2026-11-05", session: true, due_at: "2026-11-05T21:20:00.000Z" });
+  assert.deepEqual(dailyLineSchedule(ms("2026-11-06T04:30:00Z"), CAL), { day: "2026-11-05", session: true, due_at: "2026-11-05T21:20:00.000Z" }, "23:30 ET is still the 5th");
+  assert.deepEqual(dailyLineSchedule(ms("2026-11-27T15:00:00Z"), CAL), { day: "2026-11-27", session: true, due_at: "2026-11-27T18:20:00.000Z" });
+  assert.deepEqual(dailyLineSchedule(ms("2026-11-26T15:00:00Z"), CAL), { day: "2026-11-26", session: false, due_at: null });
+  assert.deepEqual(dailyLineSchedule(ms("2026-11-07T15:00:00Z"), CAL), { day: "2026-11-07", session: false, due_at: null });
+  assert.equal(dailyLineSchedule(ms("2026-07-06T15:00:00Z"), CAL).due_at, "2026-07-06T20:20:00.000Z", "EDT: 16:20 ET is 20:20Z");
+});
+
+test("dailyLineBody: the stored lines as written, newest first, ?days 1–60 (default 10), the newest, the count, the last attempt, today's schedule and the read error", () => {
+  const base = fullLine();
+  const lines = Array.from({ length: 14 }, (_, i) => ({ ...base, day: new Date(ms("2026-10-20T12:00:00Z") + i * 86_400_000).toISOString().slice(0, 10) }));
+  const attempt = { at: "2026-11-05T21:25:00.000Z", day: "2026-11-05", status: "waiting" as const, detail: "spy bars: no 2026-11-05 bar yet (last 2026-11-04)" };
+  const now = ms("2026-11-05T21:30:00Z");
+  const b = dailyLineBody({ lines, error: null }, undefined, attempt, now, CAL);
+  assert.equal(b.count, 14);
+  assert.equal(b.recent.length, 10);
+  assert.deepEqual(b.recent.map((l) => l.day).slice(0, 2), ["2026-11-02", "2026-11-01"], "newest first");
+  assert.equal(b.latest?.day, "2026-11-02");
+  assert.strictEqual(b.recent[0], lines[13], "the line exactly as stored: nothing recomputed");
+  assert.deepEqual(b.lastAttempt, attempt);
+  assert.deepEqual(b.schedule, { day: "2026-11-05", session: true, due_at: "2026-11-05T21:20:00.000Z" });
+  assert.equal(b.keep, DAILY_LINE_KEEP);
+  assert.equal(b.error, null);
+  for (const [raw, n] of [["3", 3], [3, 3], ["0", 10], ["-4", 1], ["500", 14], ["junk", 10], [null, 10]] as const) {
+    assert.equal(dailyLineBody({ lines, error: null }, raw, null, now, CAL).recent.length, n, `days=${String(raw)}`);
+  }
+  const empty = dailyLineBody({ lines: [], error: "the daily line file is unreadable (Unexpected token)" }, "10", null, now, CAL);
+  assert.deepEqual([empty.count, empty.latest, empty.recent, empty.lastAttempt, empty.error], [0, null, [], null, "the daily line file is unreadable (Unexpected token)"]);
+});
+
+test("wiring: GET /api/bot/daily-line is owner-gated and serves the diag probe's own body — the job's reader, no broker call, a bounded 500", () => {
+  const route = slice('app.get("/api/bot/daily-line", requireOwner, (req, res) => {', "// ── REGIME ENGINE daily report");
+  assert.ok(route.includes("res.json(dailyLineBodyNow(req.query.days));"));
+  assert.ok(route.includes("res.status(500).json({ error: String(err instanceof Error ? err.message : err).slice(0, 200) });"));
+  assert.equal(bot.split('app.get("/api/bot/daily-line"').length - 1, 1, "one route");
+  const helper = slice("function dailyLineBodyNow(days: unknown) {", 'app.get("/api/bot/daily-line"');
+  assert.ok(helper.includes("dailyLineBody(readDailyLines(dailyLineDir(process.env)), days, dailyLineLastAttempt, Date.now(), { holidays: marketHolidays(), halfDays: marketHalfDays() })"));
+  assert.ok(!/alpaca\(/.test(helper + route), "the route reads the file only, never the broker");
+  const probe = slice('case "daily_line": {', 'case "regime": {');
+  assert.ok(probe.includes('sanitizeDiag({ probe: "daily_line", ...dailyLineBodyNow(req.query.days) })'), "the probe serves the same body");
 });

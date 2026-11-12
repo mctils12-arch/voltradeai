@@ -22,9 +22,9 @@ import { retrainStatusIsSuccess, retrainFailureDetail, retrainHonestDetail } fro
 import { claimDailyMaintenance, DAILY_MAINTENANCE_CHECK_MS, latestEtDate, etClock } from "./dailyMaintenance";
 import {
   DAILY_LINE_CHECK_MS, DAILY_LINE_SINCE, DAILY_LINE_SPY_MAX_AGE_MS, FLOOR_VM_STATE_FILENAME, OPENING_DEFERRALS_FILENAME,
-  appendOptionFillLedger, buildDailyLine, dailyLineDir, dailyLineDue, dailyLinePrecheck, lastLineDay, loadDailyLines,
-  optionLedgerRow, optionWindowStart, parseCalendarSession, parseFloorConfig, parsePositionsLite, readJsonFile,
-  readOptionFillLedger, saveDailyLine, type DailyLineGate, type DailyLineSession,
+  appendOptionFillLedger, buildDailyLine, dailyLineBody, dailyLineDir, dailyLineDue, dailyLinePrecheck, lastLineDay, loadDailyLines,
+  optionLedgerRow, optionWindowStart, parseCalendarSession, parseFloorConfig, parsePositionsLite, readDailyLines, readJsonFile,
+  readOptionFillLedger, saveDailyLine, type DailyLineAttempt, type DailyLineGate, type DailyLineSession,
 } from "./dailyLine";
 import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonExec";
 import { formatSizeBlocks } from "./sizeBlocks";
@@ -2792,6 +2792,23 @@ print(json.dumps({
     res.json(await scoreboardBody());
   });
 
+  // ── DAILY LINE for the owner ([PRODUCT] 2026-11-06): the lines the job
+  // writes once per trading day after the close (server/dailyLine.ts; the job
+  // is checkDailyLine below) for the Overview's daily-line card — the SAME
+  // body the "daily_line" diag probe serves: dailyLineBody over readDailyLines,
+  // the job's own reader, so nothing is recomputed. Read-only: one file on the
+  // volume, no broker call; ?days=1..60 (default 10).
+  function dailyLineBodyNow(days: unknown) {
+    return dailyLineBody(readDailyLines(dailyLineDir(process.env)), days, dailyLineLastAttempt, Date.now(), { holidays: marketHolidays(), halfDays: marketHalfDays() });
+  }
+  app.get("/api/bot/daily-line", requireOwner, (req, res) => {
+    try {
+      res.json(dailyLineBodyNow(req.query.days));
+    } catch (err) {
+      res.status(500).json({ error: String(err instanceof Error ? err.message : err).slice(0, 200) });
+    }
+  });
+
   // ── REGIME ENGINE daily report (2026-10-28, docs/regime/FINDINGS.md step
   // 3). regime_engine.py (Python, behind VOLTRADE_REGIME_ENGINE) computes the
   // state once per scan and persists it under DATA_DIR; this route only READS
@@ -3958,15 +3975,10 @@ print(json.dumps(s))
           // the stored lines, newest first (?days=1..60, default 10), and the
           // job's last attempt. Read-only: one JSON file on the volume, no
           // broker call. Account values and option symbols (the 2026-07-07
-          // widening authorizes symbols); no keys.
-          const days = Math.min(Math.max(parseInt(String(req.query.days || "10"), 10) || 10, 1), 60);
-          const lines = loadDailyLines(dailyLineDir(process.env));
-          return res.json(sanitizeDiag({
-            probe: "daily_line", count: lines.length,
-            latest: lines.length ? lines[lines.length - 1] : null,
-            recent: lines.slice(-days).reverse(),
-            lastAttempt: dailyLineLastAttempt,
-          }));
+          // widening authorizes symbols); no keys. 2026-11-06: the SAME body
+          // as the owner's /api/bot/daily-line (dailyLineBodyNow), plus
+          // today's schedule and the file's read error.
+          return res.json(sanitizeDiag({ probe: "daily_line", ...dailyLineBodyNow(req.query.days) }));
         }
         case "regime": {
           // ADDED 2026-10-28 (regime engine program, step 3): the regime
@@ -9073,7 +9085,7 @@ print(json.dumps({'files': count}))
   let dailyLineRunning = false;
   let dailyLineWrittenMem: string | null = null;
   let dailyLineSessionCache: { day: string; session: DailyLineSession | null } | null = null;
-  let dailyLineLastAttempt: { at: string; day: string; status: "written" | "waiting" | "error"; detail: string | null } | null = null;
+  let dailyLineLastAttempt: DailyLineAttempt | null = null;
   let dailyLineNotedDay: string | null = null; // one DAILY-LINE-WAIT / -ERROR audit row per day
 
   async function dailyLineSessionFor(day: string): Promise<DailyLineSession | null | undefined> {

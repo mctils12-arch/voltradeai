@@ -14,6 +14,7 @@ import { parseDecisions, pickCards, closedPicks, passedOn, CLOSED_PICK_DAYS, PAS
 import { parseAttribution, attributionFromSleeves, whyHeadline, parseFlows, flowsSentence, parseTax, taxSentence, parseSignals, signalsSentence, parseRiskBudget, riskSentence, unavailableWords, signedMoney, dayWords, type AttrGroup, type AttributionView } from "./whyView";
 import { fmtPct, fmtSigned, fmtMoney, fmtClockET, fmtMonDay, fmtAge, fmtOcc } from "./format";
 import { humanError } from "./chart/BotChart";
+import { dailyLineView, rowTitle, rowNotes, pctWords, gapWords, optWords, optSplitParts } from "./dailyLineView";
 import { Help } from "./help";
 import type { GlossaryKey } from "./glossary";
 import { St, NotRecorded } from "./panels";
@@ -343,6 +344,69 @@ export function WhyBody({ attrQ, days, onDays, sleeves, flowsQ, taxQ, signalsQ, 
           </>
         ) : null}
       </Sect>
+    </div>
+  );
+}
+
+// ── the daily line ([PRODUCT] 2026-11-06) ─────────────────────────────────────
+// The human's daily line (server/dailyLine.ts, written once per trading day after the close) for the last sessions,
+// newest first: the account's day against SPY's on the same basis, the floor's exposure, the option P&L with its
+// fills / direction split, and the option exits the 09:30–09:45 window held. Every cell is a field of a stored line
+// (dailyLineView.ts); how old the newest is and where today's line stands sit above the table, the caveats of each
+// number below it. The phone folds each row onto two lines (the header does the same).
+const toneOf = (t: "ok" | "wait" | "warn") => (t === "warn" ? "vt-bot-o" : t === "wait" ? "vt-bot-t2" : "vt-bot-t3");
+export function DailyLineBody({ q, nowMs }: { q: UseQueryResult<unknown>; nowMs: number }) {
+  const minute = Math.floor(nowMs / 60_000);
+  const v = useMemo(() => dailyLineView(q.data, { loading: q.isLoading, error: q.isError ? q.error : null }, minute * 60_000), [q.data, q.isLoading, q.isError, q.error, minute]);
+  if (v.state === "loading") {
+    return (
+      <div className="vt-dl" data-state="loading" aria-busy="true" aria-label="Loading the daily line">
+        <i className="vt-score-skel" style={{ width: "60%", height: 12 }} />
+        {Array.from({ length: 5 }, (_, i) => <i key={i} className="vt-score-skel" style={{ width: `${92 - i * 6}%`, height: 16 }} />)}
+      </div>
+    );
+  }
+  if (v.state === "error" || v.state === "empty") {
+    return (
+      <div className="vt-dl vt-bot-empty" data-state={v.state} role="status">
+        {v.state === "error" ? <St word="daily line unreadable" cls="vt-bot-o" /> : <NotRecorded what="no daily line yet" />}
+        <span>{v.note}{v.state === "error" ? " · the page asks again every 10 min" : ""}</span>
+        {v.today ? <span className={toneOf(v.today.tone)} data-today={v.today.tone}>{v.today.text}</span> : null}
+      </div>
+    );
+  }
+  const newest = v.newest!;
+  const writtenMs = newest.writtenAt ? Date.parse(newest.writtenAt) : NaN;
+  const notes = rowNotes(newest);
+  return (
+    <div className="vt-dl" data-state="ready">
+      <div className="vt-dl-hd">
+        <span className="vt-bot-t3">newest {newest.label} · written {Number.isFinite(writtenMs) ? `${fmtClockET(newest.writtenAt).slice(0, 5)} ET, ${fmtAge(nowMs - writtenMs)} ago` : "—"}</span>
+        {v.today ? <span className={toneOf(v.today.tone)} data-today={v.today.tone}>{v.today.text}</span> : null}
+      </div>
+      <div className="vt-dl-t" role="table" aria-label={`Daily line, the last ${v.rows.length} sessions, newest first`}>
+        <div className="vt-dl-r vt-dl-h" role="row">
+          <span className="d" role="columnheader">Session</span><span className="a" role="columnheader">Account</span><span className="s" role="columnheader">SPY</span><span className="g" role="columnheader">vs SPY</span>
+          <span className="f" role="columnheader">Floor</span><span className="o" role="columnheader">Options</span><span className="b" role="columnheader" title="option exits the 09:30–09:45 window held back">Holds</span>
+        </div>
+        {v.rows.map((r) => (
+          <div key={r.day} className="vt-dl-r" role="row" data-day={r.day} data-partial={r.partial.length ? "true" : undefined} title={rowTitle(r)}>
+            <span className="d" role="cell">{r.label}{r.partial.length ? <em className="vt-dl-chip" title={`written partial: ${r.partial.join(", ")} unreadable`}>partial</em> : null}</span>
+            <span className={`a ${tone(r.acct)}`} role="cell">{pctWords(r.acct)}</span>
+            <span className={`s ${tone(r.spy)}`} role="cell">{pctWords(r.spy)}</span>
+            <span className={`g ${tone(r.gap)}`} role="cell">{gapWords(r.gap)}</span>
+            <span className="f" role="cell">{r.floor}{r.floorTarget !== null ? <i className="x"> → {r.floorTarget.toFixed(2)}×</i> : null}</span>
+            <span className="o" role="cell"><b className={tone(r.optTotal)}>{optWords(r)}</b><i className="x"> {optSplitParts(r).main} <span className="nw">{optSplitParts(r).priced}</span></i></span>
+            <span className="b" role="cell">{r.blocks === null ? "—" : r.blocks}</span>
+          </div>
+        ))}
+      </div>
+      {notes.length ? <div className="vt-dl-notes">{notes.map((t, i) => <span key={i}>{t}</span>)}</div> : null}
+      <div className="vt-why-src">
+        <span>{v.stored} line{v.stored === 1 ? "" : "s"} stored · the newest {v.rows.length} shown · written once per trading day after the close (+20 min){v.note ? ` · ${v.note}` : ""}<Help k="dailyLine" /></span>
+        {/* the line's own basis sentence is the hover; the visible line says the same and what is an estimate */}
+        <span title={v.basis ? `basis, as the line records it: ${v.basis}` : undefined}>Account = equity when written (after-hours marks can move it) vs the prior close (Alpaca last_equity) · SPY = price-only closes, no dividends · Floor = (SPY + 2 × SSO) ÷ equity, SSO at its 2× target (approximate) · Options = realized + the change in open P&amp;L since the previous line; fills = against the quoted mid at submission (priced fills only), direction = the rest (an estimate) · Holds = option exits the 09:30–09:45 window held back</span>
+      </div>
     </div>
   );
 }

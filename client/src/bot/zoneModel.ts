@@ -11,9 +11,10 @@ import { gridStyle as gridStyleOf, emptyFlags, type LayoutFlags as CockpitFlags,
 export { tierFor, toggleIn, isPinned, clampRect, initialFloatRect, snapEdges, type Tier, type Rect, type Template } from "../cockpit/zoneModel";
 
 // perf / why / picks: the OVERVIEW panels (2026-11-06, human refocus spec §8 — the after-tax chart vs SPY, the
-// "why are we losing money" attribution, a plain-English card per pick)
-export type PanelId = "kpi" | "stages" | "issues" | "state" | "watch" | "model" | "chart" | "book" | "orders" | "timeline" | "score" | "perf" | "why" | "picks";
-export const PANEL_IDS: readonly PanelId[] = ["kpi", "stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline", "score", "perf", "why", "picks"];
+// "why are we losing money" attribution, a plain-English card per pick); daily: the daily line's last sessions
+// ([PRODUCT] 2026-11-06 — account vs SPY on one basis, floor exposure, option P&L, opening-window holds)
+export type PanelId = "kpi" | "stages" | "issues" | "state" | "watch" | "model" | "chart" | "book" | "orders" | "timeline" | "score" | "perf" | "why" | "picks" | "daily";
+export const PANEL_IDS: readonly PanelId[] = ["kpi", "stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline", "score", "perf", "why", "picks", "daily"];
 
 /** KPI row: label + value + three 11 px lines (the vs-SPY tile carries four since the after-tax leg, 2026-10-22) need ~84 px uncut; 88/86 keep the strip from clipping its first and last line.
 /** DEAD SPACE (2026-10-22, human-approved): the left column holds Stages, Issues (content height, capped) and the BOOK, which takes the rest of it — 40 px wider for the tape rows; the right column is the chart alone (Orders is one line while nothing works).
@@ -47,16 +48,20 @@ export function botModeFrom(raw: string | null | undefined): BotMode {
 }
 /** The panels each view shows (kpi is the strip, in both). */
 export const MODE_PANELS: Record<BotMode, readonly PanelId[]> = {
-  overview: ["perf", "why", "picks", "issues", "book", "orders"],
+  overview: ["perf", "why", "picks", "daily", "issues", "book", "orders"],
   cockpit: ["stages", "issues", "state", "watch", "model", "chart", "book", "orders", "timeline", "score"],
 };
 /** Overview grid at the desktop tiers: the chart spans the centre and right columns on top, the attribution and
  *  the pick cards share the row beneath, the essentials (issues, book, orders) hold the left column. The rows
  *  keep a floor (the chart never squeezes under 380 px); a viewport too short for both floors scrolls the grid
- *  instead of shrinking the chart. The phone and tablet stack the same panels, the chart first. */
+ *  instead of shrinking the chart. The phone and tablet stack the same panels, the chart first.
+ *  DAILY LINE ([PRODUCT] 2026-11-06): the last sessions' lines span the centre and right columns in a fourth row.
+ *  Its floor and share stay below the chart's (380 < 420, 400 < 460; 0.8fr < 1.3fr) at the same width, so the chart
+ *  remains the largest panel by construction (the harness checks it); ten compact rows fit the floor, and the panel
+ *  scrolls inside like Why and Picks when a long option split wraps. */
 export const OVERVIEW_TEMPLATES: Record<"xl" | "l", Omit<Template, "scrolls">> = {
-  xl: { columns: "380px minmax(0, 1fr) 480px", rows: "88px minmax(460px, 1.3fr) minmax(320px, 1fr)", areas: ["kpi kpi kpi", "left perf perf", "left why picks"] },
-  l: { columns: "340px minmax(0, 1fr) 400px", rows: "86px minmax(420px, 1.3fr) minmax(300px, 1fr)", areas: ["kpi kpi kpi", "left perf perf", "left why picks"] },
+  xl: { columns: "380px minmax(0, 1fr) 480px", rows: "88px minmax(460px, 1.3fr) minmax(320px, 1fr) minmax(400px, 0.8fr)", areas: ["kpi kpi kpi", "left perf perf", "left why picks", "left daily daily"] },
+  l: { columns: "340px minmax(0, 1fr) 400px", rows: "86px minmax(420px, 1.3fr) minmax(300px, 1fr) minmax(380px, 0.8fr)", areas: ["kpi kpi kpi", "left perf perf", "left why picks", "left daily daily"] },
 };
 export function overviewGridStyle(tier: "xl" | "l"): { gridTemplateColumns: string; gridTemplateRows: string; gridTemplateAreas: string } {
   return gridStyleOf(OVERVIEW_TEMPLATES[tier]);
