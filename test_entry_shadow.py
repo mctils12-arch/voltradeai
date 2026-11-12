@@ -451,8 +451,10 @@ class TestBotTsInlineScripts(_TempShadowLog):
                        "equity": 100000, "setup": "vxx_panic_put_sale"}, f)
         code = self._script("SCANNER PATH: Direct to select_contract + submit").replace("${scanTmpPath}", payload)
         printed = []
+        import options_execution as real_oe   # 2026-11-06: the script registers legs through its shared walk
         with patch.dict(sys.modules, {"options_execution": types.SimpleNamespace(
-                select_contract=lambda *a, **k: dict(CSP), submit_options_order=submit)}), \
+                select_contract=lambda *a, **k: dict(CSP), submit_options_order=submit,
+                register_contract_entry=real_oe.register_contract_entry)}), \
              patch("options_manager.register_options_entry") as reg, \
              patch("options_manager.merge_options_meta"), \
              patch("builtins.print", side_effect=lambda s: printed.append(s)):

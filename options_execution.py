@@ -948,6 +948,46 @@ def _contract_leg_entries(contract: dict, entry_side: str) -> list:
     return out
 
 
+def register_contract_entry(contract: dict, strategy: str, ticker: str, setup: str = "") -> list:
+    """Record an accepted entry with options_manager.register_options_entry. Both
+    entry paths call this one leg walk: evaluate_and_execute and the bot.ts
+    scanner-direct script. Until 2026-11-06 the scanner kept its own key list,
+    which had no short_leg / long_leg, so a scanner bull_put_credit_spread
+    registered neither leg, and it put every condor leg on the contract's "side".
+    Every leg a multi-leg contract names (CONTRACT_LEG_KEYS) is registered on its
+    own side, under one strategy and the structure's max_loss, so the manager
+    groups them. A single-leg contract is registered by its occ_symbol. Returns
+    the OCC symbols registered."""
+    from options_manager import register_options_entry
+    entry_side = contract.get("side", "buy")
+    entry_qty = contract.get("qty", 1)
+    shared_max_loss = contract.get("max_loss", 0)
+
+    leg_occs = _contract_leg_entries(contract, entry_side)
+
+    if leg_occs:
+        # Multi-leg path: register each leg with the SAME strategy+max_loss.
+        for occ, px, side, dlt in leg_occs:
+            register_options_entry(
+                occ, px, side, strategy,
+                delta=dlt, qty=entry_qty,
+                ticker=ticker, setup=setup,
+                max_loss=shared_max_loss,
+            )
+        return [occ for occ, _px, _side, _dlt in leg_occs]
+    # Single-leg path (buy_call, sell_cash_secured_put, covered_call, etc.)
+    occ = contract.get("occ_symbol", "")
+    if occ:
+        register_options_entry(
+            occ, contract.get("limit_price", 0), entry_side, strategy,
+            delta=contract.get("delta", 0), qty=entry_qty,
+            ticker=ticker, setup=setup,
+            max_loss=shared_max_loss,
+        )
+        return [occ]
+    return []
+
+
 def _vertical_leg_quotes(long_leg: dict, short_leg: dict) -> list:
     """A debit vertical's legs on the side its opening order takes."""
     return [{"symbol": long_leg.get("occ_symbol"), "side": "buy", "bid": long_leg.get("bid"), "ask": long_leg.get("ask")},
@@ -2848,38 +2888,11 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
     # max-loss exits and 21-DTE rules were dead code for every condor/straddle.
     #
     # Fix: detect leg keys and register each leg under the SAME strategy and
-    # shared max_loss so manager._manage_strategy_group() can reassemble them.
+    # shared max_loss so manager._manage_strategy_group() can reassemble them
+    # (register_contract_entry, shared with the bot.ts scanner-direct script).
     if order.get("status") in ("submitted", "filled", "pending_new", "accepted"):
         try:
-            from options_manager import register_options_entry
-            strategy = decision["strategy"]
-            entry_side = contract.get("side", "buy")
-            entry_qty = contract.get("qty", 1)
-            ticker = trade.get("ticker", "")
-            setup = trade.get("setup", "")
-            shared_max_loss = contract.get("max_loss", 0)
-
-            leg_occs = _contract_leg_entries(contract, entry_side)
-
-            if leg_occs:
-                # Multi-leg path: register each leg with the SAME strategy+max_loss.
-                for occ, px, side, dlt in leg_occs:
-                    register_options_entry(
-                        occ, px, side, strategy,
-                        delta=dlt, qty=entry_qty,
-                        ticker=ticker, setup=setup,
-                        max_loss=shared_max_loss,
-                    )
-            else:
-                # Single-leg path (buy_call, sell_cash_secured_put, covered_call, etc.)
-                occ = contract.get("occ_symbol", "")
-                if occ:
-                    register_options_entry(
-                        occ, contract.get("limit_price", 0), entry_side, strategy,
-                        delta=contract.get("delta", 0), qty=entry_qty,
-                        ticker=ticker, setup=setup,
-                        max_loss=shared_max_loss,
-                    )
+            register_contract_entry(contract, decision["strategy"], trade.get("ticker", ""), trade.get("setup", ""))
         except Exception as _reg_err:
             import logging
             logging.getLogger("voltrade.options").warning(
