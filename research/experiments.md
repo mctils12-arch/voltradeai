@@ -117757,3 +117757,8 @@ VERSION: v1.0.1399 (shipped 2026-11-12 by the parent session; main was v1.0.1398
 FINDING (the 11-06 rule-calls session, read from the live audit and orders): on 2026-11-05 a Tier-2 scan that began 17:28:11Z, before the latch re-tripped, bought GLD 35 @ $376.60 at 17:33:15Z, 33 s after it did. Only Node-dispatched entries are re-checked against the latch at dispatch; the floor rebalance, BOXX cash parking, the SVXY third leg and the options scanner's direct execution submit from Python without reading it.
 FILED, NOT FIXED: the fix (one Python guard on the persisted latch before any buy or sell-to-open on those four paths, exits and reduce-only floor sells allowed) is its own RULE-REVIEW PR with a mid-scan-flip test. Not urgent today only because Node's kill is off.
 STARVED: no.
+
+## 2026-11-12 [REPAIR] — research/open_questions.md only — KNOWN BROKEN #44 closed: the insider_cusum_gate2 probe verified live after its fix (#1738, v1.0.1384)
+VERSION: v1.0.1400 (shipped 2026-11-12 by the parent session; main was v1.0.1399)
+VERIFICATION (read-only, after the close, as the fix's entry required): GET /api/diag/insider_cusum_gate2 at ~06:10Z returned a real result — ticker SPY, 1,733 bars, n_form4_records 243,693, n_scored_pairs 574, n_cusum_alarms 7 — and no import error (the failure mode since the probe's modules lived only under scripts/, which the image does not ship). The close marker sits inside #44's block; research_state_check reads #44 as closed.
+STARVED: no.

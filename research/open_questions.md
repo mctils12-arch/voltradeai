@@ -7325,6 +7325,18 @@
     not close this item until the Dockerfile line actually ships and the
     probe has been confirmed live.
 
+    **ITEM #44 CLOSED 2026-11-12 (see the kb44 entry in research/experiments.md,
+    2026-11-06, shipped 2026-11-12 as PR #1738, v1.0.1384).** Fixed without the
+    FROZEN Dockerfile: insider_cusum_probe.py and its by-path loader chain
+    (hurst_exponent_probe, permutation_entropy_probe, critical_slowing_down_probe)
+    moved to the repo root, which the image ships; scripts/ keeps no-logic shims
+    for CLI runs and sibling scripts. test_production_image_imports.py rebuilds the
+    image layout from the Dockerfile's COPY lines and fails if runtime code loads
+    from scripts/ again. Live: GET /api/diag/insider_cusum_gate2 on 2026-11-12
+    ~06:10Z (after the close, read-only) returned a real result, no import error:
+    n_form4_records 243,693, n_scored_pairs 574, n_cusum_alarms 7, ticker SPY,
+    1,733 bars. The wishlist.md 2026-09-22 Dockerfile proposal is no longer needed
+    for this probe.
 45. **[PATCHED 2026-10-15 v1.0.1085: paths (a),(b) fixed + fail-closed exclusion; (c) truncation + which path fired still UNCONFIRMED] [FOUND 2026-10-14, check-in session (ruler session — NOT PATCHED,
     trading-rule fix belongs to its own session), LIVE PRODUCTION LOSS.]
     The CSP earnings gate can fail OPEN: a cash-secured put was sold on BAC
