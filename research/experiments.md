@@ -117636,3 +117636,18 @@ DOWNSTREAM: the audit log's boot RULES rows change text, and nothing parses them
 ROLLBACK TRIGGER: none needed (text only); revert if any reader of RULES rows breaks.
 TESTS: server/rulesBanner.test.ts, 6 tests (ON with reason and never OFF; OFF with the threshold; long reasons capped; no "QQQ"; live score; bot.ts uses the builders and the fixed strings are gone); ratchets OK (counter OK, tsc 6, ts_code_only).
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (bot_engine.py _run_third_leg + _resolve_third_leg_dwell; new server/leg3Audit.ts; server/bot.ts scan handler; tests) — the SVXY third leg's buys, exits, cooldown-blocked buys and failed orders are audited (logging only)
+VERSION: v1.0.1388 (shipped 2026-11-12 by the parent session; main was v1.0.1387)
+
+WHY: rule call "SVXY 10% stop / 24h cooldown" (decided KEEP in this session's decision record). Neither threshold has ever been exercised — 0 SVXY lots since 2026-05-07, 0 SVXY orders 10-22..11-06, no LEG3 audit row of any type — and nothing could ever judge them: bot.ts never read scan_market's `third_leg`, a buy blocked by the cooldown left no trace (no prevention P&L), an exit carried no price (the stop's rollback trigger needs SVXY's move after the exit), and a failed order was a debug line. backtest_v2 does not model the leg. With VIX at 28.2 and VIX/VIX3M 1.10 on 11-05 the leg can arm as volatility bleeds out, so it needs to be measurable before it trades.
+
+CHANGE (no rule, threshold or order path changed): _run_third_leg records leg3_cooldown_block (only when the cooldown alone blocks an otherwise-confirmed band buy: the SVXY price it would have paid, the VXX ratio, the cooldown's end; two extra GETs only then), the exit's price / qty / broker answer, the buy's broker answer (type-safe: a non-response is None, never "accepted"), and third_leg_error for a failed buy or exit (was a debug log; now a warning + action). A broker-clock deferral (broker_clock.OrderBlocked) is not an error and writes nothing. _resolve_third_leg_dwell adds cooldown_until. server/leg3Audit.ts turns the pass into LEG3-BUY / LEG3-EXIT / LEG3-COOLDOWN-BLOCK / LEG3-RESERVE / LEG3-ERROR rows; a quiet pass writes nothing (the leg runs every scan). bot.ts audits them after the floor rows.
+
+DOWNSTREAM: (1) SVXY decisions land in the audit log (bot page Activity / timeline, /api/diag/audit?type=LEG3-...); (2) the stop's rollback trigger (≥3 protective exits in 30 days each followed by SVXY +5% within 5 sessions) and the cooldown's prevention P&L (SVXY after each LEG3-COOLDOWN-BLOCK price) become checkable from the audit + daily bars. A failed exit still does not start the cooldown (unchanged).
+
+TESTS: test_third_leg_audit.py (6): cooldown-only block recorded with its price and no order; no block outside the band or without a cooldown (a real buy carries ok=True); exit price/qty/ok, a rejected exit ok=False; unknown response → None; a failed exit is an error action and starts no cooldown; a broker-clock deferral is not an error. server/leg3Audit.test.ts (5): quiet pass writes nothing; exact row text for buy / protective exit / recovery exit / cooldown block; reserve, error and failed-pass rows; bot.ts wiring order. test_third_leg_vrp_risk, test_third_leg_floor_ownership, test_entry_shadow, test_position_mgmt, test_floor_cash_parking and floorAudit tests pass unchanged (104 + 14).
+
+ROLLBACK TRIGGER: LEG3-ERROR rows on every scan for a session (a logging bug), or any change in SVXY order count vs the pre-change rules → revert.
+
+STARVED: no.
