@@ -7645,6 +7645,25 @@
     rule live for the first time and needs evidence first; the ladder's own
     7-day flat stop already exits flat positions.
 
+51. **[FOUND 2026-11-06 by the rule-calls session (filed 2026-11-11); open —
+    a gap in the kill latch's ENTRY block, not in its mechanism.] Python's
+    direct order paths never read Node's persisted kill latch, so a scan that
+    started before a latch can still buy after it.** EVIDENCE: on 2026-11-05 a
+    Tier-2 scan that started at 17:28:11Z, in an unlatched minute, bought GLD
+    35 @ $376.60 at 17:33:15Z — 33 seconds after Node's -20% latch re-tripped.
+    Only Node-dispatched entries are re-checked against the latch at dispatch;
+    the Python paths that submit orders themselves do not read it: the floor
+    rebalance, BOXX cash parking, the SVXY third leg, and the options
+    scanner's direct execution. WHY IT MATTERS: the latch is the account's last
+    line; "blocks new entries" must hold for every path, not only the ones Node
+    sends. PROPOSED FIX (its own PR, RULE REVIEW: a gap in the enforcement path,
+    not a threshold): one Python guard, read from the persisted latch file
+    (the same one Node writes), called before any buy or sell-to-open on those
+    four paths; exits and reduce-only floor sells stay allowed (haltScope's
+    rules). Test: a scan whose latch flips mid-run submits no opening order
+    after the flip. NOT URGENT TODAY only because Node's kill is off; it is
+    the next thing that bites when a latch trips during a scan.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 

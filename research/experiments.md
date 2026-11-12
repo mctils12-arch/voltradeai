@@ -117751,3 +117751,9 @@ WHAT: the research-record half of KB #48 step 3, whose code ships as two PRs ton
 DROPPED from the 11-06 draft: a status note on KB #44 saying it still needed the Dockerfile line. KB #44 is fixed tonight without the Dockerfile (the probe modules move to the repo root), so the note would have been stale on arrival.
 CHECK: scripts/research_state_check.py reads 51 KNOWN BROKEN items, with 3 lacking a close marker (#44, #49, #50): #48 reads closed, and main's #49 is not closed by #48's marker.
 STARVED: no.
+
+## 2026-11-11 [RESEARCH] — research/open_questions.md only — KNOWN BROKEN #51 filed: the kill latch's entry block has a gap (Python's direct order paths never read Node's latch)
+VERSION: v1.0.1399 (shipped 2026-11-12 by the parent session; main was v1.0.1398)
+FINDING (the 11-06 rule-calls session, read from the live audit and orders): on 2026-11-05 a Tier-2 scan that began 17:28:11Z, before the latch re-tripped, bought GLD 35 @ $376.60 at 17:33:15Z, 33 s after it did. Only Node-dispatched entries are re-checked against the latch at dispatch; the floor rebalance, BOXX cash parking, the SVXY third leg and the options scanner's direct execution submit from Python without reading it.
+FILED, NOT FIXED: the fix (one Python guard on the persisted latch before any buy or sell-to-open on those four paths, exits and reduce-only floor sells allowed) is its own RULE-REVIEW PR with a mid-scan-flip test. Not urgent today only because Node's kill is off.
+STARVED: no.
