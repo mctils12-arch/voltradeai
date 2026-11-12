@@ -4,6 +4,8 @@
 // it (glossary.test.ts pins that every key the panels use exists here).
 // Pure data; no DOM.
 
+import { KILL_LINE_GLOSS } from "../../../shared/haltWords";
+
 export interface GlossaryEntry { term: string; text: string }
 
 export const GLOSSARY = {
@@ -13,7 +15,7 @@ export const GLOSSARY = {
   vsSpy: { term: "vs holding SPY", text: "The account's return minus what simply buying and holding SPY would have returned over the same days, on price alone: dividends are left out because the paper account is credited none. The benchmark the whole project is measured against." },
   scoreboard: { term: "Daily vs SPY", text: "Each trading day: the account's equity change against SPY's price change (no dividends, like the paper account) over the same close-to-close span, the difference in points, and both compounded since the first day. Equity is the daily after-close snapshot; a day the snapshot missed folds into the next row, marked." },
   today: { term: "Today · vs SPY", text: "Today's change in account equity since yesterday's close — equity now against the paper account's prior-close equity (Alpaca's last_equity), in dollars and percent — beside SPY's move over the same hours (today's bar vs its prior close, price only) and the difference in points, the headline. A missing side says why, never a zero." },
-  equityPeak: { term: "Equity · from peak", text: "Account value now, and how far it sits below its highest value. The kill line is the drawdown at which the bot stops trading automatically (−20 % from the peak)." },
+  equityPeak: { term: "Equity · from peak", text: `Account value now, and how far it sits below its highest value. The kill line (−20 % from the peak) is ${KILL_LINE_GLOSS}.` },
   session: { term: "Session", text: "Whether regular trading hours (09:30–16:00 ET) are open, and the time until the next open or close. Early closes come from the NYSE calendar." },
   now: { term: "Now", text: "What the bot is doing this second, read from its own audit log: idle between scans, scanning, deciding on candidates, an order working, exiting, halted, or closed for the day." },
   hold: { term: "Hold the layout", text: "Freezes the page's self-arranging layout so nothing moves while you read. The bot keeps running; every number keeps updating." },

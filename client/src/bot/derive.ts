@@ -5,6 +5,7 @@ import type { PanelId } from "./zoneModel";
 import { fmtAge, fmtPct, fmtOcc, MINUS } from "./format";
 import { negativeEdgeIssue } from "./expectancy";
 import type { SleeveExpectancy } from "../../../shared/expectancy";
+import { KILL_CONSEQUENCE } from "../../../shared/haltWords";
 
 export type Level = "ok" | "warn" | "bad" | "unk";
 export type Box = "ok" | "late" | "miss" | "dead";
@@ -117,7 +118,7 @@ export function deriveIssues(i: DeriveInput): Issue[] {
   if (i.killSwitch) {
     const k = first((r) => r.type === "DRAWDOWN-KILL");
     const ev = first((r) => r.type === "KILL-AUTO-RESUME-EVAL");
-    out.push({ id: "kill", level: "L3", title: "Kill switch latched", condition: k ? k.message.replace(/^MAX DRAWDOWN KILL SWITCH:\s*/i, "") : "kill switch set", consequence: "no entries · no exits of any kind · open orders cancelled", clears: ev ? ev.message.replace(/^EVALUATED\s*/i, "").slice(0, 160) : "auto-resume evaluates hourly", action: { label: "Resume", kind: "resume" }, since: k?.time ?? null });
+    out.push({ id: "kill", level: "L3", title: "Kill switch latched", condition: k ? k.message.replace(/^MAX DRAWDOWN KILL SWITCH:\s*/i, "") : "kill switch set", consequence: KILL_CONSEQUENCE, clears: ev ? ev.message.replace(/^EVALUATED\s*/i, "").slice(0, 160) : "auto-resume evaluates hourly", action: { label: "Resume", kind: "resume" }, since: k?.time ?? null });
   }
   if (i.modelAgeHours !== null && i.fallbackAtHours !== null && i.modelAgeHours > i.fallbackAtHours) {
     out.push({ id: "model", level: "L3", title: "Model on the rules fallback", condition: `model ${i.modelAgeHours.toFixed(1)} h old · line ${i.fallbackAtHours} h`, consequence: "every score since is rules-only; the ML column is empty", clears: "a retrain writes a new model (hourly Tier 3 check)", action: { label: "open model", kind: "focus", target: "model" }, since: null });
