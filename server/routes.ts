@@ -4391,22 +4391,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // poller cache and the per-request wiki board. No new computation, no new
   // poller, no token. A validated root with no wiring surfaces as `unwired`
   // (never hidden) and signalProducts.test.ts pins that list to [].
+  // ONE payload for the public preview and the keyed /api/v1/signals mirror
+  // below (same reader, same honesty: a thrown wiki board degrades to
+  // "unavailable", a cold GNSS cache to "warming_up" — never a fabricated row).
+  const signalProductsPayload = () => {
+    const ladder = loadSignalLadder();
+    let wiki: ReturnType<typeof computeWikiAttentionSignal> | null = null;
+    try {
+      wiki = computeWikiAttentionSignal();
+    } catch (e: unknown) {
+      console.error("[datacore] signal-products wiki board:", (e as Error)?.message || e);
+    }
+    return buildSignalProducts(ladder.roots, ladder.compiled, {
+      gnss_integrity_adsb: gnssReading(gnssSignalCache?.data),
+      wikimedia_pageviews_attention: wikiReading(wiki),
+    });
+  };
   app.get("/api/data/signal-products", (_req, res) => {
     try {
-      const ladder = loadSignalLadder();
-      let wiki: ReturnType<typeof computeWikiAttentionSignal> | null = null;
-      try {
-        wiki = computeWikiAttentionSignal();
-      } catch (e: unknown) {
-        console.error("[datacore] signal-products wiki board:", (e as Error)?.message || e);
-      }
       res.set("Cache-Control", "public, max-age=300");
-      res.json(buildSignalProducts(ladder.roots, ladder.compiled, {
-        gnss_integrity_adsb: gnssReading(gnssSignalCache?.data),
-        wikimedia_pageviews_attention: wikiReading(wiki),
-      }));
+      res.json(signalProductsPayload());
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error)?.message || "signal catalog failed" });
+    }
+  });
+  // Signals PRODUCT catalog, keyed (PLATFORM INTEGRATION PROGRAM — the
+  // 2026-11-11 hub entry's NEXT (2)): the catalog an API customer or an agent
+  // reads FIRST to learn which signals are validated and under what channel,
+  // before calling the row's own v1 endpoint. Same payload as the preview
+  // above under the standard envelope; metered like every keyed route. The
+  // LICENSE_MARKS "signals" mark is the strictest posture among the rows;
+  // each row's own `license` is authoritative (apiProduct.ts).
+  app.get("/api/v1/signals", (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const payload = signalProductsPayload();
+      res.json(v1Envelope("signals", payload, Date.parse(payload.generated_at)));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/signals", status: 200, tier: auth.tier });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error)?.message || "signal catalog failed" });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/signals", status: 500, tier: auth.tier });
     }
   });
 
