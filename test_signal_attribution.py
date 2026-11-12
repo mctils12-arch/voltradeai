@@ -138,6 +138,32 @@ def test_registry_points_at_real_harness_names():
     assert len({s["id"] for s in sa.SIGNAL_REGISTRY}) == len(sa.SIGNAL_REGISTRY)
 
 
+def test_every_walkforward_input_is_a_table_row_or_a_declared_prerank_candidate():
+    """2026-11-06 (walkforward.PRERANK_CANDIDATES): the reverse direction of the
+    name parity. Every walk-forward input is a live-score signal's long-term id,
+    a composite row, or a pre-registered pre-rank candidate. The candidates are
+    not stock-score signals (the bot does not read them), so they are not table
+    rows; the live pre-rank they are judged against is."""
+    table_lt = {s["lt"] for s in sa.SIGNAL_REGISTRY if s.get("lt")} | {c["lt"] for c in sa.COMPOSITE_ROWS}
+    cands = set(wf.PRERANK_CANDIDATES)
+    assert set(wf.INPUTS) == table_lt | cands
+    assert not cands & table_lt and not cands & {s["id"] for s in sa.SIGNAL_REGISTRY}
+    assert next(s for s in sa.SIGNAL_REGISTRY if s["lt"] == wf.PRERANK_LIVE)["group"] == "selection"
+    # a walk-forward result that carries the candidates adds no row and changes no verdict
+    base = walkforward_latest()
+    with_c = json.loads(json.dumps(base))
+    for f in wf.PRERANK_CANDIDATES:
+        with_c["inputs"][f] = {"verdict": "positive", "horizons": {"5": _hz(0.02, 4.0, 0.001, top=0.3, ttop=2.0)}}
+    with_c["multiple_testing"]["ic_tests"] = len(wf.INPUTS) * len(wf.HORIZONS)
+    recs = shadow_records(n_days=12)
+    a = sa.build_attribution(recs, walkforward=base, cfg=CFG_V2)
+    b = sa.build_attribution(recs, walkforward=with_c, cfg=CFG_V2)
+    assert [r["id"] for r in a["signals"]] == [r["id"] for r in b["signals"]]
+    assert {r["id"]: r["verdict"] for r in a["signals"]} == {r["id"]: r["verdict"] for r in b["signals"]}
+    # the larger family only raises the bar the top-10 annotation uses
+    assert b["multiple_testing"]["long_term"]["tests"] == 39 and sa.bonferroni_z(39) > sa.bonferroni_z(30)
+
+
 def test_combine_verdict_truth_table():
     cv = sa.combine_verdict
     assert cv("negative", None) == "anti_predictive" == cv(None, "FAIL_INVERTED") == cv("null", "FAIL_INVERTED")
