@@ -148,7 +148,7 @@ def test_the_two_catch_counters_are_disjoint_on_the_real_tree():
 
 @pytest.mark.parametrize(
     "counter,pattern,expected",
-    [("empty_ts_catch", EMPTY_CATCH, 486), ("ts_any", TS_ANY, 1203)],  # ts_any 1220 -> 1212: runUpgradeCandidates rewrite; -> 1206: the dead Tier-0 stream queue removed (2026-11-06); -> 1205: analyze.tsx's never-rendered MarketScanner removed (2026-11-06); -> 1203: the insider/history route's two `(f: any)` lambdas replaced by the typed form4HistoryPage reader (2026-11-12)
+    [("empty_ts_catch", EMPTY_CATCH, 486), ("ts_any", TS_ANY, 1195)],  # ts_any 1220 -> 1212: runUpgradeCandidates rewrite; -> 1206: the dead Tier-0 stream queue removed (2026-11-06); -> 1205: analyze.tsx's never-rendered MarketScanner removed (2026-11-06); -> 1203: the insider/history route's two `(f: any)` lambdas replaced by the typed form4HistoryPage reader (2026-11-12); -> 1195: the unreachable overnight research engine removed (2026-11-12)
 )
 def test_the_pinned_values_are_what_the_module_measures(counter, pattern, expected):
     """Ties the module to ci/counter_baseline.txt.

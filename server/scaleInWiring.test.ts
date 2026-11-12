@@ -64,7 +64,8 @@ test("executeScaleInTranches runs after rotation in the market-open branch", () 
 });
 
 test("a due tranche passes the entry gates and spends its own reservation before its one order", () => {
-  const fn = section("async function executeScaleInTranches(", "// ── Overnight Research Engine");
+  // (end marker moved 2026-11-06: the "Overnight Research Engine" header left with the removed engine; same end position)
+  const fn = section("async function executeScaleInTranches(", "// ── Daily maintenance: the once-a-day");
   const order = [
     "if (!scaleInEnabled(process.env)) return;",
     "if (!Array.isArray(livePositions) || !Array.isArray(liveOrders)) return;",

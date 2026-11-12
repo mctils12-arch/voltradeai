@@ -78,7 +78,16 @@ test("boot warm-up: a job with no beat since a fresh restart is not late inside 
 });
 
 test("overnight window wraps midnight (20:00-04:00 ET)", () => {
-  const ov = spec("overnight_research");
+  // 2026-11-06: the overnight_research job left the registry with the engine
+  // (it never ran — rule call "overnight research window off"). The wrapped
+  // et_range window is still registry machinery, so the same assertions run
+  // on a spec with that job's exact former window and cadence.
+  assert.equal(JOB_REGISTRY.some((j) => j.id === "overnight_research"), false, "the unreachable overnight job is no longer registered");
+  const ov: JobSpec = {
+    id: "overnight_window_fixture", label: "20:00-04:00 ET hourly (fixture)", source: "server/jobHeartbeat.test.ts",
+    kind: "interval", window: { kind: "et_range", startMin: 20 * 60, endMin: 4 * 60 },
+    cadenceMs: HOUR, graceMs: 30 * MIN, maxRunMs: 30 * MIN,
+  };
   const d = windowState({ kind: "et_range", startMin: 20 * 60, endMin: 4 * 60 }, T("2026-10-28T06:00:00Z"), CAL); // 02:00 ET
   assert.equal(d.active, true);
   assert.equal(d.openedAt, T("2026-10-28T00:00:00Z"), "opened 20:00 ET the previous evening");

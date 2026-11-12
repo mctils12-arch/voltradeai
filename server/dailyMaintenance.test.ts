@@ -151,10 +151,14 @@ function fnBody(signature: string): string {
   return bot.slice(start, end);
 }
 
-test("wiring: the dead 4am branch is gone from runOvernightResearch", () => {
-  const research = fnBody("async function runOvernightResearch(etHour: number)");
-  assert.ok(!research.includes("Math.floor(etHour) === 4"), "the unreachable hour-4 branch must not live here");
-  assert.ok(!research.includes("state.morningQueueExecuted = false"), "the daily reset must not live here");
+// 2026-11-06: runOvernightResearch itself was removed (unreachable for the
+// same reason as its 4am branch; rule call "overnight research window off").
+// The two properties this pinned on its body now hold for the whole file.
+test("wiring: the dead 4am branch is gone, and so is runOvernightResearch", () => {
+  assert.ok(!bot.includes("async function runOvernightResearch("), "the unreachable overnight engine is removed");
+  assert.ok(!bot.includes("Math.floor(etHour) === 4"), "the unreachable hour-4 branch lives nowhere");
+  assert.equal(bot.split("state.morningQueueExecuted = false").length - 1, 1, "the daily reset lives only in runDailyMaintenance");
+  assert.ok(fnBody("async function runDailyMaintenance(etDate: string)").includes("state.morningQueueExecuted = false"));
 });
 
 test("wiring: runDailyMaintenance holds every daily reset, the retrain and the backup", () => {

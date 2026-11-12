@@ -204,15 +204,12 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     enabledWhen: (env) => Boolean(env.ALPACA_KEY && env.ALPACA_SECRET),
     disabledReason: "ALPACA_KEY/ALPACA_SECRET unset (bootOiArchive no-ops)",
   },
+  // (overnight_research — the 20:00-04:00 ET overnight research engine — was
+  // removed 2026-11-06 with the engine: it never ran, so this entry read
+  // "missing" every night; rule call "overnight research window off".)
   {
-    // bot.ts runOvernightResearch: "once per hour" inside 20:00-04:00 ET.
-    id: "overnight_research", label: "Overnight research (hourly, 20:00-04:00 ET)",
-    source: "server/bot.ts", kind: "interval", window: { kind: "et_range", startMin: 20 * 60, endMin: 4 * 60 },
-    cadenceMs: HOUR, graceMs: 30 * MIN, maxRunMs: 30 * MIN,
-  },
-  {
-    // bot.ts runOvernightResearch's 4am ET branch: daily state reset +
-    // daily ML retrain + nightly backup.
+    // bot.ts runDailyMaintenance (the old runOvernightResearch 4am branch):
+    // daily state reset + daily ML retrain + nightly backup.
     id: "daily_reset", label: "Daily reset + 4am retrain + nightly backup (04:00 ET)",
     source: "server/bot.ts", kind: "daily", tz: "America/New_York", dueMin: 4 * 60,
     graceMs: 2 * HOUR, maxRunMs: 30 * MIN, tradingDaysOnly: false,

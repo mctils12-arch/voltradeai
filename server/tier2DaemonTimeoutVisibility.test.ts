@@ -23,9 +23,10 @@ function tier2ScanTryCatch(): string {
   assert.ok(enginePathIdx > 0, "tier2 scan block anchor not found in bot.ts");
   const catchStart = bot.indexOf("} catch (err: any) {", enginePathIdx);
   assert.ok(catchStart > enginePathIdx, "tier2 scan catch block not found");
-  // The block runs until the matching close before "Overnight/pre-market research".
-  const overnightIdx = bot.indexOf("Overnight/pre-market research", catchStart);
-  assert.ok(overnightIdx > catchStart, "overnight-research anchor not found after tier2 catch block");
+  // The block runs until the matching close before the note that replaced the
+  // overnight-research call (removed 2026-11-06; same position, anchor moved).
+  const overnightIdx = bot.indexOf('REMOVED 2026-11-06 (rule call "overnight research window off"', catchStart);
+  assert.ok(overnightIdx > catchStart, "overnight-research removal note not found after tier2 catch block");
   return bot.slice(catchStart, overnightIdx);
 }
 
@@ -255,9 +256,14 @@ test("wiring pinned: the catch block does not early-return — overnight researc
   // runs after the try/catch on every tier2Intelligence invocation whenever
   // a scan happened to fail via the daemon path specifically. Guard against
   // that regression recurring.
+  // 2026-11-06: that overnight call was removed (unreachable engine; rule call
+  // "overnight research window off"); its removal note now marks the end of
+  // the catch block, and the no-early-return guard stays for whatever follows.
   const enginePathIdx = bot.indexOf('require("path").resolve(process.cwd(), "bot_engine.py")');
   const catchStart = bot.indexOf("} catch (err: any) {", enginePathIdx);
-  const overnightIdx = bot.indexOf("Overnight/pre-market research", catchStart);
+  const overnightIdx = bot.indexOf('REMOVED 2026-11-06 (rule call "overnight research window off"', catchStart);
+  assert.ok(catchStart > 0 && overnightIdx > catchStart, "the catch block and the removal note that follows it");
+  assert.ok(!bot.includes("Overnight/pre-market research"), "the overnight call is gone");
   const catchBody = bot.slice(catchStart, overnightIdx);
   assert.ok(!/\breturn;/.test(catchBody), "the tier2 scan catch block must not early-return — it would skip the overnight-research call that follows the try/catch");
 });
