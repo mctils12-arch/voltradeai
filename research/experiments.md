@@ -117131,3 +117131,31 @@ ROLLBACK TRIGGER: after a legacy rebuild (DTCC-ARCHIVE-ERROR "seen-ID rebuild" r
 TESTS: server/dtccSeenRebuild.test.ts, 3 tests. (1) The first-listed day file is corrupt: both loaders rebuild and index every other day's IDs, send one DTCC-ARCHIVE-ERROR row naming the file and count "1 of 4". The two loaders give identical members, iteration order and index text, and archiveNewRows then re-archives only the unreadable day's rows. Fails on the old code (empty set). (2) A truncated gzip, checked to stream more than 100 KB before failing, plus a directory named like a plain day file: neither adds an ID or a malformed-line count in either loader, there are 2 audit rows and "2 of 4" is counted. Fails on the old code. (3) A clean archive gives no audit row and no count. DTCC suites 89/89 across 8 files (dtccSwaps, stall, compact, archive-gap, idsDiskGuard, idsStore, idSet, the new file). Ratchets: counter OK (28), tsc 6 (pre-existing), test_ts_code_only 11.
 NOTE: stacked on claude/dtcc-archive-gap (uses its idsEmit sink, which that branch wires to audit_log in routes.ts).
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (options_execution.py, server/bot.ts scanner-direct script) — Scanner-direct options entries register their legs through the shared leg walk: a scanner credit put spread is managed as one group, condor sold legs recorded as sold
+VERSION: v1.0.1372 (shipped 2026-11-12 by the parent session; main was v1.0.1371)
+
+Why (found tracing the mleg sign fix; prerequisite G3 of the parent's ship plan): the bot.ts scanner-direct inline script kept its own leg key list (occ_symbol, short_call, long_call, short_put, long_put, call_leg, put_leg). That is the list #1672 fixed in evaluate_and_execute only.
+- A scanner bull_put_credit_spread (the vxx_panic_put_sale setup) names its legs short_leg / long_leg, so neither leg was registered. options_manager managed two "unknown" single legs: no group profit target, max-loss exit or 21-DTE close, and the long wing could be sold alone.
+- The same list put every condor leg on the contract's "side". A condor contract has none, so the default "buy" applied and the sold legs were recorded as bought.
+
+The change:
+- `options_execution.register_contract_entry(contract, strategy, ticker, setup)` is now the one registration walk. It runs CONTRACT_LEG_KEYS through `_contract_leg_entries` and registers each leg on its own side, under one strategy and the structure's max_loss. A single-leg contract is registered by its occ_symbol. It returns the OCC symbols registered.
+- evaluate_and_execute step 4 and the scanner script both call it.
+- The script's dashboard meta merge now covers exactly the legs registered.
+- A failed registration is written to stderr instead of being passed silently.
+
+Downstream, two steps:
+- Scanner credit put spreads are now grouped: group profit target / max loss / 21-DTE close. POS-KILL treats their legs as defined-risk structure legs (it reads the same state).
+- Condor short legs now carry side "short". Group rules read side and entry price from the broker, so no group decision changes. Only the standalone fields of a leg left alone differ.
+
+Tests:
+- test_scanner_legs_registered.py (7) runs the REAL inline script extracted from bot.ts: both legs of a credit put spread are registered on their sides, then one real manager pass manages them as one group; condor sold legs are recorded as sold; single-leg entries are unchanged; one walk. 5 of 7 fail on the old script.
+- test_options_meta_merge.py and test_entry_shadow.py stub options_execution for that script. Their stubs now carry the real register_contract_entry; no assertion changed.
+- The 47 options-related files: 859 passed, 1 skipped. counter_ratchet OK; test_ts_code_only OK.
+
+Rollback trigger: a scanner entry whose legs are missing from voltrade_options_state.json after an accepted order, or a "scanner-direct leg registration failed" stderr line.
+
+Context: the Python engine's −20% kill has been latched since 2026-11-06 15:32Z, so no new entries have been made since; options activity after 11-06 is not a normal sample.
+
+STARVED: no.
