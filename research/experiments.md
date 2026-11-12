@@ -117194,3 +117194,49 @@ Rollback trigger: a filled multi-leg entry whose legs show strategy "unknown", o
 Context: the −20% engine kill has been latched since 2026-11-06 15:32Z (no new entries since).
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (server/bot.ts, server/mlegOpenOrders.ts new, server/cspSweepCooldown.ts, position_mgmt.py, bot_engine.py, options_execution.py) — A resting multi-leg opening order is seen like a single-leg one: options slots, same-underlying duplicates, the CSP gate, the cash reserve, the scanner and the 12-minute sweep
+VERSION: v1.0.1374 (shipped 2026-11-12 by the parent session; main was v1.0.1373)
+
+Why: prerequisite G1 of the mleg sign fix.
+- An Alpaca mleg order has an empty top-level side and symbol (live /api/diag/orders); its legs come back only with nested=true.
+- Every check that read side/symbol missed a resting condor: the options slot count, DUP-SKIP, the tier dispatcher's resting-order gate, position_mgmt.open_order_commitments (it counted $0), and the options scanner's held-ticker list and options_slots.
+- executeTrades never registered an options entry with the stale-order sweeper.
+- Before the sign fix every credit entry filled at once. With it a credit entry rests when the market moved against it (3 of the 5 live ones would have), so a second structure could stack on the first and both fill.
+
+The change (server/mlegOpenOrders.ts; position_mgmt "RESTING MULTI-LEG ORDERS"):
+- Open orders are read nested at every slot, duplicate and reserve site. The scale-in and morning-queue reserve reads are included; the rotation read is not.
+- A multi-leg opening order counts each opening leg as a slot, with QQQ puts excluded as for positions.
+- An options trade skips an underlying with a resting structure (DUP-SKIP); stock trades are unaffected. A tier SELL_CSP skips it too (reason open_structure).
+- The cash reserve counts its max-loss collateral: the worst intrinsic loss at expiry with the credit left out, so it is the same before and after the sign fix. A debit structure counts |limit| x 100 x qty.
+- The scanner skips its underlying and counts its legs.
+- executeTrades registers an accepted multi-leg entry with the sweeper (more than one leg registered, as the Python paths now report). The sweeper follows the mid-first ladder's replacements and cancels the entry after STALE_ORDER_MINUTES (12) like any entry limit.
+- "new" counts as accepted.
+
+Downstream, two steps:
+- While a structure rests, no second one can open on its underlying, and its legs and collateral reduce the slots and reserve room for others.
+- A credit or mid-first entry unfilled after 12 min is cancelled. Then G2 drops its state, and the scanner may re-price it on a later scan, at most 10 attempts per ticker per day.
+- Behaviour change: a #1655 debit entry resting at the natural is now cancelled at 12 min instead of resting all day.
+- Swept multi-leg entries, like CSPs, are replaceIfBetter candidates by score.
+
+Not done:
+- A swept-structure cooldown like the CSP one.
+- Same-underlying dedupe for FILLED structures. Held option positions carry OCC symbols, so the scanner can still open a second structure on an underlying once the first has filled (slots permitting, pre-existing).
+- Held condors are still counted at both wings by option_commitments (pre-existing, more conservative).
+
+Tests:
+- server/mlegOpenOrders.test.ts (10): the real countOpenOptionsOpeningOrders and sweepStaleOrders are cut from bot.ts and run on stubs. A resting condor is 4 slots, a close 0. DUP-SKIP and the CSP gate block the underlying. A 13-min-old entry is DELETEd (under the replaced id when re-priced); a young replaced one stays tracked under its new id.
+- test_mleg_resting_visible.py (11): collateral (condor $300 for 3 units of 1-wide wings, sign-independent; debit; uncapped; partial fill; closes 0), the reserve's pending_orders, the nested read, the scanner list and slots, and evaluate_and_execute reporting its legs.
+- On the previous code 8 of 10 TS and 10 of 11 Python tests fail.
+- The optionsSlotOpenOrdersRace.test.ts URL pin was updated to its new exact value (?status=open&nested=true).
+- Related TS suites: 110 passed. The 64 related Python files: 1076 passed, 1 skipped.
+- counter_ratchet OK; tsc 6 (the ceiling); test_ts_code_only OK.
+
+Rollback triggers:
+- Revert: an "open_structure" CSP-SKIP or a structure DUP-SKIP with no mleg order working on the underlying.
+- Revert: options slots counted above held legs + resting opening legs.
+- Follow-up, not revert: a structure swept, re-submitted and swept again within the hour (add a cooldown).
+
+Context: the −20% engine kill has been latched since 2026-11-06 15:32Z (no new entries since); options activity after 11-06 is not a normal sample.
+
+STARVED: no.
