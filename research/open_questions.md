@@ -7489,6 +7489,37 @@
     config are the intended policy — and delete the losing one (STALENESS:
     unread config is debt).
 
+    **ITEM #48 CLOSED 2026-11-06 (see the kb48 entries in
+    research/experiments.md, 2026-11-06).** Earlier steps: step 1 shipped as
+    #1355 (v1.0.1087, exit-aligned shadow label), step 2 as #1356
+    (v1.0.1088, selectable live arm), and the legacy-vs-live-vs-controls
+    before/after as #1400 (v1.0.1124, 2026-10-20). The ML v3 candidate's
+    label followed in #1532 (v1.0.1218). Step 3 was decided with evidence
+    (research/experiments.md 2026-11-06, two [RULE-REVIEW] entries). The
+    stock exit policy of record is the ladder server/bot.ts
+    checkPositionOnTick executes, mirrored by live_exit_policy.py. The
+    configured block lost: it had no reader in Python or TypeScript and
+    never ran live; its 12-25% take-profit never ran in a backtest either;
+    its values were a best-of-324 grid pick; and in the 2026-10-20
+    reconciliation its proxy lost to or tied the simpler controls. It is
+    deleted from system_config.py, with the prior values kept in the
+    replacing comment. backtest_v2's DEFAULT_EXIT_MODEL is now "live"
+    (legacy stays reproducible by name), so PROMOTION RULE 3 backtests score
+    the executed exits. The item's three models are now one. No
+    2026-11-05/06 commit superseded this step. #1663, #1657, #1662 and #1647
+    changed scale-out bookkeeping, tax holds, rotation sells and TIME-EXIT
+    eligibility for options; none touched the config, the backtest default
+    or the ladder's geometry. The option-exit commits (#1635, #1636, #1642,
+    #1644, #1645, #1653, #1655) are outside this item. CARRIED FORWARD, not
+    part of this close:
+    - #50: the Book's exit levels and manage_positions' recommendations
+      follow a Python ladder Node does not run, and the sync TIME-EXIT can
+      never fire.
+    - [RULE-REVIEW candidate 2026-11-06]: should a simpler arm replace the
+      ladder? It needs the own-entries test, run as a server-side job.
+    - Regime follow-up F7 is unblocked; its premise is corrected in regime
+      handoff #4.
+
 49. **[FOUND 2026-11-10, scheduled-routine session, LIVE PRODUCTION
     ENTRY HALT — VISIBILITY FIX SHIPPED (v1.0.1347), THE LATCH ITSELF IS A
     HUMAN DECISION (wishlist.md 2026-11-10).] The Python engine's -20% kill
@@ -7566,6 +7597,53 @@
     file has carried a bad-read-era high since July. /api/health now reads
     "degraded" with engineKill.disagree true; the visibility half is
     CONFIRMED LIVE. The latch itself is unchanged, awaiting the human.
+
+50. **[FOUND 2026-11-06 while settling #48 step 3 — honesty of the Book and
+    of a dead exit path; no trading impact.] Two places still describe stock
+    exits the engine does not execute.** After #48 step 3, the stock exit
+    policy of record is the ladder server/bot.ts checkPositionOnTick
+    executes (mirror: live_exit_policy.py).
+
+    (a) BOOK LEVELS. shared/positionLevels.ts ("the engine's exit levels")
+    is read by server/bot.ts /api/bot/positions, which feeds
+    client/src/bot/chart/levels.ts, exitPlan.ts and picks.ts: the Bot chart,
+    the exit-plan line and the Overview pick cards. It follows
+    bot_engine.manage_positions' formulas, as do manage_positions'
+    recommended CLOSE actions (shown as CLOSE signals and POS-MONITOR-SYNC
+    lines, never executed). Those formulas differ from the Node ladder that
+    sells:
+    - phase-1 stop: max(1.5, min(2 x ATR% x STOP_SCALAR_<regime>, 10)) vs
+      Node's max(1.5, min(2 x ATR%, 8));
+    - the regime scalar on every trail (Node applies none);
+    - a 60-minute stop suppression and a 4-day phase-1 suppression (Node has
+      neither; its phase-1 stop fires on day 1);
+    - a -20% phase-1 hard floor (Node's tick path has none; the 60 s sync's
+      POS-KILL backstop is -25%).
+
+    Example: a small cap with a 7% ATR in BULL shows its stop at -10% that
+    "waits" until day 4, while the engine sells at -8% on the first tick
+    past it. FIX: an own [REPAIR] PR in T-CLIENT + shared, with the visual
+    harness at 390/768/1440. Make positionLevels mirror the Node ladder
+    (ideally from one TS module of constants that bot.ts also uses), and
+    show POS-KILL's -25% as the stock backstop. Do NOT delete
+    manage_positions' -20% hard-stop block: it is a safety mechanism, pinned
+    by test_risk_controls.py TestHardStopIntegration. Either stop presenting
+    Python's recommendations as the engine's levels, or make a Python-only
+    rule live in Node through RULE REVIEW, with evidence.
+
+    (b) SYNC TIME-EXIT. server/bot.ts syncMonitoredPositions' "TIME-EXIT
+    2026-04-22" (older than 14 days, P&L between -5% and +2%) can never
+    fire. It reads `pos.created_at || pos.submitted_at` from GET
+    /v2/positions, and Alpaca's Position object has no timestamp field: the
+    API reference, read 2026-11-06, lists 22 fields (asset_class ... usd)
+    and none is a time. So entryTime is always undefined. #48 called it
+    "probably dead"; it is dead. #1647 (2026-11-06, options exempt) and its
+    tests in server/posKillMarkGuard.test.ts feed positions with a synthetic
+    created_at. FIX (RULE REVIEW): either delete the block, rewriting
+    #1647's tests to pin "no sync time exit" (a removal with no behaviour
+    change), or make it read the stop state's entry_date. The second makes a
+    rule live for the first time and needs evidence first; the ladder's own
+    7-day flat stop already exits flat positions.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
@@ -7849,6 +7927,13 @@ is a RULE-REVIEW PR with evidence, one threshold at a time.
 2. **CONVEXITY OVERLAY FLAG NOT HONOURED.** `system_config.BASE_CONFIG["CONVEXITY_OVERLAY"]["enabled"]` is False, yet `bot_engine._run_convexity_overlay(_macro)` runs every scan (step9b) and the overlay has managed live QQQ protective puts (`'managed_by': 'convexity_overlay'` on the positions it opens). A live protective-put budget whose off switch does nothing. Stopping it is a behaviour change with no evidence either way: the hedge's realized cost and benefit were never measured as a sleeve. TESTABLE: the sleeve ledger with the overlay's lots tagged (the `managed_by` marker exists) — realized hedge P&L vs the floor's drawdown path on the same dates, by regime; PRIOR: 65% that the hedge cost more than it paid over 2026 (a bull year with two short corrections), 50% that it paid in the 2026-04 drawdown alone. ACTION (not taken by the regime program): one [REPAIR] PR that wires `enabled` (with a test) and leaves it True until the measurement reads, or deletes the dead flag (STALENESS AUDIT: an unread config value is debt). The 2026-10-27 master plan's N-items decide; filed here so the dead switch is not rediscovered.
 
 4. **THE NODE EXIT GEOMETRY HAS NEVER SEEN A REGIME** (found 2026-10-28 while wiring step 7 — KNOWN BROKEN class, filed here because KB #48 owns the exit model). `server/bot.ts` `checkPositionOnTick` branches its scale-out R thresholds and trail multipliers on `pos.regime` (BULL / NEUTRAL_BULL bullish; CAUTION / BEAR / PANIC bearish), but the stop state is created with `regime: "NEUTRAL"` ("refined on next sync from bot_engine") and the position-monitor sync only carries the persisted value forward — nothing ever writes the scan's `regime_at_entry` into it (grep: no `.regime =` assignment, no reader of `regime_at_entry` on the stock path). CONSEQUENCE: every live stock exit since inception has run the NEUTRAL branch; the "regime-adaptive exits" in the code comments are not what the bot runs, which is one more face of KB #48's three-exit-models finding. DECISION OWED (KB #48 step 3): whether the exit geometry should be regime-aware at all — if yes, write `regime_at_entry` (the engine's label under VOLTRADE_REGIME_LABELS, step 7) into the stop state at entry and measure the exit-class distribution before/after; if no, delete the dead branches (STALENESS). The regime program changed nothing here: making the exit model regime-aware for the first time is an exit-model change, not a label swap.
+
+   **CORRECTION 2026-11-06 (KB #48 step 3 session): the premise is wrong.** The geometry has always followed a regime label:
+   - syncMonitoredPositions builds every monitored position with `regime` taken from the stop state (`const regime = ps.regime || "NEUTRAL"`, an object-literal field, which is why a grep for `.regime =` missed it).
+   - bot_engine.manage_positions writes `stop_state[ticker]["regime"]` from system_config.get_market_regime (P1, the 5-level classifier) on every Tier-1 pass, under the comment "Regime for bot.ts to read".
+   - The "NEUTRAL … refined on next sync" placeholder lives only in addPositionToMonitor, until the next sync.
+
+   So the Node geometry has followed P1's CURRENT label. Stock entries only open in BULL or CAUTION, and a held position then runs whichever branch P1's label selects on each sync. live_exit_policy.refresh models exactly this, and backtest_v2's live arm refreshes the label daily from the prior bar. What the geometry has never seen is the scan's label (regime_at_entry, or the engine's legacy_label under VOLTRADE_REGIME_LABELS). F7 is therefore a label-source swap at manage_positions' one regime assignment, behind the existing flag, measured by the exit-class distribution before and after. It is not a first-time regime-awareness change. Its gate (KB #48 step 3) is met once the kb48 PR is live.
 
 5. **`TierContext.regime` HAS ALWAYS READ "NEUTRAL"** (same session): `bot_engine._scan_market_inner` builds the tier context with `_regime_ctx.get("regime_label") if '_regime_ctx' in locals() else "NEUTRAL"`, but `_regime_ctx` is `deep_score`'s local and never this function's — the fallback is the only branch ever taken. It matters little (the tier engine's caps come from `get_regime_caps(vxx_ratio, ...)`; `ctx.regime` only labels the masterkill shadow record), which is why it survived. Under VOLTRADE_REGIME_LABELS the context now carries the engine's label; the flag-off path is left as found so the shadow buckets keep one definition until the read.
 
@@ -23177,6 +23262,12 @@ Evidence (experiments.md 2026-10-20 ~23:20Z, v1.0.1131 probe): <1h 168 closes �
 ## [RULE-REVIEW candidate · filed 2026-10-21] The time stop ignores its config: `days_held >= 7` is hard-coded in manage_positions while TIME_STOP_DAYS says 10 (regime-adaptive 3 / 5 / 10)
 
 bot_engine.py manage_positions: `time_stop = days_held >= 7 and abs(pnl_pct) < 2.0`; system_config.BASE_CONFIG["TIME_STOP_DAYS"] = 10 with get_adaptive_params setting 3 (panic) / 5 / 10 — grep finds no reader of TIME_STOP_DAYS in the engine. Which is the intended rule is an evidence question, not a code question: the 2026-05-03 short-hold analysis found stocks held 4+ days at 55.7% WR; a 7-day flat exit vs a 10-day one changes the holding distribution the stocks sleeve is measured on. TESTABLE (gate 3): backtest_v2 ablation of the time stop at 7 vs 10 vs the regime schedule, same entries, per regime; counterfactual-log the time-stop exits going forward ({date, ticker, days_held, pnl_at_exit, +5d/+20d}). PRIOR: 55% that 10 days beats 7 on expectancy (winners need time), 70% that the difference is inside the noise of n. Until then the Bot page chart labels the time stop as the engine runs it (day 7), not as the config says.
+
+**UPDATE 2026-11-06 (KB #48 step 3):** the config side of this question is gone; TIME_STOP_DAYS and its 3/5/10 regime overrides were deleted unread. What remains is an ablation of the live rule itself: 7 calendar days within +-2%, vs 10 trading days, vs the 3/5/10 regime schedule, same entries, per regime. backtest_v2's live arm, now the default, can run it. Prior unchanged: 55% that 10 days beats 7 on expectancy, and 70% that the difference is inside the noise of n.
+
+## [RULE-REVIEW candidate · filed 2026-11-06] Should a simpler exit replace the live R-ladder? The 2026-10-20 exit arms on the bot's OWN entries
+
+KB #48 made the ladder the stock exit policy of record. On 30 large-cap survivors x 10 years it was the worst of four exit arms (research/exit_model_reconciliation_2026-10-20.md): momentum 0.117 %/trade vs 0.42 for time_only and wide_stop; mean reversion 0.855 vs 2.27 and 2.12. That is the direction Kaminski-Lo and Clare et al. predict (stops subtract expectancy unless returns persist). The identical-input check of 2026-11-06 agrees on SPY, QQQ and IWM (Sharpe lower under live on all four inputs). That run's own NEXT (1), the same four arms on the bot's own taken candidates (live universe, small caps, no survivorship) before any live exit change, never ran. The shadow log lives on the Railway volume and /api/diag/shadow is aggregate-only, so the test needs a server-side job. That would be a diag probe in the fdic_gate2 style, running scripts/exit_model_reconciliation.py's arms over taken records deduplicated to one row per ticker per day (the October duplicate-row artifact applies) with daily bars after each entry. PRIOR (carried from 2026-10-20): 60% that the ladder has lower net expectancy than wide_stop on the bot's momentum entries; 75% that stops tighter than 2x ATR hurt its mean-reversion entries. GATE: replace the ladder only if an arm clears the N=4 DSR bar AND beats the ladder per regime on the own-entries set. Then ship one RULE-REVIEW PR (one shape or threshold at a time, rollback trigger stated). CONSTRAINT TO NAME TO THE HUMAN: the refocus spec (2026-11-05, section 4) gives scale-out by thirds at defined targets as its example. A winning arm without scale-outs departs from that example; the spec allows better approaches when results point there, but the PR should say so plainly. The exploratory arms die 2026-12-31 (pre-registered 2026-10-20).
 
 ## [CRITICAL · filed 2026-10-26] The composite score (deep_score) is ANTI-PREDICTIVE — highest-scoring candidates lose the most; lowest-scoring rejects have the best forward returns
 

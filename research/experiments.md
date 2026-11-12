@@ -117744,3 +117744,10 @@ FROZEN sections (FROZEN PATHS, PROMOTION RULES) are untouched. The 11-08, 09-20 
 DOWNSTREAM: the improve routines' text is aligned the same day: no midday PR, and paper-first for new rules. The CI automerge gate (shipped earlier tonight) makes the deploy window mechanical.
 TESTS: test_research_state_check.py; no code reads CLAUDE.md.
 STARVED: no.
+
+## 2026-11-11 [RULE-REVIEW] — research/open_questions.md + docs/regime/FINDINGS.md only — KNOWN BROKEN #48 closed in the research record; its residual filed as #50; regime F7's gate marked met
+VERSION: v1.0.1398 (shipped 2026-11-12 by the parent session; main was v1.0.1397)
+WHAT: the research-record half of KB #48 step 3, whose code ships as two PRs tonight (the stock exit policy of record is the live ladder; backtest_v2's default exit model is "live"). (1) #48 gets its close marker inside its own block: what each step shipped, why the never-read configured exit block lost, what changed for PROMOTION RULE 3 backtests, and what is carried forward. (2) The residual becomes NEW item #50 (written 11-06 as "#49"; main's own #49, the engine kill latch, landed 11-10, so it is renumbered and placed after that block): the Book's exit levels and manage_positions' recommendations still follow a Python ladder Node does not run, and the sync TIME-EXIT can never fire. It stays open. (3) Regime F7 ("Node exit geometry driven by the engine label") is no longer blocked: its premise is corrected and its gate is marked met in FINDINGS.md. (4) The TIME_STOP_DAYS question gets an update: its config side is gone.
+DROPPED from the 11-06 draft: a status note on KB #44 saying it still needed the Dockerfile line. KB #44 is fixed tonight without the Dockerfile (the probe modules move to the repo root), so the note would have been stale on arrival.
+CHECK: scripts/research_state_check.py reads 51 KNOWN BROKEN items, with 3 lacking a close marker (#44, #49, #50): #48 reads closed, and main's #49 is not closed by #48's marker.
+STARVED: no.
