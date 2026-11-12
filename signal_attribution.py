@@ -396,12 +396,31 @@ def _entry_day(rec: dict) -> Optional[str]:
     return _xa_entry_date_et(rec.get("timestamp", ""))
 
 
-def training_duplication(records: Sequence[dict], horizon_key: str = "+10d") -> dict:
-    """What ml_model_v2's production fit actually learns from: load_shadow_data
-    takes every labeled shadow record with features — one per SCAN, not one per
-    candidate — and fast_mode keeps the last 10,000 stacked rows, which are the
-    shadow rows once 10,000 are labeled. duplication = rows / unique
-    (ticker, ET day). Mirrors load_shadow_data's filter (label 0/1, features)."""
+def v2_fit_deduplicated(raw=None) -> bool:
+    """Whether ml_model_v2's live fit runs the honest procedure (one first-seen
+    row per candidate-day, date-keyed splits): BASE_CONFIG["ML_V2_HONEST_TRAINING"]
+    read by the SAME parser the trainer uses (ml_cv.v2_honest_training_cfg),
+    without importing the model module. `raw` overrides the config (tests)."""
+    import ml_cv
+    if raw is None:
+        try:
+            from system_config import BASE_CONFIG
+            raw = BASE_CONFIG.get("ML_V2_HONEST_TRAINING")
+        except ImportError:  # the trainer's own fallback config has no key either: the defaults (ON)
+            raw = None
+    cfg, _problem = ml_cv.v2_honest_training_cfg(raw)
+    return bool(cfg["enabled"])
+
+
+def training_duplication(records: Sequence[dict], horizon_key: str = "+10d",
+                         deduplicated: Optional[bool] = None) -> dict:
+    """The shadow log's labeled rows vs what ml_model_v2's production fit
+    learns from. The logger writes one record per SCAN, so rows / unique
+    (ticker, ET day) = `duplication`. Since 2026-11-06 ([RULE-REVIEW], switch
+    BASE_CONFIG["ML_V2_HONEST_TRAINING"]) load_shadow_data keeps one row per
+    candidate-day, the first-seen one, so the fit's shadow rows = the unique
+    count (`fit_rows`); with the switch off the fit takes every labeled scan
+    row. Mirrors load_shadow_data's filter (label 0/1, features)."""
     rows, keys = 0, set()
     for rec in records:
         if not isinstance(rec, dict):
@@ -413,12 +432,19 @@ def training_duplication(records: Sequence[dict], horizon_key: str = "+10d") -> 
         day = _entry_day(rec)
         keys.add((str(rec.get("ticker", "")).upper(), day))
     uniq = len(keys)
+    dedup = v2_fit_deduplicated() if deduplicated is None else bool(deduplicated)
+    note = ("Since 2026-11-06 ml_model_v2's fit keeps ONE row per candidate-day (the first-seen scan) and splits "
+            "its walk-forward folds and early-stopping holdout by decision date with an embargo and a label purge, "
+            "so each retrain's accuracy, AUC and base rates (its honest_cv record) are out-of-sample."
+            if dedup else
+            "ml_model_v2._train_model_impl stacks generic, feedback and shadow rows in that order and fast_mode "
+            "keeps the LAST 10,000: when shadow rows alone reach 10,000 the fit sees only them, each unique "
+            "candidate-day repeated `duplication` times — row-index CV folds then hold copies of the same "
+            "candidate-day on both sides, so the reported accuracy is not out-of-sample.")
     return {"label": horizon_key, "rows": rows, "unique_ticker_days": uniq,
             "duplication": round(rows / uniq, 2) if uniq else None, "fast_mode_window": 10_000,
-            "note": ("ml_model_v2._train_model_impl stacks generic, feedback and shadow rows in that order and fast_mode "
-                     "keeps the LAST 10,000: when shadow rows alone reach 10,000 the fit sees only them, each unique "
-                     "candidate-day repeated `duplication` times — row-index CV folds then hold copies of the same "
-                     "candidate-day on both sides, so the reported accuracy is not out-of-sample.")}
+            "fit_deduplicated": dedup, "fit_rows": uniq if dedup else rows,
+            "note": note}
 
 
 def _pop_rows(records: Sequence[dict]) -> List[dict]:
@@ -570,9 +596,16 @@ def build_attribution(records: Sequence[dict], walkforward: Optional[dict] = Non
                       f"AUC {_r(pooled.get('auc'), 3)} (95% CI {_r(ci3[0], 3)}–{_r(ci3[1], 3)}; 0.5 = no skill), "
                       f"log-loss {_r(pooled.get('log_loss'), 4)} vs {_r(pooled.get('base_rate_log_loss'), 4)} for always "
                       "predicting the base rate. ")
-    ml_reason += ("The live v2 model has no honest out-of-sample number: its production fit learns from "
-                  f"{dup['rows']} shadow rows that are {dup['unique_ticker_days']} unique candidate-days"
-                  f"{' repeated ' + str(dup['duplication']) + ' times each' if dup.get('duplication') else ''}. ")
+    if dup.get("fit_deduplicated"):
+        ml_reason += ("The live v2 fit keeps one row per candidate-day (the first-seen scan) and is cross-validated by "
+                      f"date with a purge: the shadow log's {dup['rows']} labeled rows are {dup['unique_ticker_days']} "
+                      "unique candidate-days"
+                      f"{' repeated ' + str(dup['duplication']) + ' times each' if dup.get('duplication') else ''} "
+                      "(one row per scan); each retrain logs its out-of-sample AUC against the base rate. ")
+    else:
+        ml_reason += ("The live v2 model has no honest out-of-sample number: its production fit learns from "
+                      f"{dup['rows']} shadow rows that are {dup['unique_ticker_days']} unique candidate-days"
+                      f"{' repeated ' + str(dup['duplication']) + ' times each' if dup.get('duplication') else ''}. ")
     ml_reason += (f"Forward: its logged probability has a +5-day IC of {_signed(ml_fw.get('ic'))} on {ml_fw.get('n', 0)} "
                   "first-seen records" + (" (too few for a verdict)." if ml_fw_v is None else "."))
     rows.append({"id": "ml_v2", "label": "ML blend (LightGBM v2)", "group": "model",

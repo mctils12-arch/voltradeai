@@ -1520,10 +1520,35 @@ def backfill_outcomes(max_records: int = 500) -> dict:
     return stats
 
 
+# [RULE-REVIEW] 2026-11-06 (v2 training honesty): the label window of a record
+# whose outcome carries no exit_date is bounded by the bars backfill_outcomes
+# fetched for it: timestamp + int(horizon * this) + 3 calendar days (its local
+# HORIZON_CALENDAR_BUFFER; test_ml_v2_dedupe_date_cv pins the two equal).
+SHADOW_LABEL_WINDOW_BUFFER = 2.5
+
+
+def _shadow_label_end_date(ts_str, outcome, horizon_days: int) -> Optional[str]:
+    """The last ET session date a record's +Nd label read: the outcome's
+    exit_date (the bar where the target or stop was hit, or the horizon's last
+    bar). Without one, the end of the bar window the backfill fetched for the
+    record, an upper bound on it (the conservative side for a purge). None for
+    an unparseable timestamp."""
+    ed = outcome.get("exit_date") if isinstance(outcome, dict) else None
+    if isinstance(ed, str) and len(ed) >= 10:
+        return ed[:10]
+    try:
+        dt = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return (dt + timedelta(days=int(horizon_days * SHADOW_LABEL_WINDOW_BUFFER) + 3)).strftime("%Y-%m-%d")
+
+
 def load_shadow_data(
     horizon_days: int = 10,
     min_records: int = 50,
     shadow_weight: float = 0.3,
+    dedupe: bool = True,
+    return_meta: bool = False,
 ) -> Optional[Tuple]:
     """
     Build training data from shadow records for a meta-model.
@@ -1533,10 +1558,35 @@ def load_shadow_data(
 
     Args:
         horizon_days:   which outcome horizon to use as label (5, 10, or 20)
-        min_records:    minimum labeled records required (default 50)
+        min_records:    minimum labeled records required (default 50), counted
+                        after the dedupe
         shadow_weight:  per-sample weight multiplier. Default 0.3 reflects
                         that shadow trades didn't actually execute — they're
                         useful signal but less reliable than real fills.
+        dedupe:         [RULE-REVIEW] 2026-11-06. True (default): ONE row per
+                        (ticker, ET entry day), the first-seen labeled record
+                        (shadow_portfolio._first_seen_per_ticker_day, the rule
+                        source_validation and the signals table already use).
+                        The logger writes one record per SCAN, so a candidate
+                        seen all session is ~50 near-identical rows (production
+                        2026-11-06: 10,845 labeled +10d rows were 209 unique
+                        ticker-days); as training rows those copies are not
+                        independent samples, and any row-order split puts copies
+                        of one candidate-day on both sides. The first-seen record
+                        is kept because whether a record is the first of its
+                        ticker-day is known when it is logged; "last of the day"
+                        or "best-scored of the day" are known only after the
+                        close, so choosing by them conditions the row on the
+                        rest of the session. It is also the first price and the
+                        shortest slice of the in-progress bar at which the system
+                        could have acted. False: every labeled scan, the prior
+                        behaviour.
+        return_meta:    True appends a 4th element {"dates", "tickers",
+                        "label_end_dates", "rows_labeled", "deduplicated"}: each
+                        row's ET decision date, ticker and the last ET session
+                        its label read (_shadow_label_end_date), plus the labeled
+                        row count before the dedupe. The default shape is
+                        unchanged.
 
     Usage from ml_model_v2.py:
         from shadow_portfolio import load_shadow_data
@@ -1565,7 +1615,12 @@ def load_shadow_data(
         features = rec.get("features", {})
         if not features:
             continue
-        labeled.append((features, label, rec.get("timestamp", "")))
+        labeled.append(rec)
+    rows_labeled = len(labeled)
+    if dedupe:
+        # one row per (ticker, ET entry day): the first-seen labeled record
+        # (pure; log order kept — the first appearance of each ticker-day)
+        labeled = _first_seen_per_ticker_day(labeled, lambda r: True)
 
     if len(labeled) < min_records:
         return None
@@ -1578,8 +1633,12 @@ def load_shadow_data(
 
     # Build X/y/weights
     X_rows, y_rows, w_rows = [], [], []
+    dates, tickers, label_ends = [], [], []
     current_ts = time.time()
-    for features, label, ts_str in labeled:
+    for rec in labeled:
+        features = rec.get("features", {})
+        outcome = rec["outcomes"][horizon_key]
+        ts_str = rec.get("timestamp", "")
         try:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
         except Exception:
@@ -1589,14 +1648,22 @@ def load_shadow_data(
 
         row = [float(features.get(col, 0) or 0) for col in FEATURE_COLS]
         X_rows.append(row)
-        y_rows.append(label)
+        y_rows.append(outcome.get("label"))
         w_rows.append(shadow_weight * decay)
+        if return_meta:
+            dates.append(_xa_entry_date_et(ts_str))
+            tickers.append(str(rec.get("ticker") or "").upper())
+            label_ends.append(_shadow_label_end_date(ts_str, outcome, horizon_days))
 
-    return (
+    out = (
         np.array(X_rows, dtype=np.float32),
         np.array(y_rows, dtype=np.int8),
         np.array(w_rows, dtype=np.float32),
     )
+    if return_meta:
+        return out + ({"dates": dates, "tickers": tickers, "label_end_dates": label_ends,
+                       "rows_labeled": rows_labeled, "deduplicated": bool(dedupe)},)
+    return out
 
 
 def _change_pct_distribution(abs_values: List[float]) -> dict:

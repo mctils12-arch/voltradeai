@@ -624,6 +624,30 @@ BASE_CONFIG = {
     "ML_V3_RETRAIN_DAYS":   7,     # refit/re-evaluate the candidate weekly
     "ML_V3_LOOKBACK_DAYS":  1400,  # calendar days of daily bars (~3.8y; 1y is feature warm-up)
     "ML_V3_CV_SPLITS":      5,     # date-block walk-forward folds (ml_cv)
+    # v2 TRAINING HONESTY ([RULE-REVIEW] measurement, 2026-11-06). The live v2
+    # fit's last-10,000-row window was all shadow rows, one per SCAN (~52
+    # copies of each of 209 candidate-days), and its CV split rows by INDEX
+    # (an embargo of 5 x n_tickers rows; early stopping on the test fold), so
+    # its reported accuracy and isotonic calibration were in-sample.
+    # enabled: shadow rows deduplicated to the first-seen record per (ticker,
+    # ET day); every row carries its decision date and label end date; the
+    # fast-mode window keeps the most recent whole dates (<= 10,000 rows)
+    # instead of the last rows of a ticker-major stack; walk-forward folds and
+    # the production early-stopping holdout are keyed on dates with an embargo
+    # and a label purge; no fit ever sees its own test fold. False = the prior
+    # row-index procedure, exactly. Measured effect (fixture, 3 seeds): the
+    # reported accuracy falls from 56-63% to ~49.5% (always-majority 58%),
+    # out-of-sample AUC ~0.49 with a CI containing 0.5. No live decision moves
+    # while SCORE_COMPOSITE_V2.ml_neutral holds the ML input at 50; the honest
+    # calibrator maps nearly every candidate to the generic label's base rate
+    # (~0.41-0.43, at the edge of deep_score's 42-58 "uncertain" band), so the
+    # logged legacy blend reads a near-constant ML view.
+    "ML_V2_HONEST_TRAINING": {
+        "enabled": True,
+        "embargo_dates": 11,    # >= the longest label horizon (shadow +10 trading days) + 1
+        "cv_splits": 5,         # date blocks = cv_splits + 1 (fold 1 is skipped while its window < 20 dates)
+        "holdout_frac": 0.2,    # last 20% of a window's dates: early stopping + the LightGBM-vs-GB choice (was the last 20% of rows)
+    },
 
     # ── MARKET REGIME ─────────────────────────────────────────────────────────
     # Regime detection uses VXX ratio + SPY MA + Markov state
