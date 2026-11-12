@@ -7,8 +7,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  nextLiveness, marketHoursBetween, loopDark, shouldSendLivenessReminder,
+  nextLiveness, marketHoursBetween, loopDark, shouldSendLivenessReminder, parseLivenessFile,
   LOOP_DARK_MARKET_HOURS, LOOP_DARK_WALLCLOCK_HOURS, LIVENESS_REMINDER_INTERVAL_HOURS,
+  LIVENESS_SUSTAINED_ACTIVE_MINUTES, LIVENESS_RUN_GAP_MINUTES, type LivenessFile,
 } from "./liveness";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -96,4 +97,83 @@ test("wiring pinned: bot.ts sends a periodic dark-loop reminder, gated by should
   assert.ok(bot.includes("lastReminderAt"), "bot.ts must persist the reminder timestamp so it survives restarts");
   assert.ok(/shouldSendLivenessReminder\([\s\S]{0,600}sendEmailAlert/.test(bot),
     "the gate's true branch must actually send an email, not just compute a flag");
+});
+
+// ── SUSTAINED ACTIVE (2026-11-12): a toggle that re-latches at once leaves the dark clock alone ──
+const MIN = 60_000;
+/** Run the minute tick over a list of [minuteOffset, active] steps from `start`. */
+function runTicks(start: LivenessFile | null, t0: number, steps: Array<[number, boolean]>): LivenessFile {
+  let lv = start;
+  for (const [minute, active] of steps) lv = nextLiveness(lv, active, t0 + minute * MIN);
+  return lv as LivenessFile;
+}
+
+test("sustained active: the 2026-11-05 case — two toggles that re-latch within a tick do not move the dark clock", () => {
+  const darkSince = WED_10ET;                       // the loop went dark here
+  const t0 = WED_10ET + 90 * MIN;                   // 1.5 market hours later the owner toggles
+  const afterFirst = runTicks({ lastActiveAt: darkSince }, t0, [[0, true], [1, false]]);
+  assert.equal(afterFirst.lastActiveAt, darkSince, "one active tick stamps nothing");
+  assert.equal(afterFirst.activeSince, undefined, "the short run ended");
+  const afterSecond = runTicks(afterFirst, t0, [[6, true], [7, false]]);
+  assert.equal(afterSecond.lastActiveAt, darkSince);
+  // 2h12m after darkSince the alarm fires as if the toggles never happened
+  const lv = loopDark(afterSecond, false, darkSince + 132 * MIN);
+  assert.equal(lv.dark, true);
+  assert.match(lv.detail, new RegExp(new Date(darkSince).toISOString().replace(/[.]/g, "\\.")));
+});
+
+test("sustained active: lastActiveAt is stamped once a run is LIVENESS_SUSTAINED_ACTIVE_MINUTES long, then every tick", () => {
+  assert.equal(LIVENESS_SUSTAINED_ACTIVE_MINUTES, 10);
+  const prev: LivenessFile = { lastActiveAt: WED_10ET, lastReminderAt: WED_10ET + 5 * MIN };
+  const t0 = WED_1130ET;
+  const steps: Array<[number, boolean]> = Array.from({ length: 10 }, (_, i) => [i, true]);
+  const nine = runTicks(prev, t0, steps);            // minutes 0..9: nine minutes of run
+  assert.equal(nine.lastActiveAt, WED_10ET, "not yet sustained");
+  assert.equal(nine.lastReminderAt, WED_10ET + 5 * MIN, "the reminder record is kept until the run counts");
+  assert.equal(nine.activeSince, t0);
+  const ten = nextLiveness(nine, true, t0 + 10 * MIN);
+  assert.equal(ten.lastActiveAt, t0 + 10 * MIN, "sustained: stamped");
+  assert.equal(ten.lastReminderAt, undefined, "an active loop carries no reminder record (as before)");
+  const eleven = nextLiveness(ten, true, t0 + 11 * MIN);
+  assert.equal(eleven.lastActiveAt, t0 + 11 * MIN);
+  assert.equal(eleven.activeSince, t0);
+});
+
+test("sustained active: a run survives a short restart gap; a long gap starts a new run", () => {
+  assert.equal(LIVENESS_RUN_GAP_MINUTES, 5);
+  const t0 = WED_10ET;
+  const running: LivenessFile = { lastActiveAt: t0 + 60 * MIN, activeSince: t0, activeSeenAt: t0 + 60 * MIN };
+  const afterDeploy = nextLiveness(running, true, t0 + 64 * MIN);      // 4-minute gap: a deploy
+  assert.equal(afterDeploy.activeSince, t0);
+  assert.equal(afterDeploy.lastActiveAt, t0 + 64 * MIN, "still sustained: stamped at once");
+  const afterOutage = nextLiveness(running, true, t0 + 90 * MIN);      // 30-minute gap: the process was down
+  assert.equal(afterOutage.activeSince, t0 + 90 * MIN, "a new run");
+  assert.equal(afterOutage.lastActiveAt, t0 + 60 * MIN, "not stamped until the new run is sustained");
+  const clockBack = nextLiveness(running, true, t0 + 30 * MIN);        // the clock went backwards
+  assert.equal(clockBack.activeSince, t0 + 30 * MIN);
+});
+
+test("sustained active: an older file (no run stamps) and an inactive loop behave as before", () => {
+  const old: LivenessFile = { lastActiveAt: WED_10ET };
+  assert.equal(nextLiveness(old, false, WED_13ET), old, "same object: no disk churn while dark");
+  const first = nextLiveness(old, true, WED_13ET);
+  assert.deepEqual(first, { lastActiveAt: WED_10ET, activeSince: WED_13ET, activeSeenAt: WED_13ET });
+  const ended = nextLiveness(first, false, WED_13ET + MIN);
+  assert.deepEqual(ended, { lastActiveAt: WED_10ET }, "the run's stamps are dropped once, then the object is stable");
+  assert.equal(nextLiveness(ended, false, WED_13ET + 2 * MIN), ended);
+  assert.deepEqual(nextLiveness(null, true, WED_10ET), { lastActiveAt: WED_10ET, activeSince: WED_10ET, activeSeenAt: WED_10ET });
+});
+
+test("parseLivenessFile keeps the finite stamps and rejects a body without lastActiveAt", () => {
+  assert.deepEqual(parseLivenessFile({ lastActiveAt: 5, savedAt: "x", lastReminderAt: 6, activeSince: 1, activeSeenAt: 4 }),
+    { lastActiveAt: 5, lastReminderAt: 6, activeSince: 1, activeSeenAt: 4 });
+  assert.deepEqual(parseLivenessFile({ lastActiveAt: 5, lastReminderAt: "6", activeSince: null }), { lastActiveAt: 5 });
+  for (const bad of [null, undefined, "x", 5, {}, { lastActiveAt: "5" }, { lastActiveAt: NaN }]) assert.equal(parseLivenessFile(bad), null);
+});
+
+test("wiring pinned: bot.ts loads the liveness file through parseLivenessFile (the run survives a restart)", () => {
+  const src = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const load = src.slice(src.indexOf("function loadLiveness()"), src.indexOf("function saveLiveness("));
+  assert.match(load, /const parsed = parseLivenessFile\(JSON\.parse\(fs\.readFileSync\(p, "utf8"\)\)\);\s*if \(parsed\) return parsed;/);
+  assert.match(src, /fs\.writeFileSync\(p, JSON\.stringify\(\{ \.\.\.v, savedAt: new Date\(\)\.toISOString\(\) \}\)\);/, "saved whole, so the run stamps persist");
 });

@@ -25,23 +25,70 @@ export const LOOP_DARK_WALLCLOCK_HOURS = 24;
 // daily. This constant governs how often a reminder fires while dark.
 export const LIVENESS_REMINDER_INTERVAL_HOURS = 24;
 
+// SUSTAINED ACTIVE (2026-11-12 [REPAIR], filed 2026-11-05): one active tick used
+// to stamp lastActiveAt. Live 2026-11-05: two owner toggles (17:26Z, 17:32Z)
+// each re-latched the drawdown kill within one tick, and each pushed the
+// 2-market-hour alarm back by the whole dark stretch. The loop now counts as
+// active only once it has been active for LIVENESS_SUSTAINED_ACTIVE_MINUTES
+// without a break; until then the dark clock keeps its start. A run survives a
+// restart whose gap is at most LIVENESS_RUN_GAP_MINUTES (a deploy takes 1-3
+// minutes, and deploys must not defang the alarm in either direction).
+export const LIVENESS_SUSTAINED_ACTIVE_MINUTES = 10;
+export const LIVENESS_RUN_GAP_MINUTES = 5;
+
 export interface LivenessFile {
-  lastActiveAt: number; // epoch ms the loop was last seen active
+  lastActiveAt: number; // epoch ms the loop was last counted active (a sustained run)
   savedAt?: string;
   lastReminderAt?: number; // epoch ms the last re-escalation reminder fired
+  activeSince?: number;    // epoch ms the current unbroken active run began
+  activeSeenAt?: number;   // epoch ms of that run's newest active tick
 }
 
-/** Heartbeat transition — pure. Active now: stamp now. Inactive with no
- *  prior record (fresh install / first boot after upgrade): SEED now so a
+/** A liveness file's body -> LivenessFile; null without a finite lastActiveAt.
+ *  The optional fields are kept only when finite (older files carry none). Pure. */
+export function parseLivenessFile(raw: unknown): LivenessFile | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.lastActiveAt !== "number" || !Number.isFinite(o.lastActiveAt)) return null;
+  const out: LivenessFile = { lastActiveAt: o.lastActiveAt };
+  for (const k of ["lastReminderAt", "activeSince", "activeSeenAt"] as const) {
+    const v = o[k];
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
+/** Heartbeat transition — pure.
+ *  No prior record (fresh install / first boot after upgrade): SEED now so a
  *  new deployment doesn't false-alarm — darkness accrues from this moment.
- *  Otherwise keep the last stamp so restarts never reset the clock (the
- *  equityPeak lesson: deploys must not defang the alarm). */
+ *  Inactive: keep the last stamp so restarts never reset the clock (the
+ *  equityPeak lesson: deploys must not defang the alarm); an active run in
+ *  progress ends.
+ *  Active: the run continues when its newest tick is at most
+ *  LIVENESS_RUN_GAP_MINUTES old, else a new run starts now. lastActiveAt is
+ *  stamped only once the run is LIVENESS_SUSTAINED_ACTIVE_MINUTES long; a
+ *  shorter run changes neither the stamp nor the reminder record, so a toggle
+ *  that re-latches at once leaves the dark clock where it was. */
 export function nextLiveness(
   prev: LivenessFile | null, activeNow: boolean, nowMs: number,
 ): LivenessFile {
-  if (activeNow) return { lastActiveAt: nowMs };
-  if (!prev || !Number.isFinite(prev.lastActiveAt)) return { lastActiveAt: nowMs };
-  return prev;
+  const seeded = !!prev && Number.isFinite(prev.lastActiveAt);
+  if (!activeNow) {
+    if (!seeded) return { lastActiveAt: nowMs };
+    if (prev!.activeSince === undefined && prev!.activeSeenAt === undefined) return prev!;
+    const { activeSince: _since, activeSeenAt: _seen, ...rest } = prev!;
+    return rest;
+  }
+  if (!seeded) return { lastActiveAt: nowMs, activeSince: nowMs, activeSeenAt: nowMs };
+  const p = prev!;
+  const gapMs = typeof p.activeSeenAt === "number" ? nowMs - p.activeSeenAt : NaN;
+  const continuing = typeof p.activeSince === "number" && Number.isFinite(p.activeSince)
+    && gapMs >= 0 && gapMs <= LIVENESS_RUN_GAP_MINUTES * 60_000;
+  const activeSince = continuing ? (p.activeSince as number) : nowMs;
+  if (nowMs - activeSince >= LIVENESS_SUSTAINED_ACTIVE_MINUTES * 60_000) {
+    return { lastActiveAt: nowMs, activeSince, activeSeenAt: nowMs };
+  }
+  return { ...p, activeSince, activeSeenAt: nowMs };
 }
 
 const ET_FMT = new Intl.DateTimeFormat("en-US", {
