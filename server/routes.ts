@@ -142,6 +142,7 @@ import { bootEdgeP2 } from "./edgeP2";
 import { bootLazyPrices } from "./lazyPrices";
 import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { bootEarningsQoq } from "./earningsQoq";
+import { bootGithubGate2 } from "./githubGate2";
 import { platformStats } from "./platformStats";
 import {
   bootEarnings8kPoll, latestEarnings8Ks, parseEarnings8kHistoryQuery, readEarnings8kHistoryWindow,
@@ -1722,6 +1723,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // volume's earnings8k archive (the public route caps at 500 filings).
   // VOLTRADE_EARNINGS_QOQ=0 disables.
   bootEarningsQoq();
+
+  // Weekly in-process gate-2 test of the github_org_engineering_momentum root
+  // (server/githubGate2.ts): Sunday 19:00-20:00 ET start, after earningsQoq and
+  // done before the 20:15 panel build; archive weeks + Alpaca daily bars, the
+  // first sufficient run is the registered verdict. VOLTRADE_GITHUB_GATE2=0 disables.
+  bootGithubGate2();
 
   // [REPAIR 2026-07-05, audit defect #1] EAGER ARCHIVE TICK. Aircraft and
   // trains archiving was REQUEST-driven (fetch functions archive as a side

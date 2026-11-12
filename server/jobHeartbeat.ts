@@ -300,6 +300,22 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_EARNINGS_QOQ off",
   },
   {
+    // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
+    // once per ISO week — an in-process run (the pre-registered gate-2 test of
+    // github_org_engineering_momentum: archive weeks + Alpaca daily bars,
+    // seconds long, 15-min budget) or one "skipped" beat (low disk / fresh
+    // result / no Alpaca keys).
+    id: "github_gate2_weekly", label: "GitHub org engineering-momentum gate-2 test (weekly, Sun 19:00-20:00 ET)",
+    source: "server/githubGate2.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 30 * MIN,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_GITHUB_GATE2;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_GITHUB_GATE2 off",
+  },
+  {
     // lazyPricesBackfill.ts bootLazyPricesBackfill: 30-min tick, acts every night
     // from 21:00 ET, once per night PER PROCESS (a redeploy re-attempts) — a run
     // (lazy_prices_backfill.py, <= 3.5 h budget clamped to end by 03:30 ET, kill
