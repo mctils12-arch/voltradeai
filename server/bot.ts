@@ -3108,6 +3108,10 @@ print(json.dumps({
   // long-term date — FIFO lots from the sleeve cache's fill history, priced by
   // the live positions (one /v2/positions read per minute at most), each with
   // the stop state's tax hold when the exit logic manages it.
+  // cspCohort (2026-11-12, [RULE-REVIEW] measurement; server/cspPriorCohort.ts):
+  // the pre-registered re-measure of the csp prior — the short-option lots
+  // opened from 2026-11-06 in the sleeve cache's closed-lot walk (the list the
+  // "lots" probe serves), read like `edge`, never awaited or refetched.
   let taxPositionsCache: { at: number; rows: NonNullable<ReturnType<typeof parsePositions>> } | null = null;
   async function taxRouteBody(limitQ?: unknown): Promise<TaxBody> {
     const read = readTaxDecisions(regimeDataDir(process.env), taxLimit(limitQ));
@@ -3133,7 +3137,9 @@ print(json.dumps({
         extraNotes.push(`ltApproaching unavailable: ${String(err instanceof Error ? err.message : err).slice(0, 160)}`);
       }
     }
-    return taxBody({ rows: read.rows, spyAssumption: read.spyAssumption, readError: read.error, edge: sleeveCache?.edge ?? null, ltApproaching, harvest: hv.review?.harvest ?? [], extraNotes });
+    return taxBody({ rows: read.rows, spyAssumption: read.spyAssumption, readError: read.error, edge: sleeveCache?.edge ?? null,
+      lots: sleeveCache ? { events: sleeveCache.taxInputs.events, fetchedAtMs: sleeveCache.at } : null,
+      ltApproaching, harvest: hv.review?.harvest ?? [], extraNotes });
   }
   app.get("/api/bot/tax", requireOwner, async (req, res) => {
     res.json(await taxRouteBody(req.query.limit));

@@ -11,6 +11,9 @@
 // plus a summary over the decisions, the live broker expectancy per sleeve
 // next to the sizer's estimate (the filter prices trades with the Kelly
 // sizer's stats; when live disagrees, the page must say so) and notes.
+// cspCohort (2026-11-12, server/cspPriorCohort.ts): the pre-registered
+// re-measure of that disagreement — short-option lots opened from 2026-11-06,
+// their win rate's Wilson 95 % interval against the csp prior, and a verdict.
 // Every number is an ESTIMATE at assumed rates; the paper account pays no tax.
 // Pure except readTaxDecisions (one bounded file read).
 import fs from "node:fs";
@@ -19,6 +22,7 @@ import { DEFAULT_TAX_RATES, taxLedger } from "./taxLedger";
 import type { EdgeLedger, EdgeRow } from "./edgeLedger";
 import type { FillRow, PositionRow } from "./killSwitchAutoResume";
 import type { RealizedEvent } from "./sleeveLedger";
+import { cspPriorCohort, type CspPriorCohort } from "./cspPriorCohort";
 
 export const TAX_DECISIONS_FILE = "voltrade_tax_decisions.jsonl";
 export const TAX_DECISIONS_DEFAULT_LIMIT = 100;
@@ -70,6 +74,9 @@ export interface TaxBody {
   spyAssumptionAnnualPct: number | null;
   /** the broker's own expectancy per closed lot (server/edgeLedger.ts), beside the sizer's estimate */
   liveExpectancy: { options: LiveExpectancy; stocks: LiveExpectancy; basis: string } | null;
+  /** the pre-registered re-measure of the csp prior over short-option lots opened from 2026-11-06
+   *  (server/cspPriorCohort.ts); null while the sleeve ledger is not loaded, as liveExpectancy is */
+  cspCohort: CspPriorCohort | null;
   notes: string[];
 }
 
@@ -147,6 +154,8 @@ export interface TaxBodyInput {
   spyAssumption: number | null;
   readError: string | null;
   edge: EdgeLedger | null;
+  /** the sleeve ledger's closed lots — the list `edge` was computed from — and when it was fetched */
+  lots?: { events: readonly RealizedEvent[]; fetchedAtMs: number | null } | null;
   harvest?: HarvestRow[];
   ltApproaching?: LtApproachingRow[];
   extraNotes?: string[];
@@ -181,6 +190,7 @@ export function taxBody(input: TaxBodyInput): TaxBody {
     },
     spyAssumptionAnnualPct: input.spyAssumption,
     liveExpectancy: input.edge ? { options: liveRow(input.edge.options), stocks: liveRow(input.edge.stocks), basis: "per closed lot at the broker (server/edgeLedger.ts)" } : null,
+    cspCohort: input.lots ? cspPriorCohort(input.lots.events, input.lots.fetchedAtMs) : null,
     notes,
   };
 }

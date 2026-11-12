@@ -37,6 +37,10 @@ export const DIAG_PROBES = [
   // entry decisions (allowed / skipped, the after-tax estimate vs SPY, the
   // plain-English reason) — the SAME body as the owner's /api/bot/tax
   // (server/taxAware.ts). Paper-account symbols only; read-only.
+  // 2026-11-12: the body gained `cspCohort` (server/cspPriorCohort.ts), the
+  // pre-registered re-measure of the csp prior: counts, win rate, its Wilson
+  // 95 % interval and a verdict over the closed short-option lots opened from
+  // 2026-11-06 (the "lots" probe's rows, aggregated). No symbol, no lot row.
   "tax",
   // ADDED 2026-10-28 (regime & volatility engine program, docs/regime/
   // FINDINGS.md step 3): the regime engine's daily report — the SAME body
