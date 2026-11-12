@@ -30,7 +30,9 @@ D = date
 
 def test_rules_reproduce_the_official_2026_calendar():
     assert set(ce.nyse_rule_holidays(2026)) == set(mc.MARKET_HOLIDAYS_2026)
-    assert ce.covered_years() == {2026}, "add 2027 to market_calendar.py in December and it takes over"
+    # 2026-11-06: 2027 added to market_calendar.py (CALENDAR YEAR-ADD), so the official file takes over 2027
+    assert ce.covered_years() == {2026, 2027}, "add 2028 to market_calendar.py in December and it takes over"
+    assert set(ce.nyse_rule_holidays(2027)) == set(mc.MARKET_HOLIDAYS_2027), "the rules reproduce the official 2027 calendar too"
     for d in mc.MARKET_HOLIDAYS_2026:
         assert not ce.is_trading_day(d) and ce.is_holiday(d)
 
@@ -39,7 +41,8 @@ def test_2027_holidays_by_rule():
     assert sorted(ce.nyse_rule_holidays(2027)) == [
         D(2027, 1, 1), D(2027, 1, 18), D(2027, 2, 15), D(2027, 3, 26), D(2027, 5, 31),
         D(2027, 6, 18), D(2027, 7, 5), D(2027, 9, 6), D(2027, 11, 25), D(2027, 12, 24)]
-    assert ce.holiday_source(D(2027, 1, 1)) == "estimated (NYSE holiday rules)"
+    assert ce.holiday_source(D(2027, 1, 1)) == "market_calendar.py"   # official since 2026-11-06 (was the rule estimate)
+    assert ce.holiday_source(D(2028, 1, 17)) == "estimated (NYSE holiday rules)"   # MLK Day 2028: still by rule
     assert ce.holiday_source(D(2026, 12, 25)) == "market_calendar.py"
     # New Year's Day 2028 is a Saturday: NYSE does not close the Friday before
     assert ce.is_trading_day(D(2027, 12, 31))
@@ -157,8 +160,8 @@ def test_calendar_window_rows():
     assert yearend["year_end"]["date"] == "2026-12-31"
     hol = [r for r in ce.calendar_window(D(2026, 12, 20), 30) if r["kind"] == "holiday"]
     assert {r["date"]: r["source"] for r in hol} == {"2026-12-25": "market_calendar.py",
-                                                    "2027-01-01": "estimated (NYSE holiday rules)",
-                                                    "2027-01-18": "estimated (NYSE holiday rules)"}
+                                                    "2027-01-01": "market_calendar.py",
+                                                    "2027-01-18": "market_calendar.py"}
 
 
 def test_module_is_pure():
