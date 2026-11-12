@@ -10,6 +10,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
+import v8 from "node:v8";
+import vm from "node:vm";
+
+// A real GC for the memory measurement below (2026-11-12): without one, garbage
+// from the previous tests' large tables could be collected inside the
+// measurement window and shrink the observed arrayBuffers growth (CI, PR #1723:
+// 7.66 MB measured for an 11.43 MB table). --expose-gc set at runtime; the
+// function comes from a fresh context.
+v8.setFlagsFromString("--expose-gc");
+const forceGc = vm.runInNewContext("gc") as () => void;
 import { CompactIdSet, ID_SET_MAX_LOAD, ID_SET_TARGET_LOAD, idSetCapacityFor } from "./dtccIdSet";
 
 function prng(seed: number) {
@@ -231,11 +241,13 @@ test("hash quality on the live id shape: at the max load the longest probe stays
 test("memory: tableBytes is exact (capacity x 8) and, sized for 1M live-shaped ids, the set costs ~11.4 B/id in typed-array memory", () => {
   const n = 1_000_000;
   const ids = liveIds(n, 10);
+  forceGc(); // earlier tests' tables are collected BEFORE the baseline, not inside the window
   const ab0 = process.memoryUsage().arrayBuffers;
   const t0 = performance.now();
   const set = new CompactIdSet(n);
   for (const id of ids) set.add(id);
   const buildMs = performance.now() - t0;
+  forceGc(); // only what the set retains is counted
   const ab1 = process.memoryUsage().arrayBuffers;
   assert.equal(set.tableBytes(), set.tableCapacity * 8);
   const perId = set.tableBytes() / n;

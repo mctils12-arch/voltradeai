@@ -117114,3 +117114,10 @@ DOWNSTREAM: (1) a write failure costs one reload of the seen-ID set on the next 
 ROLLBACK TRIGGER: DTCC-ARCHIVE-ERROR rows repeating on consecutive polls (a persistent write failure: free the volume, don't revert), or any duplicate-row growth in the archive's day files not explained by an index-append failure row.
 TESTS: server/dtccArchiveGap.test.ts, 5 tests: day-file failure on both paths (nothing recorded, audit row, retried and archived next poll, then seen); index-append failure on both paths (row archived, audit row, still known in-process); the sink is wired before the poll. All 5 fail on the pre-fix code and pass after. The DTCC suites (dtccSwaps, stall, compact, idSet, idsStore, diskGuard) pass 81/81. Ratchets: counter OK, tsc 6, ts_code_only 11.
 STARVED: no.
+
+## 2026-11-12 [REPAIR] — tests only (server/dtccIdSet.test.ts) — the compact DTCC ID set's memory test measures with a real GC around it
+VERSION: v1.0.1370 (shipped 2026-11-12 by the parent session; main was v1.0.1369)
+WHY: PR #1723's CI (2026-11-12 01:52Z) failed `memory: tableBytes is exact ... ~11.4 B/id`: arrayBuffers grew 7,663,864 B for an 11,428,576 B table, outside the test's 10% band. The same test passed on #1721's own CI an hour earlier. The test reads process.memoryUsage().arrayBuffers before and after building a 1M-ID table; garbage from the file's earlier large tables can be collected inside that window and shrink the observed growth. It is a measurement in our own (11-11) test, not a defect in the set (tableBytes, which is exact, is asserted separately and passed).
+CHANGE: a real GC (--expose-gc set at runtime via v8.setFlagsFromString, gc taken from a fresh vm context) runs before the baseline and before the second reading, so only what the set retains is counted. The assertion and its 10% tolerance are unchanged; nothing else in the file moves.
+TESTS: server/dtccIdSet.test.ts 10/10, three consecutive local runs. Counter ratchet OK; test_ts_code_only 11.
+STARVED: no.
