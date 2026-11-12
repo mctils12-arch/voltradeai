@@ -261,12 +261,79 @@ def option_commitments(positions: Iterable[dict]) -> Dict[str, float]:
     return out
 
 
+# ── RESTING MULTI-LEG ORDERS (2026-11-06) ─────────────────────────────────────
+# An Alpaca multi-leg order (order_class "mleg") has an empty top-level side and
+# symbol; its legs come back only when the orders are read with nested=true
+# (bot.ts and bot_engine read them that way since 2026-11-06). Until the mleg
+# limit-sign fix every credit entry filled at once, so none rested; now a credit
+# condor rests whenever the market moved against it, and the mid-first debit
+# entries rest by design. A resting structure is counted here like a resting
+# single leg.
+
+def mleg_opening_legs(order: dict) -> List[dict]:
+    """The opening legs (position_intent *_to_open) of a multi-leg order; [] for
+    any other order and for a closing mleg (a group close)."""
+    if not isinstance(order, dict) or str(order.get("order_class", "")).lower() != "mleg":
+        return []
+    return [leg for leg in (order.get("legs") or []) if isinstance(leg, dict)
+            and str(leg.get("position_intent", "")).lower().endswith("_to_open")]
+
+
+def mleg_opening_underlyings(orders: Iterable[dict]) -> List[str]:
+    """Underlyings with a multi-leg opening order still working (sorted, unique)."""
+    out = set()
+    for o in orders or []:
+        for leg in mleg_opening_legs(o):
+            occ = parse_occ(leg.get("symbol", ""))
+            if occ:
+                out.add(occ["underlying"])
+    return sorted(out)
+
+
+def mleg_order_commitment(order: dict) -> float:
+    """Dollars a working multi-leg OPENING order commits if it fills: its
+    max-loss collateral. The legs' worst value at expiry is taken from their
+    intrinsic values, over the underlying at 0 and at every strike; the slope
+    above the top strike is also checked. A credit structure (a vertical, a
+    condor) can lose its widest wing: that loss is the commitment, the credit
+    left out, so the number does not depend on the limit's sign. A structure no
+    expiry price can lose on (a debit vertical, a long straddle, a calendar)
+    commits its net debit, |limit| x 100 x qty. With net short calls the loss
+    has no cap at expiry (Level 3 cannot open that uncovered); every short leg
+    then commits its strike x 100, the cash-secured convention. A leg that is
+    not an OCC option: 0, not priced."""
+    legs = mleg_opening_legs(order)
+    units = max(0.0, _f(order.get("qty")) - _f(order.get("filled_qty"))) if isinstance(order, dict) else 0.0
+    if not legs or units <= 0:
+        return 0.0
+    parsed = []
+    for leg in legs:
+        occ = parse_occ(leg.get("symbol", ""))
+        if occ is None:
+            return 0.0
+        signed = (1.0 if str(leg.get("side", "")).lower() == "buy" else -1.0) * (_f(leg.get("ratio_qty"), 1.0) or 1.0)
+        parsed.append((occ["type"], occ["strike"], signed))
+
+    def payoff(s: float) -> float:   # per unit and share, intrinsic at expiry
+        return sum(q * (max(s - k, 0.0) if typ == "C" else max(k - s, 0.0)) for typ, k, q in parsed)
+
+    call_slope = sum(q for typ, _k, q in parsed if typ == "C")
+    if call_slope < 0:
+        return sum(k * -q for _typ, k, q in parsed if q < 0) * 100.0 * units
+    worst = min(payoff(s) for s in [0.0] + sorted({k for _t, k, _q in parsed}))
+    if worst < 0:
+        return -worst * 100.0 * units
+    return abs(_f(order.get("limit_price"))) * 100.0 * units
+
+
 def open_order_commitments(orders: Iterable[dict], positions: Iterable[dict],
                            skip: Iterable[str] = ()) -> float:
     """Dollars still working in OPENING orders: an equity buy (remaining qty x
     limit), a sell-to-open put (strike x 100 x remaining), a buy-to-open option
-    (limit x 100 x remaining). Orders that close a held position count 0, and so
-    do symbols in `skip` (the floor: its target already covers its orders)."""
+    (limit x 100 x remaining), a multi-leg opening order (its max-loss
+    collateral, mleg_order_commitment). Orders that close a held position count
+    0, and so do symbols in `skip` (the floor: its target already covers its
+    orders)."""
     held = {str(p.get("symbol", "")).upper(): _f(p.get("qty")) for p in (positions or []) if isinstance(p, dict)}
     skip = {str(s).upper() for s in skip}
     total = 0.0
@@ -277,6 +344,9 @@ def open_order_commitments(orders: Iterable[dict], positions: Iterable[dict],
         side = str(o.get("side", "")).lower()
         remaining = max(0.0, _f(o.get("qty")) - _f(o.get("filled_qty")))
         if remaining <= 0 or sym in skip:
+            continue
+        if str(o.get("order_class", "")).lower() == "mleg":
+            total += mleg_order_commitment(o)
             continue
         px = _f(o.get("limit_price")) or (_f(o.get("notional")) / remaining)
         occ = parse_occ(sym)

@@ -3977,6 +3977,7 @@ def _scan_market_inner():
     # offered to capital rotation after the loop.
     import logging as _rsv_log  # a function-local alias: `logging` is a late-bound local in this function
     _reserve, _reserve_left, _rotation_pool, _pm = None, None, [], None
+    _scan_orders = []   # read below; also the options scanner's resting multi-leg orders (step 6b)
     _rotation_max = int(BASE_CONFIG.get("ROTATION_MAX_CANDIDATES", 3))
     try:
         import position_mgmt as _pm
@@ -4687,12 +4688,19 @@ def _scan_market_inner():
     # from stock slots. This lets options trade even when stock positions are full.
     # Count existing options positions to determine available options slots.
     options_trade_count = 0
+    # RESTING MULTI-LEG ORDERS (2026-11-06, position_mgmt): a multi-leg opening order
+    # still working holds its legs' slots and its underlying, as the filled structure
+    # will. _scan_orders (read nested for the cash reserve above) carries its legs.
+    _resting_legs, _resting_underlyings = 0, []
+    if _pm is not None and isinstance(_scan_orders, list):
+        _resting_legs = sum(len(_pm.mleg_opening_legs(_o)) for _o in _scan_orders)
+        _resting_underlyings = _pm.mleg_opening_underlyings(_scan_orders)
     try:
-        # Count current options positions (OCC symbols are > 8 chars)
+        # Count current options positions (OCC symbols are > 8 chars), + resting mleg legs
         existing_options_count = sum(
             1 for p in (current_positions if isinstance(current_positions, list) else [])
             if len(str(p.get("symbol", ""))) > 8 or p.get("asset_class") == "us_option"
-        )
+        ) + _resting_legs
         options_slots = MAX_OPTIONS_POSITIONS - existing_options_count
     except Exception:
         options_slots = MAX_OPTIONS_POSITIONS
@@ -4700,7 +4708,7 @@ def _scan_market_inner():
         from options_scanner import get_options_trades
         options_trades = get_options_trades(
             equity=portfolio_value,
-            current_tickers=current_tickers + [t["ticker"] for t in trades],
+            current_tickers=current_tickers + [t["ticker"] for t in trades] + _resting_underlyings,
             max_new=max(1, options_slots),
             min_score=60.0,  # ALPHA-TUNE 2026-04-21: 65→60 to surface more options candidates
         )
@@ -6379,9 +6387,11 @@ def _latest_quote(symbol: str) -> tuple:
 
 
 def _open_order_rows() -> list:
-    """Every order still working at the broker (status=open, up to 500)."""
+    """Every order still working at the broker (status=open, up to 500). nested
+    (2026-11-06): a multi-leg order carries its legs (position_mgmt RESTING
+    MULTI-LEG ORDERS); every other order is returned as before."""
     alpaca_throttle.acquire()
-    rows = requests.get(f"{ALPACA_BASE_URL}/v2/orders", params={"status": "open", "limit": 500},
+    rows = requests.get(f"{ALPACA_BASE_URL}/v2/orders", params={"status": "open", "limit": 500, "nested": "true"},
                         headers=_alpaca_headers(), timeout=10).json()
     return rows if isinstance(rows, list) else []
 

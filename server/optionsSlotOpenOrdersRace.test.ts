@@ -57,8 +57,9 @@ test("countOpenOptionsOpeningOrders is a single module-scope helper that only co
 
 test("executeTrades adds open sell-side option orders to its live options-slot count", () => {
   const execSection = slice("async function executeTrades(", "const pendingOrderIds");
+  // 2026-11-06: nested=true, so a resting multi-leg order's legs are counted too (mlegOpenOrders.ts)
   assert.ok(
-    execSection.includes('await alpaca("/v2/orders?status=open")'),
+    execSection.includes('await alpaca("/v2/orders?status=open&nested=true")'),
     "executeTrades must fetch live open orders, not rely on /v2/positions (filled-only) alone",
   );
   assert.ok(
@@ -77,7 +78,7 @@ test("tier dispatcher adds open sell-side option orders to its live options-slot
     "// ── TIER 3: BUY SPY/QQQ at 2x",
   );
   assert.ok(
-    dispatcherSection.includes('await alpaca("/v2/orders?status=open")'),
+    dispatcherSection.includes('await alpaca("/v2/orders?status=open&nested=true")'),
     "tier dispatcher must fetch live open orders, mirroring executeTrades' fix",
   );
   assert.ok(
@@ -91,7 +92,7 @@ test("tier dispatcher adds open sell-side option orders to its live options-slot
   );
   // the (now-widened) cap check must still precede the loop body's SELL_CSP execution
   const gateIdx = dispatcherSection.search(/tierOptionsSlotsUsed\s*>=\s*MAX_OPTIONS_POSITIONS/);
-  const openOrdersFetchIdx = dispatcherSection.indexOf('await alpaca("/v2/orders?status=open")');
+  const openOrdersFetchIdx = dispatcherSection.indexOf('await alpaca("/v2/orders?status=open&nested=true")');
   const submitIdx = dispatcherSection.indexOf("submit_options_order(contract)");
   assert.ok(
     openOrdersFetchIdx > 0 && gateIdx > openOrdersFetchIdx && submitIdx > gateIdx,

@@ -127,6 +127,7 @@ import { registerBuiltinHeapGauges } from "./heapGauges";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
+import { followReplacements, hasOpenMlegOpeningOn, mlegOpeningLegs, openMlegUnderlyings } from "./mlegOpenOrders";
 import { decideMorningQueueEntry } from "./morningQueueEntry";
 import { ReserveBudget, parseReserveSnapshot, reserveAuditLine, fitTradeToReserve, parseRotationPlan, rotationPreflight, appendPositionMgmtLog, type ReserveFit, type RotationRow } from "./positionMgmt"; // position management 2026-11-06
 import { planScaleIn, decideTranche, applyTrancheDecision, etfStopFromStock, loadScaleInState, saveScaleInState, scaleInStatePath, scaleInEnabled, SCALE_IN, type ScaleInPlan, type TrancheContext } from "./scaleIn"; // scale-in by thirds 2026-11-06
@@ -1028,15 +1029,21 @@ function countOptionsPositions(positions: any[]): number {
 // must never be counted here. Same QQQ-convexity-overlay exclusion as
 // countOptionsPositions so the two stay conceptually paired; callers add
 // this to countOptionsPositions()'s result to get the true live slot count.
-function countOpenOptionsOpeningOrders(orders: Array<{ side?: string; symbol?: string }>): number {
+// RESTING MULTI-LEG ORDERS (2026-11-06, server/mlegOpenOrders.ts): a multi-leg
+// OPENING order (order_class "mleg", empty top-level side/symbol) counts each
+// opening leg, as countOptionsPositions counts each leg once it fills. The
+// callers read the open orders with nested=true so the legs are present.
+function countOpenOptionsOpeningOrders(orders: Array<{ side?: string; symbol?: string; order_class?: string; legs?: unknown }>): number {
+  // a slot leg: an option symbol that is not a QQQ convexity-overlay put
+  const isSlotLeg = (sym: string) => isOptionSymbol(sym) && !(sym.startsWith("QQQ") && sym.includes("P") && sym.length > 10);
   return Array.isArray(orders)
-    ? orders.filter((o) => {
-        if (o.side !== "sell") return false;
+    ? orders.reduce((n, o) => {
+        const legs = mlegOpeningLegs(o);
+        if (legs.length) return n + legs.filter((l) => isSlotLeg(String(l.symbol || ""))).length;
+        if (o.side !== "sell") return n;
         const sym = o.symbol || "";
-        if (!isOptionSymbol(sym)) return false;
-        if (sym.startsWith("QQQ") && sym.includes("P") && sym.length > 10) return false;
-        return true;
-      }).length
+        return isSlotLeg(sym) ? n + 1 : n;
+      }, 0)
     : 0;
 }
 
@@ -5430,6 +5437,11 @@ print(json.dumps(result[:20]))
     // records this underlying in sweptCspAt so the dispatcher stops
     // re-submitting the same non-marketable limit every scan.
     cspUnderlying?: string;
+    // RESTING MULTI-LEG ORDERS (2026-11-06): a multi-leg entry (an mleg order:
+    // one id for the whole structure; `ticker` is its underlying). The mid-first
+    // ladder re-prices it by replace, so the sweep follows replaced_by to the
+    // order working now before it cancels or drops it.
+    mleg?: boolean;
   }
   const openOrders: TrackedOrder[] = [];
 
@@ -5565,6 +5577,21 @@ print(json.dumps(result[:20]))
     }
   }
 
+  // RESTING MULTI-LEG ORDERS (2026-11-06): the mid-first ladder re-prices an
+  // mleg entry by replace (a new order id per step), so the sweep acts on the
+  // order working now. True when the tracked id moved; a failed read keeps it.
+  async function followMlegOrder(tracked: TrackedOrder): Promise<boolean> {
+    try {
+      const current = await followReplacements(tracked.orderId, (id) => alpaca(`/v2/orders/${id}`));
+      if (current === tracked.orderId) return false;
+      tracked.orderId = current;
+      return true;
+    } catch (err: unknown) {
+      console.warn(`[sweep] mleg order ${tracked.orderId}: replacement not followed this pass: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  }
+
   async function sweepStaleOrders() {
     if (openOrders.length === 0) return;
 
@@ -5580,6 +5607,7 @@ print(json.dumps(result[:20]))
 
     for (const stale of toCancel) {
       try {
+        if (stale.mleg) await followMlegOrder(stale);   // cancel the ladder's current order, not a replaced one
         await alpaca(`/v2/orders/${stale.orderId}`, { method: "DELETE" });
         audit("SWEEP", `Cancelled stale order: ${stale.side.toUpperCase()} ${stale.qty} ${stale.ticker} (unfilled for ${STALE_ORDER_MINUTES}+ min, score ${stale.score}) — buying power freed`);
         if (stale.cspUnderlying) sweptCspAt[stale.cspUnderlying] = Date.now();
@@ -5629,6 +5657,8 @@ print(json.dumps(result[:20]))
       for (let i = openOrders.length - 1; i >= 0; i--) {
         const tracked = openOrders[i];
         if (alpacaIds.has(tracked.orderId)) continue;
+        // a re-priced (replaced) mleg entry is still working under its new id: keep it tracked
+        if (tracked.mleg && (await followMlegOrder(tracked)) && alpacaIds.has(tracked.orderId)) continue;
         // REAL BROKER FILLS (2026-10-27): an entry is recorded at its
         // confirmed fill before the order is dropped.
         if (!(await resolvePendingEntryFill(tracked))) continue;
@@ -5789,7 +5819,7 @@ print(json.dumps(result[:20]))
     } catch (err: any) { console.error("[bot]", err?.message || err); }
     // CASH RESERVE 2026-11-06: queued entries spend from the room above the reserve too.
     const mqPositions = await alpaca("/v2/positions").catch(() => []);
-    const mqOrders = await alpaca("/v2/orders?status=open").catch(() => []);
+    const mqOrders = await alpaca("/v2/orders?status=open&nested=true").catch(() => []);   // nested: a resting mleg order's legs (its collateral)
     const mqReserve = await fetchReserveBudget(Array.isArray(mqPositions) ? mqPositions : [],
       Array.isArray(mqOrders) ? mqOrders : [], equity, "morning queue");
 
@@ -6887,7 +6917,9 @@ print(json.dumps(check_weekly_loss(history)))
         // unfilled on the book is invisible here — add still-open sell-side
         // option orders so a slot already committed (but not yet filled) is
         // counted before this cycle dispatches another SELL_CSP into it.
-        const freshOpenOrdersForTiers = await alpaca("/v2/orders?status=open").catch(() => []);
+        // nested=true (2026-11-06): a resting multi-leg order carries its legs, so its
+        // opening legs count too (countOpenOptionsOpeningOrders, server/mlegOpenOrders.ts).
+        const freshOpenOrdersForTiers = await alpaca("/v2/orders?status=open&nested=true").catch(() => []);
         // KB #46: restart-proof CSP brake reads the BROKER's closed orders (read-only GET).
         const cspClosedSince = new Date(Date.now() - (SWEPT_CSP_COOLDOWN_MINUTES + STALE_ORDER_MINUTES) * 60000).toISOString();
         const recentClosedOrdersForCsp = await alpaca(`/v2/orders?status=closed&after=${encodeURIComponent(cspClosedSince)}&direction=desc&limit=500`).catch(() => []);
@@ -6987,6 +7019,7 @@ print(json.dumps(check_weekly_loss(history)))
               now: Date.now(),
               sweptAt: sweptCspAt[String(action.ticker).toUpperCase()],
               openOrders: Array.isArray(freshOpenOrdersForTiers) ? freshOpenOrdersForTiers : [],
+              openStructureUnderlyings: openMlegUnderlyings(freshOpenOrdersForTiers),
               cooldownMinutes: SWEPT_CSP_COOLDOWN_MINUTES,
               closedOrders: Array.isArray(recentClosedOrdersForCsp) ? recentClosedOrdersForCsp : [],
               staleMinutes: STALE_ORDER_MINUTES,
@@ -7629,7 +7662,9 @@ else:
     // tier dispatcher earlier in THIS cycle) is a real slot commitment not
     // yet reflected in /v2/positions. Count it here too so both
     // options-opening paths agree on live state, not just filled state.
-    const openOptionsOrdersForExec = await alpaca("/v2/orders?status=open").catch(() => []);
+    // nested=true (2026-11-06): a resting multi-leg order carries its legs, so its
+    // opening legs count as slots and its collateral reaches the cash reserve below.
+    const openOptionsOrdersForExec = await alpaca("/v2/orders?status=open&nested=true").catch(() => []);
     const optionsOrdersPending = countOpenOptionsOpeningOrders(
       Array.isArray(openOptionsOrdersForExec) ? openOptionsOrdersForExec : []
     );
@@ -7784,12 +7819,17 @@ else:
         continue;
       }
 
-      // Duplicate order check — skip if we already have a pending order for this ticker
+      // Duplicate order check — skip if we already have a pending order for this ticker.
+      // 2026-11-06: an options trade also skips an underlying with a resting multi-leg
+      // opening order (its top-level symbol is empty; the legs, read with nested=true,
+      // name the underlying), so a second structure never stacks on a resting one.
       try {
-        const openOrders = await alpaca("/v2/orders?status=open");
-        if (Array.isArray(openOrders) && openOrders.some((o: any) => o.symbol === trade.ticker)) {
-          audit("DUP-SKIP", `${trade.ticker}: already have a pending order`);
-          noteGate(trade, "rejected_dup_order", "already have a pending order");
+        const openOrders = await alpaca("/v2/orders?status=open&nested=true");
+        const restingStructure = isOptionsTrade && hasOpenMlegOpeningOn(openOrders, trade.ticker);
+        if (Array.isArray(openOrders) && (openOrders.some((o: any) => o.symbol === trade.ticker) || restingStructure)) {
+          const dupWhy = restingStructure ? "a multi-leg opening order on it is already resting" : "already have a pending order";
+          audit("DUP-SKIP", `${trade.ticker}: ${dupWhy}`);
+          noteGate(trade, "rejected_dup_order", dupWhy);
           continue;
         }
       } catch (err: any) { /* proceed if check fails */ }
@@ -7950,6 +7990,7 @@ else:
         order = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='executeTrades.options_scanner', strategy=data['strategy'], reason='scanner setup ' + str(data.get('setup','')))
     else:
         order = submit_options_order(contract)
+    _legs = []
     if order.get('status') in ('submitted','filled','pending_new','accepted','new'):
         # P0-9 FIX: every leg is registered (options_manager.register_options_entry,
         # by keyword) under the trade's strategy so the manager can group it.
@@ -7960,7 +8001,6 @@ else:
         # the contract's side ('buy'). The opening order id keeps a resting multi-leg
         # entry's state until that order resolves (options_manager RESTING MULTI-LEG
         # ENTRIES); 'new' is an accepted order too.
-        _legs = []
         try:
             from options_execution import register_contract_entry
             _legs = register_contract_entry(contract, data.get('strategy',''), data.get('ticker',''), data.get('setup',''),
@@ -7978,7 +8018,7 @@ else:
                                {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'ticker': data.get('ticker','')})
             merge_options_meta([data.get('ticker','')], {'strategy': data.get('strategy',''), 'setup': data.get('setup',''), 'options_strategy': data.get('strategy','')})
         except: pass
-    print(json.dumps({'instrument':'options','strategy':data['strategy'],'contract':contract,'order':order,'reasoning':'Scanner direct execution'}))
+    print(json.dumps({'instrument':'options','strategy':data['strategy'],'contract':contract,'order':order,'reasoning':'Scanner direct execution','legs':_legs}))
 "`,
                 { timeout: 30000 }
               );
@@ -8027,7 +8067,25 @@ else:
               reserve.spend(Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0);
               continue;
             }
-            if (optExec.instrument === "options" && ["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status)) {
+            // 2026-11-06: "new" (Alpaca's status for an accepted, routed order) is an accepted entry too;
+            // the Python entry paths register it since the resting multi-leg fix.
+            if (optExec.instrument === "options" && (["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status) || optExec.order?.status === "new")) {
+              // RESTING MULTI-LEG ORDERS (2026-11-06): a multi-leg entry (more than one leg
+              // registered) is one mleg order that can rest; the sweep cancels it after
+              // STALE_ORDER_MINUTES like any entry limit, following the mid-first ladder's replaces.
+              const entryLegs: unknown[] = Array.isArray(optExec.legs) ? optExec.legs : [];
+              if (entryLegs.length > 1 && optExec.order?.order_id) {
+                openOrders.push({
+                  orderId: String(optExec.order.order_id),
+                  ticker: trade.ticker,
+                  score: trade.score || 0,
+                  placedAt: Date.now(),
+                  side: "mleg",
+                  qty: Number(optExec.order?.qty ?? optExec.contract?.qty) || 1,
+                  limitPrice: Number(optExec.contract?.limit_price ?? optExec.contract?.net_credit ?? optExec.contract?.net_debit) || 0,
+                  mleg: true,
+                });
+              }
               audit("OPTIONS-TRADE", `${(trade.options_strategy || '').toUpperCase()} ${trade.ticker} | ${optExec.contract?.occ_symbol || ''} | ${(optExec.reasoning || '').slice(0, 120)}`);
               notify("trade", `OPTIONS: ${trade.options_strategy} on ${trade.ticker} (edge: ${(trade.options_edge_pct || 0).toFixed?.(1) || '?'}%)`);
               decisionRows.push(entryDecision(trade, { instrument: "option", chosen: String(trade.options_strategy || optExec.strategy || ""), side: String(optExec.contract?.side || optExec.order?.side || trade.side || "buy"), symbol: String(optExec.order?.occ_symbol || optExec.contract?.occ_symbol || trade.ticker), qty: Number(optExec.order?.qty ?? optExec.contract?.qty) || 1, price: Number(optExec.order?.limit_price ?? optExec.contract?.limit_price) || null, notional: Number(optExec.contract?.cash_required || optExec.contract?.max_cost) || null, status: String(optExec.order?.status), orderId: optExec.order?.order_id ?? null, mode: "live", source: "bot.ts executeTrades.options", equity, contract: optExec.contract }));
@@ -8579,7 +8637,7 @@ print(json.dumps(run_update()))
     const active = Object.values(st.plans).filter((p) => p.status === "active");
     if (active.length === 0) return;
     const livePositions = await alpaca("/v2/positions").catch(() => null);
-    const liveOrders = await alpaca("/v2/orders?status=open").catch(() => null);
+    const liveOrders = await alpaca("/v2/orders?status=open&nested=true").catch(() => null);   // nested: a resting mleg order's legs (its collateral)
     if (!Array.isArray(livePositions) || !Array.isArray(liveOrders)) return; // no live book, no judgement
     const regime = String(lastScanResult?.cash_reserve?.regime || "NEUTRAL");
     const nowMs = Date.now();
