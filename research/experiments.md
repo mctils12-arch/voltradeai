@@ -117705,3 +117705,10 @@ SOURCE: the official NYSE "Holidays & Trading Hours" table (https://www.nyse.com
 CHANGE: MARKET_HOLIDAYS_2027 and HALF_DAYS_2027 are added, and ALL_HOLIDAYS / ALL_HALF_DAYS take the union. Node needs no change: optionsChainArchive.parseMarketHolidays already reads every MARKET_HOLIDAYS_<year> / HALF_DAYS_<year> block. Three test_calendar_effects pins were written to flip on this addition and now hold their new exact values: covered_years {2026, 2027}, and 2027-01-01 / 2027-01-18 sourced from market_calendar.py. No assertion is weakened, and a 2028 rule-sourced date stays pinned.
 TESTS: test_market_calendar_2027.py (4: official set, weekdays, helpers incl. next_trading_day over the July 5 observance, Node regex finds the blocks); test_calendar_effects, broker_clock_gate, options_earnings_close, dealer_gamma, options_v134_fixes — 153 passed; Node optionsChainArchive / jobHeartbeat / brokerClockGate 63 passed. Counter ratchet OK.
 STARVED: no.
+
+## 2026-11-06 [PIPELINE] — T-DATACORE data only (datacore/aircraft/nasr_fixes.json, nasr_airways.json, nasr_atc.json) — FAA NASR cycle 2026-10-29 (was 2026-10-01)
+VERSION: v1.0.1394 (shipped 2026-11-12 by the parent session; main was v1.0.1393)
+WHY: research_state_check flagged the fix bundle 8 days behind the FAA's 28-day cycle (its only WARN after the constitutional audit ran). The human asked for every open item to be fixed ("fix all of this").
+CHANGE: `python3 scripts/refresh_nasr.py` downloaded the current cycle's public-domain FAA bundle and rebuilt the three files with the existing builders. Fixes: 71,589 idents (+227, −305, 96 moved). Airways: 1,503 ids. ATC: 7,641 airports, 814 center transmitters and 26 ARTCC boundaries. No code changed. `refresh_nasr.py --check` now reports "current".
+TESTS: test_refresh_nasr.py, test_build_nasr_atc.py, test_research_state_check.py (68 passed); server/atcFrequencies, repoFiles, routeParse (23 passed).
+STARVED: no.
