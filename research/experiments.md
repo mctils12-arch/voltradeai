@@ -116828,3 +116828,112 @@ FOUND WHILE DECIDING #1 (not fixed here; for open_questions.md): the kill latch'
 Re-read dates: N3 when ≥30 first-seen rejected_bearish_stock_signal records carry +20d labels (≈ mid-December); SVXY at its first LEG3-EXIT (stop_loss / vol_spike) or LEG3-COOLDOWN-BLOCK row; N8 after 20 trading days of live CSPs (≈ 12-04), or at once if any CSP's collateral exceeds 8% of equity.
 
 STARVED: no.
+
+## 2026-11-06 [RULE-REVIEW] — T-BOT (walkforward.py; test_walkforward.py, test_signal_attribution.py) — the walk-forward pre-registers three alternative pre-ranks for the next weekly run: 12-1 momentum, residual 12-1 momentum, and the quick score without its move terms (measurement only)
+VERSION: v1.0.1364 (shipped 2026-11-12 by the parent session; main was v1.0.1363)
+
+WHY. research/open_questions.md (2026-11-06) "[SELECTION] The quick-score pre-rank picks yesterday's biggest movers" names the next experiment, pre-registered before it runs: a different pre-rank, judged at ladder gate 2 (rank IC and top-10 excess over the random-entry base rate, out of sample). The evidence, from the diag probe `walkforward` read this session: the 2026-11-01 run (code v1.0.1243, build b20261029, 513 weekly dates 2017-01-06 to 2026-10-27, 1,057,613 rows, about 2,062 names a date). quick_score had a 5d IC of −0.0113 (null; p_bonferroni 0.338 over 18 tests). Its top-10 trailed random entry by 1.63 points per 5 days, and its live-exit replay trailed random by 0.74. The momentum sub-score had a 5d IC of +0.011 (null), and its top-10 trailed random by 0.49.
+
+What the live pre-rank rewards (bot_engine.py scan_market, ~L3500–3522): quick_score = min(|chg|, 15)×3 + min(v/1M, 5)×2 + _direction_bonus + _extreme_penalty, where chg is today's change against the previous close. Three of the four terms are functions of |chg|:
+- the capped move ×3, worth up to 45 points;
+- _direction_bonus, +5 above 10% and +2 above 5%. It ignores the sign, so despite its name it is a size bonus;
+- _extreme_penalty, −15 above 30% and −30 above 50%.
+
+A name moving 15–30% in either direction earns the maximum 50 move points. The only term that does not read the move is the share-volume term, worth at most 10 points. So the top of the list is the day's biggest movers, which are the names short-term reversal says give some of the move back (Jegadeesh 1990; Lehmann 1990).
+
+The live momentum sub-score (strategies/momentum.py) does not isolate 12-1 momentum either. It buckets deep_score's mom_12_1 = (c/c[−252] − c/c[−21])×100, which equals (1 + the last 20-bar return) × the 12-1 return. It gives every name with negative momentum the same 0 from that term, and it adds up to 25 points for the last month's return.
+
+CHANGE (walkforward.py, measurement only). Nothing in the bot reads the new inputs; a test checks bot_engine, system_config, score_composite, bot.ts and routes.ts for their names.
+- PRERANK_CANDIDATES are appended to INPUTS. PRERANK_LIVE = quick_score is the comparison. Each candidate can be computed at the decision close from daily closes alone:
+  (a) momentum_12_1 = close[t−21] / close[t−252] − 1, on the series' own bars (Jegadeesh & Titman 1993). This covers the 231 daily returns from the close 252 bars back to the close 21 bars back.
+  (b) resid_momentum_12_1 uses the same 231 returns. It fits OLS with an intercept of the stock's daily return on SPY's return over the same days; a multi-day return across a halt is matched with SPY over the same days. The score is Σ(r − β·m) / (max(σ_resid, 0.5%/day) × √n), with at least 200 valid returns (Blitz, Huij & Martens 2011). The estimation window is exactly the formation window (MOM_LOOKBACK 252, MOM_SKIP 21). It is computed exactly with per-day prefix sums, and a test checks it against np.linalg.lstsq.
+  Stated deviations from BHM:
+  - One factor, SPY, instead of Fama-French 3. SPY is the closest point-in-time stand-in for their value-weighted market factor; no size or value factor exists point-in-time here.
+  - 231 daily returns instead of 36 monthly ones, because the panel has one year of warm-up before 2017.
+  - No risk-free rate. Daily T-bill returns are at most 0.02%, and their effect is rf·(1−β).
+  - The residual includes the intercept. With the estimation window equal to the formation window, the OLS residuals alone sum to zero by construction.
+  The floor RESID_SIGMA_FLOOR = 0.005 was chosen before any run. Without it, a T-bill ETF (residual sd of order 0.01%/day, steady 5% yield) would be the top "residual momentum" name in the universe. 0.5%/day is below the idiosyncratic volatility of essentially every common stock.
+  (c) quick_score_no_move is the quick score with every term that reads today's move removed, which leaves min(day raw shares/1M, 5)×2. It is rebuilt exactly as the existing quick_score input's volume term is, with the same close-vs-intraday caveat. It is the ablation control for the move terms.
+- A name without the 253 bars the momentum candidates need gets NO_VALUE (−inf). evaluate leaves it out of that input's IC, quintiles and liquidity splits, and pick_top never picks it. A new per-input `coverage` {rows_with_value, share} counts these rows; it is 1.0 for every live mirror. The value is −inf rather than NaN so the existing exact-equality no-lookahead test still holds; a NaN version fails that test.
+- SAME-UNIVERSE BASE RATE (second commit, from the parent's review). Each input's top-N is now compared with random entry among the names it can rank: the per-date mean and hit rate of its eligible rows, meaning a value and a matured outcome (the same rows its IC and top-N use). This feeds top_n random_entry_net_pct, random_hit_rate, excess_vs_random_pct, t_nw_vs_random and sharpe_excess_vs_random_ann, and the by-regime / by-SPY-200d / by-year excess.
+  - An input with coverage < 1 also reports the whole-universe figure on the same dates as top_n.random_entry_net_pct_universe.
+  - The per-horizon `baselines` block stays whole-universe.
+  - The live-exit pass's seeded random draws stay shared and unchanged; changing them would move every existing input. A CAVEATS line says a candidate's live-exit excess is measured against whole-universe draws.
+- PRIOR is extended before any run (below). CAVEATS gains one line, and the INPUT_INFO definitions start "NOT live".
+
+PRIOR (stated before any run that includes them; walkforward.PRIOR verbatim). The comparison is the live pre-rank, quick_score (5d IC −0.0113, top-10 −1.63 pts per 5 days vs random).
+- momentum_12_1: 5d mean IC small and positive (+0.005 to +0.015), not surviving Bonferroni over 39 tests. Several negative years (momentum crashes in rebounds and rotations, Daniel & Moskowitz 2016; 2020–2022 here). Its top-10, the year's most extreme winners, lands between −0.6 and +0.3 pts per 5 days vs random: far above quick_score's −1.63, not reliably above random.
+- resid_momentum_12_1: 5d IC similar or a little higher (+0.005 to +0.02), with a higher t and more positive years than momentum_12_1. Its top-10 (steady outperformers rather than extreme movers) lands within −0.3 to +0.4 pts per 5 days of random, above momentum_12_1's.
+- quick_score_no_move (the ablation control): net 5d IC 0.000 to +0.015, gross IC (ic.mean_on_gross) −0.01 to +0.005. Its top-10 lands within −0.3 to +0.3 pts per 5 days of random, meaning that removing the move terms alone removes most of quick_score's shortfall.
+- About 20% that any candidate's 5d IC survives Bonferroni, most likely resid_momentum_12_1.
+- Gate-2 reading, fixed now: a candidate passes only with a "positive" 5d verdict AND a positive 5d top-10 excess vs random entry among the names it can rank AND a gross 5d IC of the same sign. A top-10 that is merely less negative than quick_score's is a reason for the pre-rank ablation (gate 3), not a pass.
+
+One prior revision, stated: the quick_score_no_move range was first written as a 5d IC of −0.01 to +0.005. A run on the synthetic panel (noise prices) then showed the cost model pushing its NET IC up mechanically, because it charges lower-volume names more per side (tiers at 1M / 5M / 20M shares). There, its net IC was 0.0118 against a gross IC of 0.0045. The momentum candidates' net and gross agreed (0.0193 vs 0.0190). I revised the prior for that mechanism before any real-panel run, and the gate-2 reading now also needs a gross IC of the same sign.
+
+MEASUREMENT INTEGRITY (before vs after on identical inputs; direction of bias).
+- Bonferroni family: 30 → 39 tests (10 → 13 inputs × 3 horizons). Main's 30-test family has never run; the stored 2026-11-01 result has 18 (9 × 2). The bar moves from p < 0.001667 (|z| 3.144) to p < 0.001282 (|z| 3.220). Every existing p_bonferroni becomes the same raw p × 39 instead of × 30, so results can only become more conservative.
+- Can an existing verdict flip? Raw 5d p-values recovered from the stored run (p_bonferroni / 18):
+  - the three negative verdicts: volume < 2.8e-8, vol_premium 6.46e-5, rel_strength 6.56e-5. × 39 these are < 1.1e-6, 0.00252 and 0.00256, all still under 0.05; even the weakest raw p is about 20× inside the new bar;
+  - the nulls closest to the bar: quick_score 0.0188 and obv 0.0213 (× 39 = 0.73 and 0.83);
+  - every other input: at least 0.056.
+  A larger family can only turn a significant result null, never the reverse, so no verdict flips.
+- The Deflated Sharpe trial set grows from 30 to 39, so every DSR moves. E[max SR] rises with N, and the cross-trial variance changes too. DSR is used by no verdict; it shows in the probe and in the Brain finding text. signal_attribution's "beyond the Bonferroni bar" note reads multiple_testing.ic_tests, so its bar moves from 2.991 (the stored 18) to 3.220.
+- The base-rate bias the second commit removes. The first commit compared a candidate's top-10, which can only come from names with 253+ bars, with the mean over the WHOLE date universe, new listings included. That gap has an unknown sign at 5 days. Long-run IPO underperformance (Ritter 1991) would make it flattering, while a panel whose young names outperform makes it unflattering. Measured on a synthetic panel whose new listings never reach 253 bars and drift +0.6%/day (coverage 0.80): momentum_12_1's 5d top-10 reads −0.19 pts per 5 days vs the seasoned names it can rank, against −0.72 vs the whole universe, an error of 0.53 pts. That error would have fed the gate-2 test of a positive top-10 excess.
+- Synthetic before/after, re-run on the final code: main's walkforward.py against this branch on the same 200-name panel (2016-01-04 to 2026-10-23, planted drift 0.001, 97,310 rows, 513 dates).
+  - Identical for every existing input: IC, t, raw p, quintiles, the whole top-N block (random_entry_net_pct, random_hit_rate, excess and t vs random, Sharpe), live exit, regime/year/liquidity splits, baselines, universe, window. No existing input gains random_entry_net_pct_universe. For a full-coverage input the eligible rows are the universe's rows in the same order, so its base is bit-identical.
+  - All 30 p_bonferroni values equal raw p × 39, capped at 1.
+  - The only other differences: the DSR (23 of 30 values changed), the multiple_testing block, the text that quotes p_adj or DSR, variants_tried (30 → 39) and the new coverage key.
+  - No verdict changed.
+  - First commit against the second, same panel: only the two momentum candidates' base-rate fields, their splits' excess and their verdict text changed, plus every input's DSR. The cross-trial variance includes the candidates' Sharpes: 0.447788 → 0.446661.
+- Expected on Saturday: the build should still be b20261029 (PRICE_PANEL_REFRESH_DAYS = 30; it completed 2026-10-30). If so, the nine inputs that predate #1659 must reproduce the 2026-11-01 run exactly: 5d and 20d IC, top-10 vs random, live exit. Their p_bonferroni_5d becomes vol_premium 0.002518, rel_strength 0.002559, quick_score 0.7317, obv 0.8298, volume about 0, and 1 for the rest.
+- Bias direction: none toward any strategy. Each input is measured on the names it can rank: its IC, quintiles and top-N, and its random-entry base. Coverage and the whole-universe base are reported alongside. The one remaining whole-universe comparison is the candidates' live-exit excess, which uses the shared random draws; it is stated in CAVEATS.
+
+BUDGET. Synthetic profile, same panel, two runs of each version:
+- runtime: +21% (54.3 → 65.9 s), then +16% (63.0 → 73.2 s, under load). The final code with the base-rate fix ran 62.9 s / 165.9 MB; the fix adds one mean per input and date;
+- peak RSS: +3.3 MB, then +4.2 MB;
+- by phase: evaluate +20–41% for 13 inputs instead of 10; live exit +4–12% (+3,331 simulations, +8.4% here, and up to +23% in production, where the top-10 lists overlap less); feature computation +0.4 s.
+Production (last run 262 s, 518 MB): three float32 columns × 1.06M rows ≈ 13 MB, plus one transient float64 copy (8.5 MB) and the extra live-exit results, so about +20–30 MB. Runtime grows about 16–21%, to at most ~320 s. The budget is 3 h and 900 MB.
+
+SCHEDULER (server/walkforward.ts decideWalkforward, read this session). A tick runs walkforward.py when all of these hold:
+- VOLTRADE_WALKFORWARD is unset or truthy;
+- it is Saturday or Sunday, 06:00–16:00 ET;
+- this process has not tried yet this ISO week (kept in memory, so a deploy resets it);
+- current.json names a complete build;
+- NOT (latest.json's panel.build_id is the current build AND its code_version is package.json's version AND it is younger than WALKFORWARD_STALE_DAYS = 27 days).
+latest.json is from code v1.0.1243 (2026-11-01). The ship takes package.json past v1.0.1341, so the freshness skip cannot fire. Ticks come every 30 min, the first one 30 min after boot, so the run starts on the first tick after Sat 2026-11-07 06:00 ET, by about 06:30 ET (11:30Z), and takes about 5 min. A deploy during the run kills it; the next container's first tick inside the window runs it again.
+
+DOWNSTREAM (traced 2 steps). No trading effect.
+1. Saturday's latest.json has 13 inputs, a 39-test family and a coverage block per input.
+2. Readers:
+   - the diag `walkforward` probe lists 13 verdicts (it loops over the inputs);
+   - signal_attribution's table is unchanged except the bar for its top-10 note (3.220);
+   - the Brain page maps inputs through WALKFORWARD_ITEM_FOR, so the three new brain_long_term items travel in the evidence payload (+3 items) but are not shown;
+   - the Overview's signals list reads only signal_attribution's rows, so it is unchanged.
+The live pre-rank is untouched. Switching it is its own PR after gate 3 (a pre-rank ablation in backtest_v2). Note for gate 3: neither momentum candidate can come from the scan's snapshots, because they need 253 daily bars per name. They would be a once-a-day table built from the price panel.
+
+ROLLBACK TRIGGER. Revert this commit if any of these happens:
+- the Saturday run errors, goes over 900 MB or 3 h, or takes more than twice the last run (> ~525 s);
+- on build b20261029, any of the nine pre-#1659 inputs' ic_5d, ic_20d, top_n_excess_vs_random_5d_pct or live_exit_excess_vs_random_pct differs from the 2026-11-01 run. That would mean this change touched the existing computation.
+
+TESTS.
+- test_walkforward.py, +9 tests:
+  - pre-registration: the candidate tuple, "NOT live" definitions, a prior for each, the window and floor constants, the 39-test family, and no bot file reads the names;
+  - momentum_12_1 is close[t−21]/close[t−252] − 1, NO_VALUE before bar 252, and the residual window's 231 returns compound to it;
+  - resid_momentum_12_1 matches a reference np.linalg.lstsq at 90 dates across holidays and an 8-bar halt;
+  - a planted momentum name ranks first on both candidates; nothing after bar t−21 is read, and bar t−21 is;
+  - raw and residual momentum disagree on a high-beta, no-alpha name versus a low-beta name with steady alpha (beta checked: 2.5 and 0.3);
+  - the floor caps a T-bill-like series below 1, SPY against itself gives a finite score near 0, and a flat market gives NO_VALUE;
+  - quick_score_no_move equals the quick score minus all three move terms, the live source still has exactly those four terms, and a different move on the decision bar changes the quick score but not the candidate;
+  - NO_VALUE rows sit out of that input's IC, quintiles and coverage in evaluate, other inputs keep every row, and pick_top never fills its ten with them;
+  - end to end: a 39-test family, coverage below 1 only for the two momentum candidates, and the planted drift found at 20 days.
+- test_walkforward.py, +2 more (second commit), both failing on the first commit and passing on the second:
+  - an exact evaluate()-level test with young names planted at +5%: the base, hit rate, excess and by-year excess are the seasoned names'; the universe figure sits alongside; the full-coverage quick_score keeps the universe base with no extra key;
+  - end to end on a synthetic panel whose new listings never reach 253 bars and drift +0.6%/day: the universe base sits more than 0.4 pts above the candidate's.
+- test_signal_attribution.py, +1 test: two-way name parity. Every walk-forward input is a registry or composite id, or a declared candidate. The candidates are not table rows, and a result that carries them adds no row and changes no verdict.
+- Mutation check: 9 deliberate breaks of walkforward.py, each caught by a new test or the existing no-lookahead test; the file was restored byte for byte.
+- Existing tests unchanged and passing: test_walkforward 22 and test_signal_attribution 16. test_walkforward is now 33 (22 + 11) and test_signal_attribution 17. Also run: test_brain_evidence 14, test_score_composite_v2 15, test_source_validation_logged 6, test_earnings_history 35, test_price_panel 13 (133 passed in all). On the TypeScript side, server/walkforward.test.ts (including the real-Python end to end through the probe and sanitizeDiag), brain.test.ts and signals.test.ts: 34 passed.
+- Ratchets: counter_ratchet OK (28 counters), tsc 6 errors (pre-existing), test_ts_code_only 11 passed.
+
+Not changed, for the parent: research/walkforward.md's input table lists neither price_composite_v2 nor the candidates; research/* is not this branch's to edit.
+
+STARVED: no.
