@@ -117668,3 +117668,10 @@ TESTS: server/chainSession.test.ts (9): capture → session across the July 3 cl
 ROLLBACK TRIGGER: after deploy, chain_iv30 from ≠ 2026-07-02, or days other than the pre-deploy label count + 1 (the same count only if _superseded/2026-10-28 turns out absent — then say so, not revert), or any post-fix day's IV30 differing from its pre-deploy value (e.g. SPY 2026-11-05 0.2176) → revert (the label-keyed caches are still on disk).
 
 STARVED: no.
+
+## 2026-11-12 [REPAIR] — tests only (server/dtccIdSet.test.ts) — the compact ID set's memory test reads the set's own typed arrays, exactly
+VERSION: v1.0.1390 (shipped 2026-11-12 by the parent session; main was v1.0.1389)
+WHY: the test compared the process-wide process.memoryUsage().arrayBuffers delta with the set's tableBytes within 10%. On some CI runners it measured 7,663,864 B for an 11,428,576 B table three times with identical numbers (PR #1723 twice — once after #1724 added a GC around the window — and PR #1744), while other CI runs and every local run measured exactly 11,428,576 B. A deterministic shortfall with a GC in place means the counter, not the set, differs by runner: it is process-wide.
+CHANGE: the assertion sums every ArrayBuffer view the set holds and requires that sum to equal tableBytes() exactly, with one table and no leftover build table; the process delta is kept in the bench log line. MEASUREMENT INTEGRITY: before, a ±10% band on a process-wide counter (environment-dependent); after, exact equality on the set's own buffers. Coverage note: a large buffer retained OUTSIDE the set would no longer be caught by this test (none exists — the set allocates only its slots table and, during reserveAsync, a build table, both now pinned).
+TESTS: server/dtccIdSet.test.ts 10/10 twice locally (process delta +11,428,576 B, logged). Counter ratchet OK.
+STARVED: no.

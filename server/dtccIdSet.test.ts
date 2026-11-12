@@ -252,11 +252,19 @@ test("memory: tableBytes is exact (capacity x 8) and, sized for 1M live-shaped i
   assert.equal(set.tableBytes(), set.tableCapacity * 8);
   const perId = set.tableBytes() / n;
   assert.ok(perId <= 8 / ID_SET_TARGET_LOAD + 0.01, `${perId.toFixed(2)} B/id`);
-  assert.ok(Math.abs((ab1 - ab0) - set.tableBytes()) < 0.1 * set.tableBytes(), `arrayBuffers grew ${ab1 - ab0} B for a ${set.tableBytes()} B table`);
+  // The set's typed-array memory, read from the set itself: every ArrayBuffer view it holds, summed, must equal
+  // tableBytes exactly, with no build table left over. (Until 2026-11-12 this compared the process-wide
+  // process.memoryUsage().arrayBuffers delta to tableBytes within 10%; on some CI runners that counter came out
+  // 7,663,864 B for an 11,428,576 B table on three runs — PRs #1723, #1744 — even with a GC around the window,
+  // while other runs and every local run matched. A process-wide counter is not the set's memory; the views are.
+  // The delta stays in the bench line below for the record.)
+  const own = Object.values(set as unknown as Record<string, unknown>).filter((v): v is ArrayBufferView => ArrayBuffer.isView(v));
+  assert.equal(own.reduce((sum, v) => sum + v.byteLength, 0), set.tableBytes(), "the set's own typed arrays are exactly tableBytes");
+  assert.equal(own.length, 1, "one table, no build table left behind");
   const t1 = performance.now();
   let hits = 0;
   for (let i = 0; i < 136_701; i++) if (set.has(ids[(i * 7919) % n])) hits++;
   const lookupMs = performance.now() - t1;
   assert.equal(hits, 136_701);
-  console.log(`[bench] dtccIdSet 1M live-shaped ids: table ${(set.tableBytes() / 1e6).toFixed(1)} MB (${perId.toFixed(2)} B/id), build ${buildMs.toFixed(0)} ms, 136,701 lookups ${lookupMs.toFixed(1)} ms`);
+  console.log(`[bench] dtccIdSet 1M live-shaped ids: table ${(set.tableBytes() / 1e6).toFixed(1)} MB (${perId.toFixed(2)} B/id), process arrayBuffers +${ab1 - ab0} B, build ${buildMs.toFixed(0)} ms, 136,701 lookups ${lookupMs.toFixed(1)} ms`);
 });
