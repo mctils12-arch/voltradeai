@@ -1,4 +1,5 @@
-"""Unit tests for scripts/hurst_exponent_probe.py — all synthetic, no network,
+"""Unit tests for hurst_exponent_probe.py (repo root since 2026-11-06, KNOWN BROKEN #44;
+scripts/ keeps a CLI shim) — all synthetic, no network,
 per this repo's established convention for foreign-field probe test files
 (test_permutation_entropy_probe.py, test_hazard_rate_probe.py, etc.)."""
 
@@ -9,7 +10,7 @@ import unittest
 
 spec = importlib.util.spec_from_file_location(
     "hurst_exponent_probe",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "hurst_exponent_probe.py"))
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "hurst_exponent_probe.py"))
 hep = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hep)
 

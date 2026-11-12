@@ -514,12 +514,17 @@ test("insider_cusum_gate2 probe (2026-09-21): wired, runs the pre-registered pro
   assert.ok(start > 0 && end > start, "insider_cusum_gate2 probe block not found");
   const block = bot.slice(start, end);
   assert.ok(block.includes("insider_cusum_probe") && block.includes("run_probe()"),
-    "must call the shared scripts/insider_cusum_probe.py run_probe(), not re-derive the CUSUM logic inline");
+    "must call the shared insider_cusum_probe.py run_probe(), not re-derive the CUSUM logic inline");
   assert.ok(!/req\.query/.test(block),
     "this probe must never read req.query — it always runs the probe's own pre-registered defaults, never a caller-tunable ticker/window/k/h (avoids turning a pre-registered test into multiple-testing fishing)");
   assert.ok(block.includes("sanitizeDiag"), "insider_cusum_gate2 probe must pass the sanitizer like every other probe");
   assert.ok(block.includes("execPythonSerialized"), "must run the Python probe via the shared subprocess helper, matching every other python-backed diag probe");
-  const mod = fs.readFileSync(path.join(here, "..", "scripts", "insider_cusum_probe.py"), "utf8");
+  // KNOWN BROKEN #44 (2026-11-06): the production image copies root *.py and
+  // never scripts/, so the probe's module must live at the repo root and the
+  // program must not put scripts/ on sys.path (same rule as source_validation).
+  assert.ok(!block.includes("sys.path.insert(0, 'scripts')"), "must not depend on scripts/ at runtime");
+  assert.ok(fs.existsSync(path.join(here, "..", "insider_cusum_probe.py")), "insider_cusum_probe.py must live at the repo root");
+  const mod = fs.readFileSync(path.join(here, "..", "insider_cusum_probe.py"), "utf8");
   const probeStart = mod.indexOf("def run_probe(");
   const probeEnd = mod.indexOf('if __name__', probeStart);
   assert.ok(probeStart > 0 && probeEnd > probeStart, "run_probe() not found in insider_cusum_probe.py");

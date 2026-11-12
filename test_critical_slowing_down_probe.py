@@ -1,5 +1,6 @@
 """
-Regression tests for scripts/critical_slowing_down_probe.py. Pure-function
+Regression tests for critical_slowing_down_probe.py (repo root since 2026-11-06,
+KNOWN BROKEN #44; scripts/ keeps a CLI shim). Pure-function
 tests only, against synthetic series: no network calls, no dependency on
 backtest_v2's Alpaca/Yahoo fetch (matches the existing
 test_illiquid_universe_probe.py convention for research probe scripts).
@@ -11,7 +12,7 @@ import unittest
 
 _spec = importlib.util.spec_from_file_location(
     "critical_slowing_down_probe",
-    os.path.join(os.path.dirname(__file__), "scripts",
+    os.path.join(os.path.dirname(__file__),
                  "critical_slowing_down_probe.py"))
 probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(probe)

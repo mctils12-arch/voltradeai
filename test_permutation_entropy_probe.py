@@ -1,5 +1,6 @@
 """
-Regression tests for scripts/permutation_entropy_probe.py. Pure-function
+Regression tests for permutation_entropy_probe.py (repo root since 2026-11-06,
+KNOWN BROKEN #44; scripts/ keeps a CLI shim). Pure-function
 tests only, against synthetic/hand-computed series: no network calls, no
 dependency on backtest_v2's Alpaca/Yahoo fetch (matches the existing
 test_critical_slowing_down_probe.py / test_hazard_rate_probe.py convention
@@ -12,7 +13,7 @@ import unittest
 
 _spec = importlib.util.spec_from_file_location(
     "permutation_entropy_probe",
-    os.path.join(os.path.dirname(__file__), "scripts", "permutation_entropy_probe.py"))
+    os.path.join(os.path.dirname(__file__), "permutation_entropy_probe.py"))
 probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(probe)
 
