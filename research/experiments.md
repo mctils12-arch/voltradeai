@@ -116937,3 +116937,72 @@ TESTS.
 Not changed, for the parent: research/walkforward.md's input table lists neither price_composite_v2 nor the candidates; research/* is not this branch's to edit.
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-DATACORE (server/dtccSwaps.ts, server/heapGauges.ts; new server/dtccSwapsStall.test.ts) — the DTCC swaps refresh no longer blocks the event loop: the seen-ID Set loads streamed, the index and the day file grow by appended gzip members
+VERSION: v1.0.1365 (shipped 2026-11-12 by the parent session; main was v1.0.1364)
+WHY / EVIDENCE:
+- Live, 2026-11-06 (parent's audit pull): EVENTLOOP-LAG rows of 7.7-10.2 s logged 281-317 s after 26 of that day's 39 boots. Example: "Server boot" 10:31:04.7Z, then "stalled ~7745ms" at 10:35:55Z. A 10 s stall delays Tier-1 stop monitoring and the market-data socket. The alert line is 500 ms (server/eventLoopLag.ts).
+- Cause, read in the code. bootDtccSwapsPoll refreshes eagerly at every boot, then every 6 h. After the zip download, archiveNewRows ran loadSeenIds synchronously: gunzipSync of the whole compact index, toString, split("\n") into 6.94M strings, then a 6.94M-entry Set. On every poll with fresh rows, appendSeenIdsIndex then gunzipped, concatenated and re-gzipped the WHOLE index. The day file was a read-modify-write as well.
+- Live scale: /api/data/dtcc-swaps on 2026-11-06 reported total_archived 6,939,910 and us_underlier_rows_today 136,701. Totals were 6,555,571 on 11-03, so about 128k new rows a day. The day file is therefore not small: about 40 MB of JSONL per new vendor file.
+- Reproduced on a synthetic 6,939,910-ID index with the live ID shape (19 digits, 42.3 MB gz / 139 MB text), a 136,701-row feed, and dual mode with the disk guard active (the live state). Max event-loop delay (perf_hooks.monitorEventLoopDelay, cross-checked with a 5 ms timer):
+  - boot, re-served file: 8,410 ms (repeat 7,894);
+  - boot, new file with 128k fresh: 17,029 ms;
+  - warm 6 h poll, new file: 9,907 ms.
+- Components: gunzipSync 789 ms, split 1,733 ms, Set build 4,993 ms; the old index append re-gzip 7,067 ms; a new member for 128k IDs 41 ms; the day file stringify + gzip ~420 ms (+248 ms re-read on a second batch).
+- Node reads concatenated gzip members in zlib.gunzipSync, zlib.gunzip and createGunzip alike. The Node v20 docs (Class zlib.Gunzip history) record "v5.9.0: Multiple concatenated gzip file members are supported now". This was verified here on Node 22; production runs Node 20.
+CHANGE:
+- appendSeenIdsIndex, and the day-file write in archiveNewRows, now append ONE new gzip member holding only this poll's IDs/rows. The earlier bytes are never re-read or rewritten, and the decompressed text is unchanged (one ID per line; JSONL).
+- loadSeenIdsAsync (new) is the non-blocking twin of loadSeenIds:
+  - It reads createReadStream -> createGunzip under stream.pipeline, so a read error rejects instead of going unhandled.
+  - It splits "\n" at the byte level, exactly like split + if(line), and gives the loop a turn every DTCC_ASYNC_SLICE_MS (8 ms).
+  - It has the same fallback (streamed day-file scan, malformed count, index persisted through a temp file + rename) and builds the same Set (same members, same order).
+- ensureSeenIdsLoaded: single flight. The Set stays private until complete, is installed only if nothing replaced it, and is epoch-guarded against _resetDtccForTests.
+- archiveNewRowsAsync (new) is used by refreshDtccSwaps:
+  - It awaits the store's streamed backfill and the Set load before deciding, and computes the memory verdict in slices.
+  - The slices' verdict is used only if the Set is the same object and unmutated. Otherwise it is recomputed synchronously.
+  - It shares the synchronous decideFresh (verdict + claim in one turn) with archiveNewRows and compresses on the threadpool.
+  - It produces the same bytes, return value and log lines as archiveNewRows. Calls are serialized.
+- seenIdsTotalAsync replaces the module-private sync seenIdsTotal, whose only caller was the refresh's disk backfill.
+- dtccIdsStats.memoryLoading and the dtcc.seenIds gauge's `loading` field report the load. memoryCount stays null until the full Set is installed, never a partial count.
+- archiveNewRows and loadSeenIds stay synchronous and unchanged in behavior for direct callers.
+RESULT (same harness, commit 57c0eb7c): max event-loop delay
+- boot re-served: 413 ms (repeat 368);
+- boot new file: 307 ms;
+- warm 6 h poll: 197 ms;
+- no block over 500 ms in any run;
+- retained heap 529 -> 446 MB (each ID is now a flat string, not a slice pinning the 139 MB text);
+- the remaining boot block is V8's own Set rehash: single Set.add calls measured 161 ms at 2,097,153 entries and 361 ms at 4,194,305. A JS Set cannot be pre-sized, so the stacked dtcc-compact change removes this.
+- The machine was shared (load average 4.4-6.6), and earlier runs of the same code under heavier load gave up to 470 ms.
+DOWNSTREAM (two steps):
+1. Boot: the zip download is unchanged (~4.5 min live). The Set now loads in 8 ms slices (8-13 s of wall time in the background) instead of one 8.4 s block, so the Tier-1 stop monitor and the market-data socket keep the loop. The boot memory burst also falls, with no 139 MB buffer, no 139 MB string and no 6.94M-element array.
+2. Files on the volume: the index and day files grow append-only, one gzip member per poll with fresh rows (~18-20 bytes of header each). Every reader was verified to read all members:
+   - the zlib primitives;
+   - readline over createGunzip (platformStats.countFileLines, datacoreArchive's pattern);
+   - dtccIdsStore's countGzipLines, gzipLineBatches and both backfill twins;
+   - loadSeenIds and loadSeenIdsAsync;
+   - readArchivedDtccRows;
+   - streamsInventory's peek (promisified zlib.gunzip);
+   - scripts/dtcc_resolve_cusips.readArchivedCusips.
+   Revert-safe: the old code reads the new files too (gunzipSync reads all members).
+3. Health: dtcc.seenIds shows loading:true / memoryCount null for the seconds the Set takes to load, then the full count.
+ROLLBACK TRIGGER: revert the commit; no data migration is needed. Do it if any of these happen:
+- after the first post-deploy boot, /api/data/dtcc-swaps total_archived drops below its pre-deploy value, or a re-served source file archives new_rows_archived > 0 (the dedup lost IDs);
+- a "[datacore] dtccswaps readSeenIdsIndex:" / "writeSeenIdsIndex:" / "appendSeenIdsIndex:" / "archive:" error line appears;
+- an EVENTLOOP-LAG row over 2 s still lands ~5 min after a boot.
+NOT CHANGED, noted: the dual/sqlite store paths still make synchronous SQLite calls (missingFrom, a per-poll COUNT(*) in dual mode, insertMany). They are inactive while the volume guard refuses the DB.
+- Pre-existing, kept exact: a failed day-file write is still followed by the index append, so those rows are skipped forever. The legacy rebuild still stops at the first unreadable day file. Both are follow-up candidates.
+TESTS:
+- New server/dtccSwapsStall.test.ts, 10 tests:
+  - member-by-member byte layout of the index and day file;
+  - every reader on multi-member files;
+  - async == sync loader (unicode, "\r", empty lines, a 1 MB line across chunks, an unterminated tail);
+  - async == sync on corrupt / empty / truncated-last-member indexes;
+  - archiveNewRowsAsync == archiveNewRows in memory/dual/sqlite (byte-identical files);
+  - the dual-mode mismatch through the async path;
+  - the bounded slice: a 1M-ID refresh's longest loop gap is under half the sync load's single block, with the gauge never showing a partial count. Under machine load average ~9.6 the ratios were 0.04-0.10;
+  - concurrent calls share one load and never double-archive;
+  - the sliced verdict re-judged after a mid-slice claim;
+  - the epoch guard.
+- Related suites: 148 passed across 10 files (dtccSwaps 35, dtccIdsStore 14, dtccIdsDiskGuard 7, heapDiag 10, streamCrash, platformStats, streamsInventory, datacoreArchive, scripts/dtcc_resolve_cusips, plus the new file). Existing tests are unchanged.
+- tsc reports 6 errors (the pinned six). The counter ratchet is OK (tests 823->824, assertions 32916->32982; pins not edited). test_ts_code_only.py passes 11.
+STARVED: no.
