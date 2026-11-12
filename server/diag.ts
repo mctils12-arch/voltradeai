@@ -58,6 +58,15 @@ export const DIAG_PROBES = [
   // stale peak for 3 trading days while /api/health read "active". Paper
   // account values (the 2026-07-07 widening); read-only; writes nothing.
   "kill_state",
+  // ADDED 2026-11-12 ([RULE-REVIEW] measurement, gate_counterfactuals_probe.py):
+  // what the tier engine's gates blocked or cut, and what those dollars would
+  // have made. Per gate (exposure cap, daily loss limit, drawdown kill, cash
+  // reserve) and per tier: rows, name-days, the +5/+10/+20d outcome
+  // distribution of the shadow records, the same-period base rate of the
+  // scanner's `taken` candidates, and a dollar prevention-P&L ESTIMATE (the
+  // stock-price proxy labels, never option P&L). Aggregates only: no ticker,
+  // no price, no record timestamp. Read-only; no query parameters.
+  "gate_counterfactuals",
   // ADDED 2026-11-06 (institutional flow model, flows_model.py): the daily
   // flow ESTIMATE — the SAME body the owner's /api/bot/flows serves
   // (server/flowsReport.ts): broad-equity and per-sector pressure with its

@@ -379,49 +379,62 @@ def log_masterkill_csp_shadow(ctx: TierContext, kill_reason: str) -> int:
     this underlying have been calm", not exact options P&L. Best-effort and
     silent on failure: logging must never affect a live kill-switch decision.
 
-    Returns the number of shadow candidates logged (0 on any failure or if
-    Tier 1 had nothing to propose).
+    2026-11-12 (gate counterfactuals, see the block below log_csp_gate_shadow):
+    each Tier-1 record now carries a `gate` block (tier 1, dropped, the dollars
+    its size_pct stood for, the share no other gate would have stopped), and
+    the Tier 2 / Tier 3 actions the engine would have proposed past this kill
+    are computed (for logging only, never returned) and recorded the same way.
+    What the kill blocks is unchanged.
+
+    Returns the number of Tier-1 shadow candidates logged (0 on any failure or
+    if Tier 1 had nothing to propose).
     """
+    started = time.monotonic()
+    _GATE_SHADOW_LAST.clear()
+    plan: Dict[str, Any] = {}
+    logged_tickers: List[str] = []
     try:
         shadow_actions = tier1_csp_core(ctx)
-        if not shadow_actions:
-            return 0
-        # DECISION JOURNAL 2026-11-06: the blocked CSPs as skip decisions (logging only).
-        try:
-            import decision_journal
-            decision_journal.record_tier_kill(shadow_actions, kill_reason, regime=ctx.regime, vxx_ratio=ctx.vxx_ratio)
-        except Exception as _dj_err:
-            logger.warning(f"decision journal (master kill) failed, shadow log unaffected: {_dj_err}")
+        plan = _masterkill_gate_plan(ctx, kill_reason, shadow_actions)
+        if shadow_actions:
+            # DECISION JOURNAL 2026-11-06: the blocked CSPs as skip decisions (logging only).
+            try:
+                import decision_journal
+                decision_journal.record_tier_kill(shadow_actions, kill_reason, regime=ctx.regime, vxx_ratio=ctx.vxx_ratio)
+            except Exception as _dj_err:
+                logger.warning(f"decision journal (master kill) failed, shadow log unaffected: {_dj_err}")
 
-        from csp_universe import _load_layer2_cache
-        _layer2 = _load_layer2_cache() or {}
-        price_lookup = {
-            e["ticker"]: float(e["price"])
-            for e in _layer2.get("scores", [])
-            if e.get("ticker") and e.get("price", 0) > 0
-        }
+            from csp_universe import _load_layer2_cache
+            _layer2 = _load_layer2_cache() or {}
+            price_lookup = {
+                e["ticker"]: float(e["price"])
+                for e in _layer2.get("scores", [])
+                if e.get("ticker") and e.get("price", 0) > 0
+            }
 
-        import shadow_portfolio
-        logged = 0
-        for action in shadow_actions:
-            entry_price = price_lookup.get(action.ticker, 0.0)
-            if entry_price <= 0:
-                continue  # backfill_outcomes can't label a record with no price
-            shadow_portfolio.log_candidate(
-                ticker=action.ticker,
-                features={},
-                score=0.0,
-                decision="rejected_masterkill",
-                decision_reason=kill_reason,
-                entry_price=entry_price,
-                vxx_ratio=ctx.vxx_ratio,
-                regime_label=ctx.regime or "unknown",
-            )
-            logged += 1
-        return logged
+            import shadow_portfolio
+            _t1_blocks = plan.get("tier1_blocks") or {}
+            for action in shadow_actions:
+                entry_price = price_lookup.get(action.ticker, 0.0)
+                if entry_price <= 0:
+                    continue  # backfill_outcomes can't label a record with no price
+                shadow_portfolio.log_candidate(
+                    ticker=action.ticker,
+                    features={},
+                    score=0.0,
+                    decision="rejected_masterkill",
+                    decision_reason=kill_reason,
+                    entry_price=entry_price,
+                    vxx_ratio=ctx.vxx_ratio,
+                    regime_label=ctx.regime or "unknown",
+                    gate=_t1_blocks.get(action.ticker),
+                )
+                logged_tickers.append(action.ticker)
     except Exception as e:
         logger.debug(f"log_masterkill_csp_shadow failed: {e}")
-        return 0
+        logged_tickers = []
+    _log_masterkill_upper_tiers(ctx, plan, logged_tickers, started)
+    return len(logged_tickers)
 
 
 def _layer2_price_lookup() -> dict:
@@ -448,6 +461,8 @@ def log_csp_gate_shadow(rejections: list) -> dict:
     this underlying have stayed calm", not CSP premium economics. Never raises.
 
     rejections: [{"ticker", "decision", "reason", "metadata": {...}}, ...]
+    A rejection may carry "gate" (2026-11-12, the allocator's cash-reserve
+    drops: tier, dropped, dollars cut); it is stored on the record as given.
     """
     out = {"received": 0, "logged": 0, "skipped_no_price": 0, "skipped": 0}
     try:
@@ -482,6 +497,7 @@ def log_csp_gate_shadow(rejections: list) -> dict:
                 regime_label=str(meta.get("regime_label") or "unknown"),
                 side="sell", action_label="SELL CSP", trade_type="options",
                 regime_snapshot=meta.get("regime_snapshot"),   # regime engine ML snapshot when present (logging only)
+                gate=r.get("gate"),   # gate counterfactuals 2026-11-12 (logging only; None from every other caller)
             )
             out["logged"] += 1
         return out
@@ -489,6 +505,366 @@ def log_csp_gate_shadow(rejections: list) -> dict:
         logger.debug(f"log_csp_gate_shadow failed: {e}")
         out["error"] = str(e)[:200]
         return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GATE COUNTERFACTUALS ([RULE-REVIEW] 2026-11-12) — logging only
+# ══════════════════════════════════════════════════════════════════════════════
+# RULE REVIEW wants each gate's prevention P&L before its threshold may move.
+# The tier engine's master gates had three blind spots:
+#   (i)   a master kill logged only the Tier-1 CSPs; Tier 2 and Tier 3 were
+#         never computed after it, so nothing recorded what they would have done;
+#   (ii)  the allocator's proportional scale-down wrote a WARNING and no record
+#         of what it cut;
+#   (iii) no record carried a size, so nothing could be costed in dollars.
+# The helpers below add those rows to the shadow log (shadow_portfolio) under
+# the existing decision "rejected_masterkill" and its reason categories
+# (exposure_ceiling / daily_loss / drawdown), or "rejected_cash_reserve" when
+# the cash reserve was the constraint that bound. Each row carries a `gate`
+# block: the tier, dropped or scaled, the dollars cut, and the share of that
+# cut no OTHER gate would have stopped at that moment (variables interact: the
+# exposure cap and the cash reserve are two limits on the same room above the
+# floor, so dollars one of them cut are often dollars the other would have cut
+# too). gate_counterfactuals_probe.py reads the rows back.
+#
+# Nothing here changes what a gate blocks, a size, or an order. Every helper
+# reads its arguments, calls the tier functions for their return value only
+# (their result is never handed to the caller), and writes shadow rows. None
+# raises into the tier engine. None makes a network call the killed path did
+# not already make: prices come from the layer-2 cache or a held position,
+# the cash reserve from the files position_mgmt reads.
+GATE_SHADOW_BUDGET_S = 15.0   # the Tier-2/3 rows are skipped when the kill path's shadow has already run this long
+_GATE_SHADOW_LAST: Dict[str, Any] = {}
+
+
+def get_gate_shadow_summary() -> Dict[str, Any]:
+    """What the last master kill's shadow recorded: the gate, the Tier-1 rows
+    logged, what Tier 2 / Tier 3 would have done, the extra rows written and
+    the seconds it took. run_tiers puts it in the killed result's
+    tier_timings, which reaches /api/diag/timings. Read-only."""
+    return dict(_GATE_SHADOW_LAST)
+
+
+def _invested_pct(ctx: TierContext) -> float:
+    """Invested share of equity, by the expression every exposure check here uses."""
+    return sum(abs(float(p.get("market_value", 0))) for p in ctx.positions) / max(ctx.equity, 1)
+
+
+def _master_gates_holding(ctx: TierContext, caps: Optional[dict] = None) -> Dict[str, bool]:
+    """Each master_kill_switch condition evaluated on its own, in the switch's
+    order (the switch itself returns at the first that holds, so a
+    daily-loss kill never says whether the exposure ceiling would have killed
+    too). Keys are shadow_portfolio's reason categories. Logging only;
+    test_gate_counterfactuals.py pins it to master_kill_switch."""
+    if caps is None:
+        caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity, positions=ctx.positions)
+    return {
+        "drawdown": ctx.drawdown_pct <= PORTFOLIO_DRAWDOWN_KILL,
+        "daily_loss": ctx.daily_pnl_pct <= DAILY_LOSS_LIMIT_PCT,
+        "exposure_ceiling": _invested_pct(ctx) >= caps.get("MAX_TOTAL_EXPOSURE", 1.00),
+    }
+
+
+def _reserve_room_pct(ctx: TierContext, regime) -> Optional[float]:
+    """The cash reserve's room for new satellite capital as a fraction of
+    equity: the number _enforce_exposure_cap takes from
+    position_mgmt.live_headroom, read here through satellite_headroom with the
+    same inputs so a killed scan adds no row to the regime counterfactual log
+    (live_headroom writes one). None when the reserve is off or unreadable."""
+    try:
+        import position_mgmt as _pm
+        snap = _pm.satellite_headroom(ctx.equity, ctx.positions, regime,
+                                      pending_dollars=_pm.pending_scale_in_dollars(),
+                                      floor_plan_ratio=_pm.floor_plan_target_ratio(),
+                                      risk_budget=_pm.regime_budget())
+        if snap.get("enabled") and ctx.equity > 0:
+            return float(snap["headroom_dollars"]) / ctx.equity
+    except (ImportError, KeyError, TypeError, ValueError) as e:
+        logger.debug(f"gate shadow: cash reserve room unavailable: {e}")
+    return None
+
+
+def _net_fraction(proposed: float, kept: float, other_room: Optional[float]) -> float:
+    """The share (0..1) of a gate's cut that no other gate would have stopped.
+    proposed / kept: the actions' total size before and after the gate;
+    other_room: the room the other constraints leave for those same actions
+    (None: no other constraint). The allocator scales proportionally, so the
+    share is the same for every action of the scan."""
+    cut = proposed - kept
+    if cut <= 1e-12:
+        return 0.0
+    passable = proposed if other_room is None else min(proposed, max(0.0, other_room))
+    return max(0.0, min(1.0, (passable - kept) / cut))
+
+
+def _gate_block(tier: int, action: str, order: str, regime, equity: float, size_pct: float, kept_pct: float,
+                net_frac: float, cap_room: Optional[float], reserve_room: Optional[float],
+                also=(), t2: Optional[str] = None, t3: Optional[str] = None) -> Dict[str, Any]:
+    """One record's `gate` block (shadow_portfolio._sanitize_gate lists the fields).
+    regime: the system_config regime whose cap and reserve applied (caps["regime"])."""
+    cut = max(0.0, size_pct - kept_pct) * equity
+    return {"tier": tier, "action": action, "order": order, "regime": regime, "equity": equity,
+            "size_pct": size_pct, "kept_pct": kept_pct, "cut_dollars": cut,
+            "net_frac": net_frac, "net_dollars": cut * net_frac,
+            "cap_room": cap_room, "reserve_room": reserve_room, "also": list(also), "t2": t2, "t3": t3}
+
+
+def _tier2_shadow(ctx: TierContext, t1_actions: List["TierAction"]) -> Tuple[str, List[Tuple["TierAction", float]]]:
+    """(status, [(action, the size Tier 2 would have ADDED to it)]) from the
+    real tier2_leverage_multiplier. status "levered" when it adds size; else
+    the first of its own gates, in its order, that explains why it does not."""
+    if not t1_actions:
+        return "no_tier1_action", []
+    out = tier2_leverage_multiplier(ctx, t1_actions)
+    added = [(a, a.size_pct - float(a.metadata.get("original_size", a.size_pct))) for a in out if a.tier == 2]
+    added = [(a, d) for a, d in added if d > 1e-9]
+    if added:
+        return "levered", added
+    if not TIERS_ENABLED.get(2, False):
+        return "disabled", []
+    if T2_REQUIRES_PM and not ctx.portfolio_margin:
+        return "no_portfolio_margin", []
+    if ctx.drawdown_pct <= T2_LEVERAGE_DRAWDOWN_GATE:
+        return "drawdown_gate", []
+    if regime_kill_for_tier(ctx, 2):
+        return "vol_kill", []
+    if any(a.tier == 2 for a in out):
+        return "leverage_x1", []      # headroom under the cap is below Tier 1's own proposal
+    return "no_headroom", []          # its own check of the same exposure cap
+
+
+def _tier3_shadow(ctx: TierContext) -> Tuple[str, List["TierAction"]]:
+    """(status, the actions the real tier3_trend_capture would have proposed).
+    status "proposed", else the first of its own gates, in its order, that
+    explains the empty list."""
+    acts = tier3_trend_capture(ctx)
+    if acts:
+        return "proposed", acts
+    from system_config import BASE_CONFIG as _cfg
+    if not TIERS_ENABLED.get(3, False):
+        return "disabled", []
+    if _cfg.get("FLOOR_MODE", "basket") == "vol_managed_spy":
+        return "floor_owns_spy", []
+    if regime_kill_for_tier(ctx, 3):
+        return "vol_kill", []
+    if ctx.drawdown_pct <= T2_LEVERAGE_DRAWDOWN_GATE:
+        return "drawdown_gate", []
+    if ctx.vxx_ratio > T3_VXX_MAX:
+        return "vxx_above_max", []
+    if ctx.spy_vs_ma50 < 1.01:
+        return "spy_not_above_ma50", []
+    if ctx.regime not in ("BULL", "NEUTRAL_BULL", "bull"):
+        return "regime_not_bull", []
+    return "no_headroom", []          # its own check of the same exposure cap, or its budget is already held
+
+
+def _masterkill_gate_plan(ctx: TierContext, kill_reason: str, t1_actions: List["TierAction"]) -> Dict[str, Any]:
+    """What the engine would have proposed past a master kill, for logging
+    only: the Tier-1 records' `gate` blocks ("tier1_blocks", by ticker), the
+    Tier 2 / Tier 3 rows ("upper", unpriced), and the statuses. The dollars a
+    row cut are its size x equity; net_frac is the share that would have
+    passed the OTHER gates (the other master conditions, the allocator's cap
+    room and reserve room). Pure apart from the reads its callees make; never
+    raises (an empty plan leaves the Tier-1 records as they were)."""
+    plan: Dict[str, Any] = {"gate": None, "tier2": None, "tier3": None, "tier1_blocks": {}, "upper": []}
+    try:
+        import shadow_portfolio
+        gate = shadow_portfolio._masterkill_reason_category(kill_reason)
+        plan["gate"] = gate
+        if ctx.equity <= 0:
+            plan["skipped"] = "no equity reading"
+            return plan
+        caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity, positions=ctx.positions)
+        holding = _master_gates_holding(ctx, caps)
+        t2_status, t2_added = _tier2_shadow(ctx, t1_actions)
+        t3_status, t3_actions = _tier3_shadow(ctx)
+        plan.update(tier2=t2_status, tier3=t3_status)
+        cap_room = max(0.0, caps.get("MAX_TOTAL_EXPOSURE", 1.00) - _invested_pct(ctx))
+        reserve_room = _reserve_room_pct(ctx, caps.get("regime") or ctx.regime)
+        proposed = (sum(a.size_pct for a in t1_actions) + sum(d for _, d in t2_added)
+                    + sum(a.size_pct for a in t3_actions))
+        others = [g for g, on in holding.items() if on and g != gate]
+        if others:
+            other_room: Optional[float] = 0.0          # another master condition would have killed the scan
+        elif gate == "exposure_ceiling":
+            other_room = reserve_room                  # the cap absent, the cash reserve is what is left
+        else:
+            other_room = cap_room if reserve_room is None else min(cap_room, reserve_room)
+        net_frac = _net_fraction(proposed, 0.0, other_room)
+        also = list(others)
+        if gate != "exposure_ceiling" and "exposure_ceiling" not in also and cap_room < proposed:
+            also.append("exposure_ceiling")
+        if reserve_room is not None and reserve_room < proposed:
+            also.append("cash_reserve")
+        plan.update(net_frac=round(net_frac, 4), proposed_pct=round(proposed, 6), also=also)
+
+        def block(tier: int, order: str, size: float) -> Dict[str, Any]:
+            return _gate_block(tier, "dropped", order, caps.get("regime"), ctx.equity, size, 0.0, net_frac,
+                               cap_room, reserve_room, also, t2_status, t3_status)
+
+        plan["tier1_blocks"] = {a.ticker: block(1, a.action, a.size_pct) for a in t1_actions}
+        base = {"decision": "rejected_masterkill", "reason": kill_reason, "vxx_ratio": ctx.vxx_ratio,
+                "regime_label": ctx.regime or "unknown"}
+        plan["upper"] = (
+            [{**base, "ticker": a.ticker, "side": "sell", "action_label": "SELL CSP", "trade_type": "options",
+              "gate": block(2, a.action, d)} for a, d in t2_added]
+            + [{**base, "ticker": a.ticker, "side": "buy", "action_label": "BUY", "trade_type": "stock",
+                "gate": block(3, a.action, a.size_pct)} for a in t3_actions])
+    except Exception as e:  # noqa: BLE001 — logged; a failed plan must not cost the Tier-1 records
+        logger.warning(f"[TIERS] gate shadow plan failed (kill unaffected): {type(e).__name__}: {e}")
+        plan["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+    return plan
+
+
+def _gate_row_prices(ctx: TierContext) -> Dict[str, float]:
+    """ticker -> entry price for a gate row, from data already in hand: a held
+    stock or ETF position's current price, then the layer-2 cache (the Tier-1
+    records' source, which wins where both exist). No network."""
+    prices: Dict[str, float] = {}
+    for p in ctx.positions:
+        if p.get("asset_class") in ("us_option", "option"):
+            continue
+        px = _as_float(p.get("current_price"))
+        sym = str(p.get("symbol") or "").upper()
+        if sym and px > 0:
+            prices[sym] = px
+    try:
+        prices.update(_layer2_price_lookup())
+    except Exception as e:  # noqa: BLE001 — logged; rows without a price are counted, not written
+        logger.debug(f"gate shadow: layer-2 prices unavailable: {e}")
+    return prices
+
+
+def _as_float(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _log_masterkill_upper_tiers(ctx: TierContext, plan: Dict[str, Any], tier1_tickers: List[str],
+                                started: float) -> None:
+    """Write the plan's Tier 2 / Tier 3 rows (one save, first per name per ET
+    day) and publish the summary. A Tier-2 row is the size Tier 2 would have
+    added to a Tier-1 put, so it is written only for a name whose Tier-1
+    record was (tier1_tickers). Skipped when the kill path's shadow has
+    already run GATE_SHADOW_BUDGET_S: the rows are once-a-day, a later scan
+    writes them. Never raises."""
+    summary: Dict[str, Any] = {"gate": plan.get("gate"), "tier1_rows": len(tier1_tickers),
+                               "tier2": plan.get("tier2"), "tier3": plan.get("tier3"),
+                               "net_frac": plan.get("net_frac"), "also": plan.get("also"), "rows": None}
+    for k in ("error", "skipped"):
+        if plan.get(k):
+            summary[k] = plan[k]
+    try:
+        upper = [r for r in (plan.get("upper") or []) if r["gate"]["tier"] != 2 or r["ticker"] in tier1_tickers]
+        if upper and time.monotonic() - started > GATE_SHADOW_BUDGET_S:
+            summary["rows"] = {"skipped": "time budget"}
+        elif upper:
+            import shadow_portfolio
+            prices = _gate_row_prices(ctx)
+            summary["rows"] = shadow_portfolio.log_gate_rows(
+                [{**r, "entry_price": prices.get(str(r["ticker"]).upper(), 0.0)} for r in upper])
+    except Exception as e:  # noqa: BLE001 — logged; logging must never reach the kill decision
+        logger.warning(f"[TIERS] gate shadow rows failed (kill unaffected): {type(e).__name__}: {e}")
+        summary["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+    summary["sec"] = round(time.monotonic() - started, 2)
+    _GATE_SHADOW_LAST.update(summary)
+
+
+def _allocator_gate_blocks(ctx: TierContext, caps: dict, actions: List["TierAction"], proposed: List[float],
+                           kept: List[float], action: str, reserve: Optional[dict], reserve_bound: bool,
+                           protected_size: float) -> Tuple[str, List[Optional[Dict[str, Any]]]]:
+    """(gate, one `gate` block per action; None where nothing was cut) for what
+    _enforce_exposure_cap took from `actions`: `proposed` is each action's
+    size before the allocator, `kept` after it. The gate is the constraint
+    that bound: "cash_reserve" when the reserve's room was the smaller one,
+    else "exposure_ceiling". net_frac is the share of the cut the OTHER of the
+    two would have let through. Logging only; never raises (no blocks on a
+    failure)."""
+    gate = "cash_reserve" if reserve_bound else "exposure_ceiling"
+    try:
+        if ctx.equity <= 0:
+            return gate, [None] * len(actions)
+        cap_room = max(0.0, float(caps.get("MAX_TOTAL_EXPOSURE", 1.00)) - _invested_pct(ctx))
+        reserve_room = (float(reserve["headroom_dollars"]) / ctx.equity
+                        if isinstance(reserve, dict) and reserve.get("enabled") else None)
+        other = cap_room if reserve_bound else reserve_room
+        other_room = None if other is None else max(0.0, other - protected_size)
+        total, total_kept = sum(proposed), sum(kept)
+        net_frac = _net_fraction(total, total_kept, other_room)
+        also = []
+        if other_room is not None and other_room < total:
+            also.append("exposure_ceiling" if reserve_bound else "cash_reserve")
+        return gate, [
+            _gate_block(a.tier, action, a.action, caps.get("regime"), ctx.equity, p, k, net_frac, cap_room,
+                        reserve_room, also)
+            if p - k > 1e-9 else None
+            for a, p, k in zip(actions, proposed, kept)]
+    except Exception as e:  # noqa: BLE001 — logged; the allocator's result does not depend on this
+        logger.warning(f"[TIERS] allocator gate blocks failed (sizes unaffected): {type(e).__name__}: {e}")
+        return gate, [None] * len(actions)
+
+
+def _log_allocator_scale_shadow(ctx: TierContext, caps: dict, scalable: List["TierAction"], proposed: List[float],
+                                reserve: Optional[dict], reserve_bound: bool, protected_size: float,
+                                scale_factor: float, invested_pct: float, total_proposed: float,
+                                cap_pct: float) -> None:
+    """The shadow rows of _enforce_exposure_cap's proportional scale-down,
+    called after the sizes are final (`proposed` is what each action asked for
+    before it). A cut the regime cap made reads "Portfolio invested ..." so
+    shadow_portfolio files it under exposure_ceiling, the master kill's own
+    category for the same cap. Logging only; never raises."""
+    try:
+        gate, blocks = _allocator_gate_blocks(ctx, caps, scalable, proposed, [a.size_pct for a in scalable],
+                                              "scaled", reserve, reserve_bound, protected_size)
+        if reserve_bound:
+            reason = f"cash reserve leaves room for {scale_factor:.0%} of the proposed size"
+        else:
+            reason = (f"Portfolio invested {invested_pct * 100:.1f}% + proposed {total_proposed * 100:.1f}% > "
+                      f"{cap_pct * 100:.0f}% (regime={caps.get('regime')}): allocator scaled to "
+                      f"{scale_factor:.0%}{_budget_note(caps)}")
+        _log_allocator_gate_rows(ctx, caps, list(zip(scalable, blocks)), gate, reason)
+    except Exception as e:  # noqa: BLE001 — logged; the allocator's result does not depend on this
+        logger.warning(f"[TIERS] allocator scale shadow failed (sizes unaffected): {type(e).__name__}: {e}")
+
+
+def _log_allocator_gate_rows(ctx: TierContext, caps: dict, pairs: List[Tuple["TierAction", Optional[Dict[str, Any]]]],
+                             gate: str, reason: str) -> Dict[str, Any]:
+    """Shadow rows for the allocator's cut: one per (action, block) pair that
+    has a block, under "rejected_masterkill" (reason category
+    exposure_ceiling) when the regime cap bound and "rejected_cash_reserve"
+    when the cash reserve did. One save; first per name per ET day
+    (shadow_portfolio.log_gate_rows). Logging only; never raises."""
+    try:
+        rows = []
+        prices: Optional[Dict[str, float]] = None
+        for a, block in pairs:
+            if block is None:
+                continue
+            if prices is None:
+                prices = _gate_row_prices(ctx)
+            meta = a.metadata if isinstance(a.metadata, dict) else {}
+            csp = a.action == "SELL_CSP"
+            rows.append({
+                "ticker": a.ticker,
+                "decision": "rejected_cash_reserve" if gate == "cash_reserve" else "rejected_masterkill",
+                "reason": reason,
+                "entry_price": prices.get(str(a.ticker).upper(), 0.0),
+                "vxx_ratio": meta.get("vxx_ratio", ctx.vxx_ratio),
+                "regime_label": meta.get("regime_label") or caps.get("regime") or ctx.regime or "unknown",
+                "side": "sell" if csp else "buy",
+                "action_label": "SELL CSP" if csp else str(a.action),
+                "trade_type": "options" if csp or a.action == "BUY_PUT" else "stock",
+                "gate": block,
+            })
+        if not rows:
+            return {"received": 0, "logged": 0}
+        import shadow_portfolio
+        return shadow_portfolio.log_gate_rows(rows)
+    except Exception as e:  # noqa: BLE001 — logged; the allocator's result does not depend on this
+        logger.warning(f"[TIERS] allocator gate rows failed (sizes unaffected): {type(e).__name__}: {e}")
+        return {"error": f"{type(e).__name__}: {str(e)[:120]}"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1263,9 +1639,15 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
                              dedup_key=f"cr|tiers|{a.ticker}", dedup_seconds=6 * 3600,
                              source="tiered_strategy._enforce_exposure_cap", tier=a.tier,
                              wanted_pct=round(a.size_pct, 4), regime=reserve.get("regime"))
+        # GATE COUNTERFACTUALS 2026-11-12 (logging only): each dropped action's tier and
+        # dollars ride its shadow record; a dropped non-CSP action gets a record too.
+        _gate, _blocks = _allocator_gate_blocks(ctx, caps, dropped, [a.size_pct for a in dropped],
+                                                [0.0] * len(dropped), "dropped", reserve, True, protected_size)
         log_csp_gate_shadow([{"ticker": a.ticker, "decision": "rejected_cash_reserve",
-                              "reason": "cash reserve leaves no room", "metadata": a.metadata}
-                             for a in dropped if a.action == "SELL_CSP"])
+                              "reason": "cash reserve leaves no room", "metadata": a.metadata, "gate": b}
+                             for a, b in zip(dropped, _blocks) if a.action == "SELL_CSP"])
+        _log_allocator_gate_rows(ctx, caps, [(a, b) for a, b in zip(dropped, _blocks) if a.action != "SELL_CSP"],
+                                 _gate, "cash reserve leaves no room")
         return protected
 
     scalable_headroom = max(0.0, headroom - protected_size)
@@ -1277,6 +1659,7 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
             f"(proposed {total_proposed*100:.1f}% > headroom {headroom*100:.1f}%, "
             f"regime={caps.get('regime')}){_budget_note(caps)}"
         )
+        _proposed = [a.size_pct for a in scalable]   # gate counterfactuals (logging only): the sizes before the cut
         for a in scalable:
             a.size_pct *= scale_factor
             a.reason = f"{a.reason} [scaled {scale_factor:.0%} by cap enforcer]{_budget_note(caps)}"
@@ -1288,6 +1671,10 @@ def _enforce_exposure_cap(ctx: "TierContext", actions: List["TierAction"]) -> Li
                                  dedup_key=f"cr|tiers-trim|{a.ticker}", dedup_seconds=6 * 3600,
                                  source="tiered_strategy._enforce_exposure_cap", tier=a.tier,
                                  scale=round(scale_factor, 4), regime=reserve.get("regime"))
+        # GATE COUNTERFACTUALS 2026-11-12 (logging only; the sizes above are final): what the
+        # scale-down cut, as shadow rows under the constraint that bound.
+        _log_allocator_scale_shadow(ctx, caps, scalable, _proposed, reserve, reserve_bound, protected_size,
+                                    scale_factor, current_invested_pct, total_proposed, max_invested_pct)
 
     return protected + scalable
 
@@ -1359,7 +1746,10 @@ class TieredStrategy:
                 "kill_reason": reason,
                 "actions": [],
                 "tier_stats": {},
-                "tier_timings": {"killed_at_sec": round(_t.time() - _t_start, 2)},
+                # gate_shadow (2026-11-12): what the kill's shadow recorded, on the same path
+                # to /api/diag/timings as the per-tier timings (visibility only).
+                "tier_timings": {"killed_at_sec": round(_t.time() - _t_start, 2),
+                                 "gate_shadow": get_gate_shadow_summary()},
                 "diagnostics": self._diagnostics(ctx),
             }
 

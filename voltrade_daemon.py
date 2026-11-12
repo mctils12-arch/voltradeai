@@ -313,6 +313,14 @@ class RPCDispatcher:
             # args {"equity": float|None}; python3 -c fallback in bot.ts's
             # `kill_state` diag probe. Writes nothing.
             "kill_state": ("kill_state_probe", "kill_state_report"),
+            # GATE COUNTERFACTUALS ([RULE-REVIEW] 2026-11-12): read-only report of
+            # what the tier engine's gates (exposure cap, daily loss, drawdown,
+            # cash reserve) blocked or cut and what those dollars would have
+            # made, per gate and tier, over the shadow log
+            # (gate_counterfactuals_probe.py; no bot_engine import). No args;
+            # python3 -c fallback in bot.ts's `gate_counterfactuals` diag
+            # probe. Writes nothing.
+            "gate_counterfactuals": ("gate_counterfactuals_probe", "gate_counterfactuals_report"),
             # HALT SCOPE (2026-10-27, audit N15): while a Node halt blocks
             # entries, Tier 2 skips the full scan but still runs the options
             # manager's protective exits. args {"allow_rolls": false} (a

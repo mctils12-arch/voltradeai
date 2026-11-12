@@ -4877,6 +4877,28 @@ print(json.dumps(insider_cusum_probe.run_probe()))
             python: r.success ? r.result : { error: String(r.result?.error || "kill_state_probe failed").slice(0, 300), via: r.via },
           }));
         }
+        case "gate_counterfactuals": {
+          // ADDED 2026-11-12 ([RULE-REVIEW] measurement): READ-ONLY report of
+          // what the tier engine's gates blocked or cut and what those dollars
+          // would have made (gate_counterfactuals_probe.py over the shadow
+          // log): per gate and tier, rows, name-days, the +5/+10/+20d outcome
+          // distribution, the same-period base rate of `taken` candidates and
+          // a dollar prevention-P&L ESTIMATE. Daemon first (the shadow log is
+          // usually cached there), python3 -c fallback. Aggregates only;
+          // nothing is written; no gate, threshold or size is touched.
+          const r = await pythonCall(
+            "gate_counterfactuals",
+            {},
+            `python3 -c "import json; from gate_counterfactuals_probe import gate_counterfactuals_report; print(json.dumps(gate_counterfactuals_report(), default=str))"`,
+            { timeout: 60000 },
+            45000,
+          );
+          return res.json(sanitizeDiag({
+            probe: "gate_counterfactuals",
+            via: r.via,
+            ...(r.success ? r.result : { error: String(r.result?.error || "gate_counterfactuals_probe failed").slice(0, 300) }),
+          }));
+        }
         case "volume": {
           // ADDED 2026-11-09: read-only per-directory byte breakdown (see volumeUsage.ts).
           const { volumeUsage } = await import("./volumeUsage");
