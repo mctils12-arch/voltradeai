@@ -9,6 +9,7 @@ import {
   parseApiKeys, makeRateLimiter, keyId, meterUsage, apiMeta, agentToolSpec, openApiSpec,
   LICENSE_MARKS, TIER_LIMITS, RESPONSE_DATA_SCHEMAS, type OpenApiOperation, type OpenApiParam,
 } from "./apiProduct";
+import { SIGNAL_PRODUCTS } from "./signalProducts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,6 +87,7 @@ test("meta honesty: gated products listed as coming, never as live endpoints; Gr
   assert.ok(paths.includes("/api/v1/data/tff"), "CFTC TFF keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/treasury-auctions"), "Treasury auction-results keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/gnss-integrity-signal"), "GNSS integrity signal keyed mirror shipped — must be a live endpoint");
+  assert.ok(paths.includes("/api/v1/signals"), "Signals PRODUCT catalog keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/dtcc-swaps"), "DTCC SBSDR equity swaps keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/fleet-utilization"), "corporate-fleet utilization keyed mirror shipped — must be a live endpoint");
   assert.ok(paths.includes("/api/v1/data/insider"), "SEC Form 4 insider transactions keyed mirror shipped — must be a live endpoint");
@@ -986,7 +988,7 @@ test("openapi spec: a tool WITH a hand-verified schema gets the v1Envelope shell
   assert.ok((schema.schema.required as string[]).includes("data"), "envelope's own data field must be required");
 });
 
-test("openapi spec: full coverage — every one of the 41 live tools now has a hand-verified RESPONSE_DATA_SCHEMAS entry, no stale extras", () => {
+test("openapi spec: full coverage — every one of the 42 live tools now has a hand-verified RESPONSE_DATA_SCHEMAS entry, no stale extras", () => {
   const toolNames = agentToolSpec().tools.map((t) => t.name);
   for (const name of toolNames) {
     assert.ok(RESPONSE_DATA_SCHEMAS[name], `"${name}" has no RESPONSE_DATA_SCHEMAS entry`);
@@ -1093,4 +1095,46 @@ test("openapi spec: /api/v1/openapi.json is wired and public (docs, not data —
   assert.ok(routes.includes("openApiSpec()"), "openapi.json must serve openApiSpec()");
   const specLine = routes.split("\n").find((l) => l.includes('"/api/v1/openapi.json"')) || "";
   assert.ok(!specLine.includes("requireApiKey"), "the spec itself is public documentation");
+});
+
+test("signals catalog (/api/v1/signals): endpoint row, agent tool, response schema, license mark and route agree — one payload with the public preview, strictest-posture mark, tradeable pinned false", () => {
+  const row = apiMeta().endpoints.find((e) => e.path === "/api/v1/signals");
+  assert.ok(row, "endpoint row missing");
+  assert.equal(row.preview, "/api/data/signal-products", "the keyed catalog previews as the public signal-products route");
+  assert.match(row.desc, /NOT tradeable/);
+  assert.match(row.desc, /gate 2/);
+  const tool = agentToolSpec().tools.find((t) => t.name === "voltrade_signals") as any;
+  assert.ok(tool, "agent tool missing");
+  assert.equal(tool.endpoint, "GET /api/v1/signals");
+  assert.deepEqual(tool.returns_provenance, ["signals"]);
+  assert.deepEqual(tool.input_schema, { type: "object", properties: {}, required: [] });
+  const schema = RESPONSE_DATA_SCHEMAS.voltrade_signals as any;
+  assert.ok(schema, "response schema missing");
+  for (const k of ["generated_at", "ladder_compiled", "products", "unwired", "in_validation", "gate_definitions", "honesty"]) {
+    assert.ok((schema.required as string[]).includes(k), `${k} must be required`);
+  }
+  const product = schema.properties.products.items;
+  assert.deepEqual(product.properties.tradeable, { type: "boolean", enum: [false] }, "no catalog row may ever claim tradeable");
+  assert.ok((product.required as string[]).includes("live") && (product.required as string[]).includes("license"));
+  assert.deepEqual(product.properties.live.properties.state.enum, ["live", "warming_up", "unavailable", "unwired"]);
+  // the catalog-level mark is the STRICTEST posture among the wired rows, and that claim is true today
+  const mark = LICENSE_MARKS["signals"];
+  assert.equal(mark.resell, "share-alike");
+  assert.ok(SIGNAL_PRODUCTS.some((p) => LICENSE_MARKS[p.license_key]?.resell === "share-alike"),
+    "a share-alike catalog mark needs at least one share-alike row; loosen the mark only when no row is share-alike");
+  for (const p of SIGNAL_PRODUCTS) assert.ok(LICENSE_MARKS[p.license_key], `${p.root_id} license key must resolve`);
+  // the openapi document carries it under its own tag with the envelope shell
+  const op = (openApiSpec().paths["/api/v1/signals"] as any)?.get;
+  assert.ok(op, "openapi path missing");
+  assert.equal(op.operationId, "voltrade_signals");
+  assert.deepEqual(op.tags, ["signals"]);
+  assert.deepEqual(op["x-license-marks"], ["signals"]);
+  assert.deepEqual(op.responses["200"].content["application/json"].schema.properties.data, schema);
+  // the route: keyed, metered, same builder as the public preview, envelope stamped from the payload's own generated_at
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes('app.get("/api/v1/signals", (req, res) => {'));
+  assert.ok(routes.includes('v1Envelope("signals", payload, Date.parse(payload.generated_at))'));
+  assert.equal((routes.match(/signalProductsPayload\(\)/g) || []).length, 2, "the preview and the keyed route share one payload builder");
+  assert.ok(routes.includes('meterUsage({ key: auth.key, endpoint: "/api/v1/signals", status: 200, tier: auth.tier })'));
+  assert.ok(routes.includes('meterUsage({ key: auth.key, endpoint: "/api/v1/signals", status: 500, tier: auth.tier })'));
 });

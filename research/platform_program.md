@@ -191,3 +191,14 @@ for the API — FROZEN + gated by the MONETIZATION READINESS CHECKLIST
   longer lag the ladder. Full trace in experiments.md. Program queue:
   P5 only (HUMAN-GATED); follow-on filed: `/api/v1/signals` keyed
   catalog (own PR, touches the 37/37 OpenAPI schema pin).
+- 2026-11-12 (scheduled-routine PRODUCT session, v1.0.1402): that follow-on
+  shipped — `GET /api/v1/signals` is the keyed Signals PRODUCT catalog: the
+  same payload as `/api/data/signal-products` under the standard envelope,
+  metered, with its own apiMeta endpoint row, `voltrade_signals` agent tool
+  (the tool an agent calls FIRST to learn which signals are validated and
+  under what channel before calling the row's own tool), a hand-read
+  RESPONSE_DATA_SCHEMAS entry (tradeable pinned to the literal false) and a
+  `signals` LICENSE_MARKS entry carrying the strictest posture among the
+  rows (share-alike today; each row's own `license` is authoritative). The
+  OpenAPI full-coverage pin moves 41 -> 42 tools. Full trace in
+  experiments.md. Program queue: P5 only (HUMAN-GATED).
