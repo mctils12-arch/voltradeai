@@ -117623,3 +117623,16 @@ client/src/bot/dailyLineView.test.ts 10 pass (3 new). The NOV6 fixture, "a later
 Related: dailyMaintenance, eventLoopLag, mlV3CandidateJob, forecast, shadowBackfillExitAligned, todayTile, spyBenchmark, orderGateWiring, brokerClockGate 93 pass; accountActivities, cspCashRaceFix, optionsCapitalCheckFix, tier1DrawdownKillWiring, diag, posKillOptionHours 62 pass.
 tsc 6 (none in these files); counter ratchet OK; test_ts_code_only 11 pass. Harness (DAILY LINE CARD battery extended: cell = value + "*" iff write-time, data-basis, the new sentence, the "*" clause iff shown): bot 390/768/1440/1920 PASS and botidle 390/768/1440 PASS, 0 hard failures. Run 2 caught the "*" slot cutting the 390 px header; the slot is now borrowed from the column gap.
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (server/rulesBanner.ts new, server/bot.ts boot banner) — the boot RULES banner describes the live kill-switch state, floor and score threshold
+VERSION: v1.0.1387 (shipped 2026-11-12 by the parent session; main was v1.0.1386)
+WHY: every boot writes a RULES banner to the audit log, and sessions, the watchdog and the improve routines read it. It wrote "Kill switch: OFF (manual emergency stop available)" on every boot, including all 39 boots of 2026-11-06, while the drawdown-kill latch restored from disk was ON and the bot was booting halted (/api/health checks.bot.status "killed"). It also said the satellite cap excludes the "QQQ floor"; the floor is the volatility-managed SPY/SSO floor since #1634. A log reader that trusts the banner gets the halt state backwards.
+CHANGE: three pure line builders in server/rulesBanner.ts:
+- the kill line from state.killSwitch, killSwitchMeta.reason and state.maxDrawdownPct ("ON (latched: <reason>) — no new entries; exits and the floor's reduce-only pass still run ..." or "OFF (armed: trips at -20% ...)");
+- the exposure line, naming "the floor" generically;
+- the score line from state.minScoreThreshold.
+bot.ts's banner calls them. No decision reads the banner: description only.
+DOWNSTREAM: the audit log's boot RULES rows change text, and nothing parses them; grep found no test or code reading them.
+ROLLBACK TRIGGER: none needed (text only); revert if any reader of RULES rows breaks.
+TESTS: server/rulesBanner.test.ts, 6 tests (ON with reason and never OFF; OFF with the threshold; long reasons capped; no "QQQ"; live score; bot.ts uses the builders and the fixed strings are gone); ratchets OK (counter OK, tsc 6, ts_code_only).
+STARVED: no.
