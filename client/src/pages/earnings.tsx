@@ -3,8 +3,13 @@
 // states, theme tokens only. Data: /api/data/earnings-language/history
 // (accumulated archive, began 2026-07-04) merged with the live poll cache.
 // RAW as-filed display — every card links to the actual SEC filing + exhibit.
-import { useEffect, useMemo, useState } from "react";
+// The sub-line states the archive days actually loaded (in season the
+// 500-filing page covers under a week of the 30 requested; 2026-11-12) and
+// "Load older days" walks the route's own `next` — see
+// client/src/lib/filingHistory.ts.
+import { useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, FileText } from "lucide-react";
+import { useFilingHistory } from "../lib/useFilingHistory";
 
 interface EarningsRow {
   accession: string;
@@ -20,35 +25,21 @@ interface EarningsRow {
 }
 
 const EXCERPT_LEN = 480;
+const HISTORY_URL = "/api/data/earnings-language/history?days=30";
 
 export default function EarningsView({ onBack }: { onBack: () => void }) {
-  const [rows, setRows] = useState<EarningsRow[] | null>(null);
-  const [error, setError] = useState(false);
+  const hist = useFilingHistory<EarningsRow>(HISTORY_URL, 30, "releases");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [meta, setMeta] = useState<{ days: number; count: number }>({ days: 30, count: 0 });
 
-  useEffect(() => {
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/data/earnings-language/history?days=30");
-        const d = await r.json();
-        if (stop) return;
-        setRows(d.filings || []);
-        setMeta({ days: d.days ?? 30, count: d.count ?? (d.filings || []).length });
-      } catch {
-        if (!stop) setError(true);
-      }
-    })();
-    return () => { stop = true; };
-  }, []);
+  const rows = hist.filings;
+  const error = hist.error;
 
   const visible = useMemo(() => {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) => r.companyName.toLowerCase().includes(q));
+    return rows.filter((r) => (r.companyName || "").toLowerCase().includes(q));
   }, [rows, query]);
 
   return (
@@ -58,8 +49,8 @@ export default function EarningsView({ onBack }: { onBack: () => void }) {
         <FileText size={16} />
         <div>
           <div className="vt-filings-title">Earnings language — SEC 8-K Item 2.02</div>
-          <div className="vt-filings-sub">
-            as filed · {meta.count.toLocaleString()} releases, last {meta.days} days (archive began 2026-07-04) ·
+          <div className="vt-filings-sub" data-vt-coverage>
+            as filed · {hist.label} (archive began 2026-07-04) ·
             prepared remarks/guidance only, Q&A is almost never filed ·{" "}
             <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K" target="_blank" rel="noreferrer">SEC EDGAR</a>
           </div>
@@ -74,8 +65,15 @@ export default function EarningsView({ onBack }: { onBack: () => void }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        {hist.hasOlder && (
+          <button className="vt-filings-filter" data-vt-load-older onClick={hist.loadOlder} disabled={hist.loadingOlder}
+                  aria-label="Load older archive days">
+            {hist.loadingOlder ? "Loading older days…" : "Load older days"}
+          </button>
+        )}
         <span className="vt-filings-count">{visible.length.toLocaleString()} rows</span>
       </div>
+      {hist.olderError && <div className="vt-filings-state">The older page did not load — the days above are still what is shown; try again.</div>}
       {error && <div className="vt-filings-state">Feed error — the archive may still answer on refresh.</div>}
       {!error && rows === null && <div className="vt-filings-state">Loading earnings-language releases…</div>}
       {!error && rows !== null && visible.length === 0 && (
@@ -90,8 +88,9 @@ export default function EarningsView({ onBack }: { onBack: () => void }) {
           <ul className="vt-earnings-list">
             {visible.slice(0, 200).map((r) => {
               const isOpen = !!expanded[r.accession];
-              const showFull = isOpen || r.text.length <= EXCERPT_LEN;
-              const body = showFull ? r.text : r.text.slice(0, EXCERPT_LEN).trimEnd() + "…";
+              const text = r.text || "";
+              const showFull = isOpen || text.length <= EXCERPT_LEN;
+              const body = showFull ? text : text.slice(0, EXCERPT_LEN).trimEnd() + "…";
               return (
                 <li key={r.accession} className="vt-earnings-card">
                   <div className="vt-earnings-card-head">
@@ -99,12 +98,12 @@ export default function EarningsView({ onBack }: { onBack: () => void }) {
                     <span className="vt-earnings-date">{r.filedAt || "—"}</span>
                   </div>
                   <div className="vt-earnings-tags">
-                    {r.itemCodes.map((c) => <span key={c} className="vt-earnings-itemtag">Item {c}</span>)}
+                    {(r.itemCodes || []).map((c) => <span key={c} className="vt-earnings-itemtag">Item {c}</span>)}
                     {r.truncated && <span className="vt-earnings-itemtag vt-earnings-trunctag">exhibit truncated in archive</span>}
                   </div>
                   <p className="vt-earnings-text">{body}</p>
                   <div className="vt-earnings-actions">
-                    {r.text.length > EXCERPT_LEN && (
+                    {text.length > EXCERPT_LEN && (
                       <button className="vt-earnings-expandbtn"
                               onClick={() => setExpanded((s) => ({ ...s, [r.accession]: !s[r.accession] }))}>
                         {isOpen ? "Show less" : "Read full release"}

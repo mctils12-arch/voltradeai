@@ -4,8 +4,22 @@
 // only. Data: /api/data/insider/history (accumulated archive, began
 // 2026-07-04) merged with the live poll cache. RAW as-filed display — every
 // row links to the actual SEC filing index.
-import { useEffect, useMemo, useState } from "react";
+// The sub-line states the archive days actually loaded (the route pages by
+// whole day at a filing cap; 2026-11-12) and "Load older days" walks the
+// route's own `next` — see client/src/lib/filingHistory.ts.
+import { useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, FileText } from "lucide-react";
+import { useFilingHistory } from "../lib/useFilingHistory";
+
+interface Form4Filing {
+  accession: string;
+  filedAt?: string | null;
+  indexUrl?: string | null;
+  issuerName?: string | null;
+  issuerTradingSymbol?: string | null;
+  owners?: Array<{ name?: string | null; isOfficer?: boolean; isDirector?: boolean; isTenPercentOwner?: boolean; officerTitle?: string | null }> | null;
+  transactions?: Array<{ kind: string; table: string; shares: number | null; pricePerShare: number | null; transactionDate: string | null }> | null;
+}
 
 interface FilingRow {
   issuer: string;
@@ -44,43 +58,31 @@ function roleOf(o: any): string {
   return parts.join(" · ") || "—";
 }
 
-export default function FilingsView({ onBack }: { onBack: () => void }) {
-  const [rows, setRows] = useState<FilingRow[] | null>(null);
-  const [error, setError] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [meta, setMeta] = useState<{ days: number; filings: number }>({ days: 30, filings: 0 });
+const HISTORY_URL = "/api/data/insider/history?days=30";
 
-  useEffect(() => {
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/data/insider/history?days=30");
-        const d = await r.json();
-        if (stop) return;
-        const flat: FilingRow[] = (d.filings || []).flatMap((f: any) =>
-          (f.transactions || []).map((t: any) => ({
-            issuer: f.issuerName || "—",
-            symbol: f.issuerTradingSymbol || null,
-            owner: f.owners?.[0]?.name || "—",
-            role: roleOf(f.owners?.[0]),
-            kind: t.kind, table: t.table,
-            shares: t.shares,
-            price: t.pricePerShare,
-            value: t.shares != null && t.pricePerShare != null ? Math.round(t.shares * t.pricePerShare) : null,
-            date: t.transactionDate,
-            filedAt: f.filedAt,
-            secUrl: f.indexUrl || null,
-            accession: f.accession,
-          }))
-        );
-        setRows(flat);
-        setMeta({ days: d.days ?? 30, filings: d.count ?? 0 });
-      } catch {
-        if (!stop) setError(true);
-      }
-    })();
-    return () => { stop = true; };
-  }, []);
+export default function FilingsView({ onBack }: { onBack: () => void }) {
+  const hist = useFilingHistory<Form4Filing>(HISTORY_URL, 30, "filings");
+  const [filter, setFilter] = useState<Filter>("all");
+
+  const rows = useMemo<FilingRow[] | null>(() => {
+    if (!hist.filings) return null;
+    return hist.filings.flatMap((f) =>
+      (f.transactions || []).map((t) => ({
+        issuer: f.issuerName || "—",
+        symbol: f.issuerTradingSymbol || null,
+        owner: f.owners?.[0]?.name || "—",
+        role: roleOf(f.owners?.[0]),
+        kind: t.kind, table: t.table,
+        shares: t.shares,
+        price: t.pricePerShare,
+        value: t.shares != null && t.pricePerShare != null ? Math.round(t.shares * t.pricePerShare) : null,
+        date: t.transactionDate,
+        filedAt: f.filedAt ?? null,
+        secUrl: f.indexUrl || null,
+        accession: f.accession,
+      })),
+    );
+  }, [hist.filings]);
 
   const visible = useMemo(() => {
     if (!rows) return [];
@@ -92,6 +94,8 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
     }
   }, [rows, filter]);
 
+  const error = hist.error;
+
   return (
     <div className="vt-filings-page" role="region" aria-label="Insider transactions (Form 4)">
       <div className="vt-filings-head">
@@ -99,8 +103,8 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
         <FileText size={16} />
         <div>
           <div className="vt-filings-title">Insider transactions — SEC Form 4</div>
-          <div className="vt-filings-sub">
-            as filed · {meta.filings.toLocaleString()} filings, last {meta.days} days (archive began 2026-07-04) ·{" "}
+          <div className="vt-filings-sub" data-vt-coverage>
+            as filed · {hist.label} (archive began 2026-07-04) ·{" "}
             <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4" target="_blank" rel="noreferrer">SEC EDGAR</a>
           </div>
         </div>
@@ -113,8 +117,15 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
             {label}
           </button>
         ))}
+        {hist.hasOlder && (
+          <button className="vt-filings-filter" data-vt-load-older onClick={hist.loadOlder} disabled={hist.loadingOlder}
+                  aria-label="Load older archive days">
+            {hist.loadingOlder ? "Loading older days…" : "Load older days"}
+          </button>
+        )}
         <span className="vt-filings-count">{visible.length.toLocaleString()} rows</span>
       </div>
+      {hist.olderError && <div className="vt-filings-state">The older page did not load — the days above are still what is shown; try again.</div>}
       {error && <div className="vt-filings-state">Feed error — the archive may still answer on refresh.</div>}
       {!error && rows === null && <div className="vt-filings-state">Loading filings…</div>}
       {!error && rows !== null && visible.length === 0 && (
