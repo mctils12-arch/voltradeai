@@ -483,6 +483,18 @@ export const DIAG_PROBES = [
   // (1..60, default 10). Account values and option symbols per the 2026-07-07
   // widening; no keys.
   "daily_line",
+  // ADDED 2026-11-12 ([RULE-REVIEW] measurement): the volatility-managed
+  // floor's watch list, compiled (server/floorTracking.ts). Per session and
+  // over the rolling 20 sessions: the floor's realized return against its
+  // target exposure x SPY's return; the pre-registered rollback trigger
+  // (research/floor_study_2026-11-05.md) evaluated mechanically; orders and
+  // dollars traded beside the study's pace. Every number carries its
+  // definition, and a missing input is null with a reason. Read-only:
+  // recomputed on each call from the stored daily lines, the floor tickers'
+  // orders, the positions and daily closes; nothing is stored. Account values
+  // and the floor's ETF symbols (the 2026-07-07 widening); no keys; no query
+  // parameters.
+  "floor_tracking",
   // ADDED 2026-11-06 ([RULE-REVIEW] measurement, human refocus spec section 7
   // "which signals add return and which are noise"): the SAME body as the
   // owner's GET /api/bot/signals (server/signals.ts over signal_attribution.py)
