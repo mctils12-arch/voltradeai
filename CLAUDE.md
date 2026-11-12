@@ -547,7 +547,8 @@ read-before-write review.
   real engine (regime-gated, no-lookahead, Alpaca-first/Yahoo fallback);
   `backtest.py` is its CLI wrapper. `test_audit_critical.py`'s backtest
   tests reference it and pass. (Both were stubs/missing before that.)
-- `market_calendar.py` has 2026 dates only. Add 2027 in December 2026.
+- `market_calendar.py` has 2026 and 2027 dates (2027 added 2026-11-12,
+  #1747, from the official NYSE table). Add 2028 in December 2027.
 - ML feedback records are version-gated; legacy records weighted 0.4x.
   Poisoned-record cleanup runs on startup (`ml_model_v2.py`).
 - VISION.md (repo root) installed 2026-07-04; verbatim human charter
@@ -570,8 +571,11 @@ read-before-write review.
   (viewport + LOD). Levers: S1 viewport-bounded serving (bbox+zoom),
   S2 server-side tiling/clustering, S3 spatial index on the archives.
   Each slice ships with a harness perf assertion proving flat frame/
-  query time as feature count rises. NOTHING BUILT YET; S1 step (a) is
-  next.
+  query time as feature count rises. STATUS (corrected 2026-11-12;
+  scale_program.md RESUME STATE is authoritative): the off-thread and
+  off-event-loop work shipped 2026-07-15 (v1.0.324-328) and the Legend
+  memo boundary 2026-07-16 (#505, v1.0.373). OPEN: S1(d) LayersPanel +
+  DetailCard memo boundaries, S2 server aggregation.
 - ORBITAL program installed 2026-07-07 (human directive):
   research/orbital_program.md is the multi-session charter — full
   satellite population (CelesTrak GP + SATCAT, ~10k+, SGP4) as a
@@ -586,10 +590,10 @@ read-before-write review.
   (#359); orbital FOUNDATION shipped (#361, v1.0.205 — client/src/lib/
   orbital/ tle+propagate[inline SGP4, 0KB]+geometry+entityJoin+operators
   .json+orbital_models.md); RENDER-LIB shipped (#363, v1.0.207 —
-  satWorker+satLayer[CustomLayerInterface]+satBuffer, 68 tests). NEXT =
-  O2 datamap.tsx wiring (own PR + real build + visual harness; exact
-  recipe in orbital_program.md RESUME STATE; watch Vite worker bundling +
-  SwiftShader WebGL2).
+  satWorker+satLayer[CustomLayerInterface]+satBuffer, 68 tests). O2
+  datamap.tsx wiring SHIPPED (#369) and O3 picking SHIPPED (v1.0.235);
+  later slices are in orbital_program.md RESUME STATE (authoritative;
+  corrected 2026-11-12).
 - RUNPOD GPU cost-cap gate shipped 2026-07-07 (#360, v1.0.204 —
   scripts/runpod_budget.py + research/runpod_ledger.md): $50 balance,
   append-only ledger, authorize_job refuses unbounded/bad-rate/over-floor
@@ -623,8 +627,9 @@ read-before-write review.
   (research/console_charter.md): W4 query engine, W2 satellite stream
   (CelesTrak firewalled from Railway — relay decision with human),
   W1 globe-default map, W6 analyst (server tool-loop + chat pane).
-  Activates on ANTHROPIC_API_KEY. Remaining: W2 client sat layer, W3
-  time scrubber, W5 dossier v2.
+  Activates on ANTHROPIC_API_KEY. W3 time scrubber SHIPPED (v1.0.250),
+  W5 dossier v2 SHIPPED (v1.0.258); the W2 client satellite layer
+  shipped as ORBITAL O2 (corrected 2026-11-12).
 - EARTH TWIN program installed 2026-07-15 (human directive: "Infinite
   4D Earth Digital Twin"): research/earth_twin_program.md is the
   multi-session charter — one 4D digital-twin build over the existing
@@ -636,8 +641,11 @@ read-before-write review.
   true-altitude aircraft, ocean bathymetry + water toggle + GEBCO TID
   uncertainty, underground (honest sparse), atmosphere (GFS wind
   particles), celestial lighting. Every "impossible" ask mapped to an
-  honest approximation tier in the charter. NOTHING NEW BUILT at
-  install; E0 (registry v2 + LOD director) gates the build. License
+  honest approximation tier in the charter. BUILT SINCE INSTALL
+  (corrected 2026-11-12; earth_twin_program.md RESUME STATE is
+  authoritative): the LOD director (client/src/lib/lod.ts, v1.0.318),
+  E1 slice 1 (v1.0.329), Time Machine T-2 (#818, v1.0.700) and T-4
+  (v1.0.721). License
   gates open: TeleGeography cables + WDPA (both NC terms). 2026-07-15
   human clarification (recorded in the charter): architecture update
   not a data-overview rewrite; data never made up — existing data or
