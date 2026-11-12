@@ -117159,3 +117159,38 @@ Rollback trigger: a scanner entry whose legs are missing from voltrade_options_s
 Context: the Python engine's −20% kill has been latched since 2026-11-06 15:32Z, so no new entries have been made since; options activity after 11-06 is not a normal sample.
 
 STARVED: no.
+
+## 2026-11-06 [REPAIR] — T-BOT (options_manager.py, options_execution.py, server/bot.ts scanner-direct script) — A resting multi-leg entry's leg state survives until its opening order resolves: a late fill is managed as the group an immediate fill would be
+VERSION: v1.0.1373 (shipped 2026-11-12 by the parent session; main was v1.0.1372)
+
+Why: prerequisite G2 of the mleg sign fix.
+- manage_options_positions deletes every state key that is not a held position (options_manager.py, the early "no option positions" wipe and the end prune).
+- A multi-leg entry is registered at submission, so the first pass on which its order had not filled dropped the legs' strategy, setup and max_loss. Shown on the old code: 4 condor legs registered, one pass with the order resting, 0 left.
+- The mid-first debit entries (#1655) rest by design, and with the sign fix a credit condor rests whenever the market moved against it.
+- A leg that filled after that pass came back as an "unknown" single leg, with no group profit target, max-loss exit or 21-DTE close.
+
+The change:
+- register_contract_entry (G3) hands each multi-leg leg its opening order id (`register_options_entry(opening_order_id=...)`). Both entry paths pass it, and both now also register an order Alpaca reports as "new".
+- Each pass, `_resting_entry_pass` reads each distinct opening order once, following its replacements (the ladder's re-prices):
+  - working: the legs' state is kept through both prunes;
+  - filled: kept until the legs are held (15 min grace); then the entry clock moves to the fill time, so MIN_HOLD counts from the fill as for an immediate fill, and the marker is cleared;
+  - canceled / expired / rejected / done_for_day / not found: the unfilled legs are dropped;
+  - unreadable: kept for up to 20 h.
+- Single-leg entries carry no marker and are pruned as before.
+
+Downstream, two steps:
+- A late-filled structure is grouped like an immediate fill: profit target, the registered max_loss exit, 21-DTE close; POS-KILL sees its defined-risk legs. One order GET per pending structure per pass.
+- An order that ends unfilled (expiry at the close, a G1 sweep cancel) leaves no state behind.
+
+Tests: test_resting_entry_state.py (12).
+- Survival while working (nothing held; other positions held).
+- A late fill: same registered fields, entry clock at the fill, marker cleared; then the 21-DTE close, the registered max-loss exit and the profit target fire on the group.
+- Expiry, cancel, reject, done_for_day and 404 drop the legs; filled but never held is dropped after the grace; the unreadable-order age limit.
+- The mid-first entry is followed through two replacements; the scanner's order id and "new" status; single legs unchanged.
+- 17 of 19 fail on the previous code. The 48 options files: 871 passed, 1 skipped. Ratchets OK.
+
+Rollback trigger: a filled multi-leg entry whose legs show strategy "unknown", or state for an expired order still present the next session.
+
+Context: the −20% engine kill has been latched since 2026-11-06 15:32Z (no new entries since).
+
+STARVED: no.
