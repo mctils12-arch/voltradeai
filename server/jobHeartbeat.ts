@@ -313,7 +313,8 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_GITHUB_GATE2 off",
   },
   {
-    // lazyPricesBackfill.ts bootLazyPricesBackfill: 30-min tick, acts every night
+    // lazyPricesBackfill.ts bootLazyPricesBackfill: 30-min tick (the first 2 min after
+    // boot, so a short-lived container still starts the night), acts every night
     // from 21:00 ET, once per night PER PROCESS (a redeploy re-attempts) — a run
     // (lazy_prices_backfill.py, <= 3.5 h budget clamped to end by 03:30 ET, kill
     // +30 min: the gate-2 INPUT rows accumulating on the volume) or one "skipped"

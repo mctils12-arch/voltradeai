@@ -1,6 +1,6 @@
 // lazyPricesBackfill — nightly job + read-only status for lazy_prices_backfill.py
 // (the Lazy Prices gate-2 INPUT). Run: npx tsx --test server/lazyPricesBackfill.test.ts
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -9,9 +9,10 @@ import { fileURLToPath } from "node:url";
 import {
   lazyPricesBackfillFlag, lazyPricesBackfillCmd, lazyPricesBackfillPairsDir, lazyPricesBackfillTmpArchive, inLazyPricesBackfillWindow,
   lazyPricesBackfillNightOf, lazyPricesBackfillNightEndMs, lazyPricesBackfillBudgetSeconds, lazyPricesBackfillTimeoutMs,
-  decideLazyPricesBackfill, parseLazyPricesBackfillSummary, runLazyPricesBackfill, lazyPricesBackfillStatus,
+  decideLazyPricesBackfill, parseLazyPricesBackfillSummary, runLazyPricesBackfill, lazyPricesBackfillStatus, bootLazyPricesBackfill,
   LAZY_PRICES_BACKFILL_TIMEOUT_MS, LAZY_PRICES_BACKFILL_BUDGET_S, LAZY_PRICES_BACKFILL_MIN_FREE_BYTES,
   LAZY_PRICES_BACKFILL_KILL_GRACE_MS, LAZY_PRICES_BACKFILL_NIGHT_END_MIN, LAZY_PRICES_BACKFILL_MIN_SLICE_S,
+  LAZY_PRICES_BACKFILL_TICK_MS, LAZY_PRICES_BACKFILL_FIRST_TICK_MS,
 } from "./lazyPricesBackfill";
 import { lazyPricesPairsDir, lazyPricesStatus, LAZY_PRICES_WINDOW_START_MIN, inLazyPricesWindow } from "./lazyPrices";
 import { WALKFORWARD_ENV_CAPS, type WalkforwardExec } from "./walkforward";
@@ -186,7 +187,49 @@ test("wiring: booted from routes.ts, no mutex/daemon/order path, never ticks on 
   assert.ok(!src.includes("/orders") && !/method:\s*"(POST|PUT|PATCH|DELETE)"/.test(src));
   assert.ok(src.includes('beat("lazy_prices_backfill_nightly", "start")') && src.includes('beat("lazy_prices_backfill_nightly", "finish"'));
   // the tick passes the decision's clamped budget to the run (a late restart must not get the full 3.5 h)
-  assert.ok(boot.includes("runLazyPricesBackfill(env, execGroupKill, d.budgetS)"));
+  assert.ok(boot.includes("runLazyPricesBackfill(env, exec, d.budgetS)"));
+  assert.ok(boot.includes("exec: WalkforwardExec = execGroupKill"), "the long-job lane is the default; the seam is for tests");
+  // the first tick is a short timeout after boot, then the interval — never one interval after boot (three nights lost to that)
+  assert.ok(boot.includes("setTimeout(() => { void tick(); }, LAZY_PRICES_BACKFILL_FIRST_TICK_MS)"));
+  assert.ok(LAZY_PRICES_BACKFILL_FIRST_TICK_MS >= 60_000, "let boot settle (archive loads, heartbeat restore) before a nice-19 Python starts");
+  assert.ok(LAZY_PRICES_BACKFILL_FIRST_TICK_MS <= 5 * 60_000, "inside the 11-29 min container lifetimes measured on the night of 11-11/12");
+  assert.ok(LAZY_PRICES_BACKFILL_FIRST_TICK_MS < LAZY_PRICES_BACKFILL_TICK_MS);
   // the attempt marker stays in process memory on purpose: a redeploy's fresh process re-attempts the night
   assert.ok(/let lastAttemptDay = "";/.test(boot) && !/lastAttemptDay.*(readFileSync|writeFileSync)/.test(boot));
+});
+
+test("boot: a container that lives only minutes still starts the night — the first tick lands FIRST_TICK_MS after boot (not one 30-min interval later), one run at a time, once per night", async () => {
+  // Would have failed on the pre-2026-11-12 code: with the first tick one interval after boot, a 25-minute-lived
+  // container never ran the night's slice, and 25 such containers lost the night of 11-11/12 entirely.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lpb-boot-"));
+  const calls: string[] = [];
+  let release!: () => void;
+  const exec: WalkforwardExec = async (cmd) => {
+    calls.push(cmd);
+    await new Promise<void>((r) => { release = r; });
+    return { stdout: '{"status":"ok","phase":"score","processed":48,"cursor_day":"2015-02-03","cursor_closed":false,"remaining_in_plan":71000,"plan_filings":71747,"stop_reason":"budget","counts":{"rows":30},"elapsed_s":12600,"peak_rss_mb":400}\n', stderr: "" };
+  };
+  mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: TUE_IN });   // boot at 21:30 ET, inside the night
+  try {
+    bootLazyPricesBackfill({ DATA_DIR: tmp, PATH: "/usr/bin" }, exec);
+    assert.equal(calls.length, 0, "never ticks synchronously on boot");
+    mock.timers.tick(LAZY_PRICES_BACKFILL_FIRST_TICK_MS - 1);
+    assert.equal(calls.length, 0, "not before the first-tick delay");
+    mock.timers.tick(1);
+    assert.equal(calls.length, 1, "the slice starts FIRST_TICK_MS after boot");
+    assert.match(calls[0], new RegExp(`--budget-seconds ${LAZY_PRICES_BACKFILL_BUDGET_S} `), "21:32 ET: the full 3.5 h");
+    mock.timers.tick(LAZY_PRICES_BACKFILL_TICK_MS);
+    assert.equal(calls.length, 1, "the interval tick while a run is in flight starts nothing");
+    release();
+    await new Promise<void>((r) => setImmediate(r));          // setImmediate is not mocked: lets the run's finish beat land
+    mock.timers.tick(LAZY_PRICES_BACKFILL_TICK_MS);
+    assert.equal(calls.length, 1, "the same night is not attempted twice by one process");
+    // the second boot in one process is a no-op (module guard), so a test cannot observe a second timer chain
+    bootLazyPricesBackfill({ DATA_DIR: tmp, PATH: "/usr/bin" }, exec);
+    mock.timers.tick(LAZY_PRICES_BACKFILL_FIRST_TICK_MS);
+    assert.equal(calls.length, 1);
+  } finally {
+    mock.timers.reset();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
