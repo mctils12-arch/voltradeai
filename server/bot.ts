@@ -5982,6 +5982,11 @@ print(json.dumps(result[:20]))
         continue;
       }
 
+      // KILL LATCH (2026-11-12, KNOWN BROKEN #51 residual): the loop-top check ran before this
+      // trade's awaits (positions, the Python price check); re-read right before
+      // the order, with the loop-top check's handling.
+      if (state.killSwitch) break;
+
       // SCALE-IN BY THIRDS 2026-11-06 (server/scaleIn.ts): the first third now;
       // executeScaleInTranches places the other two when their conditions hold.
       const mqScaleIn = planScaleIn({ ticker: trade.ticker, qty: _qtyToSubmit, price: Number(trade.price) || 0,
@@ -7254,6 +7259,14 @@ else:
                   }, tierShadowEntries);
                   tierDecisionRows.push(tierDecision(action, { status: SHADOW_ORDER_STATUS }, { qty: shares, price: currentPrice }));
                 } else if (shares > 0) {
+                  // KILL LATCH (2026-11-12, KNOWN BROKEN #51 residual): the account and
+                  // snapshot reads above came after the dispatcher's loop-top check.
+                  if (state.killSwitch) {
+                    for (const rest of result.tier_actions.slice(result.tier_actions.indexOf(action))) {
+                      noteCspGate(rest, "rejected_killswitch", "Node kill switch on — dispatcher ended");
+                    }
+                    break;
+                  }
                   const orderParams = getOrderParams(currentPrice);
                   try {
                     const t3OrderResult = await alpaca("/v2/orders", {
@@ -8651,7 +8664,11 @@ print(json.dumps(run_update()))
           }
           await new Promise(r => setTimeout(r, 1000));
           const upgradeQty = Math.floor(candidate.market_value / betterPick.price);
-          if (upgradeQty > 0) {
+          // KILL LATCH (2026-11-12, KNOWN BROKEN #51 residual): the sale above is an
+          // exit and stands; the buy is an entry, re-checked after the sale and the wait.
+          const buyHalted = state.killSwitch || !haltAllows(currentHaltState(), "entry");
+          if (buyHalted) audit("ROTATE-BUY-HALTED", `${betterPick.ticker}: not bought — entries halted after ${candidate.ticker} was sold`);
+          if (upgradeQty > 0 && !buyHalted) {
             const upgradeOrderParams = getOrderParams(betterPick.price || 0);
             const upgradeOrderResult = await alpaca("/v2/orders", {
               method: "POST",
@@ -8686,7 +8703,7 @@ print(json.dumps(run_update()))
             }
           }
           appendPositionMgmtLog({ kind: "rotation", action: "rotate", ticker: candidate.ticker, summary: rot.summary,
-            sell: candidate.ticker, buy: betterPick.ticker, buy_qty: upgradeQty, sell_value: pre.sellValue,
+            sell: candidate.ticker, buy: betterPick.ticker, buy_qty: buyHalted ? 0 : upgradeQty, sell_value: pre.sellValue,
             gain_pct: rot.gainPct, ev_hold_pct: rot.evHoldPct, ev_candidate_pct: rot.evCandidatePct,
             tax_now: rot.taxNow, cost_dollars: rot.costDollars });
           swapPlaced = true;
@@ -8773,6 +8790,9 @@ print(json.dumps(run_update()))
       noteReserve(plan.ticker, fit, budget, "scale-in", d.tranche.qty * price);
       if (fit.action === "block") { budget.spend(d.tranche.qty * plan.ref_price); continue; } // waits for room
       const trancheQty = fit.action === "trim" ? fit.qty : d.tranche.qty;
+      // KILL LATCH (2026-11-12, KNOWN BROKEN #51 residual): the reserve read above can
+      // await the broker after the loop-top check; re-read right before the order.
+      if (state.killSwitch || !haltAllows(currentHaltState(), "entry")) break;
       try {
         const trancheParams = getOrderParams(price);
         const trancheOrder = await alpaca("/v2/orders", {
