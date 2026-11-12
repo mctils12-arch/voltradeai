@@ -6079,6 +6079,7 @@ def _run_convexity_overlay(macro: dict) -> dict:
             }
             try:
                 broker_clock.check_order_allowed(occ_symbol, "convexity put buy")
+                kill_latch.check_opening_allowed(occ_symbol, "convexity put buy")   # KNOWN BROKEN #51 residual
                 o = _req.post(f"{base_url}/v2/orders", json=order, headers=headers, timeout=10)
                 actions.append({
                     "type": "convexity_overlay",

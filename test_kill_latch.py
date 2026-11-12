@@ -312,7 +312,8 @@ class TestOptionOpenAndHarvest(LatchDirs):
 
 # ── on the source ─────────────────────────────────────────────────────────────
 
-OPENING_LABELS = {"floor basket buy", "floor buy", "defensive floor buy", "third-leg VRP buy"}
+OPENING_LABELS = {"floor basket buy", "floor buy", "defensive floor buy", "third-leg VRP buy",
+                  "convexity put buy"}   # + the (disabled) overlay's put buy, 2026-11-12 residual
 
 
 def _order_posts(tree):
@@ -358,7 +359,7 @@ class TestEveryOpeningPostIsGated(unittest.TestCase):
             latch = _calls(stmts[:i], "kill_latch.check_opening_allowed")
             self.assertTrue(latch, f"bot_engine.py:{call.lineno}: an OPENING order POST ({labels}) without kill_latch.check_opening_allowed before it")
             self.assertEqual({ast.literal_eval(c.args[1]) for c in latch}, labels, "the latch gate carries the same label as the clock gate")
-        self.assertEqual(opening_posts, 4, "basket floor buy, old floor buy, GLD defensive buy, SVXY buy: a new opening POST must be gated and counted here")
+        self.assertEqual(opening_posts, 5, "basket floor buy, old floor buy, GLD defensive buy, SVXY buy, convexity put buy: a new opening POST must be gated and counted here")
 
     def test_the_floor_order_helper_gates_buys_only(self):
         src = open(os.path.join(_ROOT, "bot_engine.py")).read()

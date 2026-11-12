@@ -22,6 +22,8 @@ collect_ignore = [
     "test_full_system.py",
 ]
 
+import os
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -132,6 +134,25 @@ def _hermetic_broker_clock():
     with patch.object(broker_clock, "_fetch_clock_body", return_value=None):
         yield
     broker_clock.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_kill_latch(tmp_path_factory):
+    """KILL LATCH 2026-11-12 (kill_latch.py, KNOWN BROKEN #51): every opening
+    order path reads Node's kill-switch file from DATA_DIR and /tmp. The suite
+    must never read the MACHINE's file — scripts/deploy_gate_smoke.mjs writes a
+    LATCHED one there while it runs, and a local bot leaves its own — or every
+    test that expects a buy fails for a reason outside the test. By default the
+    reader looks in an empty directory: "not latched", the order path every
+    existing test saw before. Tests of the latch patch kill_latch.DATA_DIR /
+    FALLBACK_DIR themselves (test_kill_latch.py LatchDirs), which shadows
+    this. Function-scoped. Changes reachability, not behavior."""
+    import kill_latch
+
+    empty = str(tmp_path_factory.getbasetemp() / "no_kill_latch")
+    os.makedirs(empty, exist_ok=True)
+    with patch.object(kill_latch, "DATA_DIR", empty), patch.object(kill_latch, "FALLBACK_DIR", empty):
+        yield
 
 
 @pytest.fixture(scope="session")
