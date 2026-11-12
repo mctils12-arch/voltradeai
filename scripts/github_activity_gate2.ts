@@ -75,6 +75,16 @@
  * the fact and picking whichever look good would be multiple-hypothesis
  * fishing).
  *
+ * COMPILED 2026-11-12 (EDGE DOCTRINE #3): the rule above now lives in
+ * server/githubGate2.ts, which the production server runs itself every
+ * Sunday 19:00-20:00 ET (heartbeat `github_gate2_weekly`, diag probe
+ * `github_gate2`) with Alpaca daily bars as the price source. This script
+ * imports and re-exports that module's pure functions and runs the SAME
+ * evaluateGithubGate2() over the public /history route + Yahoo adjusted
+ * closes, so a hand run stays possible from a session without Alpaca keys —
+ * but the job's first sufficient run (latest.json `first_sufficient_run`)
+ * is the registered verdict; a hand run is informational.
+ *
  * Session-run: `npx tsx scripts/github_activity_gate2.ts [--dry] [prodBaseUrl]`
  * --dry skips the live fetch (production RAW history endpoint + Yahoo)
  * and only prints the pure-function behavior exercised by
@@ -84,96 +94,17 @@
  */
 import { pathToFileURL } from "url";
 import { WATCHLIST, type GithubActivityRecord } from "../server/githubOrgActivity";
-import { fetchYahooDaily, toSeries, fwdReturn, type Series } from "./occ_volume_gate2";
-import { clusterMeanTTest, survivesAtCrit005 } from "./statsUtils";
+import { fetchYahooDaily, toSeries, type Series } from "./occ_volume_gate2";
+import {
+  MIN_CLUSTERS, MIN_PANEL_FOR_WEEK, toWeeklyTotal, computeWeeklyDeltas, bucketWeek, nearestTradingDayOnOrBefore, meanOf,
+  evaluateGithubGate2, type OrgWeek, type WeekDelta, type WeekBucket, type WeekResult,
+} from "../server/githubGate2";
 
-export const MIN_CLUSTERS = 15;
-export const MIN_PANEL_FOR_WEEK = 12; // out of 15 — allow a couple of missing orgs before dropping the week
-
-export interface OrgWeek {
-  ticker: string;
-  weekStart: string;
-  weekEnd: string;
-  total: number | null; // mergedPRs + commits, null if either field missing
-}
-
-export function toWeeklyTotal(rec: { weekStart: string; weekEnd: string; mergedPRs: number | null; commits: number | null }): OrgWeek {
-  const total = rec.mergedPRs != null && rec.commits != null ? rec.mergedPRs + rec.commits : null;
-  return { ticker: "", weekStart: rec.weekStart, weekEnd: rec.weekEnd, total };
-}
-
-export interface WeekDelta {
-  ticker: string;
-  weekEnd: string;
-  pctChange: number;
-}
-
-/** Week-over-week percent change per ticker, computed against each
- *  ticker's own prior archived week only (never cross-ticker). Pure
- *  function over already-fetched per-ticker series (weeks sorted
- *  ascending by weekStart, one series per ticker). */
-export function computeWeeklyDeltas(seriesByTicker: Map<string, OrgWeek[]>): WeekDelta[] {
-  const out: WeekDelta[] = [];
-  for (const [ticker, weeks] of seriesByTicker) {
-    for (let i = 1; i < weeks.length; i++) {
-      const prev = weeks[i - 1].total;
-      const cur = weeks[i].total;
-      if (prev == null || cur == null || prev === 0) continue;
-      out.push({ ticker, weekEnd: weeks[i].weekEnd, pctChange: (cur - prev) / prev });
-    }
-  }
-  return out;
-}
-
-export interface WeekBucket {
-  weekEnd: string;
-  top: string[];
-  mid: string[];
-  bottom: string[];
-}
-
-/** Cross-sectional TOP/MID/BOTTOM terciles for one week's deltas. Returns
- *  null if fewer than MIN_PANEL_FOR_WEEK tickers have a valid delta that
- *  week (dropped entirely, never bucketed unevenly). */
-export function bucketWeek(weekEnd: string, deltas: WeekDelta[]): WeekBucket | null {
-  const rows = deltas.filter((d) => d.weekEnd === weekEnd);
-  if (rows.length < MIN_PANEL_FOR_WEEK) return null;
-  const sorted = [...rows].sort((a, b) => b.pctChange - a.pctChange);
-  const third = Math.floor(sorted.length / 3);
-  return {
-    weekEnd,
-    top: sorted.slice(0, third).map((r) => r.ticker),
-    mid: sorted.slice(third, sorted.length - third).map((r) => r.ticker),
-    bottom: sorted.slice(sorted.length - third).map((r) => r.ticker),
-  };
-}
-
-/** Latest date in `series` on or before `onOrBefore` (ISO yyyy-mm-dd
- *  string compare is safe since both are zero-padded). Null if the
- *  series has no date that early. */
-export function nearestTradingDayOnOrBefore(series: Series, onOrBefore: string): string | null {
-  let best: string | null = null;
-  for (const d of series.dates) {
-    if (d <= onOrBefore && (best == null || d > best)) best = d;
-  }
-  return best;
-}
-
-export interface WeekResult {
-  weekEnd: string;
-  topMean5: number | null;
-  midMean5: number | null;
-  bottomMean5: number | null;
-  spread5: number | null; // top - bottom, this week's cluster value
-  topMean20: number | null;
-  midMean20: number | null;
-  bottomMean20: number | null;
-}
-
-export function meanOf(xs: (number | null)[]): number | null {
-  const clean = xs.filter((x): x is number => x != null);
-  return clean.length ? clean.reduce((a, b) => a + b, 0) / clean.length : null;
-}
+// The pre-registered rule's pure functions moved to server/githubGate2.ts
+// (the production job); re-exported here unchanged so this script's own
+// test file and any caller keep the same import path.
+export { MIN_CLUSTERS, MIN_PANEL_FOR_WEEK, toWeeklyTotal, computeWeeklyDeltas, bucketWeek, nearestTradingDayOnOrBefore, meanOf };
+export type { OrgWeek, WeekDelta, WeekBucket, WeekResult };
 
 const DRY = process.argv.includes("--dry");
 const BASE = process.argv.find((a, i) => i >= 2 && !a.startsWith("--")) || process.env.VOLTRADE_PROD_URL || "https://voltradeai.com";
@@ -206,11 +137,7 @@ async function main() {
   }
 
   const deltas = computeWeeklyDeltas(seriesByTicker);
-  const weekEnds = Array.from(new Set(deltas.map((d) => d.weekEnd))).sort();
-  console.log(`panel: ${seriesByTicker.size}/${WATCHLIST.length} tickers fetched, ${deltas.length} weekly deltas across ${weekEnds.length} candidate weeks`);
-
-  const buckets = weekEnds.map((w) => bucketWeek(w, deltas)).filter((b): b is WeekBucket => b != null);
-  console.log(`${buckets.length} weeks clear MIN_PANEL_FOR_WEEK=${MIN_PANEL_FOR_WEEK} (dropped ${weekEnds.length - buckets.length})`);
+  console.log(`panel: ${seriesByTicker.size}/${WATCHLIST.length} tickers fetched, ${deltas.length} weekly deltas across ${new Set(deltas.map((d) => d.weekEnd)).size} candidate weeks`);
 
   // One Yahoo range fetch per ticker, spanning the full panel + buffer.
   const allDates = Array.from(seriesByTicker.values()).flat().map((w) => w.weekEnd).sort();
@@ -227,68 +154,38 @@ async function main() {
     await new Promise((res) => setTimeout(res, 200));
   }
 
-  function bucketFwd(tickers: string[], weekEnd: string, horizon: number): (number | null)[] {
-    return tickers.map((t) => {
-      const s = priceSeries.get(t);
-      if (!s) return null;
-      const entry = nearestTradingDayOnOrBefore(s, weekEnd);
-      return entry ? fwdReturn(s, entry, horizon) : null;
-    });
-  }
-
-  const results: WeekResult[] = buckets.map((b) => {
-    const top5 = bucketFwd(b.top, b.weekEnd, 5);
-    const mid5 = bucketFwd(b.mid, b.weekEnd, 5);
-    const bot5 = bucketFwd(b.bottom, b.weekEnd, 5);
-    const top20 = bucketFwd(b.top, b.weekEnd, 20);
-    const mid20 = bucketFwd(b.mid, b.weekEnd, 20);
-    const bot20 = bucketFwd(b.bottom, b.weekEnd, 20);
-    const topMean5 = meanOf(top5), midMean5 = meanOf(mid5), bottomMean5 = meanOf(bot5);
-    return {
-      weekEnd: b.weekEnd,
-      topMean5, midMean5, bottomMean5,
-      spread5: topMean5 != null && bottomMean5 != null ? topMean5 - bottomMean5 : null,
-      topMean20: meanOf(top20), midMean20: meanOf(mid20), bottomMean20: meanOf(bot20),
-    };
-  });
+  // The SAME evaluation the production job runs (server/githubGate2.ts) —
+  // only the price source differs (Yahoo here, Alpaca there).
+  const ev = evaluateGithubGate2(seriesByTicker, priceSeries);
+  console.log(`${ev.panel.bucketed_weeks} weeks clear MIN_PANEL_FOR_WEEK=${MIN_PANEL_FOR_WEEK} (dropped ${ev.panel.dropped_weeks})`);
 
   console.log(`\nper-week buckets (+5d realized only):`);
-  for (const r of results) {
+  for (const r of ev.results) {
     const fmt = (x: number | null) => (x == null ? "n/a" : `${(x * 100).toFixed(2)}%`);
     console.log(`  ${r.weekEnd}: TOP=${fmt(r.topMean5)} MID=${fmt(r.midMean5)} BOTTOM=${fmt(r.bottomMean5)} spread=${fmt(r.spread5)}`);
   }
 
-  const usable5 = results.filter((r) => r.spread5 != null);
-  const ready = usable5.length >= MIN_CLUSTERS;
-
   console.log(`\n=== GATE 2 READINESS (+5d, cluster = week) ===`);
-  console.log(`${usable5.length} usable weeks vs MIN_CLUSTERS=${MIN_CLUSTERS}`);
-  console.log(ready ? "READY" : "WAITING", `— not enough realized +5d weeks yet to render a PASS/FAIL verdict (Reasoning Standard #4)`);
+  console.log(`${ev.n_clusters} usable weeks vs MIN_CLUSTERS=${MIN_CLUSTERS}`);
+  console.log(ev.ready ? "READY" : "WAITING", ev.ready ? "— enough realized +5d weeks; the verdict below is the pre-registered rule's output (the production job's first sufficient run is the one of record)" : "— not enough realized +5d weeks yet to render a PASS/FAIL verdict (Reasoning Standard #4)");
 
-  const spreads = usable5.map((r) => r.spread5 as number);
-  const clusterTest = spreads.length ? clusterMeanTTest(spreads) : null;
-  const pooledTop = meanOf(usable5.map((r) => r.topMean5));
-  const pooledMid = meanOf(usable5.map((r) => r.midMean5));
-  const pooledBottom = meanOf(usable5.map((r) => r.bottomMean5));
-  const orderingHolds = pooledTop != null && pooledMid != null && pooledBottom != null && pooledTop > pooledMid && pooledMid > pooledBottom;
-  const significant = clusterTest ? survivesAtCrit005(clusterTest) : false;
-  const verdict = ready ? (orderingHolds && significant ? "PASS" : "FAIL") : "WAITING";
-
-  console.log(`\n=== EXPLORATORY (non-gating at n=${usable5.length} until READY) ===`);
-  console.log(`pooled TOP mean +5d: ${pooledTop != null ? (pooledTop * 100).toFixed(2) + "%" : "n/a"}`);
-  console.log(`pooled MID mean +5d: ${pooledMid != null ? (pooledMid * 100).toFixed(2) + "%" : "n/a"}`);
-  console.log(`pooled BOTTOM mean +5d: ${pooledBottom != null ? (pooledBottom * 100).toFixed(2) + "%" : "n/a"}`);
-  console.log(`ordering TOP>MID>BOTTOM holds: ${orderingHolds}`);
-  if (clusterTest) {
-    console.log(`cluster-mean t-test on weekly spreads: n=${clusterTest.n} mean=${(clusterTest.mean * 100).toFixed(2)}% t=${clusterTest.t.toFixed(3)} df=${clusterTest.df} survivesAtCrit005=${significant}`);
+  const pct = (x: number | null) => (x != null ? (x * 100).toFixed(2) + "%" : "n/a");
+  console.log(`\n=== ${ev.ready ? "VERDICT" : "EXPLORATORY (non-gating at n=" + ev.n_clusters + " until READY)"} ===`);
+  console.log(`pooled TOP mean +5d: ${pct(ev.pooledTop5)}`);
+  console.log(`pooled MID mean +5d: ${pct(ev.pooledMid5)}`);
+  console.log(`pooled BOTTOM mean +5d: ${pct(ev.pooledBottom5)}`);
+  console.log(`ordering TOP>MID>BOTTOM holds: ${ev.orderingHolds}`);
+  if (ev.clusterTest) {
+    console.log(`cluster-mean t-test on weekly spreads: n=${ev.clusterTest.n} mean=${(ev.clusterTest.mean * 100).toFixed(2)}% t=${ev.clusterTest.t.toFixed(3)} df=${ev.clusterTest.df} survivesAtCrit005=${ev.survivesAtCrit005}`);
   }
 
+  const verdict = ev.verdict;
   console.log(JSON.stringify({
     verdict,
-    n_clusters: usable5.length,
+    n_clusters: ev.n_clusters,
     min_clusters: MIN_CLUSTERS,
-    pooledTop5: pooledTop, pooledMid5: pooledMid, pooledBottom5: pooledBottom,
-    orderingHolds, clusterTest, results,
+    pooledTop5: ev.pooledTop5, pooledMid5: ev.pooledMid5, pooledBottom5: ev.pooledBottom5,
+    orderingHolds: ev.orderingHolds, clusterTest: ev.clusterTest, results: ev.results,
   }, null, 2));
 
   process.exitCode = verdict === "PASS" || verdict === "WAITING" ? 0 : 1;

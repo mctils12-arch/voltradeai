@@ -410,6 +410,12 @@ export const DIAG_PROBES = [
   // only: no ticker, CIK, company, price or URL; no network; no Python; no query
   // parameters.
   "earnings_qoq",
+  // ADDED 2026-11-12 ([PIPELINE]): read-only status of the weekly in-process
+  // gate-2 test of the github_org_engineering_momentum root
+  // (server/githubGate2.ts githubGate2Status) — verdict, cluster test, per-week
+  // bucket means, first_sufficient_run. Derived statistics only: no price, no
+  // URL; no network; no Python; no query parameters.
+  "github_gate2",
   // ADDED 2026-10-27 (Phase 3 "no silent failures", human-directed): the
   // server side of the external job watchdog. server/jobHeartbeat.ts's
   // evaluate() over the persisted heartbeat file — per scheduled job

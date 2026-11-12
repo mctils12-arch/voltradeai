@@ -64,6 +64,7 @@ import { walkforwardStatus } from "./walkforward";
 import { edgeP2Status } from "./edgeP2";
 import { lazyPricesStatus } from "./lazyPrices";
 import { earningsQoqStatus } from "./earningsQoq";
+import { githubGate2Status } from "./githubGate2";
 import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, FORECAST_QUEUE_MAX_WAIT_MS, FORECAST_QUEUE_BUDGET_MS, type ForecastPayload, forecastDailyPayloadPath, forecastGenerateDailyCmd, vixFromCboe, dailyAuditKind, dailyWantsVixRefresh, type ForecastDailyPayload, type DailyGenerateResult } from "./forecast";
 import { latestCboeVix, refreshCboeVix } from "./cboeVix";
 import { aggregateSiteReport, liveSiteReport } from "./siteReport";
@@ -4777,6 +4778,12 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // test of the 8-K QoQ language-delta feature (server/earningsQoq.ts) —
           // headline fields only.
           return res.json(sanitizeDiag(earningsQoqStatus()));
+        }
+        case "github_gate2": {
+          // ADDED 2026-11-12 ([PIPELINE]): read-only status of the weekly
+          // in-process gate-2 test of github_org_engineering_momentum
+          // (server/githubGate2.ts) — headline fields only.
+          return res.json(sanitizeDiag(githubGate2Status()));
         }
         case "heartbeats": {
           // ADDED 2026-10-27 (Phase 3 "no silent failures"): every scheduled
