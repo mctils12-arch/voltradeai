@@ -33,6 +33,13 @@ FILLS_PATH = os.path.join(DATA_DIR, "voltrade_fills.json")
 # 2026-11-06 position management (position_mgmt.py + server/positionMgmt.ts): append-only
 # JSONL of cash-reserve trims/blocks, drawdown-budget cuts and rotation decisions.
 POSITION_MGMT_LOG_PATH = os.path.join(DATA_DIR, "voltrade_position_mgmt.jsonl")
+# 2026-11-12 opening-window counterfactual (options_manager.py, measurement only):
+# per ET day, every option exit a rule first fired on between 09:30 and 09:45 ET
+# (the window that holds it), with the quote at that moment. Rewritten whole
+# (write-then-rename), the last 30 days kept. Read back by the close paths (the
+# fill-ledger row of the later order carries the record) and by the daily line
+# (server/openingCounterfactual.ts). Not created here.
+OPTION_OPENING_FIRST_FIRED_PATH = os.path.join(DATA_DIR, "voltrade_option_opening_first_fired.json")
 WEIGHTS_PATH = os.path.join(DATA_DIR, "voltrade_weights.json")
 HEALTH_LOG_PATH = os.path.join(DATA_DIR, "voltrade_health_log.json")
 BLEND_TRACKER_PATH = os.path.join(DATA_DIR, "voltrade_blend_tracker.json")

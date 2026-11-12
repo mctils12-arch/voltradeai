@@ -383,7 +383,8 @@ def _submit_close_order(occ_symbol: str, qty: int, side: str, limit_price: float
             # order id, contract, side, qty and the quote this close was
             # priced from (measurement only; never raises).
             _fill_ledger.record_order(order.get("id", ""), occ_symbol, side, qty,
-                                      "options_manager._submit_close_order", limit=limit_price)
+                                      "options_manager._submit_close_order", limit=limit_price,
+                                      first_fired=_opening_first_fired_link(occ_symbol))
             return {
                 "status": "submitted",
                 "order_id": order.get("id", ""),
@@ -457,7 +458,8 @@ def _replace_order_price(order_id: str, limit_price: float):
                 # its fill is attributed instead of counted as unexplained.
                 _fill_ledger.record_order(body.get("id", ""), body.get("symbol", ""), body.get("side", ""),
                                           body.get("qty"), "options_manager:exit ladder replace",
-                                          limit=limit_price)
+                                          limit=limit_price,
+                                          first_fired=_opening_first_fired_link(body.get("symbol", "")))
             return (body if isinstance(body, dict) else None), "replaced"
         return None, f"HTTP {resp.status_code}: {str(getattr(resp, 'text', ''))[:160]}"
     except Exception as e:
@@ -742,7 +744,8 @@ def _close_strategy_mleg(legs: list, ticker: str, units: int = None, ladder_ok: 
                 # returned (the limit's legs carry the quotes just read for it;
                 # a market close's mids are null unless a fresh one was noted).
                 _fill_ledger.record_mleg_order(order.get("id", ""), mleg_legs, max(qty, 1),
-                                               "options_manager._close_strategy_mleg")
+                                               "options_manager._close_strategy_mleg",
+                                               first_fired=_opening_first_fired_links(leg["symbol"] for leg in mleg_legs))
                 if p is None:
                     return {"status": "submitted", "order_id": order.get("id", ""), "method": "mleg",
                             "detail": f"{ladder_note}mleg close: {len(mleg_legs)} legs"}
@@ -1877,6 +1880,261 @@ def _note_opening_window_deferrals(actions, now_et=None) -> int:
     except Exception as e:  # measurement only: never break the manager
         logger.warning(f"opening-window deferral count not saved: {e}")
         return 0
+
+
+# ── OPENING-WINDOW COUNTERFACTUAL (2026-11-12, measurement only) ────────────
+# research/open_questions.md, "opening-window exits: the counterfactual to
+# log". The window's rollback trigger compares what each held exit got after
+# 09:45 with the quote at the moment a rule first fired on it; until now only
+# the count above was kept. Two pieces, neither of which decides anything:
+#
+# 1. FIRST FIRED. The first scan on which the window holds an exit writes one
+#    record to storage_config.OPTION_OPENING_FIRST_FIRED_PATH, under the
+#    broker's ET day and the contract (a single leg) or the group's sorted
+#    legs joined by ",". One record per exit, not per rule: had the first
+#    rule's close been sent, a second rule could not have fired on the same
+#    contract. It holds the rule, the time, the quote feed, and per leg the
+#    side its close takes, the quantity, the position's mark and the quote
+#    (bid / ask / mid). A single leg's quote is the snapshot its rule was just
+#    judged on (the fill ledger's memo; nothing is fetched). A group's rules
+#    are judged on position marks and read no quote, so its legs are read
+#    once here, and that read is kept out of the ledger's memo. Later scans
+#    in the window only count ("fires", "last_fired_at", "rules"): the first
+#    quote stands. A close the broker refuses after the window is counted on
+#    the record ("refused"), so that a refused exit is not read as one the
+#    rule let go.
+# 2. THE LINK. Every fill-ledger row written for a close of that contract
+#    later the same ET day carries the record's key, time and rule and that
+#    leg's first-fired bid / ask / mid ("first_fired": the close paths pass
+#    _opening_first_fired_link to the row). The record is read back from the
+#    file, so the link survives a daemon recycle and the subprocess fallback.
+#
+# server/openingCounterfactual.ts joins the two with the day's orders in the
+# daily line. A missing, corrupt or unwritable file costs the record only: no
+# function here raises, and nothing an exit is decided on reads it.
+try:
+    from storage_config import OPTION_OPENING_FIRST_FIRED_PATH
+except ImportError:   # the fallback DATA_DIR takes at the top of this module
+    OPTION_OPENING_FIRST_FIRED_PATH = os.path.join(DATA_DIR, "voltrade_option_opening_first_fired.json")
+OPENING_FIRST_FIRED_KEEP_DAYS = 30
+OPENING_FIRST_FIRED_MAX_PER_DAY = 200       # records in one day (a book has a few dozen contracts)
+OPENING_FIRST_FIRED_MAX_RULES = 8           # rules listed on one record
+OPENING_FIRST_FIRED_QUOTE_MAX_AGE_S = 600.0  # a single leg's snapshot was read earlier in the same run
+OPENING_FIRST_FIRED_READ_BUDGET_S = 5.0     # no further group-leg quote is read once a run has spent this
+
+
+def _opening_first_fired_path() -> str:
+    """storage_config's file, in this module's DATA_DIR: the same directory in
+    production, and the one a test redirects."""
+    return os.path.join(DATA_DIR, os.path.basename(OPTION_OPENING_FIRST_FIRED_PATH))
+
+
+def _opening_et_now(now_et=None):
+    """The broker's New York time (the clock the window itself reads); this
+    machine's when there is no reading."""
+    now_et = now_et or _broker_et_now()
+    if now_et is None:
+        from zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+    return now_et
+
+
+def _finite_or_none(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def _load_opening_first_fired() -> dict:
+    """The file's document; an empty one when it is missing or unreadable."""
+    try:
+        with open(_opening_first_fired_path()) as f:
+            doc = json.load(f)
+        if isinstance(doc, dict) and isinstance(doc.get("days"), dict):
+            return doc
+        logger.warning("opening first-fired file holds no days, treated as empty")
+    except FileNotFoundError:
+        return {"version": 1, "days": {}}
+    except (OSError, ValueError) as e:
+        logger.warning(f"opening first-fired file unreadable, treated as empty: {e}")
+    return {"version": 1, "days": {}}
+
+
+def _save_opening_first_fired(doc: dict) -> None:
+    """Write-then-rename, the last OPENING_FIRST_FIRED_KEEP_DAYS days kept."""
+    for old in sorted(doc["days"])[:-OPENING_FIRST_FIRED_KEEP_DAYS]:
+        doc["days"].pop(old, None)
+    doc["version"] = 1
+    doc["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    path = _opening_first_fired_path()
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(doc, f, default=str, allow_nan=False)   # strict JSON: the daily line parses it in Node
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _held_by_opening_window(action) -> bool:
+    """The test _opening_window_deferral_keys applies: a deferred order whose
+    detail names the opening window."""
+    order = action.get("order") if isinstance(action, dict) else None
+    return (isinstance(order, dict) and order.get("status") == "deferred"
+            and str(order.get("detail", "")).startswith(OPENING_WINDOW_DETAIL_PREFIX))
+
+
+def _action_legs(action) -> list:
+    """The contracts an exit action closes: a group's sorted legs, or the one leg."""
+    if action.get("action") == "CLOSE_STRATEGY":
+        return sorted(str(s) for s in (action.get("legs") or []) if s)
+    return [str(action["occ_symbol"])] if action.get("occ_symbol") else []
+
+
+def _first_fired_record_for(today: dict, occ_symbol: str):
+    """(key, record, leg) of the day's earliest record holding this contract, or None."""
+    best = None
+    for key, rec in today.items():
+        if not isinstance(rec, dict):
+            continue
+        for leg in rec.get("legs") or []:
+            if isinstance(leg, dict) and leg.get("symbol") == occ_symbol:
+                if best is None or str(rec.get("first_fired_at") or "") < str(best[1].get("first_fired_at") or ""):
+                    best = (key, rec, leg)
+    return best
+
+
+def _first_fired_legs(kind: str, legs: list, positions: dict, budget_from: float) -> list:
+    """Each leg of a new record: the side its close takes, quantity, mark and quote."""
+    read = {}
+    if kind == "group":
+        for occ in legs:
+            if time.time() - budget_from > OPENING_FIRST_FIRED_READ_BUDGET_S:
+                logger.warning(f"opening first-fired: quote read budget spent, {occ} and later legs recorded without a quote")
+                break
+            with _fill_ledger.quotes_not_kept([occ]):
+                snap = _get_option_snapshot(occ)
+            if snap:
+                read[occ] = {"bid": snap.get("bid"), "ask": snap.get("ask"), "quote_age_s": 0.0}
+    out = []
+    for occ in legs:
+        pos = positions.get(occ) or {}
+        q = read.get(occ) or {}
+        if kind != "group":
+            q = _fill_ledger.quote_for(occ, max_age_s=OPENING_FIRST_FIRED_QUOTE_MAX_AGE_S)
+        bid, ask = _finite_or_none(q.get("bid")), _finite_or_none(q.get("ask"))
+        qty = _finite_or_none(pos.get("qty"))
+        mark = _finite_or_none(pos.get("current_price"))
+        out.append({
+            "symbol": occ,
+            "side": ("sell" if pos.get("side", "long") == "long" else "buy") if pos else None,
+            "qty": abs(int(qty)) if qty is not None else None,
+            "bid": bid, "ask": ask, "mid": _fill_ledger.mid_of(bid, ask),
+            "quote_age_s": q.get("quote_age_s"),
+            "mark": abs(mark) if mark is not None else None,
+        })
+    return out
+
+
+def _note_opening_first_fired(actions, options_positions, now_et=None) -> int:
+    """This run's part of the counterfactual (the block above): a record for
+    each exit the window held for the first time today, a count on the ones it
+    held again, and a count of closes the broker refused on a contract it held
+    earlier. Reads `actions` and the positions the run already fetched; decides
+    nothing. Returns how many records were new. Never raises."""
+    try:
+        held, refused = {}, []
+        for a in actions or []:
+            legs = _action_legs(a) if isinstance(a, dict) else []
+            if not legs:
+                continue
+            if _held_by_opening_window(a):
+                held.setdefault(",".join(legs), ("group" if a.get("action") == "CLOSE_STRATEGY" else "single_leg",
+                                                 str(a.get("type", "")), legs))
+            elif (a.get("action") in ("CLOSE", "CLOSE_STRATEGY") and isinstance(a.get("order"), dict)
+                  and a["order"].get("status") == "error"):
+                refused.append(legs)
+        if not held and not refused:
+            return 0
+        now_et = _opening_et_now(now_et)
+        day, stamp = now_et.strftime("%Y-%m-%d"), now_et.isoformat(timespec="seconds")
+        doc = _load_opening_first_fired()
+        today = doc["days"].get(day)
+        if not isinstance(today, dict):
+            today = {}
+        positions = {p.get("symbol", ""): p for p in options_positions or [] if isinstance(p, dict)}
+        added = changed = 0
+        started = time.time()
+        for key, (kind, rule, legs) in held.items():
+            rec = today.get(key)
+            if isinstance(rec, dict):
+                rec["fires"] = int(rec.get("fires") or 0) + 1
+                rec["last_fired_at"] = stamp
+                rules = rec.get("rules") if isinstance(rec.get("rules"), list) else []
+                if rule not in rules and len(rules) < OPENING_FIRST_FIRED_MAX_RULES:
+                    rules.append(rule)
+                rec["rules"] = rules
+                changed += 1
+                continue
+            if len(today) >= OPENING_FIRST_FIRED_MAX_PER_DAY:
+                logger.warning(f"opening first-fired: {OPENING_FIRST_FIRED_MAX_PER_DAY} records today, {key} not recorded")
+                continue
+            leg_records = _first_fired_legs(kind, legs, positions, started)
+            today[key] = {"kind": kind, "rule": rule, "rules": [rule], "first_fired_at": stamp, "last_fired_at": stamp,
+                          "fires": 1, "refused": 0,
+                          # the feed the quotes above came from (no probe here: the last one resolved)
+                          "feed": str(alpaca_feed.options_feed_status().get("feed") or ""),
+                          "legs": leg_records}
+            added += 1
+        for legs in refused:
+            hit = next((h for h in (_first_fired_record_for(today, occ) for occ in legs) if h), None)
+            if hit:
+                hit[1]["refused"] = int(hit[1].get("refused") or 0) + 1
+                hit[1]["last_refused_at"] = stamp
+                changed += 1
+        if not added and not changed:
+            return 0
+        doc["days"][day] = today
+        _save_opening_first_fired(doc)
+        return added
+    except Exception as e:  # measurement only: never break the manager
+        logger.warning(f"opening first-fired record not saved: {e}")
+        return 0
+
+
+def _opening_first_fired_links(symbols, now_et=None) -> dict:
+    """{contract: what its fill-ledger row carries} for each of `symbols`
+    whose exit the window held earlier today: the record's key, time, rule and
+    kind, and that leg's first-fired bid / ask / mid. Read from the file on
+    every call (a close is rare, and the record may have been written by
+    another process). {} on any failure. Never raises."""
+    try:
+        wanted = [s for s in symbols or [] if s]
+        if not wanted:
+            return {}
+        day = _opening_et_now(now_et).strftime("%Y-%m-%d")
+        today = _load_opening_first_fired()["days"].get(day)
+        if not isinstance(today, dict):
+            return {}
+        out = {}
+        for occ in wanted:
+            hit = _first_fired_record_for(today, occ)
+            if hit:
+                key, rec, leg = hit
+                out[occ] = {"key": key, "at": rec.get("first_fired_at"), "rule": rec.get("rule"), "kind": rec.get("kind"),
+                            "bid": leg.get("bid"), "ask": leg.get("ask"), "mid": leg.get("mid")}
+        return out
+    except Exception as e:  # measurement only: an order path must never see this
+        logger.warning(f"opening first-fired lookup failed: {e}")
+        return {}
+
+
+def _opening_first_fired_link(occ_symbol: str):
+    """One contract's entry of _opening_first_fired_links, or None."""
+    return _opening_first_fired_links([occ_symbol]).get(occ_symbol)
 
 
 def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: str,
@@ -3568,6 +3826,10 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
     # 2026-11-05 (daily line): count the exits the opening window held back
     # (reads `actions`, writes its own file; never raises, decides nothing).
     _note_opening_window_deferrals(actions)
+    # 2026-11-12 (opening-window counterfactual): the quote each of those exits
+    # first fired on, and the closes refused later (the same terms: reads
+    # `actions` and the positions fetched above, writes its own file).
+    _note_opening_first_fired(actions, options_positions)
 
     # DECISION JOURNAL 2026-11-06: the closes / rolls that reached the broker
     # (decision_journal.record_option_exits; logging only — exits unaffected).
