@@ -2,7 +2,7 @@
 // Run: npx tsx --test client/src/bot/dailyLineView.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dailyLineView, dailyRow, todayLine, sessionLabel, rowTitle, rowNotes, optWords, optSplitWords, optSplitParts, gapWords, pctWords } from "./dailyLineView";
+import { dailyLineView, dailyRow, todayLine, sessionLabel, rowTitle, rowNotes, optWords, optSplitWords, optSplitParts, gapWords, pctWords, acctWords, acctBasisWords, checkWords } from "./dailyLineView";
 import { MINUS } from "./format";
 
 // the live line of 2026-11-05 (the daily_line diag probe, read 2026-11-06 06:00 ET), trimmed to the fields the card reads
@@ -18,9 +18,11 @@ const NOV5 = {
   missing: [],
 };
 // a later day with every piece computed: the vol-managed floor with its target, an option total split into fills and direction
+// (and, as a line written since the [RULE-REVIEW] 2026-11-06 close reading, its account day at the close)
 const NOV6 = {
   ...NOV5, day: "2026-11-06", written_at: "2026-11-06T21:22:10.000Z",
-  account_vs_spy: { ...NOV5.account_vs_spy, day: { account_pct: 0.42, spy_pct: 0.61, gap_pp: -0.19, equity: 90100, last_equity: 89724.1, spy_bar_date: "2026-11-06", reason: null } },
+  account_vs_spy: { ...NOV5.account_vs_spy, day: { account_pct: 0.42, spy_pct: 0.61, gap_pp: -0.19, equity: 90100, last_equity: 89724.1, spy_bar_date: "2026-11-06", reason: null,
+    account_source: "close", equity_end: 90100, equity_end_at: "2026-11-06T20:59:52.000Z", close_reason: null } },
   floor: { ...NOV5.floor, exposure_x: 0.8512, target_x: 0.9204, target_at: "2026-11-06T20:50:00Z" },
   options: { ...NOV5.options, window: { from: NOV5.written_at, to: "2026-11-06T21:22:10.000Z", from_line: "2026-11-05", single_session: true }, total: -120.4, direction: -80.1,
     fills: { fills: 5, attributed: 2, cost: 40.3, pnl: -40.3, unattributed: { count: 3, no_row: 3, no_mid: 0, mleg_no_leg_fills: 0, notional: 900 } }, reason: null },
@@ -139,4 +141,45 @@ test("today's line: written, due later, waiting for inputs, failed, overdue, no 
     { text: "No session today: the next line follows the next session's close", tone: "ok" });
   assert.equal(todayLine({}, nov5, 0), null, "no schedule from an older server: nothing said");
   assert.equal(todayLine({ schedule: { ...sch, due_at: "2026-11-27T18:20:00.000Z", day: "2026-11-27" } }, nov5, at("2026-11-27T15:00:00Z"))?.text, "Today's line is written after the close, from 13:20 ET", "a half day");
+});
+
+// ── the account day's basis ([RULE-REVIEW] 2026-11-06): at the close; the fallback and the older lines marked "*" ─────
+
+test("basis: a line on the close reading reads plainly; a line from before it (no source) is the equity when written, marked *", () => {
+  const old = dailyRow(NOV5)!;
+  assert.deepEqual([old.acctBasis, old.acctAt, old.closeReason, old.check], ["write_time", NOV5.written_at, null, null], "the live 11-05 line predates the close reading");
+  assert.equal(acctWords(old), `${MINUS}4.07%*`);
+  assert.match(rowTitle(old), /^Thu Nov 5: account −4\.07%\* \(equity when the line was written, 20:12 ET: after-hours marks included\) vs SPY −4\.34% \(\+0\.27 pp\) · /);
+  assert.deepEqual(rowNotes(old).filter((n) => /account =/.test(n)), [], "no close reason to spell out: the card's footnote says what * is");
+  const close = dailyRow(NOV6)!;
+  assert.deepEqual([close.acctBasis, close.acctAt, close.closeReason], ["close", "2026-11-06T20:59:52.000Z", null]);
+  assert.equal(acctWords(close), "+0.42%");
+  assert.equal(dailyRow({ ...NOV5, account_vs_spy: { ...NOV5.account_vs_spy, day: { ...NOV5.account_vs_spy.day, account_pct: null, reason: "account read invalid" } } })!.acctBasis, null, "no account day, no basis");
+  noLeak(old); noLeak(close);
+});
+
+test("basis: a line that fell back says why on the card; the next line's close check is in the hover", () => {
+  const fell = dailyRow({ ...NOV6, day: "2026-11-10", written_at: "2026-11-10T21:22:10.000Z",
+    account_vs_spy: { ...NOV6.account_vs_spy, day: { ...NOV6.account_vs_spy.day, account_source: "write_time", equity_end_at: "2026-11-10T21:22:10.000Z", close_reason: "no close reading for 2026-11-10" } } })!;
+  assert.equal(acctWords(fell), "+0.42%*");
+  assert.deepEqual(rowNotes(fell), ["Tue Nov 10: account = equity when the line was written (16:22 ET) — no close reading for 2026-11-10"]);
+  assert.match(rowTitle(fell), /^Tue Nov 10: account \+0\.42%\* \(equity when the line was written, 16:22 ET: after-hours marks included; no close reading for 2026-11-10\) vs SPY/);
+  const nov9 = dailyRow({ ...NOV6, day: "2026-11-09", written_at: "2026-11-09T21:22:10.000Z",
+    close_check: { day: "2026-11-06", line_pct: 0.42, line_equity: 90100, line_source: "close", alpaca_close: 90082.15, alpaca_pct: 0.4, error_pp: 0.02, error_usd: 17.85, balance_asof: "2026-11-06", reason: null } })!;
+  assert.deepEqual(nov9.check, { day: "2026-11-06", label: "Fri Nov 6", linePct: 0.42, alpacaPct: 0.4, errorPp: 0.02 });
+  assert.equal(checkWords(nov9.check!), "the Fri Nov 6 line read +0.42%, Alpaca's close +0.40% (+0.02 pp)");
+  assert.match(rowTitle(nov9), / · close check: the Fri Nov 6 line read \+0\.42%, Alpaca's close \+0\.40% \(\+0\.02 pp\)$/);
+  assert.deepEqual(rowNotes(nov9), [], "a check is not a missing piece");
+  const unchecked = dailyRow({ ...NOV6, close_check: { day: "2026-11-05", line_pct: -4.07, alpaca_close: null, alpaca_pct: null, error_pp: null, reason: "last_equity unreadable" } })!;
+  assert.equal(unchecked.check, null, "a check that could not be made is not shown as one");
+  noLeak(fell); noLeak(nov9);
+});
+
+test("basis: the card's sentence names the close, and the * clause only when a shown row carries it", () => {
+  assert.equal(acctBasisWords(false), "Account = equity at the close (the last read before the bell) vs the prior close (Alpaca last_equity)");
+  assert.equal(acctBasisWords(true), "Account = equity at the close (the last read before the bell) vs the prior close (Alpaca last_equity) · * = equity when the line was written (no close reading; after-hours marks can move it)");
+  assert.equal(dailyLineView(body([NOV6, NOV5]), Q, 0).writeTime, true, "the 11-05 line is shown");
+  assert.equal(dailyLineView(body([NOV6]), Q, 0).writeTime, false);
+  assert.equal(dailyLineView(body([]), Q, 0).writeTime, false);
+  assert.equal(dailyLineView(undefined, { loading: true, error: null }, 0).writeTime, false);
 });

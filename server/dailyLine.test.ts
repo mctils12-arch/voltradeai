@@ -16,6 +16,10 @@ import {
   lastLineDay, loadDailyLines, openingWindowBlocks, optionFillsInWindow, optionLedgerRow, optionPnl, optionWindowStart, readDailyLines,
   parseCalendarSession, parseFloorConfig, parseLedger, parsePositionsLite, readOptionFillLedger, realizedOptionPnl,
   sameBasis, saveDailyLine, type DailyLine, type DailyLineInputs, type FloorConfig, type LedgerRow, type OptionContract,
+  // the close reading ([RULE-REVIEW] 2026-11-06)
+  DAILY_LINE_CLOSE_FILENAME, DAILY_LINE_CLOSE_KEEP, DAILY_LINE_CLOSE_LEAD_MS, DAILY_LINE_CLOSE_MAX_AGE_MS, DAILY_LINE_CLOSE_TICK_MS,
+  SAME_BASIS_TEXT, SAME_BASIS_TEXT_WRITE_TIME, closeCheck, closeReadingFor, closeReadingFrom, closeReadingWindow, readCloseReadings,
+  saveCloseReading, usableCloseReading, type CloseReading,
 } from "./dailyLine";
 import type { RealizedEvent } from "./sleeveLedger";
 import { runLadder, LADDER_DEFAULTS } from "./limitLadder";
@@ -300,6 +304,9 @@ function inputs(over: Partial<DailyLineInputs> = {}): DailyLineInputs {
   return {
     day: "2026-11-05", nowMs, session: NOV5,
     account: { equity: "100000", lastEquity: "101000" },
+    // the normal day ([RULE-REVIEW] 2026-11-06): a close reading 10 s before the bell (here equal to the evening read,
+    // so the pins below are the ones they were; the tests under "the close reading" move it)
+    close: { day: "2026-11-05", at: "2026-11-05T20:59:50.000Z", equity: 100000, last_equity: 101000, balance_asof: null, reads: 6 },
     positions: POSITIONS, spyBars: SPLIT_BARS, curve: CURVE, floorCfg: VM_CFG,
     vmState: { at: naiveLocal(nowMs - 600_000), equity: 100000, ok: true, target_exposure: 1.1, capital: 85000 },
     prev, windowFromMs: ms("2026-11-04T21:20:00.000Z"), events: EVENTS, orders: ORDERS, ledger: LEDGER,
@@ -573,4 +580,248 @@ test("wiring: GET /api/bot/daily-line is owner-gated and serves the diag probe's
   assert.ok(!/alpaca\(/.test(helper + route), "the route reads the file only, never the broker");
   const probe = slice('case "daily_line": {', 'case "regime": {');
   assert.ok(probe.includes('sanitizeDiag({ probe: "daily_line", ...dailyLineBodyNow(req.query.days) })'), "the probe serves the same body");
+});
+
+// ── the close reading ([RULE-REVIEW] 2026-11-06): the account's day ends at the close, not at the write time ─────────
+// The 2026-11-05 line read −4.07 % from equity 89,814.42 at 20:12 ET (after-hours marks in it) while Alpaca's own close
+// to close was −3.99 %: last_equity rolled overnight from 93,623.46 to 89,888.90 ("equity as of previous trading day at
+// 16:00:00 ET"); SPY's side was −4.34 % close to close. These pin the new basis, its fallback and the next-day check.
+
+const NOV5_CLOSE_MS = ms("2026-11-05T21:00:00Z");
+const reading = (over: Partial<CloseReading> = {}): CloseReading =>
+  ({ day: "2026-11-05", at: "2026-11-05T20:59:52.000Z", equity: 89888.9, last_equity: 93623.46, balance_asof: "2026-11-04", reads: 6, ...over });
+
+test("close reading: the window is the last minute before the NYSE close (13:00 ET on a half day); none on a weekend or holiday", () => {
+  assert.equal(closeReadingWindow(ms("2026-11-05T20:58:59.999Z"), CAL), null, "15:58:59 EST: not yet");
+  assert.deepEqual(closeReadingWindow(ms("2026-11-05T20:59:00Z"), CAL), { day: "2026-11-05", closeMs: NOV5_CLOSE_MS });
+  assert.deepEqual(closeReadingWindow(ms("2026-11-05T20:59:59.999Z"), CAL), { day: "2026-11-05", closeMs: NOV5_CLOSE_MS });
+  assert.equal(closeReadingWindow(NOV5_CLOSE_MS, CAL), null, "the bell itself is past the window: never a post-close read");
+  assert.deepEqual(closeReadingWindow(ms("2026-07-06T19:59:30Z"), CAL), { day: "2026-07-06", closeMs: ms("2026-07-06T20:00:00Z") }, "EDT: 15:59:30 ET is 19:59:30Z");
+  assert.deepEqual(closeReadingWindow(ms("2026-11-27T17:59:30Z"), CAL), { day: "2026-11-27", closeMs: ms("2026-11-27T18:00:00Z") }, "the half day closes at 13:00");
+  assert.equal(closeReadingWindow(ms("2026-11-27T20:59:30Z"), CAL), null, "15:59 on a half day is after its close");
+  assert.equal(closeReadingWindow(ms("2026-11-26T20:59:30Z"), CAL), null, "Thanksgiving");
+  assert.equal(closeReadingWindow(ms("2026-11-07T20:59:30Z"), CAL), null, "Saturday");
+  assert.equal(closeReadingWindow(ms("2026-11-05T20:58:30Z"), CAL, 2 * 60_000)?.day, "2026-11-05", "the lead is a parameter");
+  // the timing the line relies on: a tick inside the window lands at most one tick before the bell, and stays inside MAX_AGE
+  assert.ok(DAILY_LINE_CLOSE_TICK_MS * 3 <= DAILY_LINE_CLOSE_LEAD_MS, "several reads per window (a failed one is retried)");
+  assert.ok(DAILY_LINE_CLOSE_LEAD_MS < DAILY_LINE_CLOSE_MAX_AGE_MS, "every reading the job keeps is young enough for the line");
+});
+
+test("close reading: an account answer becomes the day's reading (the latest replaces the earlier), kept for the newest 10 days", () => {
+  const first = closeReadingFrom({ equity: "89901.10", last_equity: "93623.46", balance_asof: "2026-11-04" }, "2026-11-05", ms("2026-11-05T20:59:02Z"), null);
+  assert.deepEqual(first, { day: "2026-11-05", at: "2026-11-05T20:59:02.000Z", equity: 89901.1, last_equity: 93623.46, balance_asof: "2026-11-04", reads: 1 });
+  const last = closeReadingFrom({ equity: "89888.90", last_equity: "93623.46" }, "2026-11-05", ms("2026-11-05T20:59:52Z"), first);
+  assert.deepEqual([last?.equity, last?.at, last?.reads, last?.balance_asof], [89888.9, "2026-11-05T20:59:52.000Z", 2, null]);
+  assert.equal(closeReadingFrom({ equity: "89888.90" }, "2026-11-06", ms("2026-11-06T20:59:52Z"), first)?.reads, 1, "a new day counts from one");
+  for (const bad of [{ equity: "0" }, { equity: "-5" }, { equity: "junk" }, {}, null, "x"]) {
+    assert.equal(closeReadingFrom(bad, "2026-11-05", 0, null), null, `no reading from ${JSON.stringify(bad)}`);
+  }
+  assert.equal(closeReadingFrom({ equity: "1", last_equity: "0", balance_asof: "2026-11-04T00:00:00Z" }, "2026-11-05", 0, null)?.last_equity, null);
+  assert.equal(closeReadingFrom({ equity: "1", balance_asof: "2026-11-04T00:00:00Z" }, "2026-11-05", 0, null)?.balance_asof, "2026-11-04", "Alpaca's date, as a date");
+  const dir = tmpDir();
+  try {
+    assert.deepEqual(readCloseReadings(dir), [], "none yet");
+    assert.ok(saveCloseReading(dir, first!));
+    assert.ok(saveCloseReading(dir, last!));
+    assert.deepEqual(readCloseReadings(dir), [last], "the day's latest read replaced its earlier one");
+    for (let i = 0; i < DAILY_LINE_CLOSE_KEEP + 3; i++) {
+      const d = new Date(ms("2026-10-01T12:00:00Z") + i * 86_400_000).toISOString().slice(0, 10);
+      saveCloseReading(dir, reading({ day: d, at: `${d}T19:59:52.000Z` }));
+    }
+    const kept = readCloseReadings(dir);
+    assert.equal(kept.length, DAILY_LINE_CLOSE_KEEP);
+    assert.equal(kept[kept.length - 1].day, "2026-11-05", "the newest days are kept, oldest first");
+    assert.equal(closeReadingFor(kept, "2026-11-05")?.equity, 89888.9);
+    assert.equal(closeReadingFor(kept, "2026-10-01"), null, "rotated out");
+    fs.writeFileSync(path.join(dir, DAILY_LINE_CLOSE_FILENAME), "{not json");
+    assert.deepEqual(readCloseReadings(dir), [], "an unreadable file is no readings (the line then falls back, labelled)");
+    assert.equal(saveCloseReading(path.join(dir, DAILY_LINE_CLOSE_FILENAME, "x"), last!), false, "an unwritable dir returns false, never throws");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("close reading: usable only when it is this session's close — before the broker close, within 3 min of it, the same prior close", () => {
+  assert.deepEqual(usableCloseReading(reading(), "2026-11-05", NOV5_CLOSE_MS, 93623.46), { ok: true, equity: 89888.9, at: "2026-11-05T20:59:52.000Z" });
+  assert.deepEqual(usableCloseReading(reading({ last_equity: null }), "2026-11-05", NOV5_CLOSE_MS, 93623.46).ok, true, "a reading without its prior close is still the close");
+  const no = (r: CloseReading | null, closeMs: number | null = NOV5_CLOSE_MS, le: number | null = 93623.46) => {
+    const u = usableCloseReading(r, "2026-11-05", closeMs, le);
+    return u.ok ? "ok" : u.reason;
+  };
+  assert.equal(no(null), "no close reading for 2026-11-05");
+  assert.equal(no(reading({ day: "2026-11-04" })), "no close reading for 2026-11-05");
+  assert.equal(no(reading(), null), "the session's close time is unknown");
+  assert.equal(no(reading({ at: "2026-11-05T21:00:00.000Z" })), "the close reading was taken at 16:00 ET, not before the 16:00 ET close");
+  // the broker's calendar says 13:00 (a half day market_calendar.py did not know): the 15:59 reading is after that close
+  assert.equal(no(reading(), ms("2026-11-05T18:00:00Z")), "the close reading was taken at 15:59 ET, not before the 13:00 ET close");
+  assert.equal(no(reading({ at: new Date(NOV5_CLOSE_MS - DAILY_LINE_CLOSE_MAX_AGE_MS - 60_000).toISOString() })), "the close reading is 4 min before the close (over 3)");
+  assert.equal(no(reading({ at: new Date(NOV5_CLOSE_MS - DAILY_LINE_CLOSE_MAX_AGE_MS).toISOString() })), "ok", "exactly 3 min is still the close");
+  assert.equal(no(reading({ last_equity: 95205.49 })), "the close reading's prior close (95205.49) is not the line's (93623.46)", "another session's read");
+  assert.equal(no(reading({ at: "junk" })), "the close reading is unreadable");
+});
+
+// The 2026-11-05 line's own inputs (the daily_line diag probe, read 2026-11-06): equity 89,814.42 at 20:12 ET, last_equity
+// 93,623.46, the equity curve's 05-06 and 10-06 points (the equity_curve probe: 106,742.68 and 105,773.85; the 11-05 and
+// 11-06 rows are tier 3's evening reads, after the day, and ignored), and SPY bars rebuilt to the line's own SPY numbers
+// (−4.34 % day, −0.05 % since 05-06, −5.86 % over 30 days; the raw bars are not stored, and SPY's side does not change).
+const LIVE_CURVE = [
+  { date: "2026-11-06", value: 89564.13 }, { date: "2026-11-05", value: 89800.22 }, { date: "2026-11-04", value: 93765 },
+  { date: "2026-10-06", value: 105773.85 }, { date: "2026-05-06", value: 106742.68 },
+];
+const LIVE_SPY = [
+  { date: "2026-05-06", close: 95.70785 }, { date: "2026-10-06", close: 101.61462 }, { date: "2026-11-04", close: 100 }, { date: "2026-11-05", close: 95.66 },
+];
+
+test("2026-11-05 before / after on identical inputs: write-time equity −4.07 % (+0.27 pp vs SPY) vs the close −3.99 % (+0.35 pp); SPY unchanged", () => {
+  const base = { equity: 89814.42, lastEquity: 93623.46, spyBars: LIVE_SPY, curve: LIVE_CURVE, day: "2026-11-05", since: "2026-05-06", closeMs: NOV5_CLOSE_MS, nowMs: ms("2026-11-06T01:12:26.339Z") };
+  // BEFORE: no close reading existed — the line ends at the equity read when written, exactly the stored line, now labelled
+  const before = sameBasis({ ...base, close: null });
+  assert.deepEqual([before.day.account_pct, before.day.spy_pct, before.day.gap_pp], [-4.07, -4.34, 0.27], "the stored 11-05 line, reproduced");
+  assert.deepEqual([before.since?.accountPct, before.since?.spyPct, before.since?.gapPp], [-15.86, -0.05, -15.81]);
+  assert.deepEqual([before.d30?.from, before.d30?.accountPct, before.d30?.spyPct, before.d30?.gapPp], ["2026-10-06", -15.09, -5.86, -9.23]);
+  assert.deepEqual([before.day.account_source, before.day.equity_end, before.day.equity_end_at, before.day.close_reason],
+    ["write_time", 89814.42, "2026-11-06T01:12:26.339Z", "no close reading for 2026-11-05"]);
+  assert.equal(before.basis, SAME_BASIS_TEXT_WRITE_TIME);
+  // AFTER: a close reading at Alpaca's own 16:00 ET equity (what last_equity rolled to overnight)
+  const after = sameBasis({ ...base, close: reading() });
+  assert.deepEqual([after.day.account_pct, after.day.spy_pct, after.day.gap_pp], [-3.99, -4.34, 0.35], "Alpaca's close to close");
+  assert.deepEqual([after.since?.accountPct, after.since?.spyPct, after.since?.gapPp], [-15.79, -0.05, -15.74], "the windows end at the same close");
+  assert.deepEqual([after.d30?.accountPct, after.d30?.spyPct, after.d30?.gapPp], [-15.02, -5.86, -9.16]);
+  assert.deepEqual([after.day.account_source, after.day.equity_end, after.day.equity_end_at, after.day.close_reason], ["close", 89888.9, "2026-11-05T20:59:52.000Z", null]);
+  assert.deepEqual([after.day.equity, after.day.last_equity], [89814.42, 93623.46], "equity stays the read when written; last_equity the prior close");
+  assert.equal(after.basis, SAME_BASIS_TEXT);
+  assert.match(after.basis, /PRICE-ONLY/);
+  // the old method's error on this day: the after-hours drift from the close to 20:12 ET, −$74.48 = −0.08 pp of the day
+  assert.equal(Math.round((before.day.account_pct! - after.day.account_pct!) * 100) / 100, -0.08);
+  // an invalid evening read voids the day as before (the close reading never stands in for the prior close)
+  const bad = sameBasis({ ...base, equity: "0", close: reading() });
+  assert.deepEqual([bad.day.account_pct, bad.day.account_source, bad.day.equity_end, bad.since], [null, null, null, null]);
+  assert.match(String(bad.day.reason), /account read invalid/);
+});
+
+test("the line: the account day ends at the close reading; the floor still divides by the equity read with the positions; the fallback is labelled", () => {
+  // a close reading of 99,500 against the evening's 100,000 (last_equity 101,000)
+  const l = buildDailyLine(inputs({ close: { day: "2026-11-05", at: "2026-11-05T20:59:50.000Z", equity: 99500, last_equity: 101000, balance_asof: null, reads: 6 } }));
+  assert.deepEqual([l.account_vs_spy.day.account_pct, l.account_vs_spy.day.account_source, l.account_vs_spy.day.equity_end], [-1.49, "close", 99500]);
+  assert.equal(l.floor.exposure_x, 1, "(60,000 + 2 x 20,000) / 100,000: the evening read, the same moment as the positions");
+  assert.equal(l.account_vs_spy.since?.to, "2026-11-05");
+  assert.ok(l.message.startsWith("2026-11-05 acct -1.49% vs SPY +0.40% (-1.89pp) | since 05-06 -0.50% vs +6.06% (-6.56pp)"), l.message);
+  // a reading taken after the broker's 13:00 close (a half day the NYSE file missed) is not the close: the fallback, labelled
+  const half = buildDailyLine(inputs({ session: { date: "2026-11-05", closeMin: 13 * 60 } }));
+  assert.deepEqual([half.account_vs_spy.day.account_source, half.account_vs_spy.day.account_pct], ["write_time", -0.99]);
+  assert.equal(half.session_close, "13:00");
+  // no reading at all: the exact message, marked
+  const none = buildDailyLine(inputs({ close: null }));
+  assert.equal(none.account_vs_spy.day.close_reason, "no close reading for 2026-11-05");
+  assert.equal(none.message,
+    "2026-11-05 acct -0.99% vs SPY +0.40% (-1.39pp) [acct at write time] | since 05-06 +0.00% vs +6.06% (-6.06pp); 30d +2.04% vs +1.76% (+0.28pp)"
+    + " | floor 1.00x SPY (target 0.94x) | options -$105 = fills -$38 + direction -$67 (5/8 fills priced)"
+    + " | opening-window blocks 5 (manager 3, POS-KILL 2)");
+  assert.equal(inputs().close?.equity, 100000);
+  assert.ok(!fullLine().message.includes("[acct at write time]"), "the normal day carries no marker");
+});
+
+test("close check: the next line checks the last one against Alpaca's rolled last_equity — the 11-05 line read 0.08 pp low", () => {
+  // the stored 11-05 line (written before this change: no account_source, so its day ended at the equity read when written)
+  const nov5 = { ...fullLine(), day: "2026-11-05", written_at: "2026-11-06T01:12:26.339Z" } as DailyLine;
+  nov5.account_vs_spy = { ...nov5.account_vs_spy, day: { account_pct: -4.07, spy_pct: -4.34, gap_pp: 0.27, equity: 89814.42, last_equity: 93623.46, spy_bar_date: "2026-11-05", reason: null } };
+  const c = closeCheck(nov5, "89888.90", "2026-11-05", "2026-11-05");
+  assert.deepEqual(c, {
+    day: "2026-11-05", line_pct: -4.07, line_equity: 89814.42, line_source: "write_time",
+    alpaca_close: 89888.9, alpaca_pct: -3.99, error_pp: -0.08, error_usd: -74.48, balance_asof: "2026-11-05", reason: null,
+  });
+  // which close last_equity is: balance_asof decides when present, else the previous line must be the previous session's
+  assert.equal(closeCheck(nov5, "89888.90", null, "2026-11-05")?.error_pp, -0.08, "no balance_asof: the SPY bar before today says 11-05");
+  assert.equal(closeCheck(nov5, "93623.46", "2026-11-04", "2026-11-05")?.reason, "last_equity is Alpaca's 2026-11-04 close, not 2026-11-05's", "not rolled yet");
+  assert.equal(closeCheck(nov5, "89888.90", null, "2026-11-06")?.reason, "the previous line (2026-11-05) is not the previous session's (2026-11-06)", "a missed line in between");
+  assert.equal(closeCheck(nov5, "89888.90", null, null)?.reason, "which session's close last_equity is cannot be told (no balance_asof, no SPY bars)");
+  assert.equal(closeCheck(nov5, "junk", "2026-11-05", null)?.reason, "last_equity unreadable");
+  assert.equal(closeCheck(null, "89888.90", "2026-11-05", "2026-11-05"), null, "no previous line: nothing to check");
+  assert.equal(closeCheck(fullLineShell(), "89888.90", "2026-11-05", "2026-11-05")?.reason, "the 2026-11-05 line recorded no account day");
+  // a line on the close reading is checked at the equity it ended at
+  const onClose = { ...nov5, account_vs_spy: { ...nov5.account_vs_spy, day: { ...nov5.account_vs_spy.day, account_pct: -3.98, account_source: "close" as const, equity_end: 89901.1 } } };
+  assert.deepEqual(closeCheck(onClose, 89888.9, "2026-11-05", null), { ...c, line_pct: -3.98, line_equity: 89901.1, line_source: "close", error_pp: 0.01, error_usd: 12.2 });
+  // end to end: the 11-06 line carries it, and its audit row says it
+  const nov6 = buildDailyLine(inputs({
+    day: "2026-11-06", nowMs: ms("2026-11-06T21:20:30Z"), session: { date: "2026-11-06", closeMin: 960 },
+    account: { equity: "89700", lastEquity: "89888.90", balanceAsof: "2026-11-05" },
+    close: { day: "2026-11-06", at: "2026-11-06T20:59:55.000Z", equity: 89650, last_equity: 89888.9, balance_asof: "2026-11-05", reads: 6 },
+    spyBars: [...SPLIT_BARS, { date: "2026-11-06", close: 758 }], prev: nov5, windowFromMs: ms(nov5.written_at),
+  }));
+  assert.deepEqual([nov6.close_check?.day, nov6.close_check?.error_pp], ["2026-11-05", -0.08]);
+  assert.match(nov6.message, / \| 11-05 line -4\.07% vs Alpaca close -3\.99% \(-0\.08pp\)$/);
+  assert.equal(nov6.account_vs_spy.day.account_pct, -0.27, "(89,650 − 89,888.90) / 89,888.90 at the close, not the evening's 89,700");
+});
+
+// The REAL captureCloseEquity from bot.ts, run on a fake clock across the bell with the real dailyLine.ts helpers and a
+// temp DATA_DIR: no read outside the window, the last read before the bell is what the line gets, a failed read is
+// retried, and nothing but GET /v2/account is ever sent.
+test("wiring (run): captureCloseEquity reads the account only in the last minute before the close and keeps the last read before the bell", async () => {
+  const start = bot.indexOf("async function captureCloseEquity(): Promise<void> {");
+  assert.ok(start > 0, "captureCloseEquity is in bot.ts");
+  let depth = 0, end = -1;
+  for (let i = bot.indexOf("{", start); i < bot.length; i++) {
+    if (bot[i] === "{") depth++;
+    else if (bot[i] === "}" && --depth === 0) { end = i + 1; break; }
+  }
+  const src = bot.slice(start, end);
+  assert.ok(!/state\.|tier1|killSwitch|halt/i.test(src), "independent of trading state: no Tier 1 / kill-switch / halt gate");
+  assert.deepEqual(src.match(/alpaca\([^)]*\)/g), ['alpaca("/v2/account")'], "one broker call, a GET of the account");
+  const js = transformSync(`let closeReadingRunning = false;\n${src}\nreturn captureCloseEquity;`, { loader: "ts" }).code;
+  const dir = tmpDir();
+  try {
+    let nowMs = 0;
+    class FakeDate extends Date {
+      constructor(v?: number | string | Date) { if (v === undefined) super(nowMs); else super(v); }
+      static now(): number { return nowMs; }
+    }
+    const calls: Array<{ path: string; at: string }> = [];
+    let equity = 89950;
+    let failNext = false;
+    const alpaca = async (p: string) => {
+      calls.push({ path: p, at: new Date(nowMs).toISOString() });
+      if (failNext) { failNext = false; throw new Error("Alpaca 503"); }
+      return { equity: String(equity), last_equity: "93623.46", balance_asof: "2026-11-04" };
+    };
+    const warn = console.warn;
+    console.warn = () => undefined;
+    const capture = new Function("Date", "alpaca", "closeReadingWindow", "marketHolidays", "marketHalfDays", "dailyLineDir", "process",
+      "closeReadingFrom", "closeReadingFor", "readCloseReadings", "saveCloseReading", js)(
+      FakeDate, alpaca, closeReadingWindow, () => CAL.holidays, () => CAL.halfDays, () => dir, { env: {} },
+      closeReadingFrom, closeReadingFor, readCloseReadings, saveCloseReading,
+    ) as () => Promise<void>;
+    try {
+      for (let t = ms("2026-11-05T20:58:00Z"); t <= ms("2026-11-05T21:01:00Z"); t += DAILY_LINE_CLOSE_TICK_MS) {
+        nowMs = t;
+        if (t === ms("2026-11-05T20:59:50Z")) failNext = true; // the read 10 s before the bell fails
+        equity -= 10;
+        await capture();
+      }
+    } finally {
+      console.warn = warn;
+    }
+    assert.deepEqual(calls.map((c) => c.at.slice(11, 19)), ["20:59:00", "20:59:10", "20:59:20", "20:59:30", "20:59:40", "20:59:50"],
+      "every tick of the last minute and none outside it (none at or after the bell)");
+    assert.ok(calls.every((c) => c.path === "/v2/account"));
+    const kept = readCloseReadings(dir);
+    assert.equal(kept.length, 1);
+    // the 20:59:50 read failed, so the 20:59:40 read (equity 89,950 − 10 x 11 = 89,840) is the day's close reading
+    assert.deepEqual(kept[0], { day: "2026-11-05", at: "2026-11-05T20:59:40.000Z", equity: 89840, last_equity: 93623.46, balance_asof: "2026-11-04", reads: 5 });
+    assert.equal(usableCloseReading(kept[0], "2026-11-05", NOV5_CLOSE_MS, 93623.46).ok, true, "and the line takes it");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("wiring: the close reading runs on its own 10 s timer; the line reads it (and balance_asof) and never waits for it", () => {
+  assert.ok(bot.includes("setInterval(() => { captureCloseEquity().catch((e: unknown) => console.error(\"[DAILY-LINE-CLOSE]\", e instanceof Error ? e.message : e)); }, DAILY_LINE_CLOSE_TICK_MS);"));
+  assert.equal(bot.split("captureCloseEquity().catch(").length - 1, 1, "one timer");
+  assert.equal(bot.split("captureCloseEquity(").length - 1, 2, "the declaration and the timer: no other caller");
+  const job = slice("async function captureCloseEquity(): Promise<void> {", "// ── TIER 0: Real-Time Streaming");
+  assert.ok(job.indexOf("closeReadingWindow(sentMs") < job.indexOf('alpaca("/v2/account")'), "the window is decided before any broker read");
+  assert.ok(job.includes("saveCloseReading(dir, reading)"));
+  const compute = slice("async function computeDailyLine(", "async function checkDailyLine(");
+  assert.ok(compute.includes("account = { equity: a.equity, lastEquity: a.last_equity, balanceAsof: a.balance_asof };"));
+  assert.ok(compute.includes("close: closeReadingFor(readCloseReadings(dir), gate.day)"));
+  assert.ok(!/missing\.push\(`close/.test(compute), "a missing close reading is a labelled fallback, never an input the line waits for");
 });

@@ -25,6 +25,8 @@ import {
   appendOptionFillLedger, buildDailyLine, dailyLineBody, dailyLineDir, dailyLineDue, dailyLinePrecheck, lastLineDay, loadDailyLines,
   optionLedgerRow, optionWindowStart, parseCalendarSession, parseFloorConfig, parsePositionsLite, readDailyLines, readJsonFile,
   readOptionFillLedger, saveDailyLine, type DailyLineAttempt, type DailyLineGate, type DailyLineSession,
+  // the close reading ([RULE-REVIEW] 2026-11-06): the account's equity at the close, for the line's account day
+  DAILY_LINE_CLOSE_TICK_MS, closeReadingFor, closeReadingFrom, closeReadingWindow, readCloseReadings, saveCloseReading,
 } from "./dailyLine";
 import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonExec";
 import { formatSizeBlocks } from "./sizeBlocks";
@@ -9151,11 +9153,12 @@ print(json.dumps(out))
     const why = (e: unknown) => String(e instanceof Error ? e.message : e).slice(0, 160);
     const startMs = Date.now();
     // phase 1 — the cheap reads
-    let account: { equity: unknown; lastEquity: unknown } | null = null;
+    let account: { equity: unknown; lastEquity: unknown; balanceAsof: unknown } | null = null;
     try {
       const raw: unknown = await alpaca("/v2/account");
       const a = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-      account = { equity: a.equity, lastEquity: a.last_equity };
+      // balance_asof: Alpaca's date for last_equity — the close check's proof of which session's close it is
+      account = { equity: a.equity, lastEquity: a.last_equity, balanceAsof: a.balance_asof };
     } catch (e: unknown) { missing.push(`account: ${why(e)}`); }
     let positions: ReturnType<typeof parsePositionsLite> = null;
     try {
@@ -9195,8 +9198,10 @@ print(json.dumps(out))
         .map((r) => ({ time: String(r.time), message: String(r.message) }));
     } catch (e: unknown) { missing.push(`audit log: ${why(e)}`); }
     if (missing.length && !gate.partialOk) return { line: null, missing };
+    // the account's day ends at the close reading (captureCloseEquity) when it is this session's close; without one
+    // the line falls back to the equity read above, labelled — never a reason to wait (the bell has passed)
     const line = buildDailyLine({
-      day: gate.day, nowMs: Date.now(), session, account, positions, spyBars, curve: equityCurve,
+      day: gate.day, nowMs: Date.now(), session, account, close: closeReadingFor(readCloseReadings(dir), gate.day), positions, spyBars, curve: equityCurve,
       floorCfg: floor.cfg, vmState: readJsonFile(path.join(dir, FLOOR_VM_STATE_FILENAME)),
       prev: win.prev, windowFromMs: win.fromMs, events, orders,
       ledger: readOptionFillLedger(dir), deferrals: readJsonFile(path.join(dir, OPENING_DEFERRALS_FILENAME)),
@@ -9245,6 +9250,34 @@ print(json.dumps(out))
       }
     } finally {
       dailyLineRunning = false;
+    }
+  }
+
+  // ── DAILY LINE: the account's equity AT THE CLOSE ([RULE-REVIEW] 2026-11-06) ──
+  // The line's own account read comes from the close + 20 min (hours later after a restart or a deploy), so it carries
+  // after-hours marks while SPY's side is close to close (2026-11-05: −4.07 % read at 20:12 ET vs Alpaca's close to
+  // close −3.99 %). This reads /v2/account every DAILY_LINE_CLOSE_TICK_MS in the last minute before the session's close
+  // (the NYSE calendar: closeReadingWindow) and keeps the LAST read before the bell, persisted, for the line
+  // (server/dailyLine.ts section 1a). Its own timer, independent of trading state: Tier 1's account read stops while
+  // the kill switch is latched or a halt is on (all afternoon on 2026-11-05). A READ only; a failed read is retried on
+  // the next tick, and a day with no reading leaves the line on the equity read when written, labelled.
+  let closeReadingRunning = false;
+  async function captureCloseEquity(): Promise<void> {
+    if (closeReadingRunning) return;
+    const sentMs = Date.now();
+    const win = closeReadingWindow(sentMs, { holidays: marketHolidays(), halfDays: marketHalfDays() });
+    if (!win) return;
+    closeReadingRunning = true;
+    try {
+      const raw: unknown = await alpaca("/v2/account");
+      const dir = dailyLineDir(process.env);
+      const reading = closeReadingFrom(raw, win.day, sentMs, closeReadingFor(readCloseReadings(dir), win.day));
+      if (!reading) console.warn(`[daily-line] close reading ${win.day}: the account answer had no positive equity — retrying next tick`);
+      else saveCloseReading(dir, reading);
+    } catch (e: unknown) {
+      console.warn(`[daily-line] close reading ${win.day} failed — retrying next tick until the close:`, e instanceof Error ? e.message : e);
+    } finally {
+      closeReadingRunning = false;
     }
   }
 
@@ -10753,6 +10786,9 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
   // restarts. The boot check catches a process that starts after the close.
   setInterval(() => { checkDailyLine().catch((e: unknown) => console.error("[DAILY-LINE]", e instanceof Error ? e.message : e)); }, DAILY_LINE_CHECK_MS);
   setTimeout(() => { checkDailyLine().catch((e: unknown) => console.error("[DAILY-LINE]", e instanceof Error ? e.message : e)); }, 90_000);
+  // ...and its close reading ([RULE-REVIEW] 2026-11-06): a 10 s tick that only reads the account inside the last
+  // minute before the session's close (closeReadingWindow decides; outside it the tick is a clock comparison).
+  setInterval(() => { captureCloseEquity().catch((e: unknown) => console.error("[DAILY-LINE-CLOSE]", e instanceof Error ? e.message : e)); }, DAILY_LINE_CLOSE_TICK_MS);
   // v3 candidate model job (shadow only): same unconditional 5-minute poll.
   setInterval(() => { checkMlV3CandidateJob().catch((e) => console.error("[ML-V3]", e?.message || e)); }, 5 * 60 * 1000);
   // Forecast screen (weekly + daily, SHADOW): same unconditional poll

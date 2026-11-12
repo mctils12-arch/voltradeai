@@ -16,12 +16,19 @@
 //
 //   1. ACCOUNT vs SPY, SAME BASIS. The paper account receives no dividends,
 //      so SPY is PRICE-ONLY here (Alpaca bars, adjustment=split, feed iex).
-//      Day: equity vs last_equity (evaluateDailyPnl, the daily-loss halt's own
-//      number) against today's SPY bar vs the prior close (spyToday). Since
-//      2026-05-06 and the last 30 days: benchmarkVsSpy over the equity curve
-//      with today's point taken from the same account read, on the same
-//      split-adjusted bars. No SPY bar for today = no windows (a window
-//      ending on yesterday's SPY close would not be the same basis).
+//      Day: the account's equity AT THE CLOSE vs last_equity, the prior
+//      close (evaluateDailyPnl, the daily-loss halt's own guard) against
+//      today's SPY bar vs the prior close (spyToday): close to close on both
+//      sides. The close equity is the CLOSE READING (section 1a), the last
+//      account read before the bell; without a usable one the line falls back
+//      to the equity it read when written, LABELLED (account_source
+//      "write_time", close_reason). Since 2026-05-06 and the last 30 days:
+//      benchmarkVsSpy over the equity curve with today's point the same
+//      equity the day ends at, on the same split-adjusted bars. No SPY bar for
+//      today = no windows (a window ending on yesterday's SPY close would not
+//      be the same basis). Each line also checks the PREVIOUS session's line
+//      against Alpaca's own 16:00 ET close of that session (last_equity, rolled
+//      overnight): close_check.
 //   2. FLOOR EXPOSURE in SPY terms: (SPY + 2 x SSO market value) / equity
 //      under FLOOR_MODE "vol_managed_spy" (SSO is a 2x fund); under "basket",
 //      floor market value / equity, labelled as such. The mode comes from
@@ -81,6 +88,17 @@ export const OPTION_FILL_LEDGER_FILENAME = "voltrade_option_fill_ledger.jsonl";
 export const OPTION_FILL_LEDGER_MAX_BYTES = 2_000_000;
 export const OPENING_DEFERRALS_FILENAME = "voltrade_option_opening_deferrals.json";
 export const FLOOR_VM_STATE_FILENAME = "voltrade_floor_vm_state.json";
+// The close reading ([RULE-REVIEW] 2026-11-06, section 1a): read every TICK in the last LEAD before the session's close
+// (the NYSE calendar), the last read before the bell kept; a reading more than MAX_AGE before the broker calendar's close
+// is not the close. The tick and lead clear the event-loop stalls seen live (EVENTLOOP-LAG p90 ~9 s, max ~11 s on
+// 2026-11-06): about six reads per session, the last one at most ~10 s before the bell.
+export const DAILY_LINE_CLOSE_TICK_MS = 10_000;
+export const DAILY_LINE_CLOSE_LEAD_MS = 60_000;
+export const DAILY_LINE_CLOSE_MAX_AGE_MS = 3 * 60_000;
+export const DAILY_LINE_CLOSE_FILENAME = "voltrade_daily_close_equity.json";
+export const DAILY_LINE_CLOSE_KEEP = 10;
+/** Two last_equity reads at least this far apart (half a cent) are not the same prior close (todayTile's roll test). */
+export const DAILY_LINE_LAST_EQUITY_EPS = 0.005;
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const r4 = (x: number) => Math.round(x * 10_000) / 10_000;
@@ -159,14 +177,29 @@ function hhmm(min: number): string {
 
 // ── 1. account vs SPY, same basis ───────────────────────────────────────────
 
+/** What the account's day ends at: "close" = the close reading (section 1a); "write_time" = the equity the line read
+ *  when it was written (after-hours marks included) — the fallback, and every line written before 2026-11-06. */
+export type AccountSource = "close" | "write_time";
+
 export interface DayPair {
   account_pct: number | null;
   spy_pct: number | null;
   gap_pp: number | null;
+  /** the equity the line read when it was written (also the floor exposure's denominator: the same read as the positions) */
   equity: number | null;
+  /** Alpaca last_equity as the line read it: the close before the session */
   last_equity: number | null;
   spy_bar_date: string | null;
   reason: string | null;
+  // [RULE-REVIEW] 2026-11-06 — absent on the lines written before (they all ended at `equity`, i.e. "write_time"):
+  /** what account_pct ends at; null when there is no account day */
+  account_source?: AccountSource | null;
+  /** the equity account_pct ends at (the close reading's, or `equity`) */
+  equity_end?: number | null;
+  /** when that equity was read (ISO) */
+  equity_end_at?: string | null;
+  /** why the close reading was not used (null when it was) */
+  close_reason?: string | null;
 }
 export interface SameBasisBlock {
   basis: string;
@@ -177,16 +210,134 @@ export interface SameBasisBlock {
   windows_reason: string | null;
 }
 
+/** The basis of a line whose account side ends at the close reading. */
 export const SAME_BASIS_TEXT =
-  "account: Alpaca equity vs last_equity (no dividends in the paper account) · SPY: PRICE-ONLY daily closes (Alpaca bars, adjustment=split, feed iex)";
+  "account: Alpaca equity at the close (the last account read before the session's close) vs last_equity, the prior close (no dividends in the paper account) · SPY: PRICE-ONLY daily closes (Alpaca bars, adjustment=split, feed iex)";
+/** The basis of a line that fell back to the equity it read when written (and of every line before 2026-11-06). */
+export const SAME_BASIS_TEXT_WRITE_TIME =
+  "account: Alpaca equity when the line was written (no usable close reading: after-hours marks included) vs last_equity, the prior close (no dividends in the paper account) · SPY: PRICE-ONLY daily closes (Alpaca bars, adjustment=split, feed iex)";
+
+// ── 1a. the close reading ([RULE-REVIEW] 2026-11-06) ────────────────────────
+// The line is written from the close + 20 min — hours later after a restart or a deploy (the 2026-11-05 line was
+// written at 20:12 ET) — and the equity it read then carried after-hours marks, while SPY's side is close to close:
+// that line read −4.07 % (89,814.42 vs last_equity 93,623.46) where Alpaca's own close to close was −3.99 % (last_equity
+// rolled overnight to 89,888.90). Alpaca documents last_equity as "equity as of previous trading day at 16:00:00 ET" but
+// rolls it overnight, too late for a same-evening line, and its portfolio history values intraday points at the last
+// trade until 22:00 ET. So the server reads the account itself AT the close: bot.ts captureCloseEquity reads
+// /v2/account every DAILY_LINE_CLOSE_TICK_MS in the last DAILY_LINE_CLOSE_LEAD_MS before the session's close and keeps
+// the last read (DATA_DIR/voltrade_daily_close_equity.json, so a restart after the bell keeps it). Its own timer, not
+// Tier 1's account read: Tier 1 does not run while the kill switch is latched or a halt is on (the whole afternoon of
+// 2026-11-05). The NEXT session's line checks it against Alpaca's rolled last_equity (closeCheck).
+
+/** The account read nearest the session's close (before it). */
+export interface CloseReading {
+  /** the session (ET date) */
+  day: string;
+  /** when the read was sent (ISO) */
+  at: string;
+  equity: number;
+  /** the prior close the same read carried (null when unreadable) */
+  last_equity: number | null;
+  /** Alpaca's date for the last_* fields, when the read carries it */
+  balance_asof: string | null;
+  /** reads kept for the day so far (each replaces the one before) */
+  reads: number;
+}
+
+/** The close-reading window: [close − leadMs, close) on a trading day by the NYSE calendar (13:00 ET on a half day). */
+export function closeReadingWindow(nowMs: number, cal: MarketCalendar, leadMs = DAILY_LINE_CLOSE_LEAD_MS): { day: string; closeMs: number } | null {
+  const day = zonedParts(nowMs, ET).date;
+  if (!isTradingDay(day, cal)) return null;
+  const closeMs = zonedInstant(day, cal.halfDays.has(day) ? 13 * 60 : 16 * 60, ET);
+  return nowMs >= closeMs - leadMs && nowMs < closeMs ? { day, closeMs } : null;
+}
+
+const asofDate = (x: unknown): string | null => {
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(str(x));
+  return m ? m[1] : null;
+};
+
+/** One /v2/account answer read at atMs -> the day's close reading (it replaces `prev`, the day's earlier one); null when
+ *  the equity is not a positive number. */
+export function closeReadingFrom(raw: unknown, day: string, atMs: number, prev: CloseReading | null): CloseReading | null {
+  const o = rec(raw);
+  const equity = num(o.equity);
+  if (equity === null || !(equity > 0)) return null;
+  const le = num(o.last_equity);
+  return {
+    day, at: new Date(atMs).toISOString(), equity, last_equity: le !== null && le > 0 ? le : null,
+    balance_asof: asofDate(o.balance_asof), reads: prev && prev.day === day ? prev.reads + 1 : 1,
+  };
+}
+
+/** The stored close readings, oldest first ([] when none or unreadable). */
+export function readCloseReadings(dir: string): CloseReading[] {
+  const doc = rec(readJsonFile(path.join(dir, DAILY_LINE_CLOSE_FILENAME)));
+  const list = Array.isArray(doc.readings) ? doc.readings : [];
+  return list
+    .filter((r): r is CloseReading => {
+      const o = rec(r);
+      return typeof o.day === "string" && typeof o.at === "string" && typeof o.equity === "number" && o.equity > 0;
+    })
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+}
+
+export function closeReadingFor(readings: readonly CloseReading[], day: string): CloseReading | null {
+  return readings.find((r) => r.day === day) ?? null;
+}
+
+/** Add (or replace) the day's reading, keep the newest `keep` days, write-then-rename. False when the write failed. */
+export function saveCloseReading(dir: string, r: CloseReading, keep = DAILY_LINE_CLOSE_KEEP): boolean {
+  const p = path.join(dir, DAILY_LINE_CLOSE_FILENAME);
+  try {
+    const rows = readCloseReadings(dir).filter((x) => x.day !== r.day);
+    rows.push(r);
+    rows.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${p}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, readings: rows.slice(-keep) }));
+    fs.renameSync(tmp, p);
+    return true;
+  } catch (e: unknown) {
+    console.error("[daily-line] close reading not saved:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
+/** Is `r` the close of `day`? Read before the broker calendar's close and at most DAILY_LINE_CLOSE_MAX_AGE_MS before
+ *  it, against the same prior close (last_equity) as the line's own read — so it belongs to the same session. */
+export function usableCloseReading(r: CloseReading | null | undefined, day: string, closeMs: number | null, lastEquity: number | null):
+  { ok: true; equity: number; at: string } | { ok: false; reason: string } {
+  if (!r || r.day !== day) return { ok: false, reason: `no close reading for ${day}` };
+  const at = msOf(r.at);
+  if (closeMs === null) return { ok: false, reason: "the session's close time is unknown" };
+  if (at === null || !(r.equity > 0)) return { ok: false, reason: "the close reading is unreadable" };
+  if (at >= closeMs) return { ok: false, reason: `the close reading was taken at ${hhmmEt(at)} ET, not before the ${hhmmEt(closeMs)} ET close` };
+  if (closeMs - at > DAILY_LINE_CLOSE_MAX_AGE_MS) return { ok: false, reason: `the close reading is ${Math.round((closeMs - at) / 60_000)} min before the close (over ${DAILY_LINE_CLOSE_MAX_AGE_MS / 60_000})` };
+  if (r.last_equity !== null && lastEquity !== null && Math.abs(r.last_equity - lastEquity) >= DAILY_LINE_LAST_EQUITY_EPS) {
+    return { ok: false, reason: `the close reading's prior close (${r.last_equity}) is not the line's (${lastEquity})` };
+  }
+  return { ok: true, equity: r.equity, at: r.at };
+}
+
+const hhmmEt = (ms: number): string => hhmm(zonedParts(ms, ET).minutes);
 
 export function sameBasis(i: {
   equity: unknown; lastEquity: unknown; spyBars: readonly DailyClose[] | null;
   curve: readonly CurvePoint[]; day: string; since: string;
+  /** the day's close reading (section 1a), its session's close instant (the broker calendar's) and the write time */
+  close?: CloseReading | null; closeMs?: number | null; nowMs?: number | null;
 }): SameBasisBlock {
   const ev = evaluateDailyPnl(i.equity, i.lastEquity);
   const equity = ev.valid ? num(i.equity) : null;
-  const accountPct = ev.valid && ev.dailyPnlPct !== null ? r2(ev.dailyPnlPct) : null;
+  const lastEquity = ev.valid ? num(i.lastEquity) : null;
+  // the day ends at the close reading when it is this session's close; else at the equity read now, labelled
+  const use = usableCloseReading(i.close, i.day, i.closeMs ?? null, lastEquity);
+  const source: AccountSource | null = equity === null ? null : use.ok ? "close" : "write_time";
+  const end = source === "close" && use.ok ? use.equity : equity;
+  const endEv = end !== null ? evaluateDailyPnl(end, lastEquity) : null;
+  const accountPct = endEv && endEv.valid && endEv.dailyPnlPct !== null ? r2(endEv.dailyPnlPct) : null;
+  const nowIso = typeof i.nowMs === "number" && Number.isFinite(i.nowMs) ? new Date(i.nowMs).toISOString() : null;
   const spy = spyToday(i.spyBars, null, i.day);
   const reasons = [ev.valid ? null : "account read invalid (equity or last_equity not a positive number)", spy.reason].filter(Boolean);
   const day: DayPair = {
@@ -195,27 +346,77 @@ export function sameBasis(i: {
     // from the two ROUNDED sides, so the three printed numbers always add up
     gap_pp: accountPct !== null && spy.pct !== null ? r2(accountPct - spy.pct) : null,
     equity,
-    last_equity: ev.valid ? num(i.lastEquity) : null,
+    last_equity: lastEquity,
     spy_bar_date: spy.barDate,
     reason: reasons.length ? reasons.join("; ") : null,
+    account_source: source,
+    equity_end: end,
+    equity_end_at: source === "close" && use.ok ? use.at : source === "write_time" ? nowIso : null,
+    close_reason: source === "write_time" && !use.ok ? use.reason : null,
   };
   let since: BenchWindow | null = null;
   let d30: BenchWindow | null = null;
   let windowsReason: string | null = null;
-  if (equity === null) windowsReason = "no valid account read";
+  if (end === null) windowsReason = "no valid account read";
   else if (!i.spyBars || spy.barDate !== i.day) windowsReason = spy.reason ?? `no SPY bar for ${i.day}`;
   else {
     const pts: CurvePoint[] = i.curve
       .filter((p) => p && typeof p.date === "string" && p.date >= i.since && p.date < i.day && Number.isFinite(p.value) && p.value > 0)
       .map((p) => ({ date: p.date, value: p.value }));
-    pts.push({ date: i.day, value: equity });
+    pts.push({ date: i.day, value: end });
     const b = benchmarkVsSpy(pts, [...i.spyBars]);
     since = b.since;
     d30 = b.d30;
     if (!since) windowsReason = `no equity-curve point on or after ${i.since}`;
     else if (!d30) windowsReason = "the equity curve has no point 30 days back";
   }
-  return { basis: SAME_BASIS_TEXT, day, since, d30, since_requested: i.since, windows_reason: windowsReason };
+  return { basis: source === "close" ? SAME_BASIS_TEXT : SAME_BASIS_TEXT_WRITE_TIME, day, since, d30, since_requested: i.since, windows_reason: windowsReason };
+}
+
+/** The previous session's line against Alpaca's own close of that session ([RULE-REVIEW] 2026-11-06): after the
+ *  overnight roll, last_equity IS that session's 16:00 ET equity, so this line's read checks the last one's account
+ *  day — the ground truth for the close reading (and, for the lines before 2026-11-06, the size of their after-hours
+ *  error). Valid only when last_equity is that session's close: Alpaca's balance_asof says so when the read carries
+ *  it, else the previous line must be the previous session's (the SPY bar before today's). */
+export interface CloseCheck {
+  /** the session checked: the previous line's day */
+  day: string;
+  /** what that line recorded: its account day and the equity it ended at, and on which basis */
+  line_pct: number | null;
+  line_equity: number | null;
+  line_source: AccountSource;
+  /** Alpaca's 16:00 ET equity of that session (last_equity now) and the same day computed from it */
+  alpaca_close: number | null;
+  alpaca_pct: number | null;
+  /** line − Alpaca: > 0 = the line read high */
+  error_pp: number | null;
+  error_usd: number | null;
+  balance_asof: string | null;
+  reason: string | null;
+}
+
+export function closeCheck(prev: DailyLine | null, lastEquityNow: unknown, balanceAsof: unknown, prevSession: string | null): CloseCheck | null {
+  if (!prev) return null;
+  const d = rec(rec(prev.account_vs_spy).day);
+  const linePct = num(d.account_pct);
+  // a line before 2026-11-06 has no equity_end: its day ended at the equity it read when written
+  const lineEquity = num(d.equity_end ?? d.equity);
+  const prevLast = num(d.last_equity);
+  const asof = asofDate(balanceAsof);
+  const official = num(lastEquityNow);
+  const out: CloseCheck = {
+    day: prev.day, line_pct: linePct, line_equity: lineEquity, line_source: d.account_source === "close" ? "close" : "write_time",
+    alpaca_close: null, alpaca_pct: null, error_pp: null, error_usd: null, balance_asof: asof, reason: null,
+  };
+  const no = (reason: string): CloseCheck => ({ ...out, reason });
+  if (asof !== null && asof !== prev.day) return no(`last_equity is Alpaca's ${asof} close, not ${prev.day}'s`);
+  if (asof === null && prevSession === null) return no("which session's close last_equity is cannot be told (no balance_asof, no SPY bars)");
+  if (asof === null && prevSession !== prev.day) return no(`the previous line (${prev.day}) is not the previous session's (${prevSession})`);
+  if (official === null || !(official > 0)) return no("last_equity unreadable");
+  if (linePct === null || lineEquity === null || prevLast === null || !(prevLast > 0)) return no(`the ${prev.day} line recorded no account day`);
+  const alpacaPct = r2(((official - prevLast) / prevLast) * 100);
+  // from the two ROUNDED percentages, so the printed numbers add up
+  return { ...out, alpaca_close: official, alpaca_pct: alpacaPct, error_pp: r2(linePct - alpacaPct), error_usd: r2(lineEquity - official) };
 }
 
 // ── 2. floor exposure ───────────────────────────────────────────────────────
@@ -562,6 +763,9 @@ export interface DailyLine {
   floor: FloorBlock;
   options: OptionsBlock;
   opening_window: OpeningWindowBlock;
+  /** the previous session's line against Alpaca's close of it ([RULE-REVIEW] 2026-11-06; null = no previous line;
+   *  absent on the lines written before) */
+  close_check?: CloseCheck | null;
   /** inputs that could not be read (the line was written partial) */
   missing: string[];
   message: string;
@@ -571,7 +775,10 @@ export interface DailyLineInputs {
   day: string;
   nowMs: number;
   session: DailyLineSession;
-  account: { equity: unknown; lastEquity: unknown } | null;
+  /** the line's own account read; balanceAsof = Alpaca's date for last_equity when the answer carries it */
+  account: { equity: unknown; lastEquity: unknown; balanceAsof?: unknown } | null;
+  /** the day's close reading (section 1a), or null/absent when none was taken */
+  close?: CloseReading | null;
   positions: PositionLite[] | null;
   spyBars: DailyClose[] | null;
   curve: readonly CurvePoint[];
@@ -589,7 +796,11 @@ export interface DailyLineInputs {
 }
 
 export function buildDailyLine(i: DailyLineInputs): DailyLine {
-  const ab = sameBasis({ equity: i.account?.equity, lastEquity: i.account?.lastEquity, spyBars: i.spyBars, curve: i.curve, day: i.day, since: DAILY_LINE_SINCE });
+  const ab = sameBasis({
+    equity: i.account?.equity, lastEquity: i.account?.lastEquity, spyBars: i.spyBars, curve: i.curve, day: i.day, since: DAILY_LINE_SINCE,
+    close: i.close ?? null, closeMs: zonedInstant(i.day, i.session.closeMin, ET), nowMs: i.nowMs,
+  });
+  // the floor's denominator stays the equity read NOW: the same moment as the positions' market values
   const floor = floorExposure({ positions: i.positions, equity: ab.day.equity, cfg: i.floorCfg, vmState: i.vmState, nowMs: i.nowMs });
   const of = i.orders ? optionFillsInWindow(i.orders, i.windowFromMs, i.nowMs) : { fills: [], mleg_no_leg_fills: 0 };
   const fills = fillsSlippage(of.fills, i.ledger, of.mleg_no_leg_fills);
@@ -610,6 +821,7 @@ export function buildDailyLine(i: DailyLineInputs): DailyLine {
   const line: DailyLine = {
     version: 1, day: i.day, written_at: new Date(i.nowMs).toISOString(), session_close: hhmm(i.session.closeMin),
     account_vs_spy: ab, floor, options, opening_window: openingWindowBlocks(i.deferrals, i.day, i.posKillRows),
+    close_check: closeCheck(i.prev, i.account?.lastEquity, i.account?.balanceAsof, prevSession),
     missing: [...i.missing], message: "",
   };
   line.message = dailyLineMessage(line);
@@ -624,7 +836,9 @@ const xTxt = (x: number | null) => (x === null ? "n/a" : `${x.toFixed(2)}x`);
 /** The audit row: one compact line (persistAudit keeps 500 chars). */
 export function dailyLineMessage(l: DailyLine): string {
   const a = l.account_vs_spy;
-  const parts = [`${l.day} acct ${pctTxt(a.day.account_pct)} vs SPY ${pctTxt(a.day.spy_pct)} (${ppTxt(a.day.gap_pp)})`];
+  // the fallback says so: its account day ends at the equity read when the line was written, not at the close
+  const writeTime = a.day.account_source === "write_time" ? " [acct at write time]" : "";
+  const parts = [`${l.day} acct ${pctTxt(a.day.account_pct)} vs SPY ${pctTxt(a.day.spy_pct)} (${ppTxt(a.day.gap_pp)})${writeTime}`];
   const w = (label: string, b: BenchWindow | null) => (b ? `${label} ${pctTxt(b.accountPct)} vs ${pctTxt(b.spyPct)} (${ppTxt(b.gapPp)})` : `${label} n/a`);
   parts.push(`${w(`since ${a.since?.from.slice(5) ?? a.since_requested.slice(5)}`, a.since)}; ${w("30d", a.d30)}`);
   const f = l.floor;
@@ -640,6 +854,9 @@ export function dailyLineMessage(l: DailyLine): string {
     : `options total n/a; fills ${usdTxt(o.fills.pnl)} (${priced})`);
   const ow = l.opening_window;
   parts.push(`opening-window blocks ${ow.total} (manager ${ow.manager_single_leg + ow.manager_group}, POS-KILL ${ow.pos_kill})`);
+  // the previous session's line against Alpaca's close of it (only when it could be checked; the line says why not)
+  const c = l.close_check;
+  if (c && c.error_pp !== null) parts.push(`${c.day.slice(5)} line ${pctTxt(c.line_pct)} vs Alpaca close ${pctTxt(c.alpaca_pct)} (${ppTxt(c.error_pp)})`);
   if (l.missing.length) parts.push(`partial: ${l.missing.map((m) => m.split(":")[0]).join(", ")}`);
   return parts.join(" | ").slice(0, 490);
 }

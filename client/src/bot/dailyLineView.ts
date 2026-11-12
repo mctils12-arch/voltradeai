@@ -15,6 +15,15 @@ export interface DailyRow {
   label: string;
   /** account and SPY day returns on the same basis (percent), their gap (percentage points) and why one is missing */
   acct: number | null; spy: number | null; gap: number | null; dayReason: string | null;
+  /** what the account's day ends at ([RULE-REVIEW] 2026-11-06): "close" = its equity at the close (the last read before
+   *  the bell); "write_time" = the equity read when the line was written, after-hours marks included (no usable close
+   *  reading — and every line before 2026-11-06, which carry no source); null = no account day */
+  acctBasis: "close" | "write_time" | null;
+  /** when that equity was read; why a line since 2026-11-06 has no close reading */
+  acctAt: string | null; closeReason: string | null;
+  /** this line's check of the PREVIOUS session's line against Alpaca's own 16:00 ET close of it (last_equity, rolled
+   *  overnight): that line's account day, Alpaca's, and the difference (pp) */
+  check: { day: string; label: string; linePct: number; alpacaPct: number; errorPp: number } | null;
   /** the floor's exposure: "0.85×" in SPY terms (vol-managed; SSO counted at 2×), "0.40× eq" of equity in basket mode */
   floor: string; floorX: number | null; floorTarget: number | null; floorReason: string | null;
   /** option P&L over the line's window: total = fills (vs the quoted mid) + direction (the rest); null = not computable */
@@ -41,6 +50,8 @@ export interface DailyLineView {
   stored: number;
   /** the newest line's own basis sentence */
   basis: string | null;
+  /** a row shown ends its account day at the equity read when written (its cell is marked "*") */
+  writeTime: boolean;
   /** why there is nothing to show */
   note: string | null;
 }
@@ -76,9 +87,18 @@ export function dailyRow(raw: unknown): DailyRow | null {
   const attributed = num(fills.attributed);
   const blocks = num(ow.total);
   const fromLine = str(win.from_line);
+  const acct = num(vs.account_pct);
+  // a line without the source predates the close reading: its day ended at the equity read when it was written
+  const acctBasis = acct === null ? null : vs.account_source === "close" ? "close" : "write_time";
+  const ck = rec(l.close_check);
+  const ckDay = str(ck.day);
+  const ckLine = num(ck.line_pct), ckAlpaca = num(ck.alpaca_pct), ckErr = num(ck.error_pp);
   return {
     day, label: sessionLabel(day),
-    acct: num(vs.account_pct), spy: num(vs.spy_pct), gap: num(vs.gap_pp), dayReason: str(vs.reason),
+    acct, spy: num(vs.spy_pct), gap: num(vs.gap_pp), dayReason: str(vs.reason),
+    acctBasis, acctAt: acctBasis === null ? null : str(vs.equity_end_at) ?? (acctBasis === "write_time" ? str(l.written_at) : null),
+    closeReason: acctBasis === "write_time" ? str(vs.close_reason) : null,
+    check: ckDay && ckLine !== null && ckAlpaca !== null && ckErr !== null ? { day: ckDay, label: sessionLabel(ckDay), linePct: ckLine, alpacaPct: ckAlpaca, errorPp: ckErr } : null,
     floor: floorX === null ? "—" : mode === "vol_managed_spy" ? `${floorX.toFixed(2)}×` : `${floorX.toFixed(2)}× eq`,
     floorX, floorTarget: mode === "vol_managed_spy" ? floorTarget : null, floorReason: str(fl.reason),
     optTotal: num(op.total), optFills: num(fills.pnl), optDirection: num(op.direction),
@@ -113,7 +133,7 @@ export function todayLine(body: Record<string, unknown>, newest: DailyRow | null
 
 /** The card's model: the route's body (or its failure) -> rows, newest first, and the states around them. */
 export function dailyLineView(raw: unknown, q: { loading: boolean; error: unknown }, nowMs: number, max = 10): DailyLineView {
-  const none = { rows: [], newest: null, today: null, stored: 0, basis: null };
+  const none = { rows: [], newest: null, today: null, stored: 0, basis: null, writeTime: false };
   // nothing fetched and nothing failed yet (pending, or not yet enabled): the skeleton, never a shape error
   if (raw === undefined && !q.error) return { state: "loading", ...none, note: null };
   const body = rec(raw);
@@ -129,11 +149,12 @@ export function dailyLineView(raw: unknown, q: { loading: boolean; error: unknow
   const today = todayLine(body, newest, nowMs);
   const fileError = str(body.error);
   if (!rows.length) {
-    return { state: fileError ? "error" : "empty", rows: [], newest: null, today, stored, basis: null,
+    return { state: fileError ? "error" : "empty", rows: [], newest: null, today, stored, basis: null, writeTime: false,
       note: [fileError ?? "No daily line yet: the job writes one after each session's close (+20 min)", refreshNote].filter(Boolean).join(" · ") };
   }
   const newestRaw = recent.find((l) => str(rec(l).day) === newest.day);
-  return { state: "ready", rows, newest, today, stored, basis: str(rec(rec(newestRaw).account_vs_spy).basis), note: [fileError, refreshNote].filter(Boolean).join(" · ") || null };
+  return { state: "ready", rows, newest, today, stored, basis: str(rec(rec(newestRaw).account_vs_spy).basis),
+    writeTime: rows.some((r) => r.acctBasis === "write_time"), note: [fileError, refreshNote].filter(Boolean).join(" · ") || null };
 }
 
 // ── words ───────────────────────────────────────────────────────────────────
@@ -142,6 +163,17 @@ export function dailyLineView(raw: unknown, q: { loading: boolean; error: unknow
 export const gapWords = (v: number | null): string => (v === null ? "—" : fmtSigned(v, 2, " pp"));
 /** "−4.07%" / "—" */
 export const pctWords = (v: number | null): string => (v === null ? "—" : fmtPct(v));
+/** the account cell: "−3.99%" at the close; "−4.07%*" when the day ends at the equity read when the line was written */
+export const acctWords = (r: DailyRow): string => `${pctWords(r.acct)}${r.acctBasis === "write_time" ? "*" : ""}`;
+/** The card's account-basis sentence ([RULE-REVIEW] 2026-11-06); the "*" clause only when a row shown carries it. */
+export function acctBasisWords(writeTime: boolean): string {
+  return "Account = equity at the close (the last read before the bell) vs the prior close (Alpaca last_equity)"
+    + (writeTime ? " · * = equity when the line was written (no close reading; after-hours marks can move it)" : "");
+}
+/** "the Thu Nov 5 line read −4.07%, Alpaca's close −3.99% (−0.08 pp)" */
+export function checkWords(c: NonNullable<DailyRow["check"]>): string {
+  return `the ${c.label} line read ${pctWords(c.linePct)}, Alpaca's close ${pctWords(c.alpacaPct)} (${gapWords(c.errorPp)})`;
+}
 /** the option cell: the total when the line could compute it, else "n/a" */
 export const optWords = (r: DailyRow): string => (r.optTotal === null ? "n/a" : signedMoney(Math.round(r.optTotal)));
 /** the option split's two parts: "fills −$40 · direction −$80" (the fills alone when the total is not computable) and
@@ -157,13 +189,18 @@ export function optSplitWords(r: DailyRow): string {
 }
 /** a row's whole story for its hover: every field with its caveat */
 export function rowTitle(r: DailyRow): string {
+  // the exception says so; the default (the close) is the card's own sentence
+  const basis = r.acctBasis === "write_time"
+    ? ` (equity when the line was written${r.acctAt ? `, ${hhmm(r.acctAt)} ET` : ""}: after-hours marks included${r.closeReason ? `; ${r.closeReason}` : ""})`
+    : "";
   const parts = [
-    `${r.label}: account ${pctWords(r.acct)} vs SPY ${pctWords(r.spy)} (${gapWords(r.gap)})${r.dayReason ? ` — ${r.dayReason}` : ""}`,
+    `${r.label}: account ${acctWords(r)}${basis} vs SPY ${pctWords(r.spy)} (${gapWords(r.gap)})${r.dayReason ? ` — ${r.dayReason}` : ""}`,
     r.floorX === null ? `floor — ${r.floorReason ?? "not read"}` : `floor ${r.floor}${r.floorTarget !== null ? ` (target ${r.floorTarget.toFixed(2)}×)` : ""}`,
     r.optTotal === null ? `options n/a — ${r.optReason ?? "not computable"}; ${optSplitWords(r)}` : `options ${optWords(r)} = ${optSplitWords(r)}${r.optSince ? `, since the ${r.optSince} line` : ""}`,
     r.blocks === null ? "opening-window blocks —" : `opening-window blocks ${r.blocks} (${r.blocksDetail})${r.blocksReason ? ` — ${r.blocksReason}` : ""}`,
     r.partial.length ? `written partial: ${r.partial.join(", ")} unreadable` : null,
     r.writtenAt ? `written ${fmtMonDay(r.writtenAt)} ${hhmm(r.writtenAt)} ET` : null,
+    r.check ? `close check: ${checkWords(r.check)}` : null,
   ];
   return parts.filter((x): x is string => !!x).join(" · ");
 }
@@ -172,6 +209,8 @@ export function rowTitle(r: DailyRow): string {
 export function rowNotes(r: DailyRow): string[] {
   const out: string[] = [];
   if (r.dayReason) out.push(`${r.label}: account vs SPY — ${r.dayReason}`);
+  // a line since 2026-11-06 that had to fall back says why (the older lines' "*" is the card's own footnote)
+  if (r.acctBasis === "write_time" && r.closeReason) out.push(`${r.label}: account = equity when the line was written${r.acctAt ? ` (${hhmm(r.acctAt)} ET)` : ""} — ${r.closeReason}`);
   if (r.floorX === null && r.floorReason) out.push(`${r.label}: floor — ${r.floorReason}`);
   if (r.optTotal === null && r.optReason) out.push(`${r.label}: options total n/a — ${r.optReason}`);
   if (r.optSince) out.push(`${r.label}: the option window opens at the ${r.optSince} line (a line in between was missed)`);

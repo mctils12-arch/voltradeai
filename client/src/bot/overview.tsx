@@ -14,7 +14,7 @@ import { parseDecisions, pickCards, closedPicks, passedOn, CLOSED_PICK_DAYS, PAS
 import { parseAttribution, attributionFromSleeves, whyHeadline, parseFlows, flowsSentence, parseTax, taxSentence, parseSignals, signalsSentence, parseRiskBudget, riskSentence, unavailableWords, signedMoney, dayWords, type AttrGroup, type AttributionView } from "./whyView";
 import { fmtPct, fmtSigned, fmtMoney, fmtClockET, fmtMonDay, fmtAge, fmtOcc } from "./format";
 import { humanError } from "./chart/BotChart";
-import { dailyLineView, rowTitle, rowNotes, pctWords, gapWords, optWords, optSplitParts } from "./dailyLineView";
+import { dailyLineView, rowTitle, rowNotes, pctWords, gapWords, optWords, optSplitParts, acctBasisWords } from "./dailyLineView";
 import { Help } from "./help";
 import type { GlossaryKey } from "./glossary";
 import { St, NotRecorded } from "./panels";
@@ -392,7 +392,7 @@ export function DailyLineBody({ q, nowMs }: { q: UseQueryResult<unknown>; nowMs:
         {v.rows.map((r) => (
           <div key={r.day} className="vt-dl-r" role="row" data-day={r.day} data-partial={r.partial.length ? "true" : undefined} title={rowTitle(r)}>
             <span className="d" role="cell">{r.label}{r.partial.length ? <em className="vt-dl-chip" title={`written partial: ${r.partial.join(", ")} unreadable`}>partial</em> : null}</span>
-            <span className={`a ${tone(r.acct)}`} role="cell">{pctWords(r.acct)}</span>
+            <span className={`a ${tone(r.acct)}`} role="cell" data-basis={r.acctBasis ?? undefined} title={r.acctBasis === "write_time" ? "equity when the line was written (no close reading): after-hours marks included" : undefined}>{pctWords(r.acct)}{r.acctBasis === "write_time" ? <i className="mk">*</i> : null}</span>
             <span className={`s ${tone(r.spy)}`} role="cell">{pctWords(r.spy)}</span>
             <span className={`g ${tone(r.gap)}`} role="cell">{gapWords(r.gap)}</span>
             <span className="f" role="cell">{r.floor}{r.floorTarget !== null ? <i className="x"> → {r.floorTarget.toFixed(2)}×</i> : null}</span>
@@ -405,7 +405,7 @@ export function DailyLineBody({ q, nowMs }: { q: UseQueryResult<unknown>; nowMs:
       <div className="vt-why-src">
         <span>{v.stored} line{v.stored === 1 ? "" : "s"} stored · the newest {v.rows.length} shown · written once per trading day after the close (+20 min){v.note ? ` · ${v.note}` : ""}<Help k="dailyLine" /></span>
         {/* the line's own basis sentence is the hover; the visible line says the same and what is an estimate */}
-        <span title={v.basis ? `basis, as the line records it: ${v.basis}` : undefined}>Account = equity when written (after-hours marks can move it) vs the prior close (Alpaca last_equity) · SPY = price-only closes, no dividends · Floor = (SPY + 2 × SSO) ÷ equity, SSO at its 2× target (approximate) · Options = realized + the change in open P&amp;L since the previous line; fills = against the quoted mid at submission (priced fills only), direction = the rest (an estimate) · Holds = option exits the 09:30–09:45 window held back</span>
+        <span title={v.basis ? `basis, as the line records it: ${v.basis}` : undefined}>{acctBasisWords(v.writeTime)} · SPY = price-only closes, no dividends · Floor = (SPY + 2 × SSO) ÷ equity, SSO at its 2× target (approximate) · Options = realized + the change in open P&amp;L since the previous line; fills = against the quoted mid at submission (priced fills only), direction = the rest (an estimate) · Holds = option exits the 09:30–09:45 window held back</span>
       </div>
     </div>
   );

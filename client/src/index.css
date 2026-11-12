@@ -5625,6 +5625,11 @@ section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--exit { color: var(--t
 .vt-dl-r { display: grid; grid-template-columns: minmax(96px, 1fr) minmax(62px, 0.7fr) minmax(62px, 0.7fr) minmax(70px, 0.7fr) minmax(100px, 0.9fr) minmax(170px, 3.2fr) minmax(44px, 0.4fr); column-gap: 10px; align-items: baseline; padding: 3px 2px; line-height: 1.35; border-bottom: 1px solid var(--border-subtle); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text-secondary); min-width: 0; }
 .vt-dl-r > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-dl-r .a, .vt-dl-r .s, .vt-dl-r .g, .vt-dl-r .f, .vt-dl-r .b { text-align: right; }
+/* [RULE-REVIEW] 2026-11-06: the account day's "*" (the equity read when the line was written, not at the close) hangs in a
+   slot every account cell reserves, header included, so the digits of every row stay in one column. The slot is borrowed
+   from the column gap (the negative margin returns the padding), so the content box — and a 390 px header — is unchanged */
+.vt-dl-r .a { position: relative; padding-right: 1ch; margin-right: -1ch; }
+.vt-dl-r .a .mk { position: absolute; right: 0; font-style: normal; color: var(--text-tertiary); }
 .vt-dl-r .d { font-family: var(--font-body); color: var(--text-primary); font-weight: 500; }
 .vt-dl-r .o, .vt-dl-r .d { white-space: normal; }
 .vt-dl-r .o b { font-weight: 500; }

@@ -450,10 +450,12 @@ function botFixtures({ latched, between = false }) {
 // options with implied vs model, events across three credibility tiers.
 /** GET /api/bot/daily-line ([PRODUCT] 2026-11-06, server/dailyLine.ts dailyLineBody): the lines as the job writes them,
  *  newest first. Latched page: ten sessions (the weekdays before the run's ET date) — one written partial (its orders
- *  unreadable, so no option total), one whose option window opens at an older line (a line in between was missed).
+ *  unreadable, so no option total), one whose option window opens at an older line (a line in between was missed);
+ *  their account days end at the close reading ([RULE-REVIEW] 2026-11-06) except one that fell back to the equity read
+ *  when written (marked "*"), and the newest carries its close check of the line before it.
  *  Idle page: the one line the live server held on 2026-11-06 (no previous line, so its option total is not
- *  computable — the designed note). Both: today's line due after the close, 2 h 22 min from now (the fixture's close is
- *  2 h 02 min away). */
+ *  computable — the designed note; written before the close reading, so its account cell is marked "*"). Both: today's
+ *  line due after the close, 2 h 22 min from now (the fixture's close is 2 h 02 min away). */
 function dailyLineFixture({ latched, now }) {
   const r2 = (x) => Math.round(x * 100) / 100;
   const et = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -465,6 +467,10 @@ function dailyLineFixture({ latched, now }) {
   // 16:22 ET on the day (the job's first tick after the close + 20 min), in EST or EDT
   const at1622 = (day) => { const est = Date.parse(`${day}T21:22:00Z`); return new Date(new Date(est).toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }) === "17" ? est - 3_600_000 : est).toISOString(); };
   const basis = "account: Alpaca equity vs last_equity (no dividends in the paper account) · SPY: PRICE-ONLY daily closes (Alpaca bars, adjustment=split, feed iex)";
+  const basisClose = "account: Alpaca equity at the close (the last account read before the session's close) vs last_equity, the prior close (no dividends in the paper account) · SPY: PRICE-ONLY daily closes (Alpaca bars, adjustment=split, feed iex)";
+  const basisWriteTime = "account: Alpaca equity when the line was written (no usable close reading: after-hours marks included) vs last_equity, the prior close (no dividends in the paper account) · SPY: PRICE-ONLY daily closes (Alpaca bars, adjustment=split, feed iex)";
+  // 15:59:52 ET on the day (the close reading's last tick), in EST or EDT
+  const at1559 = (day) => new Date(Date.parse(at1622(day)) - (22 * 60 + 8) * 1000).toISOString();
   const ACCT = [-4.07, 0.42, -0.95, 1.12, -0.31, 0.08, -1.64, 0.55, -0.22, 0.73];
   const SPYD = [-4.34, 0.61, -0.71, 0.98, -0.12, 0.21, -1.25, 0.47, -0.05, 0.66];
   const X = [0.8512, 0.8833, 0.9102, 0.8711, 0.9404, 0.9611, 0.8226, 0.9015, 0.9333, 0.9488];
@@ -480,7 +486,13 @@ function dailyLineFixture({ latched, now }) {
     const [single, group, posKill] = live ? [0, 0, 0] : HOLDS[i];
     return {
       version: 1, day, written_at: at1622(day), session_close: "16:00",
-      account_vs_spy: { basis, day: { account_pct: ACCT[i], spy_pct: SPYD[i], gap_pp: r2(ACCT[i] - SPYD[i]), equity: 90000, last_equity: r2(90000 / (1 + ACCT[i] / 100)), spy_bar_date: day, reason: null }, since: null, d30: null, since_requested: "2026-05-06", windows_reason: null },
+      // the live line predates the close reading (no source); the latched lines end at it, but for one that fell back
+      account_vs_spy: live
+        ? { basis, day: { account_pct: ACCT[i], spy_pct: SPYD[i], gap_pp: r2(ACCT[i] - SPYD[i]), equity: 90000, last_equity: r2(90000 / (1 + ACCT[i] / 100)), spy_bar_date: day, reason: null }, since: null, d30: null, since_requested: "2026-05-06", windows_reason: null }
+        : { basis: i === 5 ? basisWriteTime : basisClose,
+          day: { account_pct: ACCT[i], spy_pct: SPYD[i], gap_pp: r2(ACCT[i] - SPYD[i]), equity: 90000, last_equity: r2(90000 / (1 + ACCT[i] / 100)), spy_bar_date: day, reason: null,
+            account_source: i === 5 ? "write_time" : "close", equity_end: 90000, equity_end_at: i === 5 ? at1622(day) : at1559(day), close_reason: i === 5 ? `no close reading for ${day}` : null },
+          since: null, d30: null, since_requested: "2026-05-06", windows_reason: null },
       floor: { mode: "vol_managed_spy", exposure_x: live ? 0 : X[i], basis: "(SPY + 2 x SSO market value) / equity", base_mv: 0, levered_mv: 0, floor_mv: 0, legacy_mv: 26603.7, target_x: live ? null : r2(X[i] + 0.05), target_at: live ? null : at1622(day), reason: null },
       options: {
         window: { from: at1622(days[i + 1]), to: at1622(day), from_line: live ? null : i === 6 ? days[i + 2] ?? null : days[i + 1], single_session: live ? true : i !== 6 },
@@ -491,6 +503,10 @@ function dailyLineFixture({ latched, now }) {
       },
       opening_window: { total: single + group + posKill, manager_single_leg: single, manager_group: group, pos_kill: posKill, pos_kill_tickers: posKill ? ["AMD"] : [], keys: [], reason: null },
       missing: !live && i === 3 ? ["orders: the Alpaca orders page timed out"] : [],
+      // the newest latched line's check of the line before it against Alpaca's rolled last_equity (hover only)
+      close_check: live ? undefined : i === 0
+        ? { day: days[1], line_pct: ACCT[1], line_equity: 90000, line_source: "close", alpaca_close: 89982, alpaca_pct: r2(ACCT[1] - 0.02), error_pp: 0.02, error_usd: 18, balance_asof: days[1], reason: null }
+        : null,
       message: "",
     };
   };
@@ -4084,7 +4100,7 @@ async function main() {
                 const rows = [...card.querySelectorAll(".vt-dl-r:not(.vt-dl-h)")].map((r) => {
                   const cell = (c) => r.querySelector(`.${c}`);
                   const top = (c) => Math.round(cell(c)?.getBoundingClientRect().top ?? -1);
-                  return { day: r.getAttribute("data-day"), partial: r.getAttribute("data-partial") === "true",
+                  return { day: r.getAttribute("data-day"), partial: r.getAttribute("data-partial") === "true", basis: cell("a")?.getAttribute("data-basis") || null,
                     d: (cell("d")?.textContent || "").trim(), a: (cell("a")?.textContent || "").trim(), s: (cell("s")?.textContent || "").trim(), g: (cell("g")?.textContent || "").trim(),
                     f: (cell("f")?.textContent || "").trim(), o: (cell("o")?.textContent || "").trim(), b: (cell("b")?.textContent || "").trim(),
                     twoLines: top("f") > top("d") + 4, cut: [...r.querySelectorAll(":scope > span:not(.o)")].filter((x) => x.scrollWidth - x.clientWidth > 1).map((x) => x.textContent) };
@@ -4107,13 +4123,17 @@ async function main() {
                 const M = "\u2212";
                 const pct = (v) => `${v < 0 ? M : v > 0 ? "+" : ""}${Math.abs(v).toFixed(2)}%`;
                 const pp = (v) => `${v < 0 ? M : v > 0 ? "+" : ""}${Math.abs(v).toFixed(2)} pp`;
-                const num = (t) => Number(String(t).replace(/\u2212/g, "-").replace(/[%+]|\s*pp$/g, ""));
+                const num = (t) => Number(String(t).replace(/\u2212/g, "-").replace(/[%+*]|\s*pp$/g, ""));
+                // [RULE-REVIEW] 2026-11-06: a line without a source predates the close reading — its day ended when written
+                const writeTimeOf = (fx) => fx.account_vs_spy.day.account_source !== "close";
                 dl.rows.forEach((r, i) => {
                   const fx = want[i];
                   if (!fx) return;
                   if (r.day !== fx.day) dlFail(`row ${i} is ${r.day} (the route's ${i}th newest is ${fx.day})`);
                   const vs = fx.account_vs_spy.day;
-                  if (r.a !== pct(vs.account_pct) || r.s !== pct(vs.spy_pct) || r.g !== pp(vs.gap_pp)) dlFail(`${r.day} reads ${r.a} / ${r.s} / ${r.g} (the line: ${pct(vs.account_pct)} / ${pct(vs.spy_pct)} / ${pp(vs.gap_pp)})`);
+                  const acctWant = `${pct(vs.account_pct)}${writeTimeOf(fx) ? "*" : ""}`;
+                  if (r.a !== acctWant || r.s !== pct(vs.spy_pct) || r.g !== pp(vs.gap_pp)) dlFail(`${r.day} reads ${r.a} / ${r.s} / ${r.g} (the line: ${acctWant} / ${pct(vs.spy_pct)} / ${pp(vs.gap_pp)})`);
+                  if (r.basis !== (writeTimeOf(fx) ? "write_time" : "close")) dlFail(`${r.day}: the account cell's basis is "${r.basis}" (the line: ${vs.account_source ?? "none, so write_time"})`);
                   if (Math.abs(num(r.a) - num(r.s) - num(r.g)) > 0.011) dlFail(`${r.day}: ${r.a} − ${r.s} is not ${r.g}`);
                   if (r.f !== `${fx.floor.exposure_x.toFixed(2)}×${fx.floor.target_x !== null ? ` → ${fx.floor.target_x.toFixed(2)}×` : ""}`) dlFail(`${r.day}: the floor reads "${r.f}"`);
                   if (fx.options.total === null ? !/^n\/a fills/.test(r.o) : !/^[−+]?\$[\d,]+ fills [−+]?\$[\d,]+ · direction [−+]?\$[\d,]+ \(\d+\/\d+ priced\)$/.test(r.o)) dlFail(`${r.day}: the options cell reads "${r.o}"`);
@@ -4124,7 +4144,9 @@ async function main() {
                 });
                 if (!/^newest [A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} · written \d\d:\d\d ET, \d+[smhd] ago/.test(dl.hd)) dlFail(`the header does not say which line is newest and how old it is — "${dl.hd}"`);
                 if (!/Today's line is written after the close, from \d\d:\d\d ET/.test(dl.hd) || dl.today !== "ok") dlFail(`the header does not say where today's line stands — "${dl.hd}"`);
-                if (!/Account = equity when written \(after-hours marks can move it\)/.test(dl.text) || !/\(approximate\)/.test(dl.text) || !/direction = the rest \(an estimate\)/.test(dl.text)) dlFail("the card does not label what is an estimate");
+                if (!/Account = equity at the close \(the last read before the bell\) vs the prior close \(Alpaca last_equity\)/.test(dl.text) || !/\(approximate\)/.test(dl.text) || !/direction = the rest \(an estimate\)/.test(dl.text)) dlFail("the card does not label what is an estimate");
+                const starClause = /\* = equity when the line was written \(no close reading; after-hours marks can move it\)/.test(dl.text);
+                if (starClause !== want.some(writeTimeOf)) dlFail(`the "*" footnote is ${starClause ? "shown" : "missing"} with ${want.filter(writeTimeOf).length} write-time line(s) shown`);
                 if (name === "bot") {
                   if (dl.notes.length) dlFail(`the newest line is complete, yet the card notes: ${dl.notes.join(" | ")}`);
                   if (!dl.rows.some((r) => r.partial)) dlFail("the partial line carries no chip");
