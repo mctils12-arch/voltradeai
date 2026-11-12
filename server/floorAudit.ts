@@ -31,7 +31,7 @@ const ORDER_ACTIONS: Record<string, string> = {
 /** the core's own order types (the others are the cash parking) */
 const CORE_ACTIONS = new Set(["floor_vm_buy", "floor_vm_sell", "floor_vm_legacy_sell", "cc_unwind"]);
 /** action types that explain why something did not trade (logged only with orders, or in the kill pass) */
-const NOTE_ACTIONS = new Set(["cc_unwind_blocked", "floor_vm_no_quote", "floor_vm_cash_wide_spread"]);
+const NOTE_ACTIONS = new Set(["cc_unwind_blocked", "floor_vm_no_quote", "floor_vm_cash_wide_spread", "floor_vm_cash_blocked"]);
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const pct = (v: unknown) => (num(v) === null ? "?" : `${(num(v)! * 100).toFixed(1)}%`);
@@ -69,6 +69,8 @@ function actionLine(a: FloorAction): string | null {
     return `${ORDER_ACTIONS[t]} ${a.qty ?? "?"} ${sym}${px} — ${res}${why}`;
   }
   if (t === "floor_vm_cash_wide_spread") return `${who}: quote too wide, not traded (${String(a.reason || "").slice(0, 160)})`;
+  // KILL LATCH 2026-11-12 (KNOWN BROKEN #51): a fund buy the latch stopped at the order
+  if (t === "floor_vm_cash_blocked") return `${who}: T-bill fund buy NOT placed, Node kill latch set (${String(a.reason || "").slice(0, 160)})`;
   if (NOTE_ACTIONS.has(t)) return `${who}: ${t === "floor_vm_no_quote" ? "no quote, not traded" : `covered-call unwind blocked (${String(a.reason || "").slice(0, 160)})`}`;
   return null;
 }

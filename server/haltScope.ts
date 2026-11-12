@@ -31,6 +31,16 @@
 
 export type HaltAction = "entry" | "exit" | "ddCheck";
 
+/**
+ * KILL LATCH AT THE ORDER (2026-11-12, KNOWN BROKEN #51): the order status a
+ * PYTHON open returns when kill_latch.check_opening_allowed found Node's
+ * persisted latch set at the moment of the order (kill_latch.py
+ * BLOCKED_ORDER_STATUS — test_kill_latch.py pins the two strings equal).
+ * bot.ts reads it as "the latch is on: end the batch", never as "error",
+ * because an "error" option open falls back to a stock buy.
+ */
+export const KILL_BLOCKED_ORDER_STATUS = "blocked_kill_latch";
+
 export interface HaltState {
   /** the owner pressed /api/bot/stop (in-memory, cleared by /api/bot/start) */
   ownerStopped: boolean;

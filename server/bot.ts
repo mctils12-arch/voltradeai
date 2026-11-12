@@ -38,7 +38,7 @@ import { flowsBody, readFlows, flowsAuditMessage, FLOWS_REFRESH_CMD, FLOWS_REFRE
 import { earningsRefreshAuditMessage, EARNINGS_HISTORY_REFRESH_CMD, EARNINGS_HISTORY_REFRESH_TIMEOUT_MS } from "./earningsHistory";
 import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isRegularSessionMinute, pushRegularBar,
   streamSignalLogEnabled, type StreamHistory } from "./streamSignals";
-import { haltStateFrom, haltAllows, haltMode, type HaltState } from "./haltScope";
+import { haltStateFrom, haltAllows, haltMode, KILL_BLOCKED_ORDER_STATUS, type HaltState } from "./haltScope";
 import { engineKillSnapshot, engineKillHealth, shouldAuditEngineKill, engineKillAuditLine, type EngineKillSnapshot } from "./engineKill";
 import { KILL_ON_AUDIT, KILL_ON_NOTIFY, KILL_ON_EMAIL, DRAWDOWN_KILL_SUFFIX, DRAWDOWN_KILL_EMAIL_SUBJECT, KILL_PRETRADE_REASON } from "../shared/haltWords";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
@@ -7154,11 +7154,16 @@ if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': _err}))
 else:
     # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
-    import entry_shadow
+    import entry_shadow, kill_latch
     if entry_shadow.is_shadowed('options'):
         result = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='tier_dispatcher.SELL_CSP', strategy=data['strategy'])
     else:
-        result = submit_options_order(contract)
+        try:
+            # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): Node's latch is re-read AT the order
+            kill_latch.check_opening_allowed(contract.get('occ_symbol') or data['ticker'], 'tier SELL_CSP open')
+            result = submit_options_order(contract)
+        except kill_latch.EntryBlocked as _kb:
+            result = kill_latch.blocked_order(_kb)
     result['cash_required'] = contract.get('cash_required', 0)
     # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): this branch never registered
     # the entry, so every later close of a tier CSP was an orphan_exit.
@@ -7214,6 +7219,11 @@ else:
                       cspUnderlying: String(action.ticker).toUpperCase(),
                     });
                   }
+                } else if (r.status === KILL_BLOCKED_ORDER_STATUS) {
+                  // KILL LATCH 2026-11-12 (KNOWN BROKEN #51): the Python open read Node's latch
+                  // at the order and sent nothing (not a failure: the latch is on).
+                  audit("KILL-SWITCH", `SELL_CSP ${action.ticker} not sent — ${String(r.detail || "Node kill latch set").slice(0, 160)}`);
+                  noteCspGate(action, "rejected_killswitch", String(r.detail || "Node kill switch on — read at the order"));
                 } else {
                   audit("T" + action.tier + "-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
                 }
@@ -7308,11 +7318,16 @@ if contract.get('error'):
     print(json.dumps({'status': 'error', 'reason': contract['error']}))
 else:
     # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
-    import entry_shadow
+    import entry_shadow, kill_latch
     if entry_shadow.is_shadowed('options'):
         result = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='tier_dispatcher.BUY_PUT', strategy=data['strategy'])
     else:
-        result = submit_options_order(contract)
+        try:
+            # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): Node's latch is re-read AT the order
+            kill_latch.check_opening_allowed(contract.get('occ_symbol') or data['ticker'], 'tier BUY_PUT open')
+            result = submit_options_order(contract)
+        except kill_latch.EntryBlocked as _kb:
+            result = kill_latch.blocked_order(_kb)
     # [RULE-REVIEW] 2026-10-27 (ORPHAN EXITS): see the SELL_CSP branch.
     if result.get('status') in ('submitted', 'filled', 'pending_new', 'accepted'):
         try:
@@ -7347,6 +7362,9 @@ else:
                       limitPrice: Number(r.limit_price) || 0,
                     });
                   }
+                } else if (r.status === KILL_BLOCKED_ORDER_STATUS) {
+                  // KILL LATCH 2026-11-12 (KNOWN BROKEN #51): see the SELL_CSP branch.
+                  audit("KILL-SWITCH", `BUY_PUT ${action.ticker} not sent — ${String(r.detail || "Node kill latch set").slice(0, 160)}`);
                 } else {
                   audit("T4-FAIL", `${action.ticker}: ${r.reason || r.detail || 'unknown'}`);
                 }
@@ -8037,11 +8055,16 @@ if contract.get('error'):
     print(json.dumps({'instrument':'stock','order':None,'contract':None,'reasoning':contract['error']}))
 else:
     # ENTRY SHADOW MODE (2026-10-28, entry_shadow.py): the open is logged, not submitted.
-    import entry_shadow
+    import entry_shadow, kill_latch
     if entry_shadow.is_shadowed('options'):
         order = entry_shadow.shadow_option_open(contract, data['ticker'], data['price'], source='executeTrades.options_scanner', strategy=data['strategy'], reason='scanner setup ' + str(data.get('setup','')))
     else:
-        order = submit_options_order(contract)
+        try:
+            # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): Node's latch is re-read AT the order
+            kill_latch.check_opening_allowed(contract.get('occ_symbol') or data['ticker'], 'scanner-direct option open')
+            order = submit_options_order(contract)
+        except kill_latch.EntryBlocked as _kb:
+            order = kill_latch.blocked_order(_kb)
     _legs = []
     if order.get('status') in ('submitted','filled','pending_new','accepted','new'):
         # P0-9 FIX: every leg is registered (options_manager.register_options_entry,
@@ -8119,6 +8142,14 @@ else:
               reserve.spend(Number(optExec.contract?.cash_required || optExec.contract?.max_cost || trade.position_value) || 0);
               continue;
             }
+            if (optExec.instrument === "options" && optExec.order?.status === KILL_BLOCKED_ORDER_STATUS) {
+              // KILL LATCH 2026-11-12 (KNOWN BROKEN #51): the Python open read Node's latch at
+              // the order and sent nothing. Never fall back to a stock buy for it (an "error"
+              // status would): the latch is on, so the batch ends here like the loop-top check.
+              audit("KILL-SWITCH", `${trade.ticker}: option open not sent — ${String(optExec.order?.detail || "Node kill latch set").slice(0, 160)}`);
+              noteRemaining(trade, "rejected_killswitch", "Node kill switch on — read at the order, loop ended");
+              break;
+            }
             // 2026-11-06: "new" (Alpaca's status for an accepted, routed order) is an accepted entry too;
             // the Python entry paths register it since the resting multi-leg fix.
             if (optExec.instrument === "options" && (["submitted", "filled", "pending_new", "accepted"].includes(optExec.order?.status) || optExec.order?.status === "new")) {
@@ -8168,6 +8199,13 @@ else:
         }
 
         // ── Stock execution (default or fallback from options) ──
+        if (state.killSwitch) {
+          // KILL LATCH 2026-11-12 (KNOWN BROKEN #51): the latch may have tripped during the
+          // options step above (a Python call of up to 30 s) — re-read it at the order, not
+          // only at the loop top, before the stock POST below.
+          noteRemaining(trade, "rejected_killswitch", "Node kill switch on — read before the stock order, loop ended");
+          break;
+        }
         let qty = Math.floor(trade.shares);
         if (qty <= 0) continue;
 

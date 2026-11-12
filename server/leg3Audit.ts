@@ -9,7 +9,7 @@
 // the stop's rollback trigger (SVXY +5% within 5 sessions of a protective
 // exit) and the cooldown's prevention P&L (SVXY after a blocked buy).
 
-export type Leg3AuditType = "LEG3-BUY" | "LEG3-EXIT" | "LEG3-COOLDOWN-BLOCK" | "LEG3-RESERVE" | "LEG3-ERROR";
+export type Leg3AuditType = "LEG3-BUY" | "LEG3-EXIT" | "LEG3-COOLDOWN-BLOCK" | "LEG3-KILL-BLOCK" | "LEG3-RESERVE" | "LEG3-ERROR";
 export interface Leg3AuditRow { type: Leg3AuditType; message: string }
 
 interface Leg3Action {
@@ -49,6 +49,10 @@ export function leg3AuditRows(thirdLeg: unknown): Leg3AuditRow[] {
         rows.push({ type: "LEG3-COOLDOWN-BLOCK", message: `${sym} buy NOT placed: re-entry cooldown${until === null ? "" : ` until ${new Date(until * 1000).toISOString()}`} — would have bought at ~${money(a.price)} · VXX ratio ${num(a.vxx_ratio) === null ? "?" : num(a.vxx_ratio)!.toFixed(3)} · ${a.reason || ""}` });
         break;
       }
+      case "third_leg_blocked":
+        // KILL LATCH 2026-11-12 (KNOWN BROKEN #51): Node's latch read at the order
+        rows.push({ type: "LEG3-KILL-BLOCK", message: `${sym} buy NOT placed: Node kill latch set — would have bought ${a.shares ?? "?"} at ~${money(a.price)} · VXX ratio ${num(a.vxx_ratio) === null ? "?" : num(a.vxx_ratio)!.toFixed(3)} · ${a.reason || ""}` });
+        break;
       case "cash_reserve_block":
       case "cash_reserve_trim":
         rows.push({ type: "LEG3-RESERVE", message: `${sym} buy ${a.type === "cash_reserve_block" ? "blocked" : "cut"} by the regime cash reserve — ${a.reason || ""}` });

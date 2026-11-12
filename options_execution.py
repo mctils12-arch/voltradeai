@@ -35,6 +35,7 @@ import alpaca_feed
 # BROKER CLOCK ORDER GATE 2026-11-05 (human-approved frozen-path touch, the gate only):
 # no order while Alpaca's clock says closed
 import broker_clock
+import kill_latch   # Node's kill latch, read before an option open (KNOWN BROKEN #51, 2026-11-12)
 # 2026-11-05 (daily line, measurement only): the chain quote each order was
 # priced from and the order id Alpaca returned — see option_fill_ledger.py.
 import option_fill_ledger as _fill_ledger
@@ -2906,6 +2907,22 @@ def evaluate_and_execute(trade: dict, equity: float, positions: list = None) -> 
                 strategy=decision["strategy"], relabel=True,
                 reason=f"entry shadow mode (options): {decision['strategy']} — {str(decision.get('reason', ''))[:120]}"),
             "reasoning": decision["reason"],
+        }
+
+    # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): the open is a new entry. While
+    # Node's latch holds it is not sent, and the returned status tells bot.ts
+    # the latch is on — never "error", which bot.ts answers with a stock buy.
+    try:
+        kill_latch.check_opening_allowed(contract.get("occ_symbol") or trade.get("ticker", ""),
+                                         f"option open ({decision['strategy']})")
+    except kill_latch.EntryBlocked as _kb:
+        return {
+            "instrument": "options",
+            "strategy": decision["strategy"],
+            "edge_pct": decision.get("edge_pct"),
+            "contract": contract,
+            "order": kill_latch.blocked_order(_kb),
+            "reasoning": f"blocked: {str(_kb)[:160]}",
         }
 
     # Step 3: Submit order (a debit vertical at its net mid, walked by options_manager)

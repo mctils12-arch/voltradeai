@@ -55,6 +55,7 @@ import logging
 # BROKER CLOCK ORDER GATE 2026-11-05: every order POST below first calls
 # broker_clock.check_order_allowed() (no order while Alpaca's clock says closed)
 import broker_clock
+import kill_latch   # Node's kill latch, read before every opening order (KNOWN BROKEN #51, 2026-11-12)
 # Alpaca rate limiter — prevents silent 429 errors during parallel scans
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -5034,7 +5035,8 @@ def _scan_market_inner():
         "positions": get_alpaca_positions, "sector_of": _get_sector, "quote": _latest_quote,
         "order": _floor_vm_order, "clock": _floor_vm_broker_clock, "open_orders": _open_order_symbols,
         "floor_tickers": FLOOR_AND_LEG_TICKERS,
-        "killed": kill_status is None or bool(kill_status.get("killed")),
+        # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): Node's latch gates the swap too
+        "killed": kill_status is None or bool(kill_status.get("killed")) or kill_latch.is_latched(),
     })
     _timing_log("tier_engine_complete")
     _timing_log("scan_complete")
@@ -5622,6 +5624,9 @@ def _run_third_leg(macro: dict) -> dict:
                             "time_in_force":"day",
                         }
                         try:
+                            # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): the SVXY buy is a
+                            # new entry — Node's latch is read at the order, not at scan start.
+                            kill_latch.check_opening_allowed("SVXY", "third-leg VRP buy")
                             broker_clock.check_order_allowed("SVXY", "third-leg VRP buy")
                             o = _req.post(f"{base_url}/v2/orders",
                                           json=order, headers=headers, timeout=10)
@@ -5636,6 +5641,13 @@ def _run_third_leg(macro: dict) -> dict:
                                 "ok": _leg3_order_ok(o),
                             })
                             _log.info(f"[LEG3-VRP] Bought {shares} SVXY @ {svxy_price:.2f} (VRP harvest, regime={regime})")
+                        except kill_latch.EntryBlocked as e:
+                            # recorded with the price it would have paid -> a LEG3-KILL-BLOCK
+                            # audit row (server/leg3Audit.ts), like the cooldown's block
+                            _log.info(f"[LEG3-VRP] buy blocked by Node's kill latch: {e}")
+                            actions.append({"type": "third_leg_blocked", "stage": "buy", "symbol": "SVXY",
+                                            "shares": shares, "price": svxy_price,
+                                            "vxx_ratio": round(vxx_ratio, 4), "reason": str(e)[:200]})
                         except broker_clock.OrderBlocked as e:
                             _log.info(f"[LEG3-VRP] buy deferred: {e}")
                         except Exception as e:
@@ -6489,6 +6501,13 @@ def _floor_vm_order(symbol: str, qty: int, side: str, limit_px: float) -> dict:
     that moves while the order is in flight. A blocked order (the broker's
     clock says closed) is a failed one: nothing is sent."""
     try:
+        if side == "buy":
+            # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): a floor buy — the core,
+            # the cash-parking fund, a tax-harvest replacement — is a new entry.
+            # Node's latch is read HERE, at the order, however the scan began;
+            # sells (reduce-only, legacy exits) never ask. EntryBlocked is an
+            # OrderBlocked, so it is reported below like a closed-market block.
+            kill_latch.check_opening_allowed(symbol, f"floor {side}")
         broker_clock.check_order_allowed(symbol, f"floor {side}")
     except broker_clock.OrderBlocked as _blocked:
         return {"ok": False, "order_id": None, "error": str(_blocked)[:200]}
@@ -6887,6 +6906,17 @@ def _manage_floor_cash(core_result: dict) -> dict:
     if qty <= 0:
         plan["status"] = "nothing to trade at this price"
         return _done()
+    if side == "buy":
+        try:
+            kill_latch.check_opening_allowed(ticker, "floor cash parking buy")
+        except kill_latch.EntryBlocked as _kb:
+            # KILL LATCH 2026-11-12 (KNOWN BROKEN #51): parking idle cash is a
+            # buy. While Node's latch holds it is not sent — and the rejected-buy
+            # day block below is NOT armed, so parking resumes with the latch.
+            actions.append({"type": "floor_vm_cash_blocked", "ticker": ticker, "qty": qty, "limit": px,
+                            "reason": str(_kb)[:200]})
+            plan["status"] = "blocked: Node kill latch set (no buys while tripped)"
+            return _done()
     order = _floor_vm_order(ticker, qty, side, px)
     actions.append({"type": f"floor_vm_cash_{side}", "ticker": ticker, "qty": qty, "limit": px,
                     "reason": plan["reason"], **order})
@@ -7099,6 +7129,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                                             "shares": _shares, "reason": "market_closed",
                                         })
                                     else:
+                                        kill_latch.check_opening_allowed(b_ticker, "floor basket buy")   # KNOWN BROKEN #51
                                         broker_clock.check_order_allowed(b_ticker, "floor basket buy")
                                         alpaca_throttle.acquire()
                                         requests.post(
@@ -7356,6 +7387,7 @@ def _manage_spy_floor(macro: dict, floor_regime: dict = None) -> dict:
                 "reason": "market_closed"})
         elif shares_diff > 0:
             try:
+                kill_latch.check_opening_allowed(floor_ticker, "floor buy")   # KNOWN BROKEN #51
                 broker_clock.check_order_allowed(floor_ticker, "floor buy")
                 alpaca_throttle.acquire()
                 requests.post(f"{ALPACA_BASE_URL}/v2/orders",
@@ -7625,6 +7657,7 @@ def _manage_defensive_floor(macro: dict, floor_regime: dict = None) -> dict:
             return result
         if shares_diff > 0:
             try:
+                kill_latch.check_opening_allowed(defensive_ticker, "defensive floor buy")   # KNOWN BROKEN #51
                 broker_clock.check_order_allowed(defensive_ticker, "defensive floor buy")
                 alpaca_throttle.acquire()
                 requests.post(

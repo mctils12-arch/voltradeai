@@ -7675,6 +7675,43 @@
     rules). Test: a scan whose latch flips mid-run submits no opening order
     after the flip. NOT URGENT TODAY only because Node's kill is off; it is
     the next thing that bites when a latch trips during a scan.
+    FIX SHIPPED 2026-11-12 (scheduled routine voltrade-daily-midday, PR
+    prepared during market hours, merge after the 16:00 ET close per the DEPLOY
+    WINDOW; v1.0.1403): new `kill_latch.py` reads the file Node persists on
+    every latch transition (bot.ts KILL_SWITCH_PATH /data/voltrade/
+    voltrade_kill_switch.json, /tmp fallback; parsed as
+    killSwitchAutoResume.parseKillSwitchRecord does; no file or a shapeless
+    file = NOT latched, Node's own boot behaviour, logged). `check_opening_
+    allowed(symbol, what)` raises EntryBlocked — a broker_clock.OrderBlocked,
+    so every call site's existing "blocked -> nothing sent" handler covers
+    it — immediately before each opening order: bot_engine._floor_vm_order
+    buys (the floor core, BOXX cash parking, a tax-harvest replacement),
+    _manage_floor_cash (pre-check: a blocked parking buy does NOT arm the
+    rejected-buy day block), the SVXY third-leg buy (new action
+    third_leg_blocked -> LEG3-KILL-BLOCK audit row with the price it would
+    have paid), the basket / old single-ticker / GLD defensive floor buys
+    (rollback safety, the broker-clock precedent), the tax harvest's killed
+    input, options_execution.evaluate_and_execute, and the three bot.ts
+    dispatcher scripts (SELL_CSP, BUY_PUT, scanner-direct). A blocked
+    Python option open answers status "blocked_kill_latch" (haltScope.ts
+    KILL_BLOCKED_ORDER_STATUS, pinned equal on both sides) — NEVER "error",
+    because bot.ts answers an "error" option open with a STOCK BUY (the
+    fallback branch); bot.ts ends the batch on it (rejected_killswitch, like
+    the loop-top check) and ALSO re-reads state.killSwitch right before its
+    own stock POST (the options step ahead of it can run 30 s). Sells,
+    reduce-only floor passes, exits, cancels and the owner's manual route
+    never ask. Ratchet: test_kill_latch.py (18: reader, gate, the mid-scan
+    flip at the floor helper / cash parking / third leg / evaluate_and_
+    execute, AST pin that all 4 opening POSTs in bot_engine carry the latch
+    gate in their own block, bot.ts source pins), leg3Audit / floorAudit /
+    haltScope .test.ts additions. NOT CHANGED: no threshold, no mechanism,
+    risk_kill_switch.py untouched, no new order POST (order_post_sites 6).
+    STILL OPEN: the close marker waits for a live read — the first latch
+    trip (or an owner kill toggle during a scan) must show the blocked rows
+    (KILL-SWITCH "not sent", LEG3-KILL-BLOCK, floor_vm_cash_blocked) and no
+    opening fill after the latch time. Node's own kill is off today and the
+    Python engine latch (#49) already suppresses the scanner, so nothing
+    exercises it live yet.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
