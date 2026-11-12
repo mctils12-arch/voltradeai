@@ -147,7 +147,7 @@ import {
   bootEarnings8kPoll, latestEarnings8Ks, parseEarnings8kHistoryQuery, readEarnings8kHistoryWindow,
   earnings8kHistoryNextQuery, omitEarnings8kText, EARNINGS8K_ARCHIVE_START,
 } from "./sec8kEarnings";
-import { boot13FPoll, latest13FFilings, read13FHistory, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
+import { boot13FPoll, latest13FFilings, trimHoldings, filings13fHistoryPage, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
@@ -1939,20 +1939,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       filings: hit.filings.map((f) => trimHoldings(f)),
     });
   });
+  // WINDOWED + PAGED (2026-11-12, same contract as insider/history and
+  // earnings-language/history): `?days=N` (<=120) still works; `?from=
+  // YYYY-MM-DD&to=YYYY-MM-DD` reads an explicit window of UTC archive days,
+  // `?limit=` (<=500) sets the page cap. Whole archive days are atomic;
+  // `covered`/`truncated`/`next` say exactly what was read and how to
+  // continue. Before this the route returned the newest 500 filings and
+  // echoed `days` back unmodified — live on 2026-11-11, in the Q3 season,
+  // that was TWO archive days presented as 120. Holdings keep the RAW page's
+  // 25-row display trim (the archive holds the full table).
   app.get("/api/data/filings13f/history", (req, res) => {
-    const days = Math.min(120, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
     try {
-      const archived = read13FHistory(days);
-      const live = (latest13FFilings()?.filings || []).map((f) => trimHoldings(f));
-      const seen = new Set(archived.map((f) => f.accession));
-      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
       res.json({
         kind: "raw",
         source: "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05)",
-        days,
-        count: merged.length,
         focused_cap: FOCUSED_MAX_HOLDINGS,
-        filings: merged,
+        ...filings13fHistoryPage(req.query as Record<string, unknown>, 25),
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
@@ -4919,13 +4921,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // SEC EDGAR 13F-HR institutional holdings accumulated history keyed
   // mirror — the multi-day companion to /api/v1/data/13f-holdings above,
-  // which mirrors only the latest poll cache. Reuses read13FHistory()/
+  // which mirrors only the latest poll cache, windowed by from/to and paged by
+  // whole archive days since 2026-11-12). Reuses filings13fHistoryPage()/
   // latest13FFilings() directly — no new fetch, no new computation. Same
   // GATE 1 PASSED / GATE 2 NOT-ATTEMPTED status and the same conditional-
   // resell posture as data/13f-holdings, so this reuses that LICENSE_MARKS
   // entry rather than forking a duplicate one. RESPONSE SHAPE DECISION:
-  // read13FHistory()'s own default trims holdings to the top 25 by value
-  // (a display-bandwidth trim for the RAW /data page) — this route instead
+  // the RAW /data route's page trims holdings to the top 25 by value (a
+  // display-bandwidth trim) — this route instead
   // passes topHoldings=FOCUSED_MAX_HOLDINGS so it stays consistent with
   // the base /api/v1/data/13f-holdings mirror's own deliberate "full
   // as-filed table, not the RAW route's 25-row UI trim" decision (see that
@@ -4940,17 +4943,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/v1/data/13f-holdings-history", (req, res) => {
     const auth = requireApiKey(req, res);
     if (!auth) return;
-    const days = Math.min(120, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
     try {
-      const archived = read13FHistory(days, undefined, undefined, 500, FOCUSED_MAX_HOLDINGS);
-      const live = latest13FFilings()?.filings || [];
-      const seen = new Set(archived.map((f) => f.accession));
-      const merged = [...live.filter((f) => !seen.has(f.accession)), ...archived];
+      // Same windowed/paged reader as the RAW preview route (from/to/limit,
+      // truncated + next cursor), holdings at FOCUSED_MAX_HOLDINGS — a keyed
+      // customer must never again receive two archive days labelled 120.
       res.json(v1Envelope("data/13f-holdings", {
-        days,
-        count: merged.length,
         focused_cap: FOCUSED_MAX_HOLDINGS,
-        filings: merged,
+        ...filings13fHistoryPage(req.query as Record<string, unknown>, FOCUSED_MAX_HOLDINGS),
       }));
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings-history", status: 200, tier: auth.tier });
     } catch (e: unknown) {

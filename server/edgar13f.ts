@@ -30,6 +30,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
+import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryResponse } from "./filingHistoryPage";
 import { parseFilingFeed } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
@@ -322,6 +323,54 @@ export function trimHoldings(f: Filing13F, top = 25): Filing13F {
   if (!f.holdings || f.holdings.length <= top) return f;
   const sorted = [...f.holdings].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   return { ...f, holdings: sorted.slice(0, top) };
+}
+
+// ── Windowed + paged history (2026-11-12) — the honest reader behind
+// /api/data/filings13f/history and the keyed /api/v1/data/13f-holdings-history.
+// read13FHistory above (newest-N within `days`) stays for the cold-cache
+// backfill, but it is no longer what a route labels with `days`: live on
+// production in the Q3 season (Nov 14 deadline), `?days=120` returned 500
+// filings spanning TWO archive days (2026-11-09..11-10) with no marker. The
+// contract (whole archive days atomic, `covered`/`truncated`/`next`) lives in
+// server/filingHistoryPage.ts, shared with the Form 4 archive. ──────────────
+
+/** Oldest 13F archive day — the poll loop has appended every filing since. */
+export const FILINGS13F_ARCHIVE_START = "2026-07-05";
+/** Default and maximum filings per page (read13FHistory's pre-existing cap,
+ *  now reported instead of hidden — a 250-holding filing is ~40 KB). */
+export const FILINGS13F_HISTORY_MAX_FILINGS = 500;
+/** Legacy `?days=` lookback cap (unchanged from the routes' original 120-day
+ *  bound — 13F's quarterly cadence means 90 days can miss a manager's only filing). */
+export const FILINGS13F_HISTORY_MAX_DAYS = 120;
+/** Widest [from, to] span scanned in one request. */
+export const FILINGS13F_HISTORY_MAX_SPAN_DAYS = 400;
+
+/** `topHoldings` is the per-filing holdings trim applied to every row served
+ *  (archived AND live): 25 for the RAW /data page's display, FOCUSED_MAX_HOLDINGS
+ *  for the keyed mirror so it never disagrees with /api/v1/data/13f-holdings. */
+export function filings13fHistoryArchive(topHoldings: number, baseDir?: string): FilingHistoryArchive<Filing13F> {
+  return {
+    dir: filings13fDir(baseDir),
+    archiveStart: FILINGS13F_ARCHIVE_START,
+    maxFilings: FILINGS13F_HISTORY_MAX_FILINGS,
+    maxDays: FILINGS13F_HISTORY_MAX_DAYS,
+    defaultDays: 30,
+    maxSpanDays: FILINGS13F_HISTORY_MAX_SPAN_DAYS,
+    project: (f) => trimHoldings(f, topHoldings),
+  };
+}
+
+/** One page of the 13F archive for the RAW preview route (topHoldings 25) and
+ *  the keyed v1 mirror (FOCUSED_MAX_HOLDINGS); the live poll cache is merged on
+ *  top only when the page ends today. `live` defaults to the module's own cache. */
+export function filings13fHistoryPage(
+  query: Record<string, unknown>,
+  topHoldings: number,
+  baseDir?: string,
+  nowMs?: number,
+  live: readonly Filing13F[] | null = latest13FFilings()?.filings ?? null,
+): FilingHistoryResponse<Filing13F> {
+  return buildFilingHistoryPage(query, filings13fHistoryArchive(topHoldings, baseDir), live, nowMs);
 }
 
 // ── In-memory cache + poll loop (eager boot, KNOWN BROKEN #9 lesson) ───────
