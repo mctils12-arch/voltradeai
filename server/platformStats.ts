@@ -44,6 +44,22 @@ export function streamsRecording(liveLayerIds: string[], archiveDirs: string[]):
   return liveLayerIds.length + extra;
 }
 
+/** An archive file of observations: `*.jsonl` / `*.jsonl.gz`, but never a
+ *  "_"-prefixed one — in this archive "_" marks a stream's own bookkeeping
+ *  (datacoreArchive.newestDataFile's rule; clinicalTrials' _state.json.gz).
+ *  [RULE-REVIEW 2026-11-06, measurement] Before, every *.jsonl(.gz) counted,
+ *  so two bookkeeping files were counted as observations on top of the rows
+ *  they describe: dtccswaps/_seen_ids_index.jsonl.gz (one dedup ID per line,
+ *  the same IDs as the day files' rows — 6,939,910 seen IDs on 2026-11-06)
+ *  and finrashortvol/_summary_history.jsonl (one derived summary per day of
+ *  rows already counted; 89 lines). Those are the only "_"-prefixed JSONL
+ *  files any writer in this repo creates (checked 2026-11-06). */
+export function isObservationFile(name: string): boolean {
+  return !name.startsWith("_") && (name.endsWith(".jsonl") || name.endsWith(".jsonl.gz"));
+}
+
+/** Archive dirs that hold at least one observation file (a dir holding only
+ *  bookkeeping records nothing). */
 export function listArchiveDirs(base = archiveBaseDir()): string[] {
   try {
     return fs.readdirSync(base, { withFileTypes: true })
@@ -51,7 +67,7 @@ export function listArchiveDirs(base = archiveBaseDir()): string[] {
       .map((e) => e.name)
       .filter((n) => {
         try {
-          return fs.readdirSync(path.join(base, n)).some((f) => f.endsWith(".jsonl") || f.endsWith(".jsonl.gz"));
+          return fs.readdirSync(path.join(base, n)).some(isObservationFile);
         } catch { return false; }
       });
   } catch { return []; }
@@ -106,13 +122,14 @@ function useBase(base: string): void {
   if (fileCountsBase !== base) { fileCounts.clear(); fileCountsBase = base; }
 }
 
-/** Real total archived records across all non-operational streams. A file
- *  whose size and mtime are unchanged since it was last counted is not read
- *  again; files that disappeared (pruned, or evicted by the rolling R2 tier)
- *  leave the total. EXCEPTION (2026-11-06): a day file the permanent R2 tier
- *  holds as its only copy (archivePermanentTier.ts: local copy deleted after
- *  a byte-for-byte read-back, never expired) is still archived — it keeps its
- *  last local count, or the tier's own count of that file when this cache
+/** Real total archived records across all non-operational streams (their
+ *  observation files only — never a "_" bookkeeping file). A file whose size
+ *  and mtime are unchanged since it was last counted is not read again; files
+ *  that disappeared (pruned, or evicted by the rolling R2 tier) or stopped
+ *  qualifying leave the total. EXCEPTION (2026-11-06): a day file the permanent
+ *  R2 tier holds as its only copy (archivePermanentTier.ts: local copy deleted
+ *  after a byte-for-byte read-back, never expired) is still archived — it keeps
+ *  its last local count, or the tier's own count of that file when this cache
  *  never saw it. Files the tier reports MISSING are not held and not counted. */
 export async function countObservations(base = archiveBaseDir()): Promise<number> {
   useBase(base);
@@ -122,7 +139,7 @@ export async function countObservations(base = archiveBaseDir()): Promise<number
     if (OPERATIONAL_DIRS.has(dir) || dir.endsWith("_tracks")) continue;
     const dp = path.join(base, dir);
     let files: string[] = [];
-    try { files = fs.readdirSync(dp).filter((f) => f.endsWith(".jsonl") || f.endsWith(".jsonl.gz")); } catch { continue; }
+    try { files = fs.readdirSync(dp).filter(isObservationFile); } catch { continue; }
     for (const f of files) {
       const key = `${dir}/${f}`;
       const fp = path.join(dp, f);
