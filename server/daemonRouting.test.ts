@@ -228,9 +228,14 @@ test("bot.ts: every per-ticker analyze.py spawn now goes through analyzeTickerJs
   const generate = slice("async function generateSignals(tickers: string[])", "// Signals endpoint");
   assert.ok(generate.includes("await analyzeTickerJson(ticker)"));
   assert.ok(!generate.includes("execPythonSerialized("), "generateSignals no longer spawns anything itself");
-  const earnings = slice("// 12am-2am: Deep analyze earnings reporters for tomorrow", "// 2am-4am: Prepare pre-market report");
-  assert.ok(earnings.includes("await analyzeTickerJson(t)"));
-  assert.ok(!earnings.includes("execPythonSerialized("), "the earnings loop no longer spawns anything itself");
+  // The overnight research engine (8pm-4am ET), whose 12am-2am earnings loop this test used to slice, was
+  // removed on the 2026-11-06 rule call (never reachable; its heartbeat always "missing"): it is gone, and so
+  // is every boot SCHEDULE line that advertised its windows. The single analyze.py spawn above is still the rule.
+  assert.ok(!bot.includes("// 12am-2am: Deep analyze earnings reporters for tomorrow"), "the overnight earnings loop is gone");
+  assert.ok(!bot.includes("Overnight Research Engine"), "the overnight engine is gone");
+  for (const w of ["8pm-10pm ET", "10pm-12am ET", "12am-2am ET", "2am-4am ET"]) {
+    assert.ok(!bot.includes(`audit("SCHEDULE", \`${w}`), `boot no longer advertises the removed ${w} window`);
+  }
 });
 
 test("voltrade_daemon.py registers both routes against the real entry points; analyze.py's CLI prints the route's function", () => {

@@ -11226,10 +11226,6 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
     audit("SCHEDULE", `4am-9:30am ET: Pre-market research → queue for market open`);
     audit("SCHEDULE", `9:30am-4pm ET: Full trading (market orders + options)`);
     audit("SCHEDULE", `4pm-8pm ET: After-hours research → queue for next open`);
-    audit("SCHEDULE", `8pm-10pm ET: Evening research — analyze today's movers`);
-    audit("SCHEDULE", `10pm-12am ET: Backtest validation — check strategies still work`);
-    audit("SCHEDULE", `12am-2am ET: Earnings analysis — upcoming reporters`);
-    audit("SCHEDULE", `2am-4am ET: Pre-market report — compile morning trade list`);
 
     alpaca("/v2/clock").then((clock: any) => {
       const etH3 = getETHour();
