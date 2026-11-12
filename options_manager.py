@@ -21,6 +21,7 @@ REFERENCES:
 
 import os
 import re
+import sys
 import json
 import math
 import time
@@ -1969,6 +1970,13 @@ def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: s
 # lists every sold option's next report and close session in one
 # "earnings_backfill" action (an exempt group's legs as "exempt_setup"); a leg
 # already due is closed in that same pass.
+# One-shot processes (REPAIR 2026-11-12): when the daemon does not answer,
+# bot.ts's halted exits-only pass runs this module in a `python3 -c` process
+# per call. Every call was then a process start, so the backfill row repeated
+# on every tick. A one-shot process keeps the ET day of its backfill pass in
+# EARNINGS_RUN_PATH and the next one that day skips the row: one row per ET
+# day. A long-lived process (the daemon) never reads or writes that file; its
+# in-memory flag is the whole rule, as before.
 EARNINGS_BACKFILL_TYPE = "earnings_backfill"
 EARNINGS_LOOKUP_FAILED_TYPE = "earnings_lookup_failed"
 EARNINGS_SETUP_UNKNOWN_TYPE = "earnings_setup_unknown"
@@ -1979,6 +1987,10 @@ _EARNINGS_FAILED: dict = {}         # underlying -> ET day its own lookup last f
 _EARNINGS_WARNED: dict = {}         # underlying -> ET day of its last lookup-failure WARNING
 _EARNINGS_SETUP_NOTED: dict = {}    # (OCC root, expiry) of an unrecorded structure -> ET day of its last WARNING
 _EARNINGS_RUN = {"backfill_done": False, "unconfigured_logged": False}
+try:        # storage_config owns the path
+    from storage_config import OPTIONS_EARNINGS_RUN_PATH as EARNINGS_RUN_PATH
+except ImportError:
+    EARNINGS_RUN_PATH = os.path.join(DATA_DIR, "voltrade_options_earnings_run.json")
 
 
 def _now_et() -> datetime:
@@ -2148,8 +2160,8 @@ def _earnings_close_context(options_positions: list, actions: list, strategy_gro
     among its sold options (an exempt group's legs left out), or None. Appends
     the lookup-failure WARNINGs (once per underlying per ET day), the
     setup-unknown WARNINGs (`state` is the pass's options state; None: not
-    judged) and, on the first active pass since process start, the
-    "earnings_backfill" summary."""
+    judged) and, on the first active pass since process start (a one-shot
+    process: the first of its ET day), the "earnings_backfill" summary."""
     ctx = {"active": False, "today": None, "by_root": {}, "exempt": {}}
     if not _earnings_close_enabled():
         return ctx
@@ -2213,9 +2225,57 @@ def _earnings_close_context(options_positions: list, actions: list, strategy_gro
         logger.warning(f"EARNINGS CLOSE: setup-unknown notice skipped this pass: {type(e).__name__}: {e}")
     if not _EARNINGS_RUN["backfill_done"]:
         _EARNINGS_RUN["backfill_done"] = True
-        if shorts or exempt_shorts:
+        if not _one_shot_backfill_done(day) and (shorts or exempt_shorts):
             actions.append(_earnings_backfill_action(ctx, shorts + exempt_shorts))
     return ctx
+
+
+def _one_shot_process() -> bool:
+    """True in a process started as `python3 -c "..."`: it runs one statement
+    and ends, so nothing it keeps in module memory reaches a second pass.
+    bot.ts's subprocess fallback for the halted exits-only pass is such a
+    one-liner. The daemon (`python3 voltrade_daemon.py`) is not."""
+    return (getattr(sys, "argv", None) or [""])[0] == "-c"
+
+
+def _earnings_run_day():
+    """The ET day EARNINGS_RUN_PATH records as "backfill_day", else None: a
+    missing, unreadable or malformed file means not run yet. Never raises."""
+    try:
+        with open(EARNINGS_RUN_PATH) as f:
+            doc = json.load(f)
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        logger.warning(f"EARNINGS CLOSE: run marker unreadable, read as not run yet: {type(e).__name__}: {e}")
+        return None
+    day = doc.get("backfill_day") if isinstance(doc, dict) else None
+    return day if isinstance(day, str) else None
+
+
+def _save_earnings_run_day(day: str) -> None:
+    """EARNINGS_RUN_PATH <- {"backfill_day": day}, atomically (tmp + os.replace).
+    Never raises: a failed write is logged, and the next one-shot process
+    repeats the backfill row, as every one did before."""
+    tmp = EARNINGS_RUN_PATH + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump({"backfill_day": day}, f)
+        os.replace(tmp, EARNINGS_RUN_PATH)
+    except Exception as e:
+        logger.warning(f"EARNINGS CLOSE: run marker not saved, the backfill row may repeat: {type(e).__name__}: {e}")
+
+
+def _one_shot_backfill_done(day: str) -> bool:
+    """Always False in a long-lived process, which never touches the file. In
+    a one-shot process: True when an earlier one already ran the backfill pass
+    this ET day; otherwise `day` is recorded and this one runs it."""
+    if not _one_shot_process():
+        return False
+    if _earnings_run_day() == day:
+        return True
+    _save_earnings_run_day(day)
+    return False
 
 
 def _earnings_backfill_action(ctx: dict, shorts: list) -> dict:

@@ -78,3 +78,10 @@ ML_MODEL_V2_PATH = os.path.join(DATA_DIR, "voltrade_ml_v2.pkl")
 # ticker, setup and action). Not created here.
 DEALER_GAMMA_STATE_PATH = os.path.join(DATA_DIR, "voltrade_dealer_gamma_state.json")
 DEALER_GAMMA_DECISIONS_PATH = os.path.join(DATA_DIR, "voltrade_dealer_gamma_decisions.jsonl")
+
+# Options earnings close (options_manager.py, 2026-11-12): the ET day on which
+# a one-shot `python3 -c` process (bot.ts's subprocess fallback) last ran the
+# earnings backfill pass, so the next one that day does not repeat its row.
+# One overwritten JSON, {"backfill_day": "YYYY-MM-DD"}; the daemon never reads
+# or writes it. Not created here.
+OPTIONS_EARNINGS_RUN_PATH = os.path.join(DATA_DIR, "voltrade_options_earnings_run.json")
