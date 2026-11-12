@@ -481,7 +481,7 @@ const gzipAsync = promisify(zlib.gzip);
 // every DTCC_ASYNC_SLICE_MS. The new Set is private until it is COMPLETE and
 // only then installed as `seenIds`, so a dedup decision never sees a partial
 // set; a refresh that arrives while it loads awaits the same load. The sync
-// loadSeenIds below stays, unchanged, for direct callers.
+// loadSeenIds below stays for direct callers.
 
 /** Longest stretch (ms) the non-blocking DTCC paths run before handing the
  *  event loop a turn. server/eventLoopLag.ts alerts (EVENTLOOP-LAG) at 500 ms;
@@ -609,10 +609,58 @@ async function writeSeenIdsIndexAsync(dir: string, ids: CompactIdSet): Promise<v
   }
 }
 
+// ── LEGACY REBUILD, ONE DAY FILE AT A TIME ([REPAIR] 2026-11-06) ───────────
+// The day-file scan in both loaders runs only when the compact index is
+// missing or unreadable. One try used to wrap the whole loop, so the first
+// unreadable day file ended the scan: every LATER day's IDs were missing from
+// the rebuilt set, that partial set was then written as the index (so every
+// later boot kept it), and the next poll re-archived those days' rows as
+// duplicates (the upstream file re-serves every row daily). Now each day file
+// stands alone: an unreadable one is skipped, counted and reported
+// (DTCC-ARCHIVE-ERROR through the audit sink), and the scan goes on. A file
+// adds its IDs only once it has been read to its end: the synchronous loader
+// reads a whole file or none of it, so the streamed loader stages a file's IDs
+// (and its malformed-line count) and drops them if the stream fails part-way
+// (a truncated gzip member) — the two loaders build the same set. The skipped
+// day's IDs are absent from the rebuilt index, so a later poll archives the
+// rows of that day the upstream file still serves again: a readable copy of a
+// day this process could not read (a duplicate only if the failure was
+// transient), never a gap. The index is still written, so later boots take
+// the fast path instead of re-paying this scan.
+
+/** The day files archiveNewRows writes, `<observedDate>.jsonl(.gz)` — never
+ *  the index, never a foreign file in the same directory. */
+const DAY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/;
+
+/** The legacy rebuild's day files, in readdir order (both loaders). A
+ *  directory that cannot be listed (none yet) is an empty archive, logged as
+ *  before. */
+function legacyDayFiles(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir).filter((f) => DAY_FILE_RE.test(f));
+  } catch (e) {
+    console.error("[datacore] dtccswaps loadSeenIds:", e);
+    return [];
+  }
+}
+
+function legacyDayFileUnreadable(file: string, e: unknown): void {
+  idsEmit("DTCC-ARCHIVE-ERROR", `seen-ID rebuild: day file ${file} unreadable (${e instanceof Error ? e.message : String(e)}) — skipped, the scan goes on; its IDs are not in the rebuilt index, so a later poll archives that day's still-served rows again (a readable copy, never a gap)`);
+}
+
+function legacyRebuildSummary(files: number, unreadable: number, malformedLines: number): void {
+  if (malformedLines) {
+    console.error(`[datacore] dtccswaps loadSeenIds: ${malformedLines} malformed archive line(s) skipped`);
+  }
+  if (unreadable) {
+    console.error(`[datacore] dtccswaps loadSeenIds: ${unreadable} of ${files} day file(s) unreadable and skipped (one DTCC-ARCHIVE-ERROR row each)`);
+  }
+}
+
 /** Non-blocking twin of loadSeenIds — the identical set (same members; same
  *  iteration order, since both size and fill it the same way), the identical
  *  fallback (no readable index -> scan the name-anchored day files in readdir
- *  order, stop at the first unreadable one, count malformed lines, persist
+ *  order, skip and report each unreadable one, count malformed lines, persist
  *  the index), with every file streamed and the loop yielded to between
  *  slices. Never touches `seenIds`: the caller installs the result once it
  *  is complete. */
@@ -621,21 +669,34 @@ export async function loadSeenIdsAsync(dir: string): Promise<CompactIdSet> {
   if (indexed) return indexed;
 
   const seen = new CompactIdSet();
+  const files = legacyDayFiles(dir);
   let malformedLines = 0;
-  try {
-    for (const f of fs.readdirSync(dir)) {
-      if (!/^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
+  let unreadable = 0;
+  for (const f of files) {
+    // staged until the stream reaches the file's end (LEGACY REBUILD above)
+    const ids: string[] = [];
+    let fileMalformed = 0;
+    try {
       await forEachLine(fileByteStream(path.join(dir, f), f.endsWith(".gz")), (buf, start, end) => {
-        try { seen.add(JSON.parse(buf.toString("utf8", start, end)).disseminationId); }
-        catch { malformedLines++; }
+        try { ids.push(JSON.parse(buf.toString("utf8", start, end)).disseminationId); }
+        catch { fileMalformed++; }
       });
+    } catch (e) {
+      unreadable++;
+      legacyDayFileUnreadable(f, e);
+      continue;
     }
-  } catch (e) {
-    console.error("[datacore] dtccswaps loadSeenIds:", e);
+    malformedLines += fileMalformed;
+    let sliceStart = performance.now();
+    for (let i = 0; i < ids.length; i++) {
+      seen.add(ids[i]);
+      if ((i & 1023) === 1023 && performance.now() - sliceStart >= DTCC_ASYNC_SLICE_MS) {
+        await yieldToLoop();
+        sliceStart = performance.now();
+      }
+    }
   }
-  if (malformedLines) {
-    console.error(`[datacore] dtccswaps loadSeenIds: ${malformedLines} malformed archive line(s) skipped`);
-  }
+  legacyRebuildSummary(files.length, unreadable, malformedLines);
   await writeSeenIdsIndexAsync(dir, seen);
   return seen;
 }
@@ -678,31 +739,37 @@ async function ensureSeenIdsLoaded(dir: string): Promise<CompactIdSet> {
  *  `<observedDate>.jsonl(.gz)` convention `archiveNewRows` writes (same
  *  pattern fdicBanks.ts's `seedSeen` already uses) so a corrupt/unreadable
  *  index file sitting in the same directory is never itself misread as a
- *  day file during the fallback scan. */
+ *  day file during the fallback scan. Each day file is read on its own: an
+ *  unreadable one is skipped, counted and reported, and the scan goes on
+ *  (LEGACY REBUILD, 2026-11-06). */
 export function loadSeenIds(dir: string): CompactIdSet {
   const indexed = readSeenIdsIndex(dir);
   if (indexed) return indexed;
 
   const seen = new CompactIdSet();
+  const files = legacyDayFiles(dir);
   let malformedLines = 0;
-  try {
-    for (const f of fs.readdirSync(dir)) {
-      if (!/^\d{4}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
-      const raw = f.endsWith(".gz")
+  let unreadable = 0;
+  for (const f of files) {
+    let raw: string;
+    try {
+      raw = f.endsWith(".gz")
         ? zlib.gunzipSync(fs.readFileSync(path.join(dir, f))).toString("utf8")
         : fs.readFileSync(path.join(dir, f), "utf8");
-      for (const line of raw.split("\n")) {
-        if (!line) continue;
-        try { seen.add(JSON.parse(line).disseminationId); }
-        catch { malformedLines++; }
-      }
+    } catch (e) {
+      unreadable++;
+      legacyDayFileUnreadable(f, e);
+      continue;
     }
-  } catch (e) {
-    console.error("[datacore] dtccswaps loadSeenIds:", e);
+    for (const line of raw.split("\n")) {
+      if (!line) continue;
+      let id: string;
+      try { id = JSON.parse(line).disseminationId; }
+      catch { malformedLines++; continue; }
+      seen.add(id);
+    }
   }
-  if (malformedLines) {
-    console.error(`[datacore] dtccswaps loadSeenIds: ${malformedLines} malformed archive line(s) skipped`);
-  }
+  legacyRebuildSummary(files.length, unreadable, malformedLines);
   writeSeenIdsIndex(dir, seen);
   return seen;
 }
