@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { haltAllows, haltMode, haltStateFrom, type HaltAction, type HaltState } from "./haltScope";
+import { haltAllows, haltMode, haltStateFrom, KILL_BLOCKED_ORDER_STATUS, type HaltAction, type HaltState } from "./haltScope";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -209,4 +209,31 @@ test("bot.ts: tier2HaltedExits = options_manager with rolls OFF, regular hours, 
 test("voltrade_daemon.py registers manage_options_exits -> options_manager.manage_options_positions", () => {
   const daemon = fs.readFileSync(path.join(here, "..", "voltrade_daemon.py"), "utf8");
   assert.ok(daemon.includes('"manage_options_exits": ("options_manager", "manage_options_positions")'));
+});
+
+// KILL LATCH AT THE ORDER (2026-11-12, KNOWN BROKEN #51): the Python opens read
+// Node's persisted latch at the order and answer KILL_BLOCKED_ORDER_STATUS;
+// bot.ts must never read that status as "error" (the stock-fallback branch).
+test("KNOWN BROKEN #51: the blocked-open status is one string on both sides and bot.ts ends the batch on it", () => {
+  const py = fs.readFileSync(path.join(here, "..", "kill_latch.py"), "utf8");
+  assert.ok(py.includes(`BLOCKED_ORDER_STATUS = "${KILL_BLOCKED_ORDER_STATUS}"`), "kill_latch.py carries the same status string");
+  assert.equal(bot.split("=== KILL_BLOCKED_ORDER_STATUS").length - 1, 3, "SELL_CSP, BUY_PUT and executeTrades each read the status");
+  const blocked = bot.indexOf("optExec.order?.status === KILL_BLOCKED_ORDER_STATUS");
+  const errorFallback = bot.indexOf('optExec.order?.status === "error"');
+  assert.ok(blocked > 0 && blocked < errorFallback, "the blocked branch sits before the error-fallback branch");
+  const branch = bot.slice(blocked, blocked + 900);
+  assert.ok(branch.includes('noteRemaining(trade, "rejected_killswitch", "Node kill switch on — read at the order, loop ended");'), branch);
+  assert.ok(/break;/.test(branch.slice(0, branch.indexOf("// 2026-11-06"))), "the batch ends; nothing falls back to a stock buy");
+  const stock = bot.indexOf("// ── Stock execution (default or fallback from options) ──");
+  const guard = bot.slice(stock, stock + 700);
+  assert.ok(guard.includes("if (state.killSwitch) {"), "state.killSwitch is re-read right before the stock order");
+  assert.ok(guard.includes('"Node kill switch on — read before the stock order, loop ended"'));
+  for (const label of ["tier SELL_CSP open", "tier BUY_PUT open", "scanner-direct option open"]) {
+    const at = bot.indexOf(`'${label}')`);
+    assert.ok(at > 0, label);
+    const script = bot.slice(at - 400, at + 400);
+    assert.ok(script.includes("kill_latch.check_opening_allowed("), `${label}: the script reads the latch`);
+    assert.ok(script.includes("except kill_latch.EntryBlocked as _kb:"), `${label}: a block is answered, not raised`);
+    assert.ok(script.includes("kill_latch.blocked_order(_kb)"), `${label}: with the shared status`);
+  }
 });

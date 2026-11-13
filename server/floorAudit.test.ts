@@ -149,3 +149,20 @@ test("a rebalance that also sells the fund keeps the rebalance head; a wide quot
   // a cash plan that only waited or deferred writes nothing, like any floor pass
   assert.deepEqual(floorAuditRows({ ...PLAN, rebalance: false, status: "ok", cash_parking: { ...CASH, status: "deferred: outside" }, actions: [] }, "scan"), []);
 });
+
+test("a cash-parking buy the kill latch stopped at the order (2026-11-12, KNOWN BROKEN #51) is a note row beside the pass's orders, never an order row", () => {
+  const blocked = { type: "floor_vm_cash_blocked", ticker: "BOXX", qty: 360, limit: 110.02, reason: "ORDER-BLOCKED: Node kill latch set (DRAWDOWN-KILL, since 2026-11-05T17:32:42Z) — floor cash parking buy BOXX not sent" };
+  const pass = (actions: unknown[]) => ({
+    mode: "vol_managed_spy", ok: true, status: "ok", rebalance: true, sigma: 0.2, target_exposure: 0.8, current_exposure: 0.8, capital: 85000,
+    cash_parking: { ticker: "BOXX", target: 40000, held: 0, idle: 40000, action: "buy", status: "blocked: Node kill latch set (no buys while tripped)" },
+    actions,
+  });
+  // with the pass's own order (a legacy sell): the note is logged with it
+  const rows = floorAuditRows(pass([{ type: "floor_vm_legacy_sell", ticker: "QQQ", qty: 10, limit: 599.9, ok: true, order_id: "o1" }, blocked]), "scan");
+  const note = rows.find((r) => r.message.includes("T-bill fund buy NOT placed"));
+  assert.ok(note, JSON.stringify(rows));
+  assert.match(note!.message, /^BOXX: T-bill fund buy NOT placed, Node kill latch set \(ORDER-BLOCKED: Node kill latch set/);
+  assert.ok(!rows.some((r) => /BUY T-bill fund/.test(r.message)), "nothing reads as an order sent");
+  // alone, it repeats every scan while the latch holds: the scan context writes nothing (the latch is audited hourly by ENGINE-KILL-LATCHED / KILL-SWITCH, and kill_latch.py logs each block)
+  assert.deepEqual(floorAuditRows(pass([blocked]), "scan"), []);
+});

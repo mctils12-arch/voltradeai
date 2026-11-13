@@ -63,3 +63,9 @@ test("bot.ts audits the scan's third_leg right after the floor rows", () => {
   const leg3 = bot.indexOf("for (const row of leg3AuditRows(result.third_leg)) audit(row.type, row.message);");
   assert.ok(floor > 0 && leg3 > floor && leg3 - floor < 400, "the third-leg rows follow the floor rows in the scan handler");
 });
+
+test("a kill-latch-blocked buy (2026-11-12, KNOWN BROKEN #51) names the latch, the size and the price it would have paid", () => {
+  const [row] = leg3AuditRows({ status: "ok", actions: [{ type: "third_leg_blocked", stage: "buy", symbol: "SVXY", shares: 300, price: 50, vxx_ratio: 1.15, reason: "ORDER-BLOCKED: Node kill latch set (DRAWDOWN-KILL, since 2026-11-05T17:32:42Z) — third-leg VRP buy SVXY not sent" }] });
+  assert.equal(row.type, "LEG3-KILL-BLOCK");
+  assert.equal(row.message, "SVXY buy NOT placed: Node kill latch set — would have bought 300 at ~$50.00 · VXX ratio 1.150 · ORDER-BLOCKED: Node kill latch set (DRAWDOWN-KILL, since 2026-11-05T17:32:42Z) — third-leg VRP buy SVXY not sent");
+});
