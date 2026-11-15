@@ -119,7 +119,8 @@ import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { shouldDispatchTierAction, tierDeferAuditMessage } from "./tierDispatchGate";
 import { healthHttpCode, servingVerdict } from "./healthGate";
-import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, JOB_REGISTRY } from "./jobHeartbeat";
+import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, JOB_REGISTRY, zonedParts } from "./jobHeartbeat";
+import { tier2ScanDecision, closedDayScansEnabled, closedDayAuditLine } from "./tier2SessionGate"; // closed-day gate 2026-11-15
 import {
   TIER1_VIA_DAEMON_ENV, TIER1_SYNC_TIMEOUT_MS, RESEARCH_ANALYZE_TIMEOUT_MS, tier1ViaDaemon, researchViaDaemon,
   classifyRpc, rpcMayFallBack, posMonitorSyncLines, viaTransitionLine, type SyncVia, type AnalyzeTickerJson,
@@ -10969,6 +10970,7 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     if (rows.length) killFloorIdleDay = today;
   }
 
+  let tier2ClosedDayAudited = ""; // ET date of the last closed-day audit line (one per day)
   async function scheduleTier2() {
     if (TIER2_DISABLED) {
       if (!tier2DisabledLogged) {
@@ -11005,9 +11007,23 @@ with open(cd_path, 'w') as f: json.dump(cd, f)
     try {
       const clock = await alpaca("/v2/clock");
       const etH = getETHour();
-      const isAnyWindow = clock.is_open || (etH >= 4 && etH < 20);
-      if (!isAnyWindow) {
-        beat("tier2_scan", "finish", "skipped", "outside the scan window (market closed and outside 04:00-20:00 ET)");
+      // CLOSED-DAY GATE (2026-11-15, server/tier2SessionGate.ts): the window
+      // used to be `clock.is_open || 04:00 <= ET hour < 20:00` with no
+      // trading-day test, so the research cadence ran ~270 full scans on every
+      // weekend day and holiday. On a day with no session one scan per
+      // container is kept (lastScanResult is in-memory); the rest are skipped.
+      const t2EtDate = zonedParts(Date.now(), "America/New_York").date;
+      const t2Gate = tier2ScanDecision({
+        clockIsOpen: !!clock.is_open, etHour: etH, etDate: t2EtDate,
+        calendar: { holidays: marketHolidays(), halfDays: marketHalfDays() },
+        hasScanResult: lastScanResult != null, closedDayScans: closedDayScansEnabled(),
+      });
+      if (!t2Gate.scan) {
+        beat("tier2_scan", "finish", "skipped", t2Gate.why ?? undefined);
+        if (t2Gate.closedDay && tier2ClosedDayAudited !== t2EtDate) {
+          tier2ClosedDayAudited = t2EtDate;
+          audit("TIER2", closedDayAuditLine(t2EtDate, lastScanResult?.timestamp ? String(lastScanResult.timestamp) : null));
+        }
         armTier2Timer(getTier2Interval());
         return;
       }
