@@ -10,6 +10,7 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
+from shadow_portfolio import _is_session_day as sp_is_session_day
 from unittest import mock
 
 import numpy as np
@@ -37,7 +38,8 @@ def make_records(n_days=40, per_day=8, copies=3, seed=7, with_breakdown=True):
     day = 0
     d = t0
     while day < n_days:
-        if d.weekday() < 5:
+        # sessions only (2026-11-15: a record on a closed day is not a ticker-day)
+        if sp_is_session_day(d.strftime("%Y-%m-%d")):
             for k in range(per_day):
                 good = float(rng.normal())
                 y = 2.0 * good + float(rng.normal())
