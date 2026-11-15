@@ -14,10 +14,13 @@ manual, then prints ONE JSON summary line for the scheduler:
 Research plumbing only: nothing here is read by a trade path and nothing is
 surfaced on /data. latest.json carries DERIVED STATISTICS ONLY — no ticker, no
 price (Alpaca data licence) and no CIK. Status "skipped" (never an error) when a
-prerequisite is absent: no backfill rows yet, or no complete price-panel build.
-A repeat run on the same archive re-evaluates the SAME pre-registered spec, so it
-adds no variant to the ledger (variants stays 1). Last good latest.json is only
-replaced by a successful run.
+prerequisite is absent: no backfill rows yet, no complete price-panel build, or
+(since 2026-11-15) a backfill that has not scored its whole plan — the test is
+pre-registered as ONE look, and rows that stop at the backfill's cursor are a
+sample cut by our own progress, not the registered one (lazy_prices_backfill.
+coverage). A repeat run on the same archive re-evaluates the SAME pre-registered
+spec, so it adds no variant to the ledger (variants stays 1). Last good
+latest.json is only replaced by a successful run.
 """
 from __future__ import annotations
 
@@ -70,6 +73,11 @@ def run(out_dir: str, pairs_dir: str, backfill_dir: str, panel_root, code_versio
     rows = lpb.load_rows(backfill_dir)
     if not rows:
         return {"status": "skipped", "reason": "no backfill rows yet (lazy_prices_backfill.py has not scored a pair on this volume)"}
+    cov = lpb.coverage(backfill_dir)
+    if not cov["complete"]:
+        # single-look rule: no verdict on a sample cut by the backfill's own progress (see lpb.coverage)
+        return {"status": "skipped", "reason": f"backfill incomplete: {cov['reason']} — the pre-registered verdict is read only on the whole plan",
+                "rows_so_far": len(rows), "coverage": cov}
     import sec_issuer_pairs as sip
     import sec_cik_symbol_map as cmap
     import lazy_prices_panel as lpp
@@ -81,7 +89,7 @@ def run(out_dir: str, pairs_dir: str, backfill_dir: str, panel_root, code_versio
                         {"pairs_quarters_failed": len(failed), "rows_scored": len(rows),
                          "backfill": {"cursor_day": bstat.get("cursor_day"), "cursor_closed": bstat.get("cursor_closed"),
                                       "first_month": bstat.get("first_month"), "last_month": bstat.get("last_month"),
-                                      "counts": bstat.get("counts")},
+                                      "counts": bstat.get("counts"), "coverage": cov},
                          "elapsed_s": round(time.time() - t0, 1)})
     _write_atomic(os.path.join(out_dir, "latest.json"), payload)
     _write_atomic(os.path.join(out_dir, "last_run.json"),

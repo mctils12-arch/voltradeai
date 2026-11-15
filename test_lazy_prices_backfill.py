@@ -235,6 +235,67 @@ def test_budget_stop_checkpoints_cleanly(tmp_path):
     assert os.path.exists(tmp_path / "root" / "checkpoint.json")
 
 
+def _save_plan(root, plan, since="2014-01-01", complete=True):
+    bf._write_jsonl_gz(os.path.join(root, "plan.jsonl.gz"), plan)
+    bf._write_json(os.path.join(root, "plan_meta.json"), {"since": since, "complete": complete, "filings": len(plan),
+                                                          "completed_at": "2018-01-01T00:00:00+00:00" if complete else None})
+
+
+def test_coverage_counts_exactly_what_the_next_run_would_score(tmp_path):
+    """coverage() is the weekly reader's 'is the whole plan scored?' — it must agree
+    with the run loop at every stage: nothing run, killed mid-day, finished."""
+    docs, plan = _universe(n_ciks=5, same_day=True)          # 20 filings on 4 days, 5 per day
+    root = str(tmp_path / "root")
+    os.makedirs(root)
+    assert bf.coverage(root)["complete"] is False and "plan listing is not complete" in bf.coverage(root)["reason"]
+    _save_plan(root, plan, complete=False)
+    assert bf.coverage(root)["complete"] is False            # a listing in progress proves nothing
+    _save_plan(root, plan)
+    c = bf.coverage(root)
+    assert (c["complete"], c["plan_filings"], c["pending"], c["first_pending_day"], c["last_plan_day"]) == \
+        (False, 20, 20, "2014-03-01", "2017-03-01")
+
+    def run(k):
+        return bf.Backfill(root, str(tmp_path / "t"), _fetch_from(docs), since="2014-01-01", min_corpus=0, chunk=2).run(plan, max_filings=k)
+
+    out = run(7)                                             # a kill two filings into the second day
+    c = bf.coverage(root)
+    assert out["remaining_in_plan"] == 13 == c["pending"] and c["complete"] is False
+    assert c["first_pending_day"] == "2015-03-01" and c["cursor_closed"] is False
+    assert "13 of 20 plan filings not scored yet" in c["reason"]
+    out = run(None)
+    c = bf.coverage(root)
+    assert out["remaining_in_plan"] == 0 == c["pending"] and c["complete"] is True and c["reason"] is None
+    assert "accession" not in json.dumps(c) and "0000000001" not in json.dumps(c)     # no identifiers
+
+
+def test_coverage_open_tail_day_and_failures_do_not_hold_the_read(tmp_path):
+    """The newest day stays OPEN until a later listing (close lag) but its filings ARE
+    scored; a recorded failure is never retried. Neither is 'pending'. A filing a
+    newer listing adds past the cursor is."""
+    docs, plan = _universe(n_ciks=3)
+    root = str(tmp_path / "root")
+    os.makedirs(root)
+    _save_plan(root, plan)
+    bad = plan[4]["accession"]
+
+    def fetch(filing):
+        if filing["accession"] == bad:
+            raise OSError("boom")
+        return docs[filing["accession"]]
+
+    out = bf.Backfill(root, str(tmp_path / "t"), fetch, since="2014-01-01", min_corpus=0,
+                      close_before=plan[-1]["filingDate"]).run(plan)
+    # two recorded failures: the unreadable filing, and the next year's whose PRIOR it is
+    assert out["cursor_closed"] is False and out["counts"]["failed"] == 2
+    c = bf.coverage(root)
+    assert c["complete"] is True and c["pending"] == 0 and c["cursor_closed"] is False
+    newer = plan + [dict(plan[-1], accession="0000000009-18-000001", filingDate="2018-03-09")]
+    _save_plan(root, newer)
+    c = bf.coverage(root)
+    assert c["complete"] is False and c["pending"] == 1 and c["first_pending_day"] == "2018-03-09"
+
+
 def test_build_plan_resumes_drops_amendments_and_lists_priors_before_since(tmp_path):
     root = str(tmp_path / "root")
     listed = []
