@@ -333,6 +333,72 @@ def rows_status(root: str) -> dict:
             "status": _read_json(os.path.join(root, "status.json"))}
 
 
+def is_pending(r: dict, cursor: Optional[str], closed: bool, done_today: set, failed: dict) -> bool:
+    """ONE rule for 'this plan filing (already >= since) is still to be scored',
+    shared by Backfill._prepare (what a run does) and coverage() (what the weekly
+    reader is told), so the two can never disagree. Not pending: a recorded
+    failure (never retried), anything on a closed day (processed, or a late
+    arrival that is never scored), and the open day's finished accessions."""
+    fd = r["filingDate"]
+    if r["accession"] in failed:
+        return False
+    if cursor and (fd < cursor or (fd == cursor and closed)):
+        return False
+    if cursor and fd == cursor and r["accession"] in done_today:
+        return False
+    return True
+
+
+def coverage(root: str) -> dict:
+    """Has the backfill scored its WHOLE plan? Read-only, from the plan and the
+    checkpoint on disk (not from status.json, which only a run that ENDS writes).
+
+    WHY (2026-11-15): lazy_prices_run evaluates a pre-registered, single-look
+    test. While the backfill is still walking the plan in filing-date order the
+    rows stop at the cursor — a sample cut by OUR progress, missing the most
+    recent years — and a PASS/FAIL stamped on it, then read again once the rest
+    lands, is two looks at a one-look test on two different samples. The weekly
+    runner therefore reads only when `complete` is True.
+
+    complete = the plan listing finished AND no plan filing is pending under the
+    same rule a run uses (is_pending). Filings on the open tail day count as
+    scored once processed: their rows exist even though the day's df delta has
+    not been folded in yet. No identifiers in the result."""
+    meta = _read_json(_plan_paths(root)[1]) or {}
+    out = {"complete": False, "reason": None, "plan_complete": bool(meta.get("complete")),
+           "plan_listed": plan_listing_day(meta), "plan_filings": None, "pending": None,
+           "first_pending_day": None, "last_plan_day": None, "cursor_day": None, "cursor_closed": None}
+    since = meta.get("since")
+    if not meta.get("complete") or not since:
+        out["reason"] = "the plan listing is not complete (no finished listing on this volume, or a re-listing is in progress)"
+        return out
+    ck = load_checkpoint(root, since)
+    cursor, closed = ck["cursor_day"], bool(ck["closed"])
+    done_today, failed = set(ck["day_done"]), ck["failed"]
+    out.update({"cursor_day": cursor, "cursor_closed": closed})
+    n = pending = 0
+    first_pending = last_day = None
+    for r in load_plan(root):
+        fd = r["filingDate"]
+        if fd < since:
+            continue
+        n += 1
+        if last_day is None or fd > last_day:
+            last_day = fd
+        if is_pending(r, cursor, closed, done_today, failed):
+            pending += 1
+            if first_pending is None or fd < first_pending:
+                first_pending = fd
+    out.update({"plan_filings": n, "pending": pending, "first_pending_day": first_pending, "last_plan_day": last_day})
+    if n == 0:
+        out["reason"] = "the plan lists no filing on or after its start day"
+    elif pending:
+        out["reason"] = f"{pending} of {n} plan filings not scored yet (from {first_pending}; plan runs to {last_day})"
+    else:
+        out["complete"] = True
+    return out
+
+
 # ── per-filing fetch + extract (tmp archive), raw bytes dropped ───────────────
 
 # Best-effort tmp housekeeping never aborts a run, but it is never silent either:
@@ -463,13 +529,8 @@ class Backfill:
             if fd < self.since:
                 continue
             per_day[fd] += 1
-            if r["accession"] in failed:
-                continue
-            if cursor and (fd < cursor or (fd == cursor and closed)):
-                continue      # a closed day: processed, or arrived late (counted below)
-            if cursor and fd == cursor and r["accession"] in done_today:
-                continue
-            todo.append(r)
+            if is_pending(r, cursor, closed, done_today, failed):
+                todo.append(r)
         # late arrivals behind closed days: plan filings minus what those days processed (recomputed, not accumulated)
         behind = 0
         for day, n in per_day.items():
