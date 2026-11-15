@@ -297,7 +297,8 @@ def train_env(tmp_log, tmp_path, monkeypatch):
     monkeypatch.setattr(v2, "CALIBRATOR_PATH", str(tmp_path / "cal.pkl"))
     rng = np.random.default_rng(9)
     recs = []
-    days = [b["t"][:10] for b in bars["SPY"]][150:230]
+    # sessions only (2026-11-15: a record on a closed day is not a ticker-day)
+    days = [x for x in (b["t"][:10] for b in bars["SPY"]) if sp._is_session_day(x)][150:230]
     for k in range(60):                                   # 60 candidate-days x 4 scan copies
         day = days[k]
         lab = int(rng.random() < 0.45)

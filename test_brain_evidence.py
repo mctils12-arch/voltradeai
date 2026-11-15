@@ -71,8 +71,11 @@ class TestBuckets(unittest.TestCase):
 
     def test_dedupe_first_seen_and_excess(self):
         recs = []
+        # ten SESSIONS from 2026-06-01 (2026-11-15: a record on a closed day is not a ticker-day)
+        sessions = [d for d in ((datetime(2026, 6, 1) + timedelta(days=k)).strftime("%Y-%m-%d") for k in range(14))
+                    if datetime.strptime(d, "%Y-%m-%d").weekday() < 5][:10]
         for i in range(40):
-            day = (datetime(2026, 6, 1) + timedelta(days=i % 10)).strftime("%Y-%m-%d")
+            day = sessions[i % 10]
             recs.append(_rec(f"T{i}", day, -1.0))
         # a later copy of the same (ticker, day) with a different outcome must be ignored
         recs.append(_rec("T0", "2026-06-01", 50.0, hour=18))

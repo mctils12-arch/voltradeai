@@ -1934,6 +1934,10 @@ def get_shadow_stats() -> dict:
         "backfill_progress_by_decision": backfill_progress_by_decision,
         "win_rate_by_change_pct_band": _change_pct_band_stats(records),
         "win_rate_by_masterkill_reason": _win_rate_by_masterkill_reason(records),
+        # 2026-11-15 [RULE-REVIEW]: records written on a day with no session
+        # (see _first_seen_per_ticker_day). A count only; every key above
+        # keeps its exact values.
+        "session_days":          session_day_counts(records),
     }
 
 
@@ -2960,6 +2964,65 @@ def shadow_band_report(records: List[dict], min_n: int = 20,
     }
 
 
+SESSION_DAYS_ONLY_ENV = "VOLTRADE_SHADOW_SESSION_DAYS_ONLY"
+
+
+def _session_days_only() -> bool:
+    """Off switch for the session-day rule below (default ON). Setting
+    VOLTRADE_SHADOW_SESSION_DAYS_ONLY=0 restores the pre-2026-11-15 behaviour:
+    every calendar day a scan ran counts as an entry day."""
+    return os.environ.get(SESSION_DAYS_ONLY_ENV, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _is_session_day(et_day: Optional[str]) -> bool:
+    """True when the ET date is an NYSE session (Mon-Fri, not a full-closure
+    holiday in market_calendar; a half day IS a session). An unreadable date,
+    or one the calendar cannot be asked about, is kept (True): this rule only
+    ever removes a record it can positively place on a closed day. Years
+    outside market_calendar's tables fall back to the weekend test alone."""
+    if not et_day:
+        return True
+    try:
+        d = datetime.strptime(str(et_day)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return True
+    if d.weekday() >= 5:
+        return False
+    try:
+        import market_calendar
+        return not market_calendar.is_market_holiday(d)
+    except Exception as e:
+        logger.debug(f"session-day check: market_calendar unavailable ({e}); weekday kept")
+        return True
+
+
+def session_day_counts(records: List[dict]) -> dict:
+    """How many shadow records, and how many distinct (ticker, ET day) pairs,
+    were written on a day with NO session (weekend / full-closure holiday).
+    Aggregate-only; reported whether or not the rule is switched on, so the
+    size of what it removes is always readable."""
+    total = off = 0
+    all_days: set = set()
+    off_days: set = set()
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        total += 1
+        day = _xa_entry_date_et(r.get("timestamp", ""))
+        k = (str(r.get("ticker") or ""), day)
+        all_days.add(k)
+        if not _is_session_day(day):
+            off += 1
+            off_days.add(k)
+    return {
+        "rule_on": _session_days_only(),
+        "records": total,
+        "non_session_records": off,
+        "ticker_days": len(all_days),
+        "non_session_ticker_days": len(off_days),
+    }
+
+
 def _first_seen_per_ticker_day(records: List[dict], has_label) -> List[dict]:
     """2026-10-27 [RULE-REVIEW]: the shadow logger writes the same candidate
     on every scan, so one (ticker, ET entry day) can appear dozens of times
@@ -2967,12 +3030,27 @@ def _first_seen_per_ticker_day(records: List[dict], has_label) -> List[dict]:
     and a cell's n counts copies, not events. Keep ONE record per (ticker, ET
     entry session): the FIRST-SEEN one (earliest timestamp) — the first scan
     at which the system could have acted — among records where
-    has_label(rec) is true. Pure; records are not modified."""
+    has_label(rec) is true. Pure; records are not modified.
+
+    2026-11-15 [RULE-REVIEW]: a record written on a day with no session is
+    not a ticker-day. The Tier-2 scan runs 04:00-20:00 ET on EVERY calendar
+    day (server/bot.ts scheduleTier2 has no trading-day test), so a Friday
+    candidate was logged again on Saturday and on Sunday with Friday's close
+    as its entry price and Friday's features; keyed on the ET date, those two
+    copies survived this dedupe as two more "independent" ticker-days whose
+    labels are the Friday row's label almost exactly. They are dropped here
+    (_is_session_day), for every reader of this function at once: the ML
+    training rows (load_shadow_data), source_validation, brain_evidence and
+    the deduped band report. Off switch: VOLTRADE_SHADOW_SESSION_DAYS_ONLY=0."""
     first: Dict[Tuple[str, Optional[str]], dict] = {}
+    session_only = _session_days_only()
     for r in records:
         if not has_label(r):
             continue
-        k = (str(r.get("ticker") or ""), _xa_entry_date_et(r.get("timestamp", "")))
+        day = _xa_entry_date_et(r.get("timestamp", ""))
+        if session_only and not _is_session_day(day):
+            continue
+        k = (str(r.get("ticker") or ""), day)
         cur = first.get(k)
         if cur is None or str(r.get("timestamp", "")) < str(cur.get("timestamp", "")):
             first[k] = r
