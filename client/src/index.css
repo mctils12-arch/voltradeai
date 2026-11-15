@@ -2895,6 +2895,15 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-filings-count { margin-left: auto; font-size: 11.5px; color: var(--text-tertiary); font-family: var(--font-mono); }
 .vt-filings-state { padding: 26px 16px; color: var(--text-tertiary); font-size: 13px; text-align: center; }
 .vt-filings-tablewrap { flex: 1; overflow: auto; padding: 0 8px 16px; }
+/* "load older days" footer: the header says which archive days are loaded,
+   this walks to the ones that are not (2026-11-15) */
+.vt-filings-older {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 16px 10px; border-top: 1px solid rgba(77, 159, 255, 0.14);
+  font-size: 11.5px; color: var(--text-tertiary); font-family: var(--font-mono);
+}
+.vt-filings-older .vt-filings-filter { text-align: left; padding: 6px 14px; }
+.vt-filings-older .vt-filings-filter:disabled { opacity: 0.6; cursor: default; }
 .vt-filings-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .vt-filings-table th {
   position: sticky; top: 0; background: var(--bg-secondary); z-index: 1;

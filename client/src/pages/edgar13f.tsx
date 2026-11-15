@@ -8,8 +8,10 @@
 // number; GATE 2 (new-position clustering vs forward returns) has not been
 // attempted, no predictive claim is made here. Reuses vt-filings-* CSS only
 // — no new styles needed.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, Landmark } from "lucide-react";
+import { coverageWords, loadOlderLabel } from "@/lib/filingCoverage";
+import { useFilingHistory } from "@/lib/useFilingHistory";
 
 interface Holding13F {
   issuer: string | null;
@@ -40,9 +42,14 @@ interface HistoryPayload {
   kind: string;
   warming_up?: boolean;
   source?: string;
-  days?: number;
+  days?: number | null;
   count?: number;
   focused_cap?: number;
+  archive_start?: string;
+  window?: { from: string; to: string };
+  covered?: { from: string; to: string };
+  truncated?: boolean;
+  next?: string | null;
   filings: Filing13F[];
 }
 
@@ -56,25 +63,14 @@ function fmtUSD(v: number | null): string {
 }
 
 export default function Institutional13FView({ onBack }: { onBack: () => void }) {
-  const [data, setData] = useState<HistoryPayload | null>(null);
-  const [error, setError] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // the header states the archive days actually loaded and the footer walks to
+  // the older ones (the route pages by whole days under a filing cap)
+  const { first: data, filings, coverage, error, loadingOlder, olderError, loadOlder } =
+    useFilingHistory<Filing13F, HistoryPayload>("/api/data/filings13f/history", "?days=45");
+  const covered = coverageWords(coverage);
+  const olderLabel = loadOlderLabel(coverage, loadingOlder);
 
-  useEffect(() => {
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/data/filings13f/history?days=45");
-        const d = await r.json();
-        if (!stop) setData(d);
-      } catch {
-        if (!stop) setError(true);
-      }
-    })();
-    return () => { stop = true; };
-  }, []);
-
-  const filings = data?.filings ?? [];
   const active = useMemo(
     () => filings.find((f) => f.accession === selected) ?? null,
     [filings, selected],
@@ -92,8 +88,9 @@ export default function Institutional13FView({ onBack }: { onBack: () => void })
         <div>
           <div className="vt-filings-title">Institutional holdings — SEC 13F-HR</div>
           <div className="vt-filings-sub">
-            as filed · {(data?.count ?? filings.length).toLocaleString()} filings, last {data?.days ?? 45} days
-            (archive began 2026-07-05) · gate 1 (data) passed, gate 2 (new-position clustering) not attempted ·
+            as filed · {filings.length.toLocaleString()} filings
+            {covered ? <> · <span data-vt-coverage>{covered}</span> (UTC archive days)</> : null}
+            {" "}· archive began {data?.archive_start || "2026-07-05"} · gate 1 (data) passed, gate 2 (new-position clustering) not attempted ·
             filers over {(data?.focused_cap ?? 250).toLocaleString()} positions archive as summary-only ·{" "}
             <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=13F-HR" target="_blank" rel="noreferrer">
               SEC EDGAR <ExternalLink size={11} />
@@ -125,7 +122,7 @@ export default function Institutional13FView({ onBack }: { onBack: () => void })
                 </tr>
               </thead>
               <tbody>
-                {filings.slice(0, 300).map((f) => (
+                {filings.slice(0, 1200).map((f) => (
                   <tr
                     key={f.accession}
                     onClick={() => setSelected(f.accession === selected ? null : f.accession)}
@@ -155,8 +152,16 @@ export default function Institutional13FView({ onBack }: { onBack: () => void })
                 ))}
               </tbody>
             </table>
-            {filings.length > 300 && <div className="vt-filings-state">showing first 300 of {filings.length.toLocaleString()} filings</div>}
+            {filings.length > 1200 && <div className="vt-filings-state">showing first 1,200 of {filings.length.toLocaleString()} filings</div>}
           </div>
+          {!error && olderLabel && (
+            <div className="vt-filings-older">
+              <button className="vt-filings-filter" onClick={loadOlder} disabled={loadingOlder} data-vt-load-older>
+                {olderLabel}
+              </button>
+              {olderError && <span role="status">Could not load the older days — the loaded rows are unchanged. Try again.</span>}
+            </div>
+          )}
 
           <div className="vt-filings-sub">
             {active

@@ -792,6 +792,40 @@ const tradeFx = (name) => JSON.parse(readFileSync(path.join(ROOT, "scripts", "fi
 const OWNER_ME = { authenticated: true, isOwner: true, user: { email: "owner@example.com", tier: "pro", role: "owner" } };
 const TRADE_LOADED = { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json"), "/api/research/SPY": tradeFx("trade_research_spy.json"), "/api/insights/SPY": tradeFx("trade_insights_spy.json"), "/api/market/scanner": tradeFx("trade_scanner.json"), "/api/market/news": tradeFx("trade_news.json"), "/api/watchlist": tradeFx("trade_watchlist_empty.json") };
 
+// A truncated filing-history page and its older continuation, in the shape
+// server/filingHistoryPage.ts serves (window / covered / truncated / next).
+// First request (no `to=`): 2 of 30 days. `?from=…&to=2026-11-13`: the rest.
+function pagedFilingHistory(req, kind) {
+  const older = /[?&]to=2026-11-13/.test(req.url || "");
+  const window = older ? { from: "2026-10-17", to: "2026-11-13" } : { from: "2026-10-17", to: "2026-11-15" };
+  const covered = older ? { from: "2026-10-17", to: "2026-11-13" } : { from: "2026-11-14", to: "2026-11-15" };
+  const form4 = (i, day) => ({
+    accession: `0000000000-26-${String(i).padStart(6, "0")}`, filedAt: `${day}T21:10:00.000Z`,
+    issuerName: `FIXTURE ISSUER ${i} INC`, issuerTradingSymbol: `FX${i}`,
+    indexUrl: `https://www.sec.gov/Archives/edgar/data/${1000 + i}/`,
+    owners: [{ cik: String(i), name: `Fixture Insider ${i}`, isDirector: i % 2 === 0, isOfficer: i % 2 === 1, isTenPercentOwner: false, officerTitle: i % 2 === 1 ? "CFO" : null }],
+    transactions: [{ table: "nonDerivative", kind: i % 3 === 0 ? "open_market_buy" : "open_market_sale", shares: 1000 * (i + 1), pricePerShare: 12.5 + i, transactionDate: day }],
+  });
+  const f13 = (i, day) => ({
+    accession: `0000000000-26-${String(500 + i).padStart(6, "0")}`, filedAt: `${day}T00:00:00.000Z`, cik: String(2000 + i),
+    indexUrl: `https://www.sec.gov/Archives/edgar/data/${2000 + i}/`,
+    managerCik: String(2000 + i), managerName: `Fixture Capital ${i} LP`, periodOfReport: "2026-09-30", submissionType: "13F-HR",
+    entryTotal: 20 + i, valueTotal: 150000000 * (i + 1), otherManagersCount: 0, holdingsOmitted: false,
+    holdings: [{ issuer: `FIXTURE HOLDING ${i} CORP`, titleOfClass: "COM", cusip: `00000000${i}`, value: 9000000 * (i + 1), shares: 100000 * (i + 1), sharesType: "SH", putCall: null, discretion: "SOLE" }],
+  });
+  const make = kind === "form4" ? form4 : f13;
+  const filings = older
+    ? [make(3, "2026-11-13"), make(4, "2026-11-06"), make(5, "2026-10-20")]
+    : [make(0, "2026-11-15"), make(1, "2026-11-14"), make(2, "2026-11-14")];
+  return {
+    kind: "raw", source: kind === "form4" ? "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04) (fixture)" : "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05) (fixture)",
+    ...(kind === "13f" ? { focused_cap: 250 } : {}),
+    days: older ? null : 30, window, covered, truncated: !older, next: older ? null : "?from=2026-10-17&to=2026-11-13",
+    max_filings: kind === "form4" ? 2000 : 500, days_scanned: older ? 28 : 2, archive_start: kind === "form4" ? "2026-07-04" : "2026-07-05",
+    malformed_lines: 0, count: filings.length, filings,
+  };
+}
+
 const PAGES = {
   // TRADE WORLD (2026-10-29, human: "I want this moving map like this but
   // more modern as well for some of the screens … it needs to look like the
@@ -973,6 +1007,11 @@ const PAGES = {
   // 2026-08-23, three weeks unverified) — see server/visualPagesWiring.test.ts,
   // the new ratchet this session added so this class can't recur silently.
   filings: { route: "/app#/data/filings", map: false },
+  // 2026-11-15: the same two filing pages on a TRUNCATED history page (the
+  // production shape in a heavy EDGAR week): the header must state the days
+  // loaded, and "load older days" must walk the server's `next` to the rest.
+  filingspaged: { route: "/app#/data/filings", map: false, fixtures: { "/api/data/insider/history": (req) => pagedFilingHistory(req, "form4") } },
+  filings13fpaged: { route: "/app#/data/filings13f", map: false, fixtures: { "/api/data/filings13f/history": (req) => pagedFilingHistory(req, "13f") } },
   earnings: { route: "/app#/data/earnings", map: false },
   shortvolume: { route: "/app#/data/short-volume", map: false },
   cot: { route: "/app#/data/cot", map: false },
@@ -3610,6 +3649,35 @@ async function main() {
       // ── EXPIRED SESSION (field bug 2026-10-28): a 401 from an app call
       // opens the sign-in view with the expiry notice; the forecast page's
       // outage banner (and the raw 401 text) must never show.
+      // ── FILING HISTORY COVERAGE (2026-11-15): on a truncated history page
+      // the header states the archive days loaded (never "last N days"), and
+      // the footer control walks the server's `next` until the window is whole.
+      if (name === "filingspaged" || name === "filings13fpaged") {
+        const fail = (m) => checks.failures.push("filing-coverage: " + m);
+        const cov = page.locator("[data-vt-coverage]");
+        const before = (await cov.count()) ? await cov.first().innerText() : "";
+        if (!/2026-11-14 → 2026-11-15 · 2 of the 30 days asked for/.test(before)) fail(`header does not state the loaded days ("${before}")`);
+        const head = await page.locator(".vt-filings-sub").first().innerText();
+        if (/last \d+ days/.test(head)) fail(`header still claims "last N days": ${head}`);
+        if (!/\b3 filings\b/.test(head)) fail(`header filing count is not the loaded count: ${head}`);
+        const btn = page.locator("[data-vt-load-older]");
+        if (!(await btn.count()) || !(await btn.first().isVisible())) fail("no 'load older days' control on a truncated page");
+        else {
+          const box = await btn.first().boundingBox();
+          if (box && (box.x < 0 || box.x + box.width > vp.w + 0.5)) fail(`load-older control overflows the viewport (${Math.round(box.x)}..${Math.round(box.x + box.width)} of ${vp.w})`);
+          if (box && vp.touch && box.height < 44) fail(`load-older control is ${Math.round(box.height)}px tall on touch (<44)`);
+          const rows0 = await page.locator(".vt-filings-table").first().locator("tbody tr").count();
+          await btn.first().click();
+          await page.waitForTimeout(600);
+          const after = (await cov.count()) ? await cov.first().innerText() : "";
+          if (!/2026-10-17 → 2026-11-15 · all 30 days/.test(after)) fail(`after loading older days the header reads "${after}"`);
+          if (await page.locator("[data-vt-load-older]").count()) fail("load-older control still shown after the window is whole");
+          const rows1 = await page.locator(".vt-filings-table").first().locator("tbody tr").count();
+          if (rows1 !== rows0 + 3) fail(`older rows not appended (${rows0} -> ${rows1}, expected +3)`);
+          if (!apiLog.some((u) => /history\?from=2026-10-17&to=2026-11-13$/.test(u))) fail(`the older page was not fetched through the server's next query (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
+          await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-older.png`) });
+        }
+      }
       if (name === "forecastexpired") {
         const fail = (m) => checks.failures.push("session-expired: " + m);
         const notice = page.locator("[data-vt-session-expired]");
