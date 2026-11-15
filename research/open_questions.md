@@ -23604,6 +23604,11 @@ OBSERVATION: lazy_prices_run.py's docstring says a repeat run "re-evaluates the 
 TESTABLE FORM / DECISION NEEDED (not decided here — it changes what the result of record IS, a measurement decision, own [RULE-REVIEW] PR): (a) write the first complete read to an immutable `verdict_of_record.json` (never overwritten; the ladder reads only it) and keep `latest.json` as monitoring; (b) or register a fixed re-read cadence up front (e.g. annually, alpha-spending across looks, critical t raised accordingly). Prior: (a) is the honest minimum and costs ~20 lines; (b) only matters if the root passes and is carried for years.
 LADDER PATH: gate 2 hygiene for `lazy_prices`; the same question applies to every weekly gate-2 job that re-reads a growing archive (edgeP2, earningsQoq, githubGate2, eventStudy) — check each when (a) is built. NOT blocking the 2026-11-22 first read: that read IS the read of record; log it in experiments.md the day it lands so the record exists outside the overwritable file.
 
+## 2026-11-15 — Sentinel tank-fill refresh is still session-run: third catch-up (10-11, 11-01, 11-15) — schedule it
+OBSERVATION: `scripts/sentinel2_refresh.py` is run by whichever session notices the 21 d freshness line; today it was caught on day 21 by coincidence. Port-dwell solved the same problem with a server Tier-3 capture (the script is now only a merge).
+OPTIONS (build-first, no spend): (a) a server-side weekly job in the long-job lane (needs numpy/rasterio/tifffile in the production image — requirements.txt is installed by the FROZEN Dockerfile, so adding deps is allowed but check image size and the 1.5 GB lane budget; CDSE credentials would have to be set on Railway by the human); (b) a dedicated weekly routine slot that only runs the script and opens a data-only PR (zero production change; costs one routine run a week). Prior: (b) is the cheaper first step; (a) only if the archive ever feeds a live signal.
+LADDER PATH: gate-1 accumulation hygiene for `tank_fill`; no gate movement. Needs the human for either the routine slot or the Railway env vars — mirror to wishlist.md when picked up.
+
 ## 2026-11-04 — from the options-bleed diagnosis (research/options_bleed_2026-11-04.md)
 
 - **[RULE-REVIEW candidate] Option exits wait until 09:45 ET, except the 5-DTE critical close.**
