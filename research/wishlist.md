@@ -1,5 +1,11 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ 2026-11-16 — PR #1769 (EDGAR archive writers stop re-appending after a restart) is green but can no longer merge; two routines built the same fix
+
+WHAT: two scheduled sessions built the same queued fix today. #1769 was first; the second build (#1771) was closed unmerged. Before the sweep reached #1769, #1770 merged with the same version number (1.0.1413), and #1769 now conflicts with main in three shared files (ci/counter_baseline.txt, research/experiments.md, research/open_questions.md). No code conflicts.
+NEEDED: nothing from you if a later session brings #1769 level with main (it is filed as the first NEXT in open_questions.md 2026-11-16). If you want it sooner, resolve the three files in the GitHub editor (keep both sides, version 1.0.1415 or next free) and merge after a close.
+OPTIONAL, YOURS TO DECIDE (a routine-prompt change): add "list open PRs from claude/ branches before choosing work; do not pick an item an open PR already names" to the scheduled prompts. Sessions cannot see each other's unmerged work from main, and the deploy window keeps market-hours builds unmerged for hours. NOT A SPEND REQUEST.
+
 ## ⚠ ENGINE KILL LATCHED ON A STALE PEAK 2026-11-10 — no new entries since 11-06; human decision needed (which peak the -20% kill measures from)
 
 WHAT: risk_kill_switch.check_kill_switches (Python, FROZEN mechanism, every
