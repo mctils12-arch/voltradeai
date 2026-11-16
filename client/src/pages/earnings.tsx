@@ -3,8 +3,13 @@
 // states, theme tokens only. Data: /api/data/earnings-language/history
 // (accumulated archive, began 2026-07-04) merged with the live poll cache.
 // RAW as-filed display — every card links to the actual SEC filing + exhibit.
-import { useEffect, useMemo, useState } from "react";
+// The header states the UTC archive days actually loaded (the route pages by
+// whole days under a 500-release cap: in an earnings week 30 days asked for
+// is about a week loaded) and the footer walks to the older days.
+import { useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, FileText } from "lucide-react";
+import { coverageWords, loadOlderLabel, type FilingHistoryMeta } from "@/lib/filingCoverage";
+import { useFilingHistory } from "@/lib/useFilingHistory";
 
 interface EarningsRow {
   accession: string;
@@ -19,36 +24,30 @@ interface EarningsRow {
   truncated: boolean;
 }
 
+interface HistoryPayload extends FilingHistoryMeta {
+  kind?: string;
+  source?: string;
+  filings?: EarningsRow[];
+}
+
 const EXCERPT_LEN = 480;
+/** cards rendered at once; the company filter reaches the rest of what is loaded */
+const VISIBLE_CAP = 200;
 
 export default function EarningsView({ onBack }: { onBack: () => void }) {
-  const [rows, setRows] = useState<EarningsRow[] | null>(null);
-  const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [meta, setMeta] = useState<{ days: number; count: number }>({ days: 30, count: 0 });
-
-  useEffect(() => {
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/data/earnings-language/history?days=30");
-        const d = await r.json();
-        if (stop) return;
-        setRows(d.filings || []);
-        setMeta({ days: d.days ?? 30, count: d.count ?? (d.filings || []).length });
-      } catch {
-        if (!stop) setError(true);
-      }
-    })();
-    return () => { stop = true; };
-  }, []);
+  const { first, filings, coverage, error, loadingOlder, olderError, loadOlder } =
+    useFilingHistory<EarningsRow, HistoryPayload>("/api/data/earnings-language/history", "?days=30");
+  const rows = first ? filings : null;
+  const covered = coverageWords(coverage);
+  const olderLabel = loadOlderLabel(coverage, loadingOlder);
 
   const visible = useMemo(() => {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) => r.companyName.toLowerCase().includes(q));
+    return rows.filter((r) => (r.companyName || "").toLowerCase().includes(q));
   }, [rows, query]);
 
   return (
@@ -59,7 +58,9 @@ export default function EarningsView({ onBack }: { onBack: () => void }) {
         <div>
           <div className="vt-filings-title">Earnings language — SEC 8-K Item 2.02</div>
           <div className="vt-filings-sub">
-            as filed · {meta.count.toLocaleString()} releases, last {meta.days} days (archive began 2026-07-04) ·
+            as filed · {filings.length.toLocaleString()} releases
+            {covered ? <> · <span data-vt-coverage>{covered}</span> (UTC archive days)</> : null}
+            {" "}· archive began {first?.archive_start || "2026-07-04"} ·
             prepared remarks/guidance only, Q&A is almost never filed ·{" "}
             <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K" target="_blank" rel="noreferrer">SEC EDGAR</a>
           </div>
@@ -81,14 +82,14 @@ export default function EarningsView({ onBack }: { onBack: () => void }) {
       {!error && rows !== null && visible.length === 0 && (
         <div className="vt-filings-state">
           {query
-            ? "No releases match that company name in the loaded window."
+            ? "No releases match that company name in the loaded days."
             : "No releases archived yet — the poll runs every ~15 minutes and history accumulates from 2026-07-04."}
         </div>
       )}
       {visible.length > 0 && (
         <div className="vt-earnings-listwrap">
           <ul className="vt-earnings-list">
-            {visible.slice(0, 200).map((r) => {
+            {visible.slice(0, VISIBLE_CAP).map((r) => {
               const isOpen = !!expanded[r.accession];
               const showFull = isOpen || r.text.length <= EXCERPT_LEN;
               const body = showFull ? r.text : r.text.slice(0, EXCERPT_LEN).trimEnd() + "…";
@@ -121,7 +122,19 @@ export default function EarningsView({ onBack }: { onBack: () => void }) {
               );
             })}
           </ul>
-          {visible.length > 200 && <div className="vt-filings-state">showing first 200 of {visible.length.toLocaleString()} rows</div>}
+          {visible.length > VISIBLE_CAP && (
+            <div className="vt-filings-state">
+              showing first {VISIBLE_CAP} of {visible.length.toLocaleString()} rows — narrow with the company filter to see the rest
+            </div>
+          )}
+        </div>
+      )}
+      {!error && olderLabel && (
+        <div className="vt-filings-older">
+          <button className="vt-filings-filter" onClick={loadOlder} disabled={loadingOlder} data-vt-load-older>
+            {olderLabel}
+          </button>
+          {olderError && <span role="status">Could not load the older days — the loaded rows are unchanged. Try again.</span>}
         </div>
       )}
     </div>

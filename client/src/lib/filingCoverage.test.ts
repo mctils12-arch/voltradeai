@@ -107,13 +107,31 @@ test("appendOlderFilings keeps one row per accession, loaded copy first", () => 
 test("RATCHET: every client page fetching a filing-history route reads coverage through filingCoverage", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const pages = path.join(here, "..", "pages");
-  const ROUTES = /\/api\/data\/(insider|filings13f)\/history/;
+  const ROUTES = /\/api\/data\/(insider|filings13f|earnings-language)\/history/;
   const users = fs.readdirSync(pages).filter((f) => f.endsWith(".tsx") && ROUTES.test(fs.readFileSync(path.join(pages, f), "utf8")));
-  assert.deepEqual(users.sort(), ["edgar13f.tsx", "filings.tsx"], "the set of pages reading these routes changed — update this ratchet with it");
+  assert.deepEqual(users.sort(), ["earnings.tsx", "edgar13f.tsx", "filings.tsx"], "the set of pages reading these routes changed — update this ratchet with it");
   for (const f of users) {
     const src = fs.readFileSync(path.join(pages, f), "utf8");
     assert.match(src, /from "@\/lib\/filingCoverage"|from "\.\.\/lib\/filingCoverage"/, `${f} must import filingCoverage`);
     assert.match(src, /coverageWords\(/, `${f} must render coverageWords()`);
     assert.doesNotMatch(src, /last \{[^}]*days[^}]*\} days/, `${f} still prints "last N days" from the echoed days field`);
   }
+});
+
+// REGRESSION (read live 2026-11-16 13:20Z): /api/data/earnings-language/history?days=30 answered a 30-day
+// window with seven archive days loaded and 442 releases; the earnings page header read "442 releases, last 30 days".
+test("REGRESSION 2026-11-16: the earnings-language history payload reads as 7 of the 30 days asked for", () => {
+  const live = {
+    days: 30, window: { from: "2026-10-18", to: "2026-11-16" }, covered: { from: "2026-11-10", to: "2026-11-16" },
+    truncated: true, next: "?from=2026-10-18&to=2026-11-09", count: 442, archive_start: "2026-07-04",
+  };
+  const c = readCoverage(live);
+  assert.ok(c);
+  assert.equal(coverageWords(c), "2026-11-10 → 2026-11-16 · 7 of the 30 days asked for — older days not loaded");
+  assert.equal(loadOlderLabel(c, false), "Load older days (23 days before 2026-11-10 not loaded)");
+  // the older page the server's `next` returns continues the run: the walk goes on, no gap is claimed
+  const older = { window: { from: "2026-10-18", to: "2026-11-09" }, covered: { from: "2026-10-30", to: "2026-11-09" }, truncated: true, next: "?from=2026-10-18&to=2026-10-29" };
+  const after = extendCoverage(c!, older);
+  assert.equal(coverageWords(after), "2026-10-30 → 2026-11-16 · 18 of the 30 days asked for — older days not loaded");
+  assert.equal(after.next, "?from=2026-10-18&to=2026-10-29");
 });
