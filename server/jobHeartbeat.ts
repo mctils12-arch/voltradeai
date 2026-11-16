@@ -283,7 +283,7 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
   },
   {
     // earningsQoq.ts bootEarningsQoq: 30-min tick, acts Sunday 18:00-19:00 ET
-    // once per ISO week — a run (scripts/earnings_language_qoq_gate2.py, 75-min
+    // once per ISO week — a run (earnings_language_qoq_gate2.py, 75-min
     // budget: the pre-registered 8-K QoQ language-delta gate 2 over the volume's
     // earnings8k archive) or one "skipped" beat (low disk / fresh result).
     id: "earnings_qoq_weekly", label: "8-K earnings-language QoQ delta gate-2 test (weekly, Sun 18:00-19:00 ET)",

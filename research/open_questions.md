@@ -7713,6 +7713,39 @@
     Python engine latch (#49) already suppresses the scanner, so nothing
     exercises it live yet.
 
+53. **[FOUND 2026-11-16, [PRODUCT] scheduled routine — RECURRENCE of #44's
+    class (HEALTH OF THE LOOP rule 4: root-cause analysis, not a patch).
+    FIXED v1.0.1408; close marker waits for the Sun 2026-11-22 live run.]**
+    `earnings_qoq_weekly` (server/earningsQoq.ts, the 8-K earnings-language
+    QoQ gate-2 job) ran `python3 scripts/earnings_language_qoq_gate2.py`.
+    The production image ships root *.py, strategies/ and alphadesk/, never
+    scripts/. The first registered run (2026-11-15 23:26Z, the root's
+    not_before day) ended in 48 ms: `python3: can't open file
+    '/app/scripts/earnings_language_qoq_gate2.py'` (read from
+    /api/diag/heartbeats; /api/health jobs degraded, error_class
+    nonzero_exit). No verdict was read; the registered look was NOT spent.
+    ROOT CAUSE (why #44's guard did not fire): the guard matched three
+    import idioms (sys.path insert, spec_from_file_location, os.path.join
+    with 'scripts'). A shell command naming a scripts/ file is none of
+    them, and the job was written the day before the guard merged. The
+    guard described how #44 broke, not what the image holds.
+    FIX: (a) the script and the two modules it imports
+    (earnings_language_gate2.py, earnings_language_gate2_robustness.py)
+    moved to the repo root, scripts/ keeps no-logic shims; (b) the guard
+    (test_production_image_imports.py) is now about the image: every
+    Python file a server command names must exist in the layout rebuilt
+    from the Dockerfile's COPY lines; the local-import closure of each may
+    not leave the layout; the job's own command is run in the layout as
+    written. 5 of the new tests fail on main's tree.
+    NOT COVERED BY THE GUARD (said so the next recurrence is not a
+    surprise): non-Python files a shipped script opens at run time
+    (datacore/*.json read by path from Python), and commands assembled
+    from variables rather than written as `python3 x.py` literals. Neither
+    exists in the long-job lane today (10 command files inventoried).
+    CLOSE WHEN: `/api/diag/earnings_qoq` shows a `latest` with a
+    root_verdict (or an honest Python-side error/skip) after Sun 11-22
+    18:00-19:00 ET.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -23847,3 +23880,8 @@ TESTABLE FORM / NEXT (own PR, measurement of the loop itself, small): either acc
 FOUND ([PRODUCT] session, reading the readiness list before choosing work): `scripts/ladder_readiness_check.py` prints `READY [ESTIMATE] cftc_cot_positioning` because ~18 weekly reports have elapsed since 2026-07-08 (trigger min_count 15). The row's own note (2026-10-21, `cot_gate2_oos.py`) says the one surviving carry (USO extreme_high -> lower forward return) had ZERO extreme_high weeks out of sample and needs >= 5 independent extreme episodes before any verdict means anything. So the trigger fires on a condition the registry already knows is not sufficient, and each session that reads the list re-derives that (this one did).
 TESTABLE FORM / NEXT (own PR, T-DATACORE, small): give `readiness_trigger` an optional second condition the checker evaluates — for this root, `cot_gate2_oos.oos_power(...).episodes >= MIN_EPISODES` (the function exists and is tested) — or, without network in the checker, a `blocked_by` text field the checker prints as `WAITING (count met; blocked: needs >=5 extreme_high episodes, 0 on 2026-10-21)`. Ladder path: none moves; this is the readiness list telling the truth. No signal claim.
 ALSO READ THIS SESSION (no action owed): `/api/diag/earnings_qoq` and `/api/diag/github_gate2` both `latest: null` at 18:15Z — their first registered runs are tonight (Sun 18:00-19:00 and 19:00-20:00 ET). The next session reads both and logs the verdicts of record; nothing is run by hand.
+
+## 2026-11-16 — a weekly gate job that dies before its Python starts loses the whole week (no catch-up)
+
+FOUND (experiments.md 2026-11-16 [REPAIR], KNOWN BROKEN #53): `decideEarningsQoq` acts only Sunday 18:00-19:00 ET and at most once per ISO week. The 2026-11-15 attempt died in 48 ms (file not shipped), and the next attempt is a full week later; the same shape holds for lazy_prices_weekly, github_gate2_weekly and edge_p2. For a plumbing failure that spent no look at the data, a week of delay buys nothing.
+TESTABLE FORM / NEXT (own PR, T-DATACORE, small; NOT a change to any registered statistic): let a weekly gate job retry inside a stated catch-up window (e.g. Mon-Tue 18:00-19:00 ET) ONLY when the last attempt errored AND no result file exists for the registered run — a run that reached a verdict, a skip, or a Python-side error with a result never retries (one look stays one look). Decide per job whether the long-job lane is free in that window. Prior: ~70% this is worth building once for the four weekly jobs through one shared helper; lower if the 11-22 runs are all clean.

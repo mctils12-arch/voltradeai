@@ -1,4 +1,4 @@
-// earningsQoq — weekly job + read-only status for scripts/earnings_language_qoq_gate2.py
+// earningsQoq — weekly job + read-only status for earnings_language_qoq_gate2.py (repo root)
 // (gate 2, paired-filing QoQ delta, of the 8-K earnings-language root).
 // Run: npx tsx --test server/earningsQoq.test.ts
 import { test } from "node:test";
@@ -71,7 +71,7 @@ test("run: own long-job lane — budget, SIGKILL group, thread caps, parsed summ
   const r = await runEarningsQoq({ PATH: "/usr/bin" }, ok);
   assert.equal(r.status, "ok");
   assert.match(r.detail, /verdict FAIL: 612 pairs/);
-  assert.match(calls[0].cmd, /^python3 scripts\/earnings_language_qoq_gate2\.py --run --nice 19 --max-rss-mb \d+ --code-version \S+$/);
+  assert.match(calls[0].cmd, /^python3 earnings_language_qoq_gate2\.py --run --nice 19 --max-rss-mb \d+ --code-version \S+$/);
   assert.equal(calls[0].opts.timeout, EARNINGS_QOQ_TIMEOUT_MS);
   assert.equal(calls[0].opts.killSignal, "SIGKILL");
   for (const [k, v] of Object.entries(WALKFORWARD_ENV_CAPS)) assert.equal((calls[0].opts.env as Record<string, string>)[k], v);
@@ -126,7 +126,7 @@ test("wiring: whitelisted probe, read-only case in bot.ts, booted from routes.ts
   assert.ok(!src.includes("/orders") && !/method:\s*"(POST|PUT|PATCH|DELETE)"/.test(src));
   assert.ok(src.includes('beat("earnings_qoq_weekly", "start")') && src.includes('beat("earnings_qoq_weekly", "finish"'));
   // the Python the job runs exists and pins the same registered constants the test above relies on
-  const py = fs.readFileSync(path.join(here, "..", "scripts", "earnings_language_qoq_gate2.py"), "utf8");
+  const py = fs.readFileSync(path.join(here, "..", "earnings_language_qoq_gate2.py"), "utf8");
   assert.ok(py.includes("MIN_GAP_DAYS = 50") && py.includes("MAX_GAP_DAYS = 130") && py.includes('PRIMARY = "dtone"'));
   assert.ok(py.includes("first_sufficient_run"), "the first sufficient look must be carried forward as the registered verdict");
 });

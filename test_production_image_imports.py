@@ -12,7 +12,18 @@ research scripts that load them by path.
 
 These tests rebuild the image's Python layout from symlinks and run the
 probe's own import prelude (read from server/bot.ts) inside it.
+
+RECURRENCE, 2026-11-15 (root-caused 2026-11-16): the earnings_qoq_weekly job's
+first registered run died on "python3: can't open file
+'/app/scripts/earnings_language_qoq_gate2.py'". The #44 class guard matched
+three IMPORT idioms (sys.path, spec_from_file_location, os.path.join) and a
+shell command naming a scripts/ file is none of them. The guard below is now
+about the image, not about idioms: every Python file a server command names
+must exist in the image layout, and the local-import closure of each must
+resolve inside it. The job's own command is run in the layout as written.
 """
+import ast
+import json
 import glob
 import importlib.util
 import os
@@ -150,3 +161,140 @@ def test_scripts_cli_entry_point_still_works(name):
                        cwd=REPO, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr[-2000:]
     assert "usage:" in r.stdout
+
+
+# ── 2026-11-16: the guard is about the image, not about import idioms ────────
+
+EARNINGS_MOVED = (("earnings_language_qoq_gate2", "main"),
+                  ("earnings_language_gate2", "tone_score"),
+                  ("earnings_language_gate2_robustness", "horizon_report"))
+# `python3 x.py`, `python3 -u x.py`, and argv forms like ["python3", "x.py"].
+_PY_CMD = re.compile(r"""\bpython3?["'`,\s]+(?:-u["'`,\s]+)?["'`]?([A-Za-z0-9_./-]+\.py)\b""")
+
+
+def _server_python_commands():
+    """{python file named by a server command: [where]} over server/ and shared/
+    TypeScript code (comment-only lines and *.test.ts excluded)."""
+    found = {}
+    for top in ("server", "shared"):
+        for root, _dirs, files in os.walk(os.path.join(REPO, top)):
+            for name in files:
+                if not name.endswith(".ts") or name.endswith(".test.ts"):
+                    continue
+                path = os.path.join(root, name)
+                lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+                for i, line in enumerate(lines, 1):
+                    if line.lstrip().startswith(("//", "*", "/*")):
+                        continue
+                    for m in _PY_CMD.finditer(line):
+                        found.setdefault(m.group(1), []).append(f"{os.path.relpath(path, REPO)}:{i}")
+    return found
+
+
+def _repo_python_modules_outside(layout):
+    """Top-level module names that exist as <name>.py (or a package dir) in the
+    repo but NOT in the image layout — what an import would silently find on a
+    developer machine and miss in production."""
+    inside, outside = set(), {}
+    skip = {"node_modules", ".git", "dist", "__pycache__", ".bt_cache", ".venv", "venv"}
+    for root, dirs, files in os.walk(REPO):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            rel = os.path.relpath(os.path.join(root, f), REPO)
+            # shipped anywhere in the image (root *.py, strategies/, alphadesk/ …)
+            if os.path.exists(os.path.join(layout, rel)):
+                inside.add(f[:-3])
+            else:
+                outside.setdefault(f[:-3], rel)
+    return {n: p for n, p in outside.items()
+            if n not in inside and not os.path.isdir(os.path.join(layout, n))}
+
+
+def _local_imports(path):
+    try:
+        tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+    except SyntaxError:
+        return set()
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            out |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            out.add(node.module.split(".")[0])
+    return out
+
+
+def test_every_python_file_a_server_command_names_is_in_the_image(tmp_path):
+    cmds = _server_python_commands()
+    # non-vacuous: the scan must see the long-job lane's commands it exists for
+    for known in ("walkforward.py", "lazy_prices_run.py", "edge_p2_insider.py",
+                  "event_reaction_panel.py", "earnings_language_qoq_gate2.py"):
+        assert known in cmds, f"the command scan no longer finds {known}: {sorted(cmds)}"
+    _image_layout(str(tmp_path))
+    missing = {f: where for f, where in cmds.items() if not os.path.isfile(os.path.join(str(tmp_path), f))}
+    assert missing == {}, ("a server command names a Python file the production image does not ship "
+                           f"(runtime stage copies {_runtime_copy_sources()}): {missing}")
+
+
+def test_server_run_python_import_closure_resolves_in_the_image(tmp_path):
+    """Walk the imports of every file a server command runs, through the image
+    layout only. An import whose module exists in the repo but outside the
+    layout (scripts/, datacore/, …) works on a laptop and fails in production."""
+    layout = str(tmp_path)
+    _image_layout(layout)
+    outside = _repo_python_modules_outside(layout)
+    todo = [f[:-3] for f in _server_python_commands() if "/" not in f]
+    seen, bad = set(), []
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        path = os.path.join(layout, name + ".py")
+        if not os.path.isfile(path):
+            continue
+        for imp in sorted(_local_imports(path)):
+            if imp in outside:
+                bad.append(f"{name}.py imports {imp} -> only at {outside[imp]}")
+            elif os.path.isfile(os.path.join(layout, imp + ".py")):
+                todo.append(imp)
+    assert len(seen) > 20, f"closure walk too small to mean anything: {sorted(seen)}"
+    assert bad == [], "server-run Python imports modules the image does not ship:\n" + "\n".join(bad)
+
+
+def test_earnings_qoq_job_command_runs_in_the_production_image_layout(tmp_path):
+    """REGRESSION 2026-11-15: the job's command, read from server/earningsQoq.ts
+    and run as written with cwd = the image layout. On main it exits 2 with
+    "can't open file"; here it must reach its own JSON summary line."""
+    src = open(os.path.join(REPO, "server", "earningsQoq.ts"), encoding="utf-8").read()
+    m = re.search(r"return `(python3 [^`]+)`;", src)
+    assert m, "earningsQoqCmd's command template not found"
+    cmd = m.group(1).replace("${EARNINGS_QOQ_MAX_RSS_MB}", "900").replace("${v}", "0.0.0-test")
+    assert "${" not in cmd, cmd
+    layout, data = tmp_path / "app", tmp_path / "data"
+    layout.mkdir(); data.mkdir()
+    _image_layout(str(layout))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["DATA_DIR"] = str(data)
+    argv = [sys.executable] + cmd.split()[1:]
+    r = subprocess.run(argv, cwd=str(layout), env=env, capture_output=True, text=True, timeout=300)
+    assert "can't open file" not in r.stderr and "ModuleNotFoundError" not in r.stderr, r.stderr[-2000:]
+    last = (r.stdout.strip().split("\n") or [""])[-1]
+    summary = json.loads(last)  # the one-line summary parseEarningsQoqSummary reads
+    # an empty volume has no earnings8k archive: the honest outcome is "skipped"
+    assert summary.get("status") == "skipped", summary
+    assert "earnings8k" in str(summary.get("reason")), summary
+
+
+@pytest.mark.parametrize("name,attr", EARNINGS_MOVED)
+def test_earnings_language_scripts_shim_serves_the_root_module(name, attr):
+    root_file = os.path.join(REPO, name + ".py")
+    shim_file = os.path.join(REPO, "scripts", name + ".py")
+    assert os.path.isfile(root_file), f"{name}.py must live at the repo root (the image ships root *.py)"
+    spec = importlib.util.spec_from_file_location(name, shim_file)
+    shim = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shim)
+    assert getattr(shim, attr).__code__.co_filename == root_file, "the shim must serve the root module's code"
+    assert "\ndef " not in open(shim_file, encoding="utf-8").read(), "the shim holds no logic"
