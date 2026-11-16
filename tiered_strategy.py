@@ -1550,7 +1550,7 @@ def rebaseline_peak_equity(new_peak: float, basis: str) -> Dict[str, Any]:
             os.replace(tmp, PEAK_EQUITY_PATH)
         except Exception:
             try: os.unlink(tmp)
-            except Exception: pass
+            except OSError: pass  # the temp file may not exist; the write error below is the one reported
             raise
     except Exception as e:
         out["note"] = f"write failed: {e}"
