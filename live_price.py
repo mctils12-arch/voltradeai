@@ -24,18 +24,33 @@ prevDailyBar {c}. The feed is alpaca_feed.data_feed() (SIP, IEX, or the
 15-minute-delayed SIP the account is entitled to), the same one the site's
 /api/market/snapshots route serves the watchlist from.
 
+REAL-TIME (2026-11-12, post-open check of the fix above): this account's plan
+rejects recent SIP data, so data_feed() is "delayed_sip" and every price was
+15 minutes old (SPY's latest trade at 10:08 ET read 09:53). The plan does
+include IEX in real time. Under delayed_sip, fetch_snapshots() also reads the
+IEX tape and freshest() takes its trade when it is a NEWER REGULAR-HOURS print:
+the consolidated snapshot stays the base (its daily bar's volume is the whole
+tape's), only the price moves. Every result names its tape (feed).
+
 Never raises: any failure returns {} and the caller keeps its bar close.
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
+from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, Optional
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger("live_price")
 
 SNAPSHOT_URL = "https://data.alpaca.markets/v2/stocks/snapshots"
 MAX_SYMBOLS = 50
+DELAYED_FEED = "delayed_sip"   # alpaca_feed's fallback: the consolidated tape, 15 minutes late
+REALTIME_FEED = "iex"          # the real-time tape every plan carries (one exchange's prints)
+_ET = ZoneInfo("America/New_York")
+_TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 
 
 def _pos(v: Any) -> Optional[float]:
@@ -92,9 +107,95 @@ def is_newer_session(parsed: Optional[Dict[str, Any]], last_bar_date: Optional[s
     return str(parsed["session_date"]) > str(last_bar_date)[:10]
 
 
+def trade_time(value: Any) -> Optional[datetime]:
+    """An RFC 3339 trade time (Alpaca sends nanoseconds) as an aware datetime;
+    None when absent or unparseable. Pure."""
+    m = _TS.match(str(value or "").strip())
+    if not m:
+        return None
+    try:
+        return datetime.fromisoformat(m.group(1) + (m.group(2) or "")[:7]
+                                      + ("+00:00" if m.group(3) == "Z" else m.group(3)))
+    except ValueError:
+        return None
+
+
+def in_regular_hours(t: Optional[datetime]) -> bool:
+    """09:30-16:00 ET on a weekday. Pure."""
+    if t is None:
+        return False
+    et = t.astimezone(_ET)
+    return et.weekday() < 5 and 9 * 60 + 30 <= et.hour * 60 + et.minute < 16 * 60
+
+
+def freshest(delayed: Optional[Dict[str, Any]], realtime: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The display snapshot for one symbol from the 15-minute-delayed
+    consolidated tape and the real-time IEX tape (parse_snapshot() results or
+    None). Pure.
+
+    The IEX trade is used only when it is a regular-hours print NEWER than the
+    consolidated one: a pre-market or after-hours IEX print never replaces a
+    session's price, and an IEX print older than the delayed tape's (a thinly
+    traded name) never replaces it either.
+      - same session: the consolidated snapshot with the IEX price, time and
+        tape; its bar's close is the IEX price, its range widened to include
+        it, its volume (the whole tape's) kept;
+      - IEX already on a NEWER session (the open's first ~15 minutes, before
+        the delayed tape has today's bar): the IEX snapshot, tape "iex".
+    Otherwise the consolidated snapshot, tape "delayed_sip"."""
+    if delayed is None and realtime is None:
+        return None
+    rt_t = trade_time((realtime or {}).get("asof")) if realtime and realtime.get("source") == "latest_trade" else None
+    usable = rt_t is not None and in_regular_hours(rt_t)
+    if delayed is None:
+        return {**realtime, "feed": REALTIME_FEED} if usable else None
+    base = {**delayed, "feed": DELAYED_FEED, "source": f"{delayed.get('source')}, 15-min delayed"}
+    if not usable:
+        return base
+    d_t = trade_time(delayed.get("asof"))
+    if d_t is not None and rt_t <= d_t:
+        return base
+    d_session, rt_session = str(delayed.get("session_date") or ""), str(realtime.get("session_date") or "")
+    if rt_session and rt_session > d_session:
+        return {**realtime, "feed": REALTIME_FEED, "source": "latest_trade, iex real-time"}
+    if rt_session != d_session:
+        return base
+    price = float(realtime["price"])
+    out = {**base, "price": price, "asof": realtime.get("asof"), "feed": REALTIME_FEED,
+           "source": "latest_trade, iex real-time"}
+    if isinstance(delayed.get("bar"), dict):
+        bar = dict(delayed["bar"])
+        bar.update(c=price, h=max(float(bar.get("h") or price), price), l=min(float(bar.get("l") or price), price))
+        out["bar"] = bar
+    return out
+
+
+def _fetch_parsed(syms: list, feed: str, key: str, secret: str, timeout: float,
+                  get: Callable[..., Any]) -> Dict[str, Dict[str, Any]]:
+    """{SYMBOL: parse_snapshot(...)} from one feed. Never raises."""
+    try:
+        r = get(SNAPSHOT_URL, params={"symbols": ",".join(syms), "feed": feed},
+                headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}, timeout=timeout)
+        if getattr(r, "status_code", 200) != 200:
+            log.warning("live_price: snapshots HTTP %s for %s (feed %s)", getattr(r, "status_code", "?"), ",".join(syms), feed)
+            return {}
+        body = r.json()
+    except Exception as e:  # network, JSON — the caller keeps what it has
+        log.warning("live_price: snapshots failed for %s (feed %s): %s", ",".join(syms), feed, str(e)[:160])
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for sym, snap in (body.items() if isinstance(body, dict) else []):
+        parsed = parse_snapshot(sym, snap)
+        if parsed:
+            out[str(sym).upper()] = parsed
+    return out
+
+
 def fetch_snapshots(symbols: Iterable[str], timeout: float = 5.0,
                     get: Optional[Callable[..., Any]] = None, feed: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-    """{SYMBOL: parse_snapshot(...)} for up to MAX_SYMBOLS symbols. Never raises."""
+    """{SYMBOL: parse_snapshot(...)} for up to MAX_SYMBOLS symbols. Never raises.
+    Under the delayed consolidated feed the IEX tape is read too and each
+    symbol's price is freshest() of the two."""
     syms = [str(s).upper().strip() for s in symbols if s and str(s).strip()][:MAX_SYMBOLS]
     key, secret = os.environ.get("ALPACA_KEY", ""), os.environ.get("ALPACA_SECRET", "")
     if not syms or not key or not secret:
@@ -106,21 +207,15 @@ def fetch_snapshots(symbols: Iterable[str], timeout: float = 5.0,
         if get is None:
             import requests
             get = requests.get
-        r = get(SNAPSHOT_URL, params={"symbols": ",".join(syms), "feed": feed},
-                headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}, timeout=timeout)
-        if getattr(r, "status_code", 200) != 200:
-            log.warning("live_price: snapshots HTTP %s for %s", getattr(r, "status_code", "?"), ",".join(syms))
-            return {}
-        body = r.json()
-    except Exception as e:  # network, JSON, feed probe — the caller keeps its bar close
-        log.warning("live_price: snapshots failed for %s: %s", ",".join(syms), str(e)[:160])
+    except Exception as e:  # the feed probe — the caller keeps its bar close
+        log.warning("live_price: no feed for %s: %s", ",".join(syms), str(e)[:160])
         return {}
-    out: Dict[str, Dict[str, Any]] = {}
-    for sym, snap in (body.items() if isinstance(body, dict) else []):
-        parsed = parse_snapshot(sym, snap)
-        if parsed:
-            out[str(sym).upper()] = parsed
-    return out
+    out = _fetch_parsed(syms, feed, key, secret, timeout, get)
+    if feed != DELAYED_FEED:
+        return out
+    realtime = _fetch_parsed(syms, REALTIME_FEED, key, secret, timeout, get)
+    merged = {sym: freshest(out.get(sym), realtime.get(sym)) for sym in syms}
+    return {sym: snap for sym, snap in merged.items() if snap}
 
 
 def latest(symbol: str, last_bar_date: Optional[str], **kw: Any) -> Optional[Dict[str, Any]]:

@@ -27,7 +27,7 @@ import { guardedRefresh } from "./crashSafeRefresh";
 import { pipeWebBody } from "./streamSafety";
 import { saveSnapshot, loadSnapshot } from "./derivedSnapshot";
 import { bootWaterViolatorsPoll, latestWaterViolators } from "./waterViolators";
-import { resolveAlpacaFeed, alpacaErrorBody } from "./alpacaFeed";
+import { resolveAlpacaFeed, alpacaErrorBody, mergeRealtimeTrades, REALTIME_FEED } from "./alpacaFeed";
 import { bootAmbientRadiationPoll, latestAmbientRadiation } from "./ambientRadiation";
 import { version as pkgVersion } from "../package.json";
 import {
@@ -6764,11 +6764,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!symbols) return res.json({});
       // Bug 31: validate symbols — comma-separated tickers only
       if (!/^[A-Za-z.,]{1,500}$/.test(symbols)) return res.status(400).json({ error: "Invalid symbols" });
-      const snapRes = await fetch(`https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols)}&feed=${ALPACA_DATA_FEED}`, { headers: alpacaHeaders });
+      const snapUrl = (feed: string) => `https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(symbols)}&feed=${feed}`;
+      // 2026-11-12: under delayed_sip the IEX tape is read alongside, for real-time
+      // display prices (alpacaFeed.ts mergeRealtimeTrades); its failure changes nothing.
+      const [snapRes, rtRes] = await Promise.all([
+        fetch(snapUrl(ALPACA_DATA_FEED), { headers: alpacaHeaders }),
+        ALPACA_DATA_FEED === "delayed_sip" ? fetch(snapUrl(REALTIME_FEED), { headers: alpacaHeaders }).catch(() => null) : Promise.resolve(null),
+      ]);
       const body = await snapRes.json();
       const errMsg = alpacaErrorBody(snapRes.status, body);
       if (errMsg) return res.status(502).json({ error: errMsg });
-      res.json(body);
+      let rtBody: Record<string, any> | null = null;
+      if (rtRes) {
+        try { const j = await rtRes.json(); if (!alpacaErrorBody(rtRes.status, j)) rtBody = j; } catch { rtBody = null; }
+      }
+      res.json(rtBody ? mergeRealtimeTrades(body, rtBody) : body);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
