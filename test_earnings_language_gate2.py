@@ -9,7 +9,7 @@ import os
 
 _spec = importlib.util.spec_from_file_location(
     "earnings_language_gate2",
-    os.path.join(os.path.dirname(__file__), "scripts", "earnings_language_gate2.py"))
+    os.path.join(os.path.dirname(__file__), "earnings_language_gate2.py"))
 g2 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(g2)
 

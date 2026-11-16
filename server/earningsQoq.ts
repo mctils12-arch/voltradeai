@@ -1,5 +1,8 @@
 /**
- * earningsQoq.ts — the weekly job that runs scripts/earnings_language_qoq_gate2.py
+ * earningsQoq.ts — the weekly job that runs earnings_language_qoq_gate2.py (repo
+ * root: the production image ships root *.py and never scripts/ — the first
+ * registered run, 2026-11-15, died on exactly that; test_production_image_imports.py
+ * now runs this command in the image layout)
  * (ladder gate 2 of the SEC 8-K earnings-language root: the pre-registered
  * PAIRED-FILING QoQ language-delta test) and the read-only status behind the
  * `earnings_qoq` diag probe. Research plumbing: it schedules and reports;
@@ -59,7 +62,7 @@ export function earningsQoqRoot(env: Record<string, string | undefined> = proces
 
 export function earningsQoqCmd(codeVersion: string = pkgVersion): string {
   const v = /^[0-9A-Za-z.+-]{1,40}$/.test(codeVersion) ? codeVersion : "unknown";
-  return `python3 scripts/earnings_language_qoq_gate2.py --run --nice 19 --max-rss-mb ${EARNINGS_QOQ_MAX_RSS_MB} --code-version ${v}`;
+  return `python3 earnings_language_qoq_gate2.py --run --nice 19 --max-rss-mb ${EARNINGS_QOQ_MAX_RSS_MB} --code-version ${v}`;
 }
 
 /** Sunday, 18:00-19:00 ET. */
