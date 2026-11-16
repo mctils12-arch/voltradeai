@@ -301,7 +301,8 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,
     // seconds long, 15-min budget) or one "skipped" beat (low disk / fresh
-    // result / no Alpaca keys).
+    // result / no Alpaca keys). A Sunday attempt that errored with no result
+    // may repeat Mon/Tue 19:00-20:00 ET, once per day (gateCatchup.ts).
     id: "github_gate2_weekly", label: "GitHub org engineering-momentum gate-2 test (weekly, Sun 19:00-20:00 ET)",
     source: "server/githubGate2.ts", kind: "interval", window: { kind: "always" },
     cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 30 * MIN,
