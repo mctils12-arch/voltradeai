@@ -49,7 +49,7 @@ every point of a track.
 | Field | Meaning |
 | --- | --- |
 | `at` | server time, ms |
-| `source` | `snapshot` \| `cache` \| `upstream` \| `limited` \| `error` \| `absent`: where this answer came from. `error` means the provider failed and the row is the last one held. |
+| `source` | `snapshot` \| `cache` \| `upstream` \| `fallback` \| `limited` \| `error` \| `absent`: where this answer came from. `fallback` means adsb.lol failed and the second provider answered (the row's `src` is then `adsbfi`, which is non-commercial: see Licensing). `error` means no provider had anything newer and the row is the last one held. |
 | `fields`, `rows` | positional: `rows[0]` is one array in `fields` order. `rows` is empty when nothing holds the aircraft. |
 | `intent` | autopilot/selected-altitude and derived state values, each with its age; `null` when never seen |
 
@@ -253,14 +253,64 @@ so; any altitude not filed or observed has `altEstimated: true`. For an
 aircraft on the FAA's LADD list the FAA-sourced plan is withheld and
 `privacy: "LADD"` is set.
 
-## In progress, shape may change
+## 8. Estimated position when the last fix is old (new)
 
-Sibling changes are adding these. Do not build against them until they ship:
+`GET /api/data/aircraft/estimate/:hex`
 
-- `GET /api/data/aircraft/plan-history/:hex`: earlier versions of an
-  aircraft's plan.
-- an `estimate` block on the live endpoint: the server's estimated current
-  position when the provider's fix is old. It will be labelled as an estimate.
+Use it beside `/live/:hex` when the live row's fix is getting old, about every
+5 s. It makes no provider request of its own. `Cache-Control: no-store`.
+
+The answer keeps the observed and the estimated strictly apart:
+
+| Field | Meaning |
+| --- | --- |
+| `fix` | the last position actually received: `lat`, `lon`, `altFt`, `gsKt`, `trkDeg`, `onGround`, `fixMs` (the fix's own time), `ageSec`, `source` (`snapshot` \| `archive`), `provider`, `callsign`. With `source: "archive"` the speed and track were worked out from the last two archived positions and `motionDerived` is `true`. `null` when no position is held (see `reason`). |
+| `estimate` | NOT an observed position. `estimated` is always `true`. |
+| `estimate.method` | `dead_reckoning` (straight along the last track at the last ground speed: up to 120 s, or 30 s when a route can take over), `along_route` (advanced along the route the aircraft was on, stopping at its last point), or `none` (no position is estimated; `reason` says why) |
+| `estimate.lat`, `lon`, `trkDeg`, `gsKt`, `distanceNm` | the estimate; `lat`/`lon` are `null` with method `none` |
+| `estimate.altFt`, `altBasis` | the last reported altitude, held (`held`); the vertical rate is not applied |
+| `estimate.basisFixMs`, `ageSec`, `at` | the fix it started from, its age, and the time the estimate is for |
+| `estimate.withinNm` | a circle around the LAST FIX the aircraft is inside unless it sped up by more than 15%. It is not an error bar around the estimate. |
+| `estimate.route` | `along_route` only: `source` (the plan's source, so a predicted route is never shown as filed), `crossTrackAtFixNm`, `remainingNm`, `reachedEnd` |
+| `estimate.path` | `[lat, lon, epoch ms]` points starting at the real fix: the line to draw DASHED. It runs to 10 minutes past the estimated position along the route, or only as far as dead reckoning is allowed. |
+| `estimate.assumptions`, `reason` | plain sentences the app can show |
+| `plan` | `source`, `label`, `privacy`, `used` (whether the estimate ran along it), `note` |
+
+Rules for the app:
+- Draw `estimate` as estimated (dashed path, a distinct marker), never as the aircraft's position.
+- Show the fix's real age (`fix.ageSec`) whenever an estimate is on screen.
+- When `method` is `none`, show the last fix and its age, nothing else.
+- NOT VALIDATED: the estimate's accuracy against real tracks has not been measured yet. An aircraft vectored off its route after the last fix is drawn on the route.
+- The same arithmetic is in `shared/aircraftEstimate.ts` (pure TypeScript) for per-frame motion between answers.
+
+## 9. Flight plan versions, amendments and off-route stretches (new)
+
+`GET /api/data/aircraft/plan-history/:hex[?callsign=][&geometry=all][&archive=1]`
+
+Only FAA-filed plans have versions (`source: "FILED_FAA"`); otherwise the lists
+are empty and `source` says so. For an aircraft on the FAA's LADD list
+everything is withheld (`source: "NONE"`, `privacy: "LADD"`).
+
+| Field | Meaning |
+| --- | --- |
+| `original`, `current` | the first version we hold and the newest, each with `version`, `receivedAtMs` (our clock), `swimMessageMs` (the message's own time, when it carried one), `messageType`, `departure`, `arrival`, `cruiseAltFt`, `routeText`, `fixes`, `points` (`lat`, `lon`, `name`) |
+| `plan.originalAsFiled` / `plan.originalIsFirstSeen` | `originalAsFiled` is true only when version 1 came from the filing message itself. Otherwise the "original" is the first version WE saw (for example after a server restart) and must be labelled that way. |
+| `versions[]` | every version held, same shape; `points` only on `original`/`current` unless `geometry=all` |
+| `amendments[]` | one per change: `at` and `atBasis` (message time or our receive time), `kinds` (`REROUTE`, `FIXES_ADDED`, `FIXES_REMOVED`, `SHORTCUT`, `DIRECT_TO`, `DESTINATION_CHANGE`, `ALTITUDE_CHANGE`, `ROUTE_TEXT_ONLY`), `change` (fix names added/removed, old and new destination or cruise altitude, the first differing leg, `maxLateralNm`), and `position` |
+| `amendments[].position` | where the aircraft was when the amendment took effect: `method` `EXACT` \| `NEAREST` (a real fix within 30 s, with `fixTimeMs` and `gapSec`) \| `INTERPOLATED` (`interpolated: true`: between two fixes, an estimate). `null` with `positionReason` when no fix is near enough. Draw the marker only when it is not `null`; mark interpolated ones as estimated. |
+| `offRoute.episodes[]` | stretches flown off the version in force: start and end time and position, `maxCrossTrackNm`, `classification` (`AMENDMENT_FOLLOWED` with the linked version and the lag, `TERMINAL_VECTORING`, `NO_AMENDMENT_RECEIVED`), `endReason`. The cause is never guessed: `NO_AMENDMENT_RECEIVED` says "not determined". |
+| `offRoute.assessed`, `reason` | `false` with a reason when the route cannot be judged (for example a coarse or estimated path) |
+| `flownTrack.url` | where to get the flown track (use section 3 for the full per-point data) |
+
+To draw the three lines the owner asked for: `original.points` greyed,
+`current.points` as the active route, the flown track from section 3, and one
+marker per `amendments[].position`.
+
+Limits to show honestly:
+- Positions and off-route episodes need our ADS-B archive for that aircraft; for one nobody tracked or viewed they are often empty.
+- Versions are held in memory for flights the server currently knows, and on disk for 7 days for flights whose plan CHANGED. A never-amended flight's plan is not written to disk.
+- The plan is matched to the aircraft by callsign.
+- NOT YET RUN AGAINST THE LIVE FEED at the time of writing: verified by unit tests only.
 
 ## How far back history goes
 
