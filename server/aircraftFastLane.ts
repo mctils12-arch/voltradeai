@@ -19,6 +19,24 @@
 // HONESTY: the row's seenAt is the fix's OWN time (upstream `now` − seen_pos);
 // when upstream has nothing newer the client sees the older time, never a
 // fabricated fresh one.
+//
+// SECOND PROVIDER ON FAILURE (2026-11-16, owner report "tracking comes and
+// goes, the model freezes"). Measured live that day: 25 of 57 lookups of one
+// airborne aircraft ended in an adsb.lol timeout (6 s each) or refusal, and
+// its fix aged from 46 s to 142 s. Until then the second provider (adsb.fi,
+// coverageGapFill.ts) was asked only when adsb.lol ANSWERED with nothing.
+//   - a failed adsb.lol request (429 / 5xx / timeout) now asks adsb.fi for
+//     the same hex; a row it returns is published with "adsbfi" provenance
+//     and the answer says source "fallback";
+//   - after FAST_BREAKER_FAILURES consecutive adsb.lol failures the lane
+//     stops sending it every lookup: adsb.fi answers, and adsb.lol gets one
+//     probe per FAST_BREAKER_PROBE_MS until a probe succeeds. A viewer no
+//     longer waits out a 6 s timeout on each poll, and a struggling provider
+//     gets one request per 15 s from this lane, not one per poll.
+// adsb.fi is NON-COMMERCIAL (providerCompliance.ts already lists it; the
+// monetization tripwire sees these rows as it sees the gap-fill's). Its own
+// 1 request/second bucket (coverageGapFill.ts) bounds the extra requests; an
+// empty bucket skips the fill and the answer is the honest "error".
 
 import type { FixBatch } from "./aircraftFixBus";
 import { adsbLolGovernor, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
@@ -35,12 +53,17 @@ export const FAST_MAX_HEXES_PER_MIN = 20;
 export const FAST_MAX_RPS = 1;
 export const FAST_BURST = 2;
 export const FAST_TIMEOUT_MS = 6_000;
+/** consecutive adsb.lol failures on this lane before it is only probed ... */
+export const FAST_BREAKER_FAILURES = 2;
+/** ... once per this interval, until a probe answers */
+export const FAST_BREAKER_PROBE_MS = 15_000;
 export const FAST_UA = "voltradeai-datacore/1.0 (+https://voltradeai.com)";
 
 export const ICAO_HEX_LC_RE = /^[0-9a-f]{6}$/;
 export const fastLaneUrl = (hex: string): string => `https://api.adsb.lol/v2/hex/${hex}`;
 
-export type FastSource = "snapshot" | "cache" | "upstream" | "limited" | "error" | "absent";
+/** "fallback" = adsb.lol failed (or is being probed only) and the second provider answered */
+export type FastSource = "snapshot" | "cache" | "upstream" | "fallback" | "limited" | "error" | "absent";
 
 export interface FastResult {
   row: SnapRow | null;
@@ -67,7 +90,15 @@ export interface FastLaneDeps {
 
 export interface FastLane {
   lookup(hex: string): Promise<FastResult>;
-  stats(): { upstream_requests: number; coalesced: number; cache_hits: number; snapshot_hits: number; limited: number; errors: number; fallback_rows: number; hexes_last_min: number };
+  stats(): {
+    upstream_requests: number; coalesced: number; cache_hits: number; snapshot_hits: number; limited: number; errors: number; fallback_rows: number; hexes_last_min: number;
+    /** lookups answered by the second provider after an adsb.lol failure, or while it is only probed */
+    fallback_answers: number;
+    /** lookups that did not ask adsb.lol because it is only being probed */
+    breaker_skips: number;
+    primary_consecutive_failures: number;
+    primary_probe_only: boolean;
+  };
 }
 
 export function createFastLane(deps: FastLaneDeps): FastLane {
@@ -84,7 +115,12 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
   const baro = new Map<string, { seenAt: number; fpm: number }>();
   let tokens = FAST_BURST;
   let lastRefill = now();
-  const counts = { upstream_requests: 0, coalesced: 0, cache_hits: 0, snapshot_hits: 0, limited: 0, errors: 0, fallback_rows: 0 };
+  const counts = { upstream_requests: 0, coalesced: 0, cache_hits: 0, snapshot_hits: 0, limited: 0, errors: 0, fallback_rows: 0, fallback_answers: 0, breaker_skips: 0 };
+  /** consecutive adsb.lol failures on this lane, and when it was last asked */
+  let primaryFails = 0;
+  let primaryLastTryAt = -Infinity;
+  const probeOnly = (t: number): boolean =>
+    !!deps.fallbackHex && primaryFails >= FAST_BREAKER_FAILURES && t - primaryLastTryAt < FAST_BREAKER_PROBE_MS;
 
   const baroFor = (r: SnapRow | null | undefined): number | null => {
     if (!r) return null;
@@ -104,10 +140,27 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
     return true;
   };
 
+  /** adsb.lol failed or is only being probed: the second provider's row for
+   *  this hex when it has one (published with its own provenance), else the
+   *  held row with its real age and source "error". */
+  const viaFallback = async (hex: string, upstreamStatus: number | null): Promise<FastResult> => {
+    const alt = deps.fallbackHex ? await deps.fallbackHex(hex).catch(() => []) : [];
+    if (alt.length) {
+      counts.fallback_rows += alt.length;
+      counts.fallback_answers++;
+      deps.publish({ provider: "adsbfi", origin: "fastlane", aircraft: alt, fetchedAt: now(), upstreamNowMs: null });
+    } else {
+      counts.errors++;
+    }
+    const row = deps.snapshotGet(hex) ?? null;
+    return { row, baroRateFpm: baroFor(row), source: alt.length ? "fallback" : "error", upstreamStatus };
+  };
+
   const goUpstream = async (hex: string): Promise<FastResult> => {
     const t0 = now();
     counts.upstream_requests++;
     hexSeen.set(hex, t0);
+    primaryLastTryAt = t0;
     gov.noteRequest("fg", t0);
     let status: number | null = null;
     try {
@@ -119,6 +172,7 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
       }
       const raw = (await r.json()) as { ac?: Array<Record<string, unknown>>; now?: unknown };
       gov.noteResult("fg", 200, now());
+      primaryFails = 0;
       const mapped = mapPointAircraft(raw, "ac", "adsblol")
         .filter((a: { icao24?: unknown }) => String(a.icao24 || "").toLowerCase() === hex);
       const upstreamNowMs = typeof raw?.now === "number" && Number.isFinite(raw.now) ? raw.now : null;
@@ -145,9 +199,8 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
       return { row, baroRateFpm: baroFor(row), source: "upstream", upstreamStatus: status };
     } catch (e) {
       if (status == null) gov.noteResult("fg", 0, now()); // network error / timeout
-      counts.errors++;
-      const row = deps.snapshotGet(hex) ?? null;
-      return { row, baroRateFpm: baroFor(row), source: "error", upstreamStatus: status };
+      primaryFails++;
+      return viaFallback(hex, status);
     }
   };
 
@@ -176,7 +229,9 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
         counts.limited++;
         return { row: snap ?? null, baroRateFpm: baroFor(snap), source: snap ? "limited" : "absent", upstreamStatus: null };
       }
-      const p = goUpstream(hex).then((res) => {
+      const skipPrimary = probeOnly(t);
+      if (skipPrimary) { counts.breaker_skips++; hexSeen.set(hex, t); }
+      const p = (skipPrimary ? viaFallback(hex, null) : goUpstream(hex)).then((res) => {
         cache.set(hex, { at: now(), res });
         return res;
       }).finally(() => { inflight.delete(hex); });
@@ -185,7 +240,7 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
     },
     stats() {
       pruneHexes(now());
-      return { ...counts, hexes_last_min: hexSeen.size };
+      return { ...counts, hexes_last_min: hexSeen.size, primary_consecutive_failures: primaryFails, primary_probe_only: probeOnly(now()) };
     },
   };
 }
