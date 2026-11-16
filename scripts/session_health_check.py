@@ -265,21 +265,32 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
     together before touching the constants again)."""
     if not isinstance(daemon, dict) or not daemon.get("alive"):
         return finding(WARN, "daemon_memory", "daemon not reachable/alive via /api/diag/daemon")
-    rss = daemon.get("rss_mb")
+    # 2026-11-16: the guard (bot_engine._mem_rss_mb) reads CURRENT memory,
+    # but the daemon's rss_mb is ru_maxrss — a peak that never falls. Judged
+    # on the peak, this check alarmed "guard latched" (696 MB) while the
+    # enrichment fetchers the guard would have skipped were reporting fresh.
+    # A daemon that reports rss_current_mb is judged on it; the peak is shown
+    # beside it. A daemon that does not is judged on rss_mb as before.
+    peak = daemon.get("rss_mb")
+    current = daemon.get("rss_current_mb")
+    if isinstance(current, (int, float)) and not isinstance(current, bool):
+        rss, label = current, f"daemon rss now={current}MB (peak {peak}MB)"
+    else:
+        rss, label = peak, f"daemon rss={peak}MB"
     if rss is None:
         return finding(WARN, "daemon_memory", "rss_mb missing from /api/diag/daemon response")
     if rss >= skip_mb:
         return finding(
             ALARM, "daemon_memory",
-            f"daemon rss={rss}MB >= skip_mb={skip_mb}MB — deep_score guard likely "
+            f"{label} >= skip_mb={skip_mb}MB — deep_score guard likely "
             "latched off again (same shape as the pre-v1.0.314 recurrence)",
         )
     if rss >= trim_mb:
         return finding(
             WARN, "daemon_memory",
-            f"daemon rss={rss}MB >= trim_mb={trim_mb}MB — deep_score running in trimmed mode",
+            f"{label} >= trim_mb={trim_mb}MB — deep_score running in trimmed mode",
         )
-    return finding(OK, "daemon_memory", f"daemon rss={rss}MB, well under trim_mb={trim_mb}MB")
+    return finding(OK, "daemon_memory", f"{label}, well under trim_mb={trim_mb}MB")
 
 
 def check_tier2_daemon_timeouts(tier2_error_entries, cluster_threshold=3):

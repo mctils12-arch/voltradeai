@@ -98,6 +98,33 @@ class TestActiveDispatchCounter(unittest.TestCase):
         self.assertIn("rss_mb", result)
         self.assertIn("uptime_seconds", result)
 
+    def test_health_reports_current_rss_beside_the_peak(self):
+        """2026-11-16: rss_mb is ru_maxrss (a peak). The health payload also
+        carries what the process holds now, and on Linux now <= peak."""
+        result = RPCDispatcher()._health({})
+        self.assertEqual(result["rss_peak_mb"], result["rss_mb"])
+        self.assertIn("rss_current_mb", result)
+        if os.path.exists("/proc/self/status"):
+            self.assertGreater(result["rss_current_mb"], 0)
+            self.assertLessEqual(result["rss_current_mb"], result["rss_peak_mb"] + 1)
+
+    def test_current_rss_parses_vmrss_and_never_guesses(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            ok = os.path.join(d, "status")
+            with open(ok, "w") as f:
+                f.write("Name:\tpython3\nVmHWM:\t  712000 kB\nVmRSS:\t  317440 kB\n")
+            self.assertEqual(voltrade_daemon._current_rss_mb(ok), 310.0)
+            bad = os.path.join(d, "bad")
+            with open(bad, "w") as f:
+                f.write("VmRSS:\n")
+            self.assertIsNone(voltrade_daemon._current_rss_mb(bad))
+            nov = os.path.join(d, "nov")
+            with open(nov, "w") as f:
+                f.write("Name:\tpython3\n")
+            self.assertIsNone(voltrade_daemon._current_rss_mb(nov))
+            self.assertIsNone(voltrade_daemon._current_rss_mb(os.path.join(d, "missing")))
+
     def test_detail_tracks_method_and_elapsed_time(self):
         """The exact shape a live zombie-pileup catch needs: entries
         distinguishable by method name and by how long each has run —
