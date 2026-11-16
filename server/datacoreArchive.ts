@@ -54,9 +54,17 @@ export interface AircraftPoint {
   altitude_m: number | null;
   on_ground: boolean;
   velocity_ms: number | null;
-  /** broadcast vertical rate, m/s (+ climbing) — live display only (the 3D
-   *  silhouettes pitch along it); the archive writer does not store it. */
+  /** broadcast vertical rate, m/s (+ climbing), 0.1 precision. Archived since
+   *  schema_version 5 (2026-11-16) — see aircraftKinematicFields. */
   vertical_rate_ms?: number | null;
+  /** which broadcast rate vertical_rate_ms is, for rows that carry no parsed
+   *  intent (a trace point, an OpenSky state): "baro" | "geom"; null/absent =
+   *  the source was not told to us. readsb rows need not set it — the writer
+   *  reads baro_rate/geom_rate from the row's parsed intent. */
+  vertical_rate_source?: "baro" | "geom" | null;
+  /** geometric (GNSS) altitude, m above the WGS84 ellipsoid, for rows that
+   *  carry no parsed intent. readsb rows need not set it (same reason). */
+  alt_geom_m?: number | null;
   heading: number | null;
   type?: string | null;      // ICAO type designator when the feed provides it
   category?: string | null;  // ADS-B emitter category when provided
@@ -139,6 +147,54 @@ export function aircraftIntegrityFields(p: AircraftPoint): Record<string, unknow
     kla: num(p.lkg_lat), klo: num(p.lkg_lon), kb: num(p.lkg_before),
     sp: num(p.seen_pos), pv: p.provider ?? undefined,
   };
+}
+
+// ── KINEMATICS (schema_version 5, additive, 2026-11-16) ─────────────────────
+// Owner request ("flown track at true altitude ... vertical rate, ground speed
+// and heading for each position"). Checked on the live archive the same day:
+// 99.6% of that day's sampled lines already carry the v4 `x` block, and x
+// already holds the geometric altitude (ag, ft), the barometric altitude
+// (ab, ft) and both broadcast vertical rates (br / gr, ft/min). So for those
+// lines NOTHING new is written — readers decode x (aircraftTrackData.ts).
+// The flat keys below exist for the lines x does not cover:
+//   - lines written by archiveAircraftAt (trace backfill, the selected-
+//     aircraft lane): they carry no x at all;
+//   - rows whose feed sends a rate with no intent fields (OpenSky).
+// Flat keys (written only when the value is known AND x does not carry it):
+//   ag  geometric (GNSS) altitude, m above the WGS84 ellipsoid, rounded
+//   vr  broadcast vertical rate, m/s to 0.1 (+ climbing); the feed's native
+//       unit is ft/min (1 ft/min = 0.00508 m/s)
+//   vs  which rate vr is: "b" barometric | "g" geometric; absent = not told
+//   ak  which altitude `al` is: "b" barometric (pressure altitude) | "g"
+//       geometric (no barometric was sent, so al fell back to GNSS); absent
+//       = not recorded (every line before v5 without an x block)
+//   ft  1 = `t` is the FIX'S OWN time (archiveAircraftAt lines). Absent = `t`
+//       is our receive time; the fix is `sp` seconds older than that.
+// Nothing is estimated here: every value is a broadcast measurement or
+// absent. Old lines stay readable — every key is optional.
+export function aircraftKinematicFields(p: AircraftPoint, hasIntentBlock: boolean): Record<string, unknown> {
+  const v = intentOf(p)?.v;
+  const out: Record<string, unknown> = {};
+  const fin = (x: number | null | undefined): x is number => x != null && Number.isFinite(x);
+  const geomM = fin(p.alt_geom_m) ? Math.round(p.alt_geom_m)
+    : v && v.alt_geom != null ? Math.round(v.alt_geom * 0.3048) : null;
+  if (geomM != null && !(hasIntentBlock && v && v.alt_geom != null)) out.ag = geomM;
+  if (!hasIntentBlock && v && p.altitude_m != null) {
+    if (v.alt_baro != null) out.ak = "b";
+    else if (v.alt_geom != null) out.ak = "g";
+  }
+  if (!(hasIntentBlock && v && (v.baro_rate != null || v.geom_rate != null))) {
+    const fpm = v ? (v.baro_rate ?? v.geom_rate) : null;
+    const ms = fpm != null ? Math.round(fpm * 0.0508) / 10
+      : fin(p.vertical_rate_ms) ? Math.round(p.vertical_rate_ms * 10) / 10 : null;
+    if (ms != null) {
+      out.vr = ms;
+      const src = v && v.baro_rate != null ? "b" : v && v.geom_rate != null ? "g"
+        : p.vertical_rate_source === "baro" ? "b" : p.vertical_rate_source === "geom" ? "g" : null;
+      if (src) out.vs = src;
+    }
+  }
+  return out;
 }
 
 export interface VesselPoint {
@@ -340,6 +396,10 @@ export function archiveAircraftAt(
       ty: p.type || undefined, ca: p.category || undefined,
       rg: p.registration || undefined,
       ...aircraftIntegrityFields(p),
+      // kinematics + own-time marker (schema_version 5, additive, 2026-11-16):
+      // these lines carry no x block, so the flat keys are their only record
+      ...aircraftKinematicFields(p, false),
+      ft: 1,
     });
     const arr = byHour.get(key) || [];
     arr.push(line);
@@ -385,6 +445,7 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
       g: !!p.on_ground,
     });
     if (lastKeptAircraft.size > 100_000) lastKeptAircraft.clear(); // bound memory (same rule as lastWrite)
+    const x = intentBlockFor(p, hourKey);
     lines.push(JSON.stringify({
       t, i: p.icao24, c: p.callsign || undefined,
       la: +p.lat.toFixed(4), lo: +p.lon.toFixed(4),
@@ -399,8 +460,10 @@ export function archiveAircraft(points: AircraftPoint[], sites: SitePoint[],
       rg: p.registration || undefined,
       // integrity/origin/provenance (schema_version 3, additive, 2026-08-11)
       ...aircraftIntegrityFields(p),
+      // kinematics x does not carry (schema_version 5, additive, 2026-11-16)
+      ...aircraftKinematicFields(p, x !== undefined),
       // intent block (schema_version 4, additive, 2026-10-14; see above)
-      x: intentBlockFor(p, hourKey),
+      x,
     }));
   }
   try { appendLines("aircraft", lines, base, new Date(now)); } catch (e: any) {
