@@ -7746,6 +7746,27 @@
     root_verdict (or an honest Python-side error/skip) after Sun 11-22
     18:00-19:00 ET.
 
+54. **[FOUND 2026-11-16, [PRODUCT] scheduled routine — RECURRENCE of #23's
+    fact (HEALTH OF THE LOOP rule 4). FIXED v1.0.1409; close marker waits
+    for the Sun 2026-11-22 live run.]** `github_gate2_weekly`
+    (server/githubGate2.ts) asked `/v2/stocks/bars` for `feed=delayed_sip`
+    (resolveAlpacaFeed's default). That endpoint has no such feed: HTTP 400
+    on any plan — #23 (2026-07-18, Python `bars_feed()`), then bot.ts
+    /api/bot/bars (2026-07-20/27). The first registered run (2026-11-16
+    00:26Z) ended in 83 ms, "alpaca HTTP 400", no verdict, look not spent.
+    ROOT CAUSE: the Node side held the fact only as comments; its feed
+    ratchet said delayed_sip is the permitted form everywhere; the job's
+    test asserted delayed_sip on a bars request.
+    FIX: `resolveHistoricalBarsFeed` (alpacaFeed.ts: sip by default for a
+    window ending the ET day before today — the price panel's proven
+    request; never delayed_sip), one recorded fallback to iex on a 400/403
+    feed refusal, refusal detail = status + vendor-message class, and a
+    ratchet: no server file that builds a stock-bars URL may call
+    resolveAlpacaFeed or put delayed_sip on a bars URL.
+    CLOSE WHEN: `/api/diag/github_gate2` shows a `latest` with a verdict
+    (PASS/FAIL/WAITING) after Sun 11-22 19:00-20:00 ET; note which feed
+    `source.prices` names and whether `feed_fallback` is set.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -23885,3 +23906,7 @@ ALSO READ THIS SESSION (no action owed): `/api/diag/earnings_qoq` and `/api/diag
 
 FOUND (experiments.md 2026-11-16 [REPAIR], KNOWN BROKEN #53): `decideEarningsQoq` acts only Sunday 18:00-19:00 ET and at most once per ISO week. The 2026-11-15 attempt died in 48 ms (file not shipped), and the next attempt is a full week later; the same shape holds for lazy_prices_weekly, github_gate2_weekly and edge_p2. For a plumbing failure that spent no look at the data, a week of delay buys nothing.
 TESTABLE FORM / NEXT (own PR, T-DATACORE, small; NOT a change to any registered statistic): let a weekly gate job retry inside a stated catch-up window (e.g. Mon-Tue 18:00-19:00 ET) ONLY when the last attempt errored AND no result file exists for the registered run — a run that reached a verdict, a skip, or a Python-side error with a result never retries (one look stays one look). Decide per job whether the long-job lane is free in that window. Prior: ~70% this is worth building once for the four weekly jobs through one shared helper; lower if the 11-22 runs are all clean.
+
+## 2026-11-16 — pricePanel.ts and barsCoverage.ts still write their bars feed as literals (move onto resolveHistoricalBarsFeed)
+
+FOUND (experiments.md 2026-11-16 second [REPAIR], KNOWN BROKEN #54): the bars-feed fact now has one Node function, but pricePanel.ts (`feed: "sip"`) and barsCoverage.ts (probe feeds sip + iex, deliberately both) keep literals. Both work today, so this is debt, not a break. NEXT (own PR, measurement code — state before/after on identical inputs = no change): pricePanel takes its feed from resolveHistoricalBarsFeed; barsCoverage stays explicit (it exists to probe each feed) with a comment saying so. ALSO: `barsCoverage`'s probe `end` is UTC-yesterday, which between 19:00 and 24:00 ET is the current ET date, so its sip rows read 403 `recent_sip_not_permitted` in the evening even though sip is permitted for ET-yesterday (seen 2026-11-16 00:33Z) — the probe should use pricePanel.panelAsOf so its sip verdict means what it says.
