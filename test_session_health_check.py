@@ -850,3 +850,46 @@ def test_adsb_upstream_self_pacing_is_not_a_human_step_until_the_floor():
     assert f["severity"] == hc.OK and "self-pacing at 0.1 of 0.4" in f["detail"]
     g = hc.check_adsb_upstream(_gov(eff=0.04))
     assert g["severity"] == hc.WARN and "GLOBAL_SWEEP_RPS=0.2" in g["fix"] and "floor" in g["detail"]
+
+
+# ── 2026-11-16: a starved sweep passed this check while the worldwide snapshot aged out ──
+# Read live that day from /api/data/aircraft/global: the sweep sent 59 requests in the hour (47 ok, 5
+# rate-limited) where its self-paced 0.19 req/s allowed ~684; backoff_s 885; 86 consecutive failures.
+def _gov_1116(**over):
+    g = {"bg_rps": 0.4, "effective_bg_rps": 0.19, "backoff_s": 885, "consecutive_failures": 86, "last_hour": {
+        "bg": {"results": 59, "ok": 47, "rate_limited": 5, "network_error": 7},
+        "fg": {"results": 191, "ok": 110, "rate_limited": 49, "network_error": 32}}}
+    g.update(over)
+    return g
+
+
+def test_a_starved_sweep_is_a_warning_once_the_container_has_a_full_hour():
+    f = hc.check_adsb_upstream(_gov_1116(), uptime_s=3 * 3600)
+    assert f["severity"] == hc.WARN
+    assert "sweep STARVED: 59 requests in the last hour where its pace of 0.19 req/s allows ~684" in f["detail"]
+    assert "held 885 s, 86 consecutive failures" in f["detail"]
+    assert "viewer_pause_s" in f["fix"] and "/api/data/aircraft/global" in f["fix"]
+    # 25% of 684 is 171: at 171 requests it is not starved, at 170 it is
+    assert hc.SWEEP_STARVED_SHARE == 0.25
+    ok = _gov_1116(); ok["last_hour"]["bg"].update(results=171, ok=171, rate_limited=0)
+    assert "STARVED" not in hc.check_adsb_upstream(ok, uptime_s=3 * 3600)["detail"]
+    low = _gov_1116(); low["last_hour"]["bg"].update(results=170, ok=170, rate_limited=0)
+    assert "STARVED" in hc.check_adsb_upstream(low, uptime_s=3 * 3600)["detail"]
+
+
+def test_starvation_is_not_judged_without_a_full_hour_or_without_a_pace():
+    assert "STARVED" not in hc.check_adsb_upstream(_gov_1116(), uptime_s=3599)["detail"]
+    assert "STARVED" not in hc.check_adsb_upstream(_gov_1116())["detail"], "no uptime given: the older behaviour"
+    off = _gov_1116(bg_rps=0, effective_bg_rps=0)
+    assert "STARVED" not in hc.check_adsb_upstream(off, uptime_s=3 * 3600)["detail"], "a sweep that is switched off is not starved"
+    # without the self-paced figure the configured rate is the pace: 0.4 req/s allows 1,440
+    older = _gov_1116(); del older["effective_bg_rps"]
+    assert "pace of 0.4 req/s allows ~1440" in hc.check_adsb_upstream(older, uptime_s=3 * 3600)["detail"]
+
+
+def test_run_ops_checks_passes_the_uptime_to_the_upstream_check():
+    args = (_plan_status(), _cov(), _offload(3 * hc.GIB), _gov_1116(), [100] * 10)
+    late = [f for f in hc.run_ops_checks(*args, uptime_s=3 * 3600, now_ms=NOW_MS) if f["label"] == "adsb.lol upstream"][0]
+    assert late["severity"] == hc.WARN and "STARVED" in late["detail"]
+    young = [f for f in hc.run_ops_checks(*args, uptime_s=600, now_ms=NOW_MS) if f["label"] == "adsb.lol upstream"][0]
+    assert "STARVED" not in young["detail"]

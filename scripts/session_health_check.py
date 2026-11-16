@@ -660,7 +660,13 @@ def check_storage(offload, guard_bytes=GIB, alarm_bytes=1_200_000_000):
     return finding(OK, label, detail)
 
 
-def check_adsb_upstream(governor, min_results=30, max_429_share=0.25, max_failover_share=0.5):
+# A sweep that sends under this share of the requests its own pace allows, over a full hour, is STARVED
+# (2026-11-16: 59 requests where its self-paced 0.19 req/s allowed ~684; the governor was holding it at a
+# 15-minute pause that foreground failures kept re-arming, and nothing here said so).
+SWEEP_STARVED_SHARE = 0.25
+
+
+def check_adsb_upstream(governor, min_results=30, max_429_share=0.25, max_failover_share=0.5, uptime_s=None):
     label = "adsb.lol upstream"
     lh = (governor or {}).get("last_hour")
     if not lh:
@@ -671,6 +677,22 @@ def check_adsb_upstream(governor, min_results=30, max_429_share=0.25, max_failov
     fg_fail = fg_n - (fg.get("ok") or 0)
     detail = (f"sweep {bg_n} req/h, {r429} rate-limited; viewport {fg_n} req/h, {fg_fail} failed over "
               f"to the next provider")
+    # judged only with a full hour of outcomes behind it: a young container has sent less by construction
+    pace = governor.get("effective_bg_rps")
+    if pace is None:
+        pace = governor.get("bg_rps")
+    if isinstance(uptime_s, (int, float)) and uptime_s >= 3600 and isinstance(pace, (int, float)) and pace > 0:
+        due = pace * 3600
+        if bg_n < SWEEP_STARVED_SHARE * due:
+            held = governor.get("backoff_s")
+            fails = governor.get("consecutive_failures")
+            return finding(
+                WARN, label,
+                detail + f" (sweep STARVED: {bg_n} requests in the last hour where its pace of {pace} req/s allows "
+                         f"~{due:.0f}; held {held} s, {fails} consecutive failures)",
+                "the worldwide snapshot is ageing out: read coverage.sweep.governor on /api/data/aircraft/global "
+                "(sweep_backoff_s = the sweep's own failures; viewer_pause_s = foreground failures, bounded at "
+                "120 s); a hold that stays high while foreground requests succeed is the 2026-11-16 livelock")
     if bg_n >= min_results and r429 / bg_n > max_429_share:
         rps = governor.get("bg_rps") or 0.4
         eff = governor.get("effective_bg_rps")
@@ -711,7 +733,7 @@ def run_ops_checks(plan_status, intent_cov, offload, governor, latency_ms, uptim
         check_filed_routes(plan_status),
         check_intent_coverage(intent_cov),
         check_storage(offload),
-        check_adsb_upstream(governor),
+        check_adsb_upstream(governor, uptime_s=uptime_s),
         check_data_latency(latency_ms),
     ]
 
