@@ -37,6 +37,7 @@ import {
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS, TRACKED_FAST_POLL_MS, TRACKED_ACTIVE_WINDOW_MS, TRACKED_MAX_REQ_PER_MIN } from "./trackedPlanes";
 import { registerAircraftFindRoute } from "./aircraftFind";
+import { registerAircraftEstimateRoute } from "./aircraftEstimate";
 import { publishFixes } from "./aircraftFixBus";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
 import { registerGlobalAircraftRoutes } from "./globalAircraft";
@@ -45,7 +46,7 @@ import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./airc
 import { nearestAirport } from "./airportsIndex";
 import { registerArchiveOffloadRoutes } from "./archiveOffload";
 import { attachAeroChartEditions, registerAeroChartRoutes } from "./aeroCharts";
-import { registerFlightPlanRoutes } from "./flightPlans";
+import { registerFlightPlanRoutes, resolveFlightPlan, getFlightPlanContext } from "./flightPlans";
 import { registerProcedureRoutes } from "./procedures";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
@@ -1061,6 +1062,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     tracked: () => trackedPoller.getRegistry().planes,
     publish: publishFixes,
     lastArchived: async (hex) => { const pts = await recentTrackCached("aircraft", hex); return pts.length ? pts[pts.length - 1] : null; },
+  });
+  // GET /api/data/aircraft/estimate/:hex — the last real fix and, beside it, an ESTIMATED position and path
+  // (dead reckoning, then along the route), every part marked estimated (server/aircraftEstimate.ts)
+  registerAircraftEstimateRoute(app, {
+    liveRow: (hex) => globalAircraft.snapshot.get(hex),
+    archiveTail: (hex) => recentTrackCached("aircraft", hex),
+    plan: (q) => resolveFlightPlan(q, getFlightPlanContext()),
   });
 
   // Recent trail for one entity (serves the client's track-on-click).
