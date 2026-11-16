@@ -216,6 +216,13 @@ export class UpstreamGovernor {
     return out;
   }
 
+  /** ms left on the failure backoff (0 = none). Read-only: a caller that
+   *  records on the foreground lane but can afford to wait (the tracked
+   *  planes' hex poll) holds its request while adsb.lol is struggling. */
+  backoffMs(now: number): number {
+    return Math.max(0, this.backoffUntil - now);
+  }
+
   /** Requests (both lanes) inside the sliding window. */
   windowCount(now: number): number {
     this.prune(now);
