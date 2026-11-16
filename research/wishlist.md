@@ -8,6 +8,8 @@ OPTIONAL, YOURS TO DECIDE (a routine-prompt change): add "list open PRs from cla
 
 ## ⚠ ENGINE KILL LATCHED ON A STALE PEAK 2026-11-10 — no new entries since 11-06; human decision needed (which peak the -20% kill measures from)
 
+DECIDED 2026-11-16: the human chose (a) ("yes (a)"). It ships 2026-11-16 after the close as its own PR ([REPAIR] entry of that date in experiments.md): the paper re-baseline lowers the shared peak, plus the one-time catch-up. Options (b) and (c) below are not taken. The text below is kept as filed.
+
 WHAT: risk_kill_switch.check_kill_switches (Python, FROZEN mechanism, every
 Tier-2 scan) is latched `Portfolio DD -20.0% <= -20%` against the SHARED
 peak file voltrade_peak_equity.json (~$110,727, the pre-re-baseline all-time
