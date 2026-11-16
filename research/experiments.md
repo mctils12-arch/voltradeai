@@ -118047,3 +118047,21 @@ DOWNSTREAM:
 ROLLBACK TRIGGER: revert if an hour's line count ever falls across a compression pass, or if `.gz.tmp` files accumulate in an archive directory.
 TESTS: server/archiveLateHourMerge.test.ts, 10 new: for each compressor, the 50-line hour with one late line holds 51 afterwards with the 50 first and in order, no temp file left; an ordinary hour compresses and a young one is left alone; an existing .gz that does not gunzip is untouched and the late file stays; the size limit keeps both files and merges at the limit; mergedHourBody; and end to end with the real writer (archiveAircraftAt for an old hour, then the async compressor). On the old compressors (three new exports shimmed in) 8 of the 10 fail: the hour holds 1 line, and the corrupt .gz is overwritten. Related suites (datacoreArchive, archiveOffload): 81 pass with it; with the track-data change stacked, 156. tsc 6, the same as main. Counter ratchet OK.
 STARVED: no.
+
+## 2026-11-12 [RULE-REVIEW] — T-BOT (options_manager.py _roll_or_skip; bot_engine.py convexity put buy; intraday_shorts.py entry; server/bot.ts executeTrades ETF order; conftest.py; test_kill_latch.py label set; new test_kill_latch_residuals.py) — KNOWN BROKEN #51 residuals: the opening paths the first fix left, and two ratchets it lacked
+VERSION: v1.0.1417 (shipped 2026-11-16 by the parent session; main was v1.0.1416)
+WHY: two sessions built the #51 fix on 2026-11-12 (this one in the morning, the midday routine as PR #1757). By the WORKSTREAM PARTITION supersession rule the first merged wins and the duplicate salvages its unique delta. #1757 merged first; this is that delta. #1757 gates the floor, cash-parking, SVXY and option opens and makes a blocked option open never fall back to a stock buy. It left:
+- a ROLL's re-open. A roll is a close plus a sell-to-open. The scan passes allow_rolls=True when it started unlatched, so a latch that trips mid-scan still let the options manager re-open.
+- two opening POSTs its source test never looked at. Its scan skipped any order whose label was not in its own list, so the convexity overlay's put buy and the intraday short entry went ungated. Both paths are disabled today.
+- the ETF substitution order in executeTrades. #1757 re-reads the latch before the stock order only.
+- test hermeticity. kill_latch reads DATA_DIR and /tmp. scripts/deploy_gate_smoke.mjs writes a LATCHED file there while it runs, and a local bot leaves its own, so any test that expects a buy could fail for a reason outside the test.
+CHANGE: no threshold, no mechanism and no order transmission changes (RULE REVIEW: an enforcement gap).
+- options_manager._roll_or_skip reads kill_latch before a roll. While latched it returns "roll skipped: Node kill latch set (exits only)", so each roll point takes its existing close branch.
+- bot_engine's convexity put buy and intraday_shorts' entry call kill_latch.check_opening_allowed after the clock gate, with the same label.
+- server/bot.ts executeTrades re-checks state.killSwitch right before the ETF order, with the loop-top check's handling.
+- conftest.py: an autouse fixture points kill_latch at an empty directory. test_kill_latch.py's own fixture overrides it.
+- test_kill_latch.py: OPENING_LABELS gains "convexity put buy" and its count goes 4 -> 5 (a stricter assertion).
+DOWNSTREAM: nothing changes while Node's kill is off. When the latch trips mid-scan, a position due to roll is closed and not re-opened, and an ETF substitution is not sent. Exits are untouched.
+ROLLBACK TRIGGER: revert if a roll is skipped while Node's kill switch is off, or if any close is refused by the gate.
+TESTS: new test_kill_latch_residuals.py, 6 tests; 5 fail on #1757's head (the sixth pins unchanged behaviour). They cover the roll (unit and through manage_options_positions); every one of the 21 engine order POSTs classified as opening, closing or frozen submitter, with every opening POST behind the gate, no exit reading it, and an unclassified POST failing; the ETF re-check with no await after it; the hermetic default. With #1757's test_kill_latch.py: 24 passed. Affected Python suites (floor, third leg, options manager, entry shadow, broker clock): 352 passed. Server tests (haltScope, floorAudit, leg3Audit, etfSubstitution, executeTrades readers): 116/116. tsc: 6 errors, the same as main. Counter ratchet OK.
+STARVED: no.

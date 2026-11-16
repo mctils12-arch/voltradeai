@@ -36,6 +36,7 @@ import requests
 import alpaca_feed
 # BROKER CLOCK ORDER GATE 2026-11-05: no order while Alpaca's clock says closed
 import broker_clock
+import kill_latch   # Node's kill latch: a roll's re-open is a new entry (KNOWN BROKEN #51 residual, 2026-11-12)
 import order_ladder
 # 2026-11-05 (daily line, measurement only): the quote each close was priced
 # from and the order id Alpaca returned — see option_fill_ledger.py.
@@ -1663,12 +1664,20 @@ ROLL_SKIPPED_HALTED_DETAIL = "roll skipped: entries halted (exits only)"
 # while the options sleeve is shadowed — the close stays live, the would-be
 # re-open is logged by the caller (entry_shadow.roll_skip_entries).
 ROLL_SKIPPED_SHADOW_DETAIL = "roll skipped: options entries in shadow mode (close only)"
+# KILL LATCH (2026-11-12, KNOWN BROKEN #51 residual): the same close-only path
+# while Node's kill switch is latched. The scan passes allow_rolls=True when it
+# STARTED unlatched; a latch that trips while it runs is read here, at the roll
+# itself (kill_latch.py), so the position is closed and nothing is re-opened.
+ROLL_SKIPPED_KILL_LATCH_DETAIL = "roll skipped: Node kill latch set (exits only)"
 
 
 def _roll_or_skip(allow_rolls: bool, occ_symbol: str, qty: int, current_side: str,
                   parsed: dict, equity: float, skip_detail: str = ROLL_SKIPPED_HALTED_DETAIL) -> dict:
     if not allow_rolls:
         return {"rolled": False, "detail": skip_detail}
+    latch = kill_latch.read_latch()
+    if latch["latched"]:
+        return {"rolled": False, "detail": f"{ROLL_SKIPPED_KILL_LATCH_DETAIL} — {latch.get('reason') or 'no reason recorded'}"}
     return _attempt_roll(occ_symbol, qty, current_side, parsed, equity)
 
 

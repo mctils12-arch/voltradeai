@@ -7964,6 +7964,13 @@ else:
             totalDeployed += etfPlan.value;
             continue;
           }
+          // KILL LATCH (2026-11-12, KNOWN BROKEN #51 residual): re-read right before the
+          // ETF order too: this trade has awaited Python and the broker since the
+          // loop-top check. The same handling as that check.
+          if (state.killSwitch) {
+            noteRemaining(trade, "rejected_killswitch", "Node kill switch on — read before the ETF order, loop ended");
+            break;
+          }
           // SCALE-IN BY THIRDS 2026-11-06: the ETF's own first third now; its thesis
           // stop is estimated from the stock's (scaleIn.etfStopFromStock).
           const etfScaleIn = planScaleIn({ ticker: etfTicker, underlying: trade.ticker, instrument: "etf", qty: etfShares,

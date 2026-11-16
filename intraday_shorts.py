@@ -27,6 +27,7 @@ for _v in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS",
 import os, json, time, logging, requests
 # BROKER CLOCK ORDER GATE 2026-11-05: no order while Alpaca's clock says closed
 import broker_clock
+import kill_latch   # Node's kill latch, read before an opening order (KNOWN BROKEN #51 residual, 2026-11-12)
 # Alpaca rate limiter (OPT 2026-04-20)
 try:
     from alpaca_rate_limiter import alpaca_throttle
@@ -414,6 +415,7 @@ def run_intraday_shorts(macro=None, snapshot_data=None):
 
             try:
                 broker_clock.check_order_allowed(sym, "intraday short entry")
+                kill_latch.check_opening_allowed(sym, "intraday short entry")   # KNOWN BROKEN #51 residual
                 alpaca_throttle.acquire()
                 order_r = requests.post(f"{ALPACA_BASE}/v2/orders",
                     json={"symbol": sym, "qty": str(shares), "side": "sell",
