@@ -43,3 +43,22 @@ test("RATCHET: every datamap.tsx hash-route full overlay view is registered in v
     `these datamap.tsx full overlay views have no scripts/visual_check.mjs PAGES entry, so the visual harness NEVER renders or checks them at any width: ${unverified.join(", ")} — ` +
     "add a PAGES entry (and a FIXTURES entry for its /api/data/* route if it needs realistic data to render) in the same PR that adds the hash-route useState");
 });
+
+// 2026-11-16 [REPAIR]: the time-scrubber battery clicked the close-approach
+// toggle a fixed 600 ms after the panel opened. The toggle renders only after
+// the aircraft window fetch lands, so on a loaded machine (two harness runs
+// side by side) the click missed and four checks failed that pass on an idle
+// one. The harness now waits for the control itself, bounded; the missing-
+// toggle failure stays.
+test("the harness waits for the close-approach toggle itself before clicking it, and still fails when it never appears", () => {
+  const src = fs.readFileSync(path.join(here, "..", "scripts", "visual_check.mjs"), "utf8");
+  const click = src.indexOf('await page.$eval("[data-vt-timescrub-ca-toggle]", (el) => el.click())');
+  assert.ok(click > 0, "the toggle click is still in the time-scrubber battery");
+  const opened = src.lastIndexOf('page.waitForSelector("[data-vt-timescrub-panel]"', click);
+  assert.ok(opened > 0 && opened < click);
+  const between = src.slice(opened, click);
+  assert.match(between, /await page\.waitForSelector\("\[data-vt-timescrub-ca-toggle\]", \{ state: "attached", timeout: \d{4,} \}\)\.catch\(\(\) => null\);/,
+    "a bounded wait on the control, not only a fixed sleep");
+  assert.match(src.slice(click, click + 400), /checks\.failures\.push\("timescrub: close-approach toggle missing for an aircraft window"\)/,
+    "a toggle that never appears is still a hard failure");
+});

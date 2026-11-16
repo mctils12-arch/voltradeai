@@ -5346,7 +5346,14 @@ async function main() {
           checks.failures.push("timescrub: panel did not open from its own control");
         } else {
           if (!tsSlider) checks.failures.push("timescrub: slider never appeared (lazy chunk failed to load?)");
-          await page.waitForTimeout(600); // entry animation + the initial snapshot fetch to land
+          await page.waitForTimeout(600); // entry animation
+          // The close-approach toggle renders only once the aircraft window
+          // fetch has landed and been processed. A fixed 600 ms was enough on
+          // an idle machine and not on a loaded one (2026-11-16: two harness
+          // runs side by side each failed the four close-approach checks
+          // below; either one alone passed), so wait for the control itself,
+          // bounded. If it never appears the check below still fails.
+          await page.waitForSelector("[data-vt-timescrub-ca-toggle]", { state: "attached", timeout: 8000 }).catch(() => null);
           // FLIGHT PROGRAM replay: the close-approach list is a collapsed
           // disclosure by default — open it through its own control (DOM
           // click: the check below is about the list, not the toggle's
