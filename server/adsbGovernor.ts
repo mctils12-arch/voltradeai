@@ -17,11 +17,24 @@
 //       1. token bucket at `bgRps` (burst 1 — no bursts toward a free API);
 //       2. a total ceiling: if foreground+background requests over the last
 //          `windowMs` already reach `ceilingRps`, the background yields;
-//       3. exponential backoff after any adsb.lol 429/5xx/network failure —
-//          from EITHER lane (a viewport disc seeing adsb.lol struggle pauses
-//          the sweep too), honoring Retry-After when the upstream sends it.
-//     Only a BACKGROUND success clears the backoff: a lucky viewport 200 a
-//     second after a sweep 429 must not re-open the floodgate.
+//       3. backoff after an adsb.lol 429/5xx/network failure, honoring
+//          Retry-After when the upstream sends it:
+//          - a BACKGROUND failure starts the sweep's own exponential backoff
+//            (30 s doubling to 15 min), which only a BACKGROUND success
+//            clears: a lucky viewport 200 a second after a sweep 429 must not
+//            re-open the floodgate;
+//          - a FOREGROUND failure (a viewport disc, the selected-aircraft
+//            lane) pauses the sweep too, but only briefly (FG_FAILURE_PAUSE_MS)
+//            and never more than FG_PAUSE_MAX_MS past the sweep's own last
+//            request. Then ONE sweep request goes out and its own outcome
+//            decides.
+//          Until 2026-11-16 a foreground failure fed the same exponential
+//          counter. Live that day: 127 consecutive failures, all but a few
+//          from the foreground lane, held the pause at its 15-minute ceiling
+//          while adsb.lol was answering again. Only a sweep success could
+//          clear it and the sweep was not allowed to send, so it sent nothing
+//          for 24+ minutes and the worldwide snapshot aged out (1 row of
+//          ~1,100 under 2 minutes old; rows are evicted at 10 minutes).
 //
 // Pure + clock-injectable (every method takes `now`), so tests never sleep.
 
@@ -62,6 +75,16 @@ export function outcomeKind(status: number): OutcomeKind {
 export const AIMD_MIN_FRACTION = 0.1;
 export const AIMD_STEP_FRACTION = 0.05;
 
+/** A FOREGROUND failure pauses the sweep this long (the sweep's own first
+ *  backoff step) ... */
+export const FG_FAILURE_PAUSE_MS = 30_000;
+/** ... and foreground failures alone never hold the sweep longer than this
+ *  past its own last request (or past the first foreground failure since).
+ *  After it, one sweep request goes out as the probe. During an outage that
+ *  probe fails and the sweep's exponential backoff takes over, so the upstream
+ *  sees one probe, not a resumed sweep. */
+export const FG_PAUSE_MAX_MS = 120_000;
+
 /** the ops window: outcomes kept for one hour (bounded) */
 export const OUTCOME_WINDOW_MS = 3600_000;
 const OUTCOME_LOG_MAX = 20_000;
@@ -84,8 +107,17 @@ export class UpstreamGovernor {
   private lastRefill: number | null = null;
   /** request timestamps (both lanes) inside the sliding window */
   private recent: { t: number; lane: Lane }[] = [];
+  /** consecutive failures from EITHER lane since the last sweep success (the ops figure) */
   private failures = 0;
+  /** consecutive SWEEP failures: the exponent of the sweep's own backoff */
+  private bgFailures = 0;
+  /** the sweep's own backoff (set by background failures only) */
   private backoffUntil = 0;
+  /** the bounded pause a foreground failure asks for */
+  private fgPauseUntil = 0;
+  /** first foreground failure since the sweep last sent a request */
+  private fgRunStart: number | null = null;
+  private lastBgRequestAt: number | null = null;
   private lastStatus: { lane: Lane; status: number; at: number } | null = null;
   private counts = { fg: 0, bg: 0, fgFail: 0, bgFail: 0 };
   /** outcomes of the last OUTCOME_WINDOW_MS, oldest first (ops check: the
@@ -122,6 +154,7 @@ export class UpstreamGovernor {
     this.prune(now);
     this.recent.push({ t: now, lane });
     this.counts[lane]++;
+    if (lane === "bg") this.lastBgRequestAt = now;
   }
 
   /** Record a request's OUTCOME. `retryAfterSec` from the upstream's
@@ -134,14 +167,26 @@ export class UpstreamGovernor {
     else if (lane === "bg" && status >= 200 && status < 400) this.rateFrac = Math.min(1, this.rateFrac + AIMD_STEP_FRACTION);
     if (isBackoffStatus(status)) {
       this.failures++;
-      if (lane === "fg") this.counts.fgFail++; else this.counts.bgFail++;
-      const step = Math.min(this.maxBackoffMs, this.baseBackoffMs * 2 ** (this.failures - 1));
       const ra = retryAfterSec != null && Number.isFinite(retryAfterSec) && retryAfterSec > 0
         ? Math.min(this.maxBackoffMs, retryAfterSec * 1000) : 0;
-      this.backoffUntil = Math.max(this.backoffUntil, now + Math.max(step, ra));
+      if (lane === "fg") {
+        this.counts.fgFail++;
+        // a new run of foreground failures starts once the sweep has sent since the last one began
+        if (this.fgRunStart == null || this.fgRunStart < (this.lastBgRequestAt ?? 0)) this.fgRunStart = now;
+        const bounded = Math.min(now + FG_FAILURE_PAUSE_MS, this.fgRunStart + FG_PAUSE_MAX_MS);
+        // an explicit Retry-After is the upstream's own instruction: honored in full
+        this.fgPauseUntil = Math.max(this.fgPauseUntil, bounded, ra > 0 ? now + ra : 0);
+      } else {
+        this.counts.bgFail++;
+        this.bgFailures++;
+        const step = Math.min(this.maxBackoffMs, this.baseBackoffMs * 2 ** (this.bgFailures - 1));
+        this.backoffUntil = Math.max(this.backoffUntil, now + Math.max(step, ra));
+      }
     } else if (lane === "bg" && status >= 200 && status < 400) {
       this.failures = 0;
+      this.bgFailures = 0;
       this.backoffUntil = 0;
+      this.fgPauseUntil = 0;
     }
   }
 
@@ -182,7 +227,7 @@ export class UpstreamGovernor {
     if (this.bgRps <= 0) return Number.POSITIVE_INFINITY;
     this.refill(now);
     this.prune(now);
-    let wait = Math.max(0, this.backoffUntil - now);
+    let wait = Math.max(0, this.backoffUntil - now, this.fgPauseUntil - now);
     if (this.tokens < 1) wait = Math.max(wait, ((1 - this.tokens) / this.effectiveBgRps()) * 1000);
     const cap = this.ceilingRps * (this.windowMs / 1000);
     if (this.recent.length >= cap && this.recent.length > 0) {
@@ -213,8 +258,13 @@ export class UpstreamGovernor {
       window_s: this.windowMs / 1000,
       window_fg: fgWin,
       window_bg: this.recent.length - fgWin,
-      backoff_s: Math.max(0, Math.ceil((this.backoffUntil - now) / 1000)),
+      // how long the sweep is held in total, then its two parts: its own
+      // backoff, and the bounded pause foreground failures asked for
+      backoff_s: Math.max(0, Math.ceil((Math.max(this.backoffUntil, this.fgPauseUntil) - now) / 1000)),
+      sweep_backoff_s: Math.max(0, Math.ceil((this.backoffUntil - now) / 1000)),
+      viewer_pause_s: Math.max(0, Math.ceil((this.fgPauseUntil - now) / 1000)),
       consecutive_failures: this.failures,
+      sweep_consecutive_failures: this.bgFailures,
       totals: { ...this.counts },
       last_hour: this.lastHour(now),
       last_status: this.lastStatus,
