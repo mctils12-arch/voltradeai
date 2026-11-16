@@ -50,13 +50,17 @@
  * serialized even though this job is seconds long (15 symbols, one paged
  * multi-symbol bars request). At most one attempt per ISO week; re-runs for a
  * new code version or a result older than 6 days. No Python, no subprocess.
+ * CATCH-UP (gateCatchup.ts): a Sunday attempt that errored and wrote no result
+ * may be repeated Monday or Tuesday in the same hour, once per ET day; a
+ * verdict, a skip or a written result ends the week.
  * Result files are KB-sized under DATA_DIR/github_gate2 — derived statistics
  * only: per-week bucket means and the test, never a price (Alpaca data licence).
  * FLAG: VOLTRADE_GITHUB_GATE2, default ON; present env var wins.
  */
 import fs from "fs";
 import path from "path";
-import { beat, zonedParts } from "./jobHeartbeat";
+import { beat, heartbeatStore, zonedParts, type JobRun } from "./jobHeartbeat";
+import { catchupDecision, gateCatchupFlag } from "./gateCatchup";
 import { WATCHLIST, lookupGithubOrgHistory, type GithubActivityRecord } from "./githubOrgActivity";
 import { isoWeekKey, type RunOutcome } from "./walkforward";
 import { BARS_FALLBACK_FEED, resolveHistoricalBarsFeed } from "./alpacaFeed";
@@ -374,10 +378,23 @@ export type GithubGate2Decision =
 /** Pure: what this tick should do. */
 export function decideGithubGate2(nowMs: number, s: {
   enabled: boolean; latest: GithubGate2Latest | null; lastAttemptWeek: string; codeVersion: string; freeBytes: number | null;
+  /** the job's persisted heartbeat runs + the catch-up switch; absent = Sunday only */
+  catchup?: { enabled: boolean; runs: readonly JobRun[] | undefined };
 }): GithubGate2Decision {
   if (!s.enabled) return { action: "idle", reason: "VOLTRADE_GITHUB_GATE2 off" };
-  if (!inGithubGate2Window(nowMs)) return { action: "idle", reason: "outside Sunday 19:00-20:00 ET" };
-  const week = isoWeekKey(zonedParts(nowMs, ET).date);
+  // Outside the Sunday window the only way in is gateCatchup's rule: Mon/Tue,
+  // same hour, last Sunday's attempts all errored and wrote no result.
+  let catchupReason = "";
+  let week = isoWeekKey(zonedParts(nowMs, ET).date);
+  if (!inGithubGate2Window(nowMs)) {
+    const c = s.catchup
+      ? catchupDecision(nowMs, { enabled: s.catchup.enabled, runs: s.catchup.runs, latestGeneratedAt: s.latest?.generated_at ?? null, windowStartMin: GITHUB_GATE2_WINDOW_START_MIN, windowEndMin: GITHUB_GATE2_WINDOW_END_MIN })
+      : null;
+    if (!c) return { action: "idle", reason: "outside Sunday 19:00-20:00 ET" };
+    if (!c.eligible) return { action: "idle", reason: `outside Sunday 19:00-20:00 ET; no catch-up: ${c.reason}` };
+    catchupReason = `${c.reason}; `;
+    week = `catchup:${c.etDate}`;
+  }
   if (s.lastAttemptWeek === week) return { action: "idle", reason: `already attempted ${week}` };
   if (s.freeBytes !== null && s.freeBytes < GITHUB_GATE2_MIN_FREE_BYTES) {
     return { action: "skip", week, reason: `only ${Math.floor(s.freeBytes / 1e6)} MB free on the volume (< ${GITHUB_GATE2_MIN_FREE_BYTES / 1e6} MB)` };
@@ -389,7 +406,7 @@ export function decideGithubGate2(nowMs: number, s: {
       return { action: "skip", week, reason: `fresh: code ${l.code_version}, ${Math.floor(age / DAY_MS)}d old` };
     }
   }
-  return { action: "run", week, reason: l ? `code ${l.code_version ?? "?"} -> ${s.codeVersion}, last ${l.generated_at ?? "?"}` : "no result yet" };
+  return { action: "run", week, reason: catchupReason + (l ? `code ${l.code_version ?? "?"} -> ${s.codeVersion}, last ${l.generated_at ?? "?"}` : "no result yet") };
 }
 
 // ── result files ────────────────────────────────────────────────────────────
@@ -526,6 +543,7 @@ export function githubGate2Status(env: Record<string, string | undefined> = proc
     probe: "github_gate2",
     flag: { value: flag.value, source: flag.source, on: flag.on },
     schedule: `Sunday ${GITHUB_GATE2_WINDOW_START_MIN / 60}:00-${GITHUB_GATE2_WINDOW_END_MIN / 60}:00 ET start, once per ISO week, in-process, budget ${GITHUB_GATE2_TIMEOUT_MS / 60_000} min`,
+    catchup: { flag: gateCatchupFlag(env), rule: "Mon/Tue same hour, only when every attempt since the Sunday window opened errored and no result was written; at most one attempt per ET day" },
     registered_not_before: GITHUB_GATE2_REGISTERED_NOT_BEFORE,
     code_version: pkgVersion,
     latest: l ? {
@@ -554,6 +572,7 @@ export function bootGithubGate2(env: NodeJS.ProcessEnv = process.env): void {
     try { const s = fs.statfsSync(root.startsWith("/data") ? "/data" : path.dirname(root)); free = Number(s.bavail) * Number(s.bsize); } catch { free = null; }
     const d = decideGithubGate2(Date.now(), {
       enabled: githubGate2Flag(env).on, latest: githubGate2Latest(root), lastAttemptWeek, codeVersion: pkgVersion, freeBytes: free,
+      catchup: { enabled: gateCatchupFlag(env).on, runs: heartbeatStore().snapshot().jobs.github_gate2_weekly },
     });
     if (d.action === "idle") return;
     lastAttemptWeek = d.week;
