@@ -450,7 +450,40 @@ export function archiveTrains(points: TrainPoint[], baseDir?: string, nowMs?: nu
 }
 
 // ── compression + rollup (maintenance; call periodically) ───────────────────
-export function compressOldHours(baseDir?: string, nowMs?: number): number {
+// ── a LATE raw file for an hour that is already compressed ─────────────────
+// archiveAircraftAt writes each fix into the hour file of the fix's OWN time
+// (the tracked tails' day-trace backfill; the selected-aircraft lane). When
+// that hour is more than two hours old its YYYY-MM-DD-HH.jsonl.gz already
+// exists, and a NEW YYYY-MM-DD-HH.jsonl appears beside it. Until 2026-11-16
+// both compressors below then wrote the new file's gzip OVER the existing
+// .gz: the whole hour, every aircraft in it, was replaced by the late lines
+// (reproduced: an hour of 50 lines held 1 afterwards), and the changed file
+// re-uploaded over the cold tier's copy. The async variant's failure path
+// also unlinked `fp + ".gz"`, i.e. the existing good file. Now:
+//   - an existing .gz is MERGED: its lines first, then the late ones;
+//   - every .gz is written to `<name>.gz.tmp` and renamed into place, so a
+//     failed or interrupted compression can only ever lose its own temp file;
+//   - a merge that cannot be done safely (the existing .gz does not gunzip,
+//     or is larger than LATE_HOUR_MERGE_MAX_GZ_BYTES) leaves BOTH files as
+//     they are: the readers already scan .jsonl and .jsonl.gz.
+/** an existing .gz larger than this is not merged in memory (both files stay) */
+export const LATE_HOUR_MERGE_MAX_GZ_BYTES = 64 * 1024 * 1024;
+const lateHourCounts = { merged: 0, left_beside: 0 };
+/** late raw hour files merged into their existing .gz / left beside it, since boot */
+export function lateHourMergeStats(): { merged: number; left_beside: number } { return { ...lateHourCounts }; }
+
+/** existing lines first, then the late ones; a missing final newline never joins two lines */
+export function mergedHourBody(existing: Buffer, late: Buffer): Buffer {
+  const needNl = existing.length > 0 && existing[existing.length - 1] !== 0x0a;
+  return needNl ? Buffer.concat([existing, Buffer.from("\n"), late]) : Buffer.concat([existing, late]);
+}
+
+function noteLeftBeside(fp: string, why: string): void {
+  lateHourCounts.left_beside++;
+  console.error(`[archive] late hour file ${path.basename(fp)} left beside its existing .gz (${why}); both are still read`);
+}
+
+export function compressOldHours(baseDir?: string, nowMs?: number, mergeMaxGzBytes = LATE_HOUR_MERGE_MAX_GZ_BYTES): number {
   const base = baseDir || archiveBaseDir();
   const now = nowMs ?? Date.now();
   let done = 0;
@@ -464,13 +497,28 @@ export function compressOldHours(baseDir?: string, nowMs?: number): number {
       const fileMs = Date.parse(`${stamp.slice(0, 10)}T${stamp.slice(11, 13)}:00:00Z`);
       if (!Number.isFinite(fileMs) || now - fileMs < 2 * 3600_000) continue;
       const fp = path.join(dir, f);
+      const gzPath = fp + ".gz";
+      const tmp = gzPath + ".tmp";
       try {
-        const gz = zlib.gzipSync(fs.readFileSync(fp));
-        fs.writeFileSync(fp + ".gz", gz);
+        let body = fs.readFileSync(fp);
+        const late = fs.existsSync(gzPath);
+        if (late) {
+          if (fs.statSync(gzPath).size > mergeMaxGzBytes) { noteLeftBeside(fp, "the existing .gz is over the merge size limit"); continue; }
+          let existing: Buffer;
+          try { existing = zlib.gunzipSync(fs.readFileSync(gzPath)); } catch (e: unknown) {
+            noteLeftBeside(fp, `the existing .gz does not gunzip: ${e instanceof Error ? e.message : String(e)}`);
+            continue;
+          }
+          body = mergedHourBody(existing, body);
+        }
+        fs.writeFileSync(tmp, zlib.gzipSync(body));
+        fs.renameSync(tmp, gzPath);
         fs.unlinkSync(fp);
+        if (late) lateHourCounts.merged++;
         done++;
       } catch (e: any) {
         console.error("[archive] gzip:", e?.message || e);
+        try { fs.unlinkSync(tmp); } catch (e2: unknown) { if ((e2 as NodeJS.ErrnoException)?.code !== "ENOENT") console.error("[archive] gzip temp cleanup:", e2); }
       }
     }
   }
@@ -490,8 +538,10 @@ export function compressOldHours(baseDir?: string, nowMs?: number): number {
  * both-files-exist read window (readers scan .jsonl and .jsonl.gz) also
  * existed on the sync path; duplicate trail points sort/round away.
  */
+const gunzipAsync = (b: Buffer): Promise<Buffer> => new Promise((res, rej) => zlib.gunzip(b, (e, out) => (e ? rej(e) : res(out))));
+const gzipAsync = (b: Buffer): Promise<Buffer> => new Promise((res, rej) => zlib.gzip(b, (e, out) => (e ? rej(e) : res(out))));
 let compressInFlight = false;
-export async function compressOldHoursAsync(baseDir?: string, nowMs?: number): Promise<number> {
+export async function compressOldHoursAsync(baseDir?: string, nowMs?: number, mergeMaxGzBytes = LATE_HOUR_MERGE_MAX_GZ_BYTES): Promise<number> {
   if (compressInFlight) return 0;
   compressInFlight = true;
   try {
@@ -509,13 +559,30 @@ export async function compressOldHoursAsync(baseDir?: string, nowMs?: number): P
         const fileMs = Date.parse(`${stamp.slice(0, 10)}T${stamp.slice(11, 13)}:00:00Z`);
         if (!Number.isFinite(fileMs) || now - fileMs < 2 * 3600_000) continue;
         const fp = path.join(dir, f);
+        const gzPath = fp + ".gz";
+        const tmp = gzPath + ".tmp";
         try {
-          await pipeline(fs.createReadStream(fp), zlib.createGzip(), fs.createWriteStream(fp + ".gz"));
+          // a late raw file for an hour that is already compressed: merge, never overwrite (see above)
+          const existingSize = await fs.promises.stat(gzPath).then((st) => st.size, () => null);
+          if (existingSize != null) {
+            if (existingSize > mergeMaxGzBytes) { noteLeftBeside(fp, "the existing .gz is over the merge size limit"); continue; }
+            let existing: Buffer;
+            try { existing = await gunzipAsync(await fs.promises.readFile(gzPath)); } catch (e: unknown) {
+              noteLeftBeside(fp, `the existing .gz does not gunzip: ${e instanceof Error ? e.message : String(e)}`);
+              continue;
+            }
+            await fs.promises.writeFile(tmp, await gzipAsync(mergedHourBody(existing, await fs.promises.readFile(fp))));
+          } else {
+            await pipeline(fs.createReadStream(fp), zlib.createGzip(), fs.createWriteStream(tmp));
+          }
+          await fs.promises.rename(tmp, gzPath);
           await fs.promises.unlink(fp);
+          if (existingSize != null) lateHourCounts.merged++;
           done++;
         } catch (e: any) {
           console.error("[archive] gzip (async):", e?.message || e);
-          await fs.promises.unlink(fp + ".gz").catch(() => {}); // drop the partial, keep the raw
+          // drop only this run's temp file; the raw file and any existing .gz stay
+          await fs.promises.unlink(tmp).catch((e2: NodeJS.ErrnoException) => { if (e2?.code !== "ENOENT") console.error("[archive] gzip temp cleanup:", e2?.message || e2); });
         }
       }
     }
