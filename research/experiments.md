@@ -118024,3 +118024,26 @@ TESTS: test_peak_catchup.py 24 new (the live case end to end incl. check_kill_sw
 ROLLBACK TRIGGER: a PEAK-CATCH-UP-FAILED audit row after the 4th attempt, or engineKill.disagree true again with Node's kill off (KB #49's recurrence rule: root-cause peak ownership, no patch). To undo the catch-up itself, raise the shared peak back with risk_kill_switch.set_peak_equity(111736.69) (a max-ratchet write) — a deliberate human call, not automatic.
 NEXT: read /api/diag/kill_state after the first post-deploy scan (shared_peak.peak_equity 99,962.18; engine killed false) and the audit row; then the first entries.
 STARVED: no.
+
+## 2026-11-16 [REPAIR] — T-DATACORE (server/datacoreArchive.ts compressOldHours + compressOldHoursAsync; server/archiveLateHourMerge.test.ts new) — Archive: a late-written hour file is merged into the hour's existing .gz, not written over it
+VERSION: v1.0.1416 (shipped 2026-11-16 by the parent session; main was v1.0.1415)
+WHY: found 2026-11-16 by code reading while building the aircraft track data for the app, then reproduced. GOAL priority 1: "an archive gap never refills".
+- archiveAircraftAt writes each fix into the hour file of the fix's OWN time. Its caller is the tracked tails' day-trace backfill (trackedPlanes.ts, every 15 minutes).
+- For an hour more than two hours old, YYYY-MM-DD-HH.jsonl.gz already exists, so the write creates a new YYYY-MM-DD-HH.jsonl beside it.
+- Both compressors (compressOldHours, and compressOldHoursAsync on the 30-minute timer in routes.ts) then gzipped the new file to the SAME .gz path. The whole hour, every aircraft in it, was replaced by the late lines. Reproduced on main: an hour of 50 lines holds 1 afterwards.
+- The changed local file then re-uploads over the cold tier's copy (archiveOffload: "a changed local file re-uploads"), so the cold tier does not keep the full hour either.
+- The async variant's failure path also unlinked `fp + ".gz"`: with an existing .gz, a failed pipeline deleted the good file.
+- When it happens: a newly tracked tail's whole day of trace is backfilled (every hour of that day older than two hours), or the first cycle after more than two hours of downtime. In normal running the backfill writes only points newer than its high-water mark, inside the last two hours, so it does not trigger.
+- HOW MUCH WAS LOST IS NOT KNOWN and cannot be recovered. Each tail added to the tracked list since the trace backfill shipped (2026-08-08) could have replaced up to a day of aircraft hour files. A count is possible only indirectly (aircraft hour files with implausibly few lines beside neighbours); not done here.
+CHANGE (both compressors, same rules):
+- An existing .gz is MERGED: its lines first, then the late ones. A missing final newline never joins two lines (mergedHourBody).
+- Every .gz is written to <name>.gz.tmp and renamed into place. A failed or interrupted compression can only lose its own temp file; the failure path no longer touches the .gz.
+- When the existing .gz does not gunzip, or is over LATE_HOUR_MERGE_MAX_GZ_BYTES (64 MiB, merged in memory), BOTH files are left as they are, logged and counted. The readers already scan .jsonl and .jsonl.gz, so nothing becomes unreadable.
+- lateHourMergeStats(): merged / left_beside since boot.
+- An ordinary hour (no existing .gz) compresses as before, now through the temp file.
+DOWNSTREAM:
+1. A merged hour's .gz changes size, so the offload re-uploads it; the cold tier then holds the merged hour. Each late line appears once (it is removed from the raw file when it enters the .gz).
+2. Reads of a merged hour return the late lines after the existing ones, not in time order; the track readers sort by time already. A merge holds one hour in memory (aircraft about 4 MB raw, vessels about 20 MB) for the moment of the merge, on the 30-minute timer.
+ROLLBACK TRIGGER: revert if an hour's line count ever falls across a compression pass, or if `.gz.tmp` files accumulate in an archive directory.
+TESTS: server/archiveLateHourMerge.test.ts, 10 new: for each compressor, the 50-line hour with one late line holds 51 afterwards with the 50 first and in order, no temp file left; an ordinary hour compresses and a young one is left alone; an existing .gz that does not gunzip is untouched and the late file stays; the size limit keeps both files and merges at the limit; mergedHourBody; and end to end with the real writer (archiveAircraftAt for an old hour, then the async compressor). On the old compressors (three new exports shimmed in) 8 of the 10 fail: the hour holds 1 line, and the corrupt .gz is overwritten. Related suites (datacoreArchive, archiveOffload): 81 pass with it; with the track-data change stacked, 156. tsc 6, the same as main. Counter ratchet OK.
+STARVED: no.
