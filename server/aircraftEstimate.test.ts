@@ -14,7 +14,7 @@ import {
   ESTIMATE_MIN_GS_KT, PATH_AHEAD_SEC, ROUTE_JOIN_MAX_NM, SPEED_MARGIN, type EstimateFix, type EstimateRoute,
 } from "../shared/aircraftEstimate";
 import { crossTrackNm, cumulativeNm, haversineNm, initialBearingDeg } from "../shared/flightPlanGeometry";
-import { createEstimator, registerAircraftEstimateRoute, ESTIMATE_PLAN_TTL_MS, type EstimateDeps, type EstimateLiveRow, type EstimatePlan } from "./aircraftEstimate";
+import { createEstimator, registerAircraftEstimateRoute, ESTIMATE_ARCHIVE_BUDGET_MS, ESTIMATE_PLAN_TTL_MS, type EstimateDeps, type EstimateLiveRow, type EstimatePlan } from "./aircraftEstimate";
 
 const T0 = 1_800_000_000_000;
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -282,4 +282,23 @@ test("the route: GET /api/data/aircraft/estimate/:hex on a real Express app, nev
   // the estimate module itself reads no SWIM/FAA source: the plan comes only through resolveFlightPlan's own withholding
   const src = fs.readFileSync(path.join(here, "aircraftEstimate.ts"), "utf8") + fs.readFileSync(path.join(here, "..", "shared", "aircraftEstimate.ts"), "utf8");
   assert.doesNotMatch(src, /from "\.\/swim|from "\.\/laddRegistry|from "\.\/flightPlans"/);
+});
+
+// 2026-11-16 [REPAIR]: the archive read behind the basis fix gets a time budget (the same read held
+// GET /api/data/aircraft/find for 53 s on a freshly booted server that evening).
+test("endpoint: a slow archive read does not hold the answer; the reason says it was not read in time", async () => {
+  const r = rig({ plan: FILED });
+  r.deps.archiveTail = () => new Promise((res) => setTimeout(() => res([{ t: T0 / 1000 - 60, la: 40, lo: -100 }]), 400));
+  r.deps.archiveBudgetMs = 30;
+  const started = Date.now();
+  const b = await createEstimator(r.deps).estimate("ab8c8e");
+  assert.ok(Date.now() - started < 300, "answered inside the budget, not after the 400 ms read");
+  assert.equal(b.fix, null);
+  assert.equal(b.estimate, null);
+  assert.match(b.reason!, /was not read in time: ask again in a few seconds/);
+  assert.equal(ESTIMATE_ARCHIVE_BUDGET_MS, 2_500);
+  // a read that finishes in time is used as before
+  const ok = rig({ tail: [{ t: (T0 - 660_000) / 1000, la: 39.9, lo: -100 }, { t: (T0 - 600_000) / 1000, la: 40, lo: -100 }], plan: FILED });
+  ok.deps.archiveBudgetMs = 200;
+  assert.equal((await createEstimator(ok.deps).estimate("ab8c8e")).fix?.source, "archive");
 });

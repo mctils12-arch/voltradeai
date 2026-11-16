@@ -32,9 +32,15 @@ import {
   type AircraftEstimate, type EstimateFix, type EstimateRoute,
 } from "../shared/aircraftEstimate";
 import type { LatLon } from "../shared/flightPlanGeometry";
+import { withinBudget } from "./aircraftFind";
 
 export const ESTIMATE_PLAN_TTL_MS = 60_000;
 export const ESTIMATE_PLAN_CACHE_MAX = 500;
+/** The archive's recent-track read (two days of hour files) may take this
+ *  long inside one answer (aircraftFind.ts FIND_ARCHIVE_BUDGET_MS has the
+ *  measurement: about 45 s cold). Past it the answer says no fix was read in
+ *  time; the read keeps running and fills its cache for the next request. */
+export const ESTIMATE_ARCHIVE_BUDGET_MS = 2_500;
 const HEX_RE = /^[0-9a-f]{6}$/;
 const FT_PER_M = 3.28084;
 
@@ -58,6 +64,8 @@ export interface EstimateDeps {
   archiveTail: (hex: string) => Promise<Array<{ t: number; la: number; lo: number; al?: number | null }>>;
   plan: (q: EstimatePlanRequest) => Promise<EstimatePlan>;
   now?: () => number;
+  /** time allowed for archiveTail inside one answer (default ESTIMATE_ARCHIVE_BUDGET_MS) */
+  archiveBudgetMs?: number;
 }
 
 export const ESTIMATE_HONESTY =
@@ -81,7 +89,10 @@ export function createEstimator(deps: EstimateDeps) {
   const now = deps.now ?? Date.now;
   const plans = new Map<string, { at: number; fixMs: number; plan: EstimatePlan | null; error: string | null }>();
 
+  /** set by basisFix when the archive read did not finish inside its budget */
+  let archiveTimedOut = false;
   async function basisFix(hex: string, t: number): Promise<EstimateBody["fix"]> {
+    archiveTimedOut = false;
     const row = deps.liveRow(hex);
     if (row && Number.isFinite(row.lat) && Number.isFinite(row.lon) && Number.isFinite(row.seenAt)) {
       return {
@@ -90,7 +101,9 @@ export function createEstimator(deps: EstimateDeps) {
         source: "snapshot", provider: row.src ?? null, callsign: row.callsign ?? null,
       };
     }
-    const tail = await deps.archiveTail(hex);
+    const got = await withinBudget(deps.archiveTail(hex), deps.archiveBudgetMs ?? ESTIMATE_ARCHIVE_BUDGET_MS, null);
+    if (got.timedOut || !got.value) { archiveTimedOut = got.timedOut; return null; }
+    const tail = got.value;
     const last = tail[tail.length - 1];
     if (!last || !Number.isFinite(last.t) || !Number.isFinite(last.la) || !Number.isFinite(last.lo)) return null;
     const fixMs = last.t * 1000;
@@ -134,7 +147,9 @@ export function createEstimator(deps: EstimateDeps) {
       const fix = await basisFix(hex, t);
       const body: EstimateBody = { at: t, hex, kind: "estimate", fix, estimate: null, reason: null, plan: null, honesty: ESTIMATE_HONESTY };
       if (!fix) {
-        body.reason = "no position held for this aircraft: not in the worldwide snapshot (last 10 minutes) and not in the archive's recent track";
+        body.reason = archiveTimedOut
+          ? "not in the worldwide snapshot (last 10 minutes), and the archive's recent track was not read in time: ask again in a few seconds"
+          : "no position held for this aircraft: not in the worldwide snapshot (last 10 minutes) and not in the archive's recent track";
         return body;
       }
       const cached = plans.get(hex);
