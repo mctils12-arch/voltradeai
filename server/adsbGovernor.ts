@@ -216,11 +216,14 @@ export class UpstreamGovernor {
     return out;
   }
 
-  /** ms left on the failure backoff (0 = none). Read-only: a caller that
-   *  records on the foreground lane but can afford to wait (the tracked
-   *  planes' hex poll) holds its request while adsb.lol is struggling. */
+  /** ms the sweep is held for (0 = not held): its own backoff or the bounded
+   *  pause a foreground failure asked for, whichever ends later. Read-only: a
+   *  caller that records on the foreground lane but can afford to wait (the
+   *  tracked planes' hex poll) holds its request for the same time, so its
+   *  own 429 pauses it for FG_FAILURE_PAUSE_MS and it never outruns the sweep
+   *  while adsb.lol is struggling. */
   backoffMs(now: number): number {
-    return Math.max(0, this.backoffUntil - now);
+    return Math.max(0, this.backoffUntil - now, this.fgPauseUntil - now);
   }
 
   /** Requests (both lanes) inside the sliding window. */
