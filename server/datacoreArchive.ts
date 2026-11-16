@@ -182,7 +182,28 @@ export function isPrivateArchiveDir(base: string, stream: string): boolean {
   return PRIVATE_ARCHIVE_DIRS.has(top.toLowerCase());
 }
 
-function hourFile(kind: ArchiveKind, when: Date, base: string): string {
+/** Streams that share the hour-file layout without being a position kind
+ *  (no thinning, no rollup, no cold tier: each owns its retention). */
+export type HourFileStream = ArchiveKind | "flight_plan_versions";
+
+/**
+ * Streams whose rows are FAA-sourced and per aircraft. Each is read only by
+ * its own module, which applies the FAA LADD privacy withholding aircraft by
+ * aircraft (server/laddRegistry.ts); a row can belong to a LADD aircraft that
+ * was not yet known to be one when it was written. The generic day readers
+ * below (behind the token-gated /api/diag/archive) have no such check, so
+ * they refuse these streams the same way they refuse the private dirs.
+ */
+export const LADD_GATED_ARCHIVE_DIRS: ReadonlySet<string> = new Set(["flight_plan_versions"]);
+
+/** True when the generic day readers must not serve `stream`. */
+export function isRefusedByGenericReaders(base: string, stream: string): boolean {
+  if (isPrivateArchiveDir(base, stream)) return true;
+  const top = path.relative(base, path.join(base, stream)).split(path.sep)[0];
+  return LADD_GATED_ARCHIVE_DIRS.has(top.toLowerCase());
+}
+
+function hourFile(kind: HourFileStream, when: Date, base: string): string {
   const d = when.toISOString().slice(0, 13); // YYYY-MM-DDTHH
   return path.join(base, kind, `${d.replace("T", "-")}.jsonl`);
 }
@@ -287,7 +308,7 @@ export function intentArchiveStats() { return intentArchive.stats(); }
 export function _resetIntentArchiveForTests(): void { intentArchive = new IntentArchiveEncoder(); }
 
 // ── append ───────────────────────────────────────────────────────────────────
-function appendLines(kind: ArchiveKind, lines: string[], base: string, now: Date) {
+export function appendLines(kind: HourFileStream, lines: string[], base: string, now: Date) {
   if (!lines.length) return;
   const fp = hourFile(kind, now, base);
   fs.mkdirSync(path.dirname(fp), { recursive: true });
@@ -1072,7 +1093,7 @@ export async function readArchiveDay(
   const base = baseDir || archiveBaseDir();
   // User-data dirs read exactly like a missing stream (null -> the diag
   // probe's 404), so the response is no existence oracle either.
-  if (isPrivateArchiveDir(base, stream)) return null;
+  if (isRefusedByGenericReaders(base, stream)) return null;
   const dir = path.join(base, stream);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
   let files = archiveDayFiles(dir, day);
@@ -1144,7 +1165,7 @@ export async function readArchiveDayEvenSample(
   rowFilter?: (row: any) => boolean,
 ): Promise<{ dir: string; files: string[]; rows: any[]; truncated: boolean } | null> {
   const base = baseDir || archiveBaseDir();
-  if (isPrivateArchiveDir(base, stream)) return null; // same rule as readArchiveDay
+  if (isRefusedByGenericReaders(base, stream)) return null; // same rule as readArchiveDay
   const dir = path.join(base, stream);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
   const files = archiveDayFiles(dir, day);

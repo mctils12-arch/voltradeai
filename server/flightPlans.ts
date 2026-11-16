@@ -52,6 +52,7 @@ import { parseFiledRoute, type ParsedRoute, type ParsedProcedure, type RoutePars
 import { matchProcedure, procedureRouteFixes, enrouteTransitions, type CifpIndex } from "./cifp";
 import { sharedCifpStore } from "./cifpShared";
 import { registerHeapGauge } from "./heapDiag";
+import { PlanVersionStore, PlanVersionArchive, registerPlanVersionGauge } from "./flightPlanVersionStore";
 
 // ── contract types ──────────────────────────────────────────────────────────
 export type PlanSource = "FILED_FAA" | "ROUTE_DB_PREDICTED" | "HISTORY_PREDICTED" | "NONE";
@@ -848,6 +849,10 @@ let bootLiveLookup: LiveAircraftLookup | null = null;
 export function setPlanLiveLookup(fn: LiveAircraftLookup | null): void {
   bootLiveLookup = fn;
 }
+/** The lookup a request uses: the context's own, else the boot-registered one. */
+export function planLiveLookup(ctx: Pick<PlanContext, "liveLookup">): LiveAircraftLookup | null {
+  return ctx.liveLookup === undefined ? bootLiveLookup : ctx.liveLookup;
+}
 
 /** Pure: fill a plan request's MISSING callsign/position from the live
  *  snapshot (field bug 2026-09-30: a watched plane opened while off-viewport
@@ -884,6 +889,9 @@ export interface PlanContext {
   /** FAA CIFP for SID/STAR expansion of filed route text; MUST NOT block
    *  (production: the shared store's peek()). Absent = procedures unresolved. */
   cifp?: (() => { idx: CifpIndex; cycle: { ident: string } } | null) | null;
+  /** every version of each filed plan (server/flightPlanVersionStore.ts), fed
+   *  by the SWIM store's hooks. Absent = versions are not recorded. */
+  versions?: PlanVersionStore | null;
 }
 
 interface Candidate {
@@ -1132,7 +1140,7 @@ function noneResponse(q: PlanRequest, reason: string, now: number): FlightPlanRe
  *  hiccup yields the last cached answer (with its age) or source NONE. */
 export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Promise<FlightPlanResponse> {
   const now = ctx.now();
-  const q = fillFromLive(qIn, ctx.liveLookup === undefined ? bootLiveLookup : ctx.liveLookup, now);
+  const q = fillFromLive(qIn, planLiveLookup(ctx), now);
   const cs = q.callsign;
   // [REPAIR 2026-10-14] FAA LADD: the owner asked the FAA to limit display of
   // this aircraft's data, and the FAA's feed carries that obligation. Skip
@@ -1192,8 +1200,7 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
   // the great circle (gate-1 2026-10-14, n=169: median 8.5 vs 25.3 nm) but its
   // median error still sits at DEVIATION_OFF_NM, so judging deviation against
   // it would raise false OFF_PLAN calls the same way.
-  const coarseFiled = cand.source === "FILED_FAA" && !cand.pathEstimated && cand.routeKind === "corridor";
-  const deviationMeasurable = !(cand.source === "FILED_FAA" && cand.pathEstimated) && !coarseFiled;
+  const { coarseFiled, measurable: deviationMeasurable } = deviationAssessable(cand);
   if (deviationMeasurable && now - track.archiveCheckedAt > ARCHIVE_RECHECK_MS) {
     track.archiveCheckedAt = now;
     let fixes: Array<{ t: number; la: number; lo: number; al?: number | null }> = [];
@@ -1288,6 +1295,13 @@ export async function resolveFlightPlan(qIn: PlanRequest, ctx: PlanContext): Pro
   });
 }
 
+/** Whether deviation can be judged against a plan (the rule above, shared with
+ *  server/flightPlanHistory.ts so both judge the same plans). */
+export function deviationAssessable(c: { source: PlanSource; pathEstimated: boolean; routeKind?: string | null }): { measurable: boolean; coarseFiled: boolean } {
+  const coarseFiled = c.source === "FILED_FAA" && !c.pathEstimated && c.routeKind === "corridor";
+  return { coarseFiled, measurable: !(c.source === "FILED_FAA" && c.pathEstimated) && !coarseFiled };
+}
+
 /** "ATC vectors — not part of the filed route" (FILED) / "…predicted route" */
 export function vectoringNote(source: PlanSource): string {
   return `ATC vectors — not part of the ${source === "FILED_FAA" ? "filed" : "predicted"} route`;
@@ -1367,7 +1381,17 @@ let defaultCtx: PlanContext | null = null;
 export function getFlightPlanContext(): PlanContext {
   if (defaultCtx) return defaultCtx;
   const tracker = new DeviationTracker({ append: (rec) => { void appendFlightEvent(rec); } });
+  // every version of each filed plan: memory for the plans held, disk for the
+  // ones that changed. A callsign known to be LADD is neither held nor written.
+  const versions = new PlanVersionStore({
+    archive: new PlanVersionArchive(),
+    isLadd: (cs) => laddRegistry().isLadd(null, cs),
+  });
+  registerPlanVersionGauge(versions);
+  versions.archive?.start();
   const swim = new SwimPlanStore({
+    onPlanContent: (plan, msg, now) => { versions.record(plan, msg, now); },
+    onRemoved: (key, reason) => { versions.planRemoved(key, reason, Date.now()); },
     // SWIM amendments land on every tracked aircraft flying that callsign
     onAmended: (plan, detail) => {
       if (!plan.callsign) return;
@@ -1386,6 +1410,7 @@ export function getFlightPlanContext(): PlanContext {
     now: () => Date.now(),
     recentFixes: (hex) => recentTrackCached("aircraft", hex),
     cifp: () => sharedCifpStore().peek(),
+    versions,
   };
   return defaultCtx;
 }
@@ -1424,6 +1449,9 @@ export function planStatus(ctx: PlanContext) {
     // + samples, /api/data/swim/products, swimCapture.ts); STDDS/ITWS stay
     // configured-only.
     swimProducts: swimProductsEnvStatus(),
+    // additive (2026-11-16): flight plan versions held / written / skipped by
+    // reason / bytes written (server/flightPlanVersionStore.ts); null = not recorded
+    planVersions: ctx.versions ? ctx.versions.status() : null,
     generatedAt: ctx.now(),
   };
 }

@@ -47,6 +47,7 @@ import { nearestAirport } from "./airportsIndex";
 import { registerArchiveOffloadRoutes } from "./archiveOffload";
 import { attachAeroChartEditions, registerAeroChartRoutes } from "./aeroCharts";
 import { registerFlightPlanRoutes, resolveFlightPlan, getFlightPlanContext } from "./flightPlans";
+import { registerFlightPlanHistoryRoutes } from "./flightPlanHistory";
 import { registerProcedureRoutes } from "./procedures";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
 import { applyViewport } from "./viewport";
@@ -1220,6 +1221,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   registerFlightPlanRoutes(app); // FLIGHT PROGRAM: GET /api/data/aircraft/plan/:hex + /plan-status (server/flightPlans.ts)
+  registerFlightPlanHistoryRoutes(app); // GET /api/data/aircraft/plan-history/:hex: every plan version, amendments, off-route episodes (server/flightPlanHistory.ts)
   registerProcedureRoutes(app); // FAA CIFP procedures + d-TPP plates: /api/data/procedures/* + /api/data/plates/* (server/procedures.ts)
 
   // Archive growth observability (volume watch — see wishlist).

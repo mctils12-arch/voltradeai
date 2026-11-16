@@ -703,9 +703,12 @@ const routeSig = (r: Float32Array) => {
   return s;
 };
 
+/** the fields planDiff reads (a stored plan, or one recorded version of it) */
+export type PlanDiffFields = Pick<StoredSwimPlan, "arrival" | "routeText" | "route" | "cruiseAltFt">;
+
 /** What changed between two versions of a plan, or null when nothing the
  *  plan-drawer cares about did. */
-export function planDiff(prev: StoredSwimPlan, next: StoredSwimPlan): string | null {
+export function planDiff(prev: PlanDiffFields, next: PlanDiffFields): string | null {
   const parts: string[] = [];
   if (next.arrival && prev.arrival && next.arrival !== prev.arrival) parts.push(`destination ${prev.arrival}→${next.arrival}`);
   if (next.routeText && prev.routeText && next.routeText !== prev.routeText) parts.push("route text changed");
@@ -738,6 +741,13 @@ export class SwimPlanStore {
     private opts: {
       ttlMs?: number; max?: number;
       onAmended?: (plan: StoredSwimPlan, detail: string) => void;
+      /** version recorder (server/flightPlanVersionStore.ts): called after a message that carried
+       *  plan content (route, cruise altitude) or changed the plan. NOT called for track/handoff
+       *  messages, which are ~95% of the feed. `msg` is the payload's own parse: read numbers from
+       *  it, never keep its strings (see detachString). */
+      onPlanContent?: (plan: StoredSwimPlan, msg: SwimFlightMessage, now: number) => void;
+      /** the plan left the store: "ended" = cancelled/completed, "expired" = TTL or the size cap */
+      onRemoved?: (key: string, reason: "ended" | "expired") => void;
     } = {},
   ) {}
 
@@ -791,7 +801,7 @@ export class SwimPlanStore {
     const restored = !prev && this.seed.size ? this.seed.get(rawKey) : undefined;
     if (restored) this.seed.delete(rawKey);
     if (m.isCancellation || m.isCompleted) {
-      if (prev) this.remove(key);
+      if (prev) this.remove(key, "ended");
       return { key, amended: null };
     }
     // fields absent from this message keep their previous values (track /
@@ -840,12 +850,22 @@ export class SwimPlanStore {
         console.error("[swim] amendment hook:", e instanceof Error ? e.message : String(e));
       }
     }
+    if (this.opts.onPlanContent && (amended || packed || m.routeText || m.cruiseAltFt != null)) {
+      try { this.opts.onPlanContent(merged, m, now); } catch (e) {
+        console.error("[swim] plan-content hook:", e instanceof Error ? e.message : String(e));
+      }
+    }
     return { key, amended };
   }
 
-  private remove(key: string) {
+  private remove(key: string, reason: "ended" | "expired" = "expired") {
     const p = this.byKey.get(key);
     this.byKey.delete(key);
+    if (p && this.opts.onRemoved) {
+      try { this.opts.onRemoved(key, reason); } catch (e) {
+        console.error("[swim] removal hook:", e instanceof Error ? e.message : String(e));
+      }
+    }
     if (p?.callsign) {
       const set = this.keysByCallsign.get(p.callsign);
       set?.delete(key);
