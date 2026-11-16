@@ -122,6 +122,24 @@ export function busyPanelReader(snapshot: HeartbeatFile, nowMs: number): string 
 
 export interface EventStudyLatest { build_id: string | null; study_code: string | null; generated_at: string | null }
 
+/** An "insufficient" run whose reason starts with this lacked SEC downloads (event_reaction_panel.py
+ *  FORM345_GAP_REASON). It does not spend the week: the quarters it did fetch stay in the container-tmp cache,
+ *  so a later attempt the same Saturday only asks for the missing ones. */
+export const EVENT_STUDY_SEC_GAP_REASON = "SEC insider data sets missing for";
+/** Attempts per ISO week when each ends on missing SEC downloads, and the wait between them. */
+export const EVENT_STUDY_MAX_ATTEMPTS = 3;
+export const EVENT_STUDY_RETRY_WAIT_MS = 60 * 60_000;
+
+/** The week's attempts so far that ended on missing SEC downloads, and when the next may start. */
+export interface EventStudyRetry { week: string; attempts: number; notBeforeMs: number }
+
+/** Pure: the retry record after a run. null = the week is spent (any other outcome, or the last attempt). */
+export function nextEventStudyRetry(prev: EventStudyRetry | null, week: string, out: RunOutcome, nowMs: number): EventStudyRetry | null {
+  if (out.status !== "insufficient" || !out.detail.startsWith(EVENT_STUDY_SEC_GAP_REASON)) return null;
+  const attempts = (prev && prev.week === week ? prev.attempts : 0) + 1;
+  return attempts >= EVENT_STUDY_MAX_ATTEMPTS ? null : { week, attempts, notBeforeMs: nowMs + EVENT_STUDY_RETRY_WAIT_MS };
+}
+
 export type EventStudyDecision =
   | { action: "idle"; reason: string }
   | { action: "skip" | "run"; reason: string; week: string };
@@ -129,12 +147,16 @@ export type EventStudyDecision =
 /** Pure: what this tick should do. */
 export function decideEventStudy(nowMs: number, s: {
   enabled: boolean; panelBuildId: string | null; latest: EventStudyLatest | null; lastAttemptWeek: string;
-  studyCode: string; freeBytes: number | null; busy: string | null;
+  studyCode: string; freeBytes: number | null; busy: string | null; retry?: EventStudyRetry | null;
 }): EventStudyDecision {
   if (!s.enabled) return { action: "idle", reason: "VOLTRADE_EVENT_STUDY off" };
   if (!inEventStudyWindow(nowMs)) return { action: "idle", reason: "outside Saturday 07:00-15:00 ET" };
   const week = isoWeekKey(zonedParts(nowMs, ET).date);
-  if (s.lastAttemptWeek === week) return { action: "idle", reason: `already attempted ${week}` };
+  if (s.lastAttemptWeek === week) {
+    const r = s.retry && s.retry.week === week ? s.retry : null;
+    if (!r) return { action: "idle", reason: `already attempted ${week}` };
+    if (nowMs < r.notBeforeMs) return { action: "idle", reason: `attempt ${r.attempts} of ${EVENT_STUDY_MAX_ATTEMPTS} lacked SEC downloads; the next waits until ${new Date(r.notBeforeMs).toISOString()}` };
+  }
   if (s.busy) return { action: "idle", reason: `waiting: ${s.busy} is reading the panel` };
   if (!s.panelBuildId) return { action: "skip", week, reason: "no complete price-panel build yet (current.json absent)" };
   if (s.freeBytes !== null && s.freeBytes < EVENT_STUDY_MIN_FREE_BYTES) {
@@ -277,6 +299,7 @@ export function bootEventStudy(env: NodeJS.ProcessEnv = process.env): void {
   booted = true;
   let running = false;
   let lastAttemptWeek = "";
+  let retry: EventStudyRetry | null = null;
   const tick = async () => {
     if (running) return;
     const root = eventStudyRoot(env);
@@ -285,10 +308,12 @@ export function bootEventStudy(env: NodeJS.ProcessEnv = process.env): void {
     const now = Date.now();
     const d = decideEventStudy(now, {
       enabled: eventStudyFlag(env).on, panelBuildId: currentPanelBuild(pricePanelRoot(env)), latest: eventStudyLatest(root),
-      lastAttemptWeek, studyCode: studyCodeHash(), freeBytes: free, busy: busyPanelReader(heartbeatStore().snapshot(), now),
+      lastAttemptWeek, studyCode: studyCodeHash(), freeBytes: free, busy: busyPanelReader(heartbeatStore().snapshot(), now), retry,
     });
     if (d.action === "idle") return;
     lastAttemptWeek = d.week;
+    const before = retry;
+    retry = null;
     if (d.action === "skip") {
       beat("event_study_weekly", "finish", "skipped", d.reason);
       return;
@@ -297,7 +322,9 @@ export function bootEventStudy(env: NodeJS.ProcessEnv = process.env): void {
     beat("event_study_weekly", "start");
     try {
       const out = await runEventStudy(env);
-      beat("event_study_weekly", "finish", out.status === "error" ? "error" : out.status === "ok" ? "ok" : "skipped", `${out.status}: ${out.detail}`);
+      retry = nextEventStudyRetry(before, d.week, out, Date.now());
+      const again = retry ? ` — attempt ${retry.attempts} of ${EVENT_STUDY_MAX_ATTEMPTS}; the next starts after ${new Date(retry.notBeforeMs).toISOString()} if still inside the window` : "";
+      beat("event_study_weekly", "finish", out.status === "error" ? "error" : out.status === "ok" ? "ok" : "skipped", `${out.status}: ${out.detail}${again}`);
     } catch (e) {
       beat("event_study_weekly", "finish", "error", e instanceof Error ? e.message : String(e));
     } finally {

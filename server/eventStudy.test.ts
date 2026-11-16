@@ -12,6 +12,7 @@ import {
   parseEventStudySummary, runEventStudy, eventStudyStatus, studyCodeHash,
   EVENT_STUDY_TIMEOUT_MS, EVENT_STUDY_STALE_DAYS, EVENT_STUDY_MIN_FREE_BYTES, EVENT_STUDY_WINDOW_START_MIN,
   EVENT_STUDY_WINDOW_END_MIN, EVENT_STUDY_FILES, EVENT_STUDY_SEC_RATE, PANEL_READER_JOBS,
+  nextEventStudyRetry, EVENT_STUDY_SEC_GAP_REASON, EVENT_STUDY_MAX_ATTEMPTS, EVENT_STUDY_RETRY_WAIT_MS, type EventStudyRetry,
 } from "./eventStudy";
 import { WALKFORWARD_ENV_CAPS, WF_WINDOW_START_MIN, type WalkforwardExec } from "./walkforward";
 import { WINDOW_START_MIN as PANEL_BUILD_START_MIN } from "./pricePanel";
@@ -213,4 +214,59 @@ test("wiring: whitelisted probe, read-only case in bot.ts, booted from routes.ts
   assert.ok(!/execPythonSerialized|pythonRunning|pythonRpc/.test(src));
   assert.ok(!src.includes("/orders") && !/method:\s*"(POST|PUT|PATCH|DELETE)"/.test(src));
   assert.ok(src.includes('beat("event_study_weekly", "start")') && src.includes('beat("event_study_weekly", "finish"'));
+});
+
+// 2026-11-14: the first live run ended "insufficient: SEC insider data sets missing for [six quarters]" ten
+// minutes into the Saturday window, and the week's one attempt was spent. The six download and parse cleanly.
+test("a run that lacked SEC downloads does not spend the week: up to 3 attempts, an hour apart, inside the window", () => {
+  const first = decideEventStudy(SAT_09_ET, base);
+  assert.equal(first.action, "run");
+  const week = (first as { week: string }).week;
+  const gap = { status: "insufficient" as const, detail: `${EVENT_STUDY_SEC_GAP_REASON} 6 quarter(s): 2014q2 (HTTP 403)` };
+  const done = SAT_09_ET + 10 * 60_000;
+  const r1 = nextEventStudyRetry(null, week, gap, done);
+  assert.deepEqual(r1, { week, attempts: 1, notBeforeMs: done + EVENT_STUDY_RETRY_WAIT_MS });
+  const attempted = { ...base, lastAttemptWeek: week };
+  // before the wait is over: idle, and the reason says why
+  const waiting = decideEventStudy(done + 30 * 60_000, { ...attempted, retry: r1 });
+  assert.equal(waiting.action, "idle");
+  assert.match(waiting.reason, /attempt 1 of 3 lacked SEC downloads/);
+  // after it: the same week runs again
+  const again = decideEventStudy(done + EVENT_STUDY_RETRY_WAIT_MS, { ...attempted, retry: r1 });
+  assert.equal(again.action, "run");
+  assert.equal((again as { week: string }).week, week);
+  // a retry still waits for another panel reader and still respects the window
+  assert.equal(decideEventStudy(done + EVENT_STUDY_RETRY_WAIT_MS, { ...attempted, retry: r1, busy: "walkforward_weekly" }).action, "idle");
+  assert.equal(decideEventStudy(Date.parse("2026-11-07T20:00:00Z"), { ...attempted, retry: r1 }).action, "idle", "15:00 ET: the window is over");
+  // the second gap allows a third attempt; the third spends the week
+  const r2 = nextEventStudyRetry(r1, week, gap, done + 2 * EVENT_STUDY_RETRY_WAIT_MS);
+  assert.equal(r2?.attempts, 2);
+  assert.equal(nextEventStudyRetry(r2, week, gap, done + 4 * EVENT_STUDY_RETRY_WAIT_MS), null);
+  assert.equal(EVENT_STUDY_MAX_ATTEMPTS, 3);
+  assert.equal(decideEventStudy(done + 5 * EVENT_STUDY_RETRY_WAIT_MS, { ...attempted, retry: null }).action, "idle");
+  // a record from another week never reopens this one, and starts its own count
+  const stale: EventStudyRetry = { week: "2026-W44", attempts: 2, notBeforeMs: 0 };
+  assert.equal(decideEventStudy(SAT_09_ET, { ...attempted, retry: stale }).action, "idle");
+  assert.equal(nextEventStudyRetry(stale, week, gap, done)?.attempts, 1);
+});
+
+test("only the SEC-download gap is retried: every other outcome spends the week", () => {
+  const week = "2026-W45";
+  for (const out of [
+    { status: "ok" as const, detail: "build b20261029" },
+    { status: "error" as const, detail: "memory budget: RSS 1300 MB" },
+    { status: "skipped" as const, detail: "no complete price-panel build (current.json absent)" },
+    { status: "insufficient" as const, detail: "SEC fetch errors: submissions 2/37" },
+    { status: "insufficient" as const, detail: "panel has no usable SPY series (trading calendar)" },
+    { status: "error" as const, detail: `${EVENT_STUDY_SEC_GAP_REASON} 1 quarter(s)` },
+  ]) assert.equal(nextEventStudyRetry(null, week, out, SAT_09_ET), null, out.detail);
+});
+
+test("the tick keeps the retry record: cleared before each attempt, set from the run's outcome, named in the heartbeat", () => {
+  const src = fs.readFileSync(path.join(here, "eventStudy.ts"), "utf8");
+  const tick = src.slice(src.indexOf("const tick = async () => {"), src.indexOf("setInterval(() => { void tick(); }"));
+  assert.match(tick, /busy: busyPanelReader\(heartbeatStore\(\)\.snapshot\(\), now\), retry,\n/);
+  assert.match(tick, /lastAttemptWeek = d\.week;\n\s*const before = retry;\n\s*retry = null;/);
+  assert.match(tick, /const out = await runEventStudy\(env\);\n\s*retry = nextEventStudyRetry\(before, d\.week, out, Date\.now\(\)\);/);
+  assert.match(tick, /attempt \$\{retry\.attempts\} of \$\{EVENT_STUDY_MAX_ATTEMPTS\}/);
 });

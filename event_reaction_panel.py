@@ -294,50 +294,88 @@ def _f345_paths(cache: str, key: str) -> Tuple[str, str]:
     return os.path.join(d, f"{key}.pairs.json.gz"), os.path.join(d, f"{key}.purchases.json.gz")
 
 
-def stage_form345(cache: str, client) -> dict:
+FORM345_NOT_PUBLISHED = "not published"
+# the insufficient-run reason starts with this; server/eventStudy.ts retries the week on it
+FORM345_GAP_REASON = "SEC insider data sets missing for"
+FORM345_RETRY_PASSES = 2        # extra passes over the quarters that failed for any other reason
+FORM345_RETRY_WAIT_SEC = 120.0  # pause before each extra pass
+
+
+def _form345_quarter(cache: str, client, y: int, q: int) -> Optional[str]:
+    """Cache one quarter's two compact files. -> None when they are on disk
+    (already cached, or downloaded and parsed now); otherwise the reason:
+    FORM345_NOT_PUBLISHED when every URL answered 404, else the last failure."""
+    import sec_filings_text as sft
+    key = f"{y}q{q}"
+    want_p = (y, q) >= PURCHASES_FROM
+    pa, pu = _f345_paths(cache, key)
+    if os.path.exists(pa) and (not want_p or os.path.exists(pu)):
+        return None
+    blob, why = None, FORM345_NOT_PUBLISHED
+    for url in er.FORM345_URLS:
+        try:
+            blob = client.get(url.format(y=y, q=q))
+            break
+        except sft.EdgarHTTPError as e:
+            if e.status != 404:
+                why = f"HTTP {e.status}" if e.status is not None else str(e).split(" -> ", 1)[-1].removeprefix("error ")[-80:]
+    if blob is None:
+        er.log(f"form345 {key}: unavailable ({why})")
+        return why
+    try:
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            if want_p:
+                rows = purchases_from_zip(zf)
+                er._jdump(pu, [[p["issuer"], p["owner"], p["trans_date"], p["filing_date"], p["accession"]] for p in rows])
+            skipped: Dict[str, int] = {}
+            er._jdump(pa, sip.pairs_from_submission_tsv(zf.read("SUBMISSION.tsv"), skipped))
+    except (zipfile.BadZipFile, KeyError) as e:
+        er.log(f"form345 {key}: unreadable zip ({type(e).__name__}: {e})")
+        return f"unreadable zip ({type(e).__name__})"
+    er.log(f"form345 {key}: cached")
+    return None
+
+
+def stage_form345(cache: str, client, sleep=time.sleep) -> dict:
     """One download per quarter (PAIRS_FROM .. now) -> two compact caches; the zip
     itself is parsed in memory and never kept:
       <key>.pairs.json.gz      (ticker, issuer cik, filing date) of every Form 3/4/5 (sec_issuer_pairs)
       <key>.purchases.json.gz  purchases_from_zip rows (quarters >= PURCHASES_FROM only)
-    A quarter that is not published (404) or fails is listed in "missing", never fatal here."""
-    import sec_filings_text as sft
+    A quarter that is not published (404) or fails is listed in "missing", never
+    fatal here, with its reason in "missing_why". A quarter that failed for any
+    reason other than 404 is tried again, FORM345_RETRY_PASSES more times,
+    FORM345_RETRY_WAIT_SEC apart (2026-11-14: the first live run lost six
+    quarters that download and parse cleanly; the run stopped as insufficient
+    and nothing recorded why they failed)."""
     os.makedirs(os.path.join(cache, "form345"), exist_ok=True)
-    out: Dict[str, list] = {"pairs": [], "purchases": [], "missing": []}
-    for (y, q) in er._quarters(start=PAIRS_FROM):
+    quarters = er._quarters(start=PAIRS_FROM)
+    failed: Dict[Tuple[int, int], str] = {}
+    for (y, q) in quarters:
+        why = _form345_quarter(cache, client, y, q)
+        if why is not None:
+            failed[(y, q)] = why
+    for extra in range(FORM345_RETRY_PASSES):
+        again = [k for k in quarters if failed.get(k, FORM345_NOT_PUBLISHED) != FORM345_NOT_PUBLISHED]
+        if not again:
+            break
+        er.log(f"form345: {len(again)} quarter(s) failed; pass {extra + 2} of {FORM345_RETRY_PASSES + 1} in {FORM345_RETRY_WAIT_SEC:.0f}s")
+        sleep(FORM345_RETRY_WAIT_SEC)
+        for (y, q) in again:
+            why = _form345_quarter(cache, client, y, q)
+            if why is None:
+                del failed[(y, q)]
+            else:
+                failed[(y, q)] = why
+    out: dict = {"pairs": [], "purchases": [], "missing": [], "missing_why": {}}
+    for (y, q) in quarters:
         key = f"{y}q{q}"
-        want_p = (y, q) >= PURCHASES_FROM
-        pa, pu = _f345_paths(cache, key)
-        if os.path.exists(pa) and (not want_p or os.path.exists(pu)):
-            out["pairs"].append(key)
-            if want_p:
-                out["purchases"].append(key)
-            continue
-        blob, why = None, "not published"
-        for url in er.FORM345_URLS:
-            try:
-                blob = client.get(url.format(y=y, q=q))
-                break
-            except sft.EdgarHTTPError as e:
-                why = str(e)[-120:]
-        if blob is None:
-            er.log(f"form345 {key}: unavailable ({why})")
+        if (y, q) in failed:
             out["missing"].append(key)
-            continue
-        try:
-            with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-                if want_p:
-                    rows = purchases_from_zip(zf)
-                    er._jdump(pu, [[p["issuer"], p["owner"], p["trans_date"], p["filing_date"], p["accession"]] for p in rows])
-                skipped: Dict[str, int] = {}
-                er._jdump(pa, sip.pairs_from_submission_tsv(zf.read("SUBMISSION.tsv"), skipped))
-        except (zipfile.BadZipFile, KeyError) as e:
-            er.log(f"form345 {key}: unreadable zip ({type(e).__name__}: {e})")
-            out["missing"].append(key)
+            out["missing_why"][key] = failed[(y, q)]
             continue
         out["pairs"].append(key)
-        if want_p:
+        if (y, q) >= PURCHASES_FROM:
             out["purchases"].append(key)
-        er.log(f"form345 {key}: cached")
     return out
 
 
@@ -635,8 +673,11 @@ def run(panel_root: Optional[str] = None, out_dir: Optional[str] = None, cache_d
     need_q = [f"{y}q{q}" for (y, q) in er._quarters(start=PAIRS_FROM) if (y, q) < as_q][:-1]
     gaps = [k for k in need_q if k in f345["missing"]]
     if gaps:
+        shown = ", ".join(f"{k} ({f345['missing_why'].get(k, '?')})" for k in gaps[:6])
+        more = f", and {len(gaps) - 6} more" if len(gaps) > 6 else ""
         return finish({"status": "insufficient", "build_id": build["build_id"],
-                       "reason": f"SEC insider data sets missing for {gaps[:6]} (needed before the panel as_of {as_of})"})
+                       "reason": f"{FORM345_GAP_REASON} {len(gaps)} quarter(s): {shown}{more} "
+                                 f"(needed before the panel as_of {as_of}; each tried {FORM345_RETRY_PASSES + 1} times)"})
     pairs_map = load_pairs_map(cache, f345["pairs"])
     listed: Dict[str, str] = listing["listed"]
     delisted = delisted_candidates(pairs_map, set(listing["on_exchange"]), sym_index)

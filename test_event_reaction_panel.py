@@ -492,3 +492,97 @@ def test_study_code_hash_is_pinned_for_the_ts_side(tmp_path):
     assert erp.study_code_hash(str(tmp_path)) == "missing:event_reaction_panel.py"
     assert erp.STUDY_FILES == ("event_reaction.py", "event_reaction_panel.py")
     assert all(os.path.exists(os.path.join(os.path.dirname(os.path.abspath(erp.__file__)), f)) for f in erp.STUDY_FILES)
+
+
+# ── the SEC insider data sets: a failed download is retried and explained ────
+# 2026-11-14: the first live run ended "insufficient: SEC insider data sets
+# missing for ['2014q2', '2018q2', '2019q2', '2021q3', '2021q4', '2022q1']".
+# Those six download and parse cleanly; the stage tried each once per URL,
+# recorded no reason, and the week's one attempt was spent.
+class _FlakyClient:
+    """Every quarter's zip is served, except: `fail_first[key]` failures of that
+    quarter come first (the given status; None = retries exhausted), `never`
+    quarters always fail with 503, `unpublished` quarters answer 404."""
+
+    def __init__(self, blob, fail_first=None, never=(), unpublished=()):
+        self.blob, self.left = blob, dict(fail_first or {})
+        self.never, self.unpublished, self.calls = set(never), set(unpublished), Counter()
+
+    def get(self, url):
+        import sec_filings_text as sft
+        key = url.rsplit("/", 1)[1].split("_")[0]
+        self.calls[key] += 1
+        if key in self.unpublished:
+            raise sft.EdgarHTTPError(url, 404)
+        if key in self.never:
+            raise sft.EdgarHTTPError(url, None, "failed after 5 attempts (HTTP 503)")
+        if self.left.get(key, (0, 0))[0] > 0:
+            n, status = self.left[key]
+            self.left[key] = (n - 1, status)
+            raise sft.EdgarHTTPError(url, status)
+        return self.blob
+
+
+def test_a_failed_insider_data_set_is_tried_again_and_a_404_is_not(tmp_path):
+    urls = len(er.FORM345_URLS)
+    # 2018q2 fails its whole first pass with 403 (the status SEC's rate block answers with), then serves
+    cl = _FlakyClient(_zip_bytes(), fail_first={"2018q2": (urls, 403)}, never={"2021q3"}, unpublished={"2014q2"})
+    naps = []
+    f = erp.stage_form345(str(tmp_path / "panel"), cl, sleep=naps.append)
+    assert "2018q2" in f["pairs"] and "2018q2" in f["purchases"], "served on the second pass"
+    assert f["missing"] == ["2014q2", "2021q3"]
+    assert f["missing_why"] == {"2014q2": erp.FORM345_NOT_PUBLISHED, "2021q3": "failed after 5 attempts (HTTP 503)"}
+    assert naps == [erp.FORM345_RETRY_WAIT_SEC] * erp.FORM345_RETRY_PASSES, "one pause before each extra pass"
+    assert cl.calls["2014q2"] == urls, "a quarter that is not published is asked for once per URL, never again"
+    assert cl.calls["2021q3"] == urls * (1 + erp.FORM345_RETRY_PASSES)
+    assert cl.calls["2018q2"] == urls + 1
+    assert cl.calls["2019q1"] == 1, "a quarter that served is not asked for again"
+    # quarter order is kept, so the lists read the same as before for a clean run
+    keys = [f"{y}q{q}" for (y, q) in er._quarters(start=erp.PAIRS_FROM)]
+    assert f["pairs"] == [k for k in keys if k not in f["missing"]]
+
+
+def test_a_clean_or_404_only_stage_never_pauses(tmp_path):
+    naps = []
+    f = erp.stage_form345(str(tmp_path / "a"), _FlakyClient(_zip_bytes(), unpublished={"2026q3"}), sleep=naps.append)
+    assert naps == [] and f["missing"] == ["2026q3"] and f["missing_why"] == {"2026q3": "not published"}
+
+
+def test_an_unreadable_zip_is_tried_again(tmp_path):
+    class _BadThenGood(_FlakyClient):
+        def get(self, url):
+            blob = super().get(url)
+            if "2019q2" in url and self.calls["2019q2"] == 1:
+                return b"not a zip"
+            return blob
+
+    naps = []
+    f = erp.stage_form345(str(tmp_path / "p"), _BadThenGood(_zip_bytes()), sleep=naps.append)
+    assert f["missing"] == [] and len(naps) == 1
+
+
+def test_the_insufficient_reason_names_each_quarter_with_its_cause(tmp_path, monkeypatch):
+    root, cache = _offline_world(tmp_path)
+    form = os.path.join(cache, "b20261029-c1", "form345")
+    # the offline panel's as_of is 2018-12-31: every quarter through 2018q2 is required
+    gone = ["2014q2", "2015q1", "2016q2", "2016q3", "2017q1", "2017q4", "2018q2"]
+    for key in gone:
+        for p in erp._f345_paths(os.path.join(cache, "b20261029-c1"), key):
+            if os.path.exists(p):
+                os.remove(p)
+    assert os.path.isdir(form)
+
+    class _Blocked(_NoNetwork):
+        def get(self, url):
+            import sec_filings_text as sft
+            raise sft.EdgarHTTPError(url, 403)
+
+    monkeypatch.setattr(erp.time, "sleep", lambda s: None)
+    monkeypatch.setattr(erp, "FORM345_RETRY_WAIT_SEC", 0.0)
+    res = erp.run(root, str(tmp_path / "out"), cache, 4000, "x", client=_Blocked())
+    assert res["status"] == "insufficient"
+    assert res["reason"].startswith(erp.FORM345_GAP_REASON + " 7 quarter(s): 2014q2 (HTTP 403), 2015q1 (HTTP 403)")
+    assert "2017q4 (HTTP 403), and 1 more" in res["reason"] and "each tried 3 times" in res["reason"]
+    # the Node scheduler retries the week on this exact prefix
+    ts = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "server", "eventStudy.ts")).read()
+    assert f'EVENT_STUDY_SEC_GAP_REASON = "{erp.FORM345_GAP_REASON}"' in ts
