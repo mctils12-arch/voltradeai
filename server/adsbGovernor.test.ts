@@ -3,7 +3,7 @@
 // semantics. Clock-injected; no timers, no network.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AIMD_MIN_FRACTION, AIMD_STEP_FRACTION, outcomeKind, UpstreamGovernor, isBackoffStatus, parseRetryAfter, governorFromEnv, DEFAULT_GLOBAL_SWEEP_RPS } from "./adsbGovernor";
+import { AIMD_MIN_FRACTION, AIMD_STEP_FRACTION, FG_FAILURE_PAUSE_MS, FG_PAUSE_MAX_MS, outcomeKind, UpstreamGovernor, isBackoffStatus, parseRetryAfter, governorFromEnv, DEFAULT_GLOBAL_SWEEP_RPS } from "./adsbGovernor";
 import { fetchDiscs, planDiscs, type DiscProvider } from "./aircraftTiling";
 import { subscribeFixes, type FixBatch } from "./aircraftFixBus";
 
@@ -159,4 +159,100 @@ test("AIMD (ops auto-fix): background 429s halve the sweep rate to a floor; succ
   const w = h.backgroundWaitMs(T + 2);
   assert.ok(w > 4_000 && w <= 5_000, `0.2 req/s -> ~5 s per token (got ${w})`);
   assert.ok(AIMD_STEP_FRACTION > 0);
+});
+
+// ── 2026-11-16 [REPAIR]: foreground failures pinned the sweep at its 15-minute ceiling ──
+// Read live from /api/data/aircraft/global that day: consecutive_failures 105 -> 127 in four minutes, every one
+// from the foreground lane; backoff_s pinned at ~900; window_bg 0 (the sweep sent nothing, its last request 24
+// minutes old); 1 of ~1,100 snapshot rows under 2 minutes old. The selected-aircraft lane was failing in bursts
+// (25 of 57 polls), each failure re-arming a 15-minute pause that only a sweep success could clear.
+
+/** Drive a governor through a foreground outcome trace while a sweep loop polls it every 250 ms (globalSweep's
+ *  own cadence), every sweep request succeeding. Returns the times the sweep sent a request. */
+function runSweep(g: UpstreamGovernor, fromMs: number, toMs: number, fgFailureAt: (t: number) => boolean, fgEveryMs: number): number[] {
+  const sent: number[] = [];
+  let nextFg = fromMs;
+  for (let t = fromMs; t <= toMs; t += 250) {
+    if (t >= nextFg) {
+      g.noteRequest("fg", t);
+      g.noteResult("fg", fgFailureAt(t) ? 0 : 200, t);
+      nextFg = t + fgEveryMs;
+    }
+    if (g.tryAcquireBackground(t)) { sent.push(t); g.noteResult("bg", 200, t); }
+  }
+  return sent;
+}
+
+test("the 11-16 trace: a burst of foreground failures no longer stops the sweep for 15 minutes", () => {
+  const g = new UpstreamGovernor({ bgRps: 0.4, ceilingRps: 1 });
+  // the selected-aircraft lane polls every 3 s; it fails for the first 100 s, then answers for 10 minutes
+  const sent = runSweep(g, T0, T0 + 700_000, (t) => t < T0 + 100_000, 3_000);
+  const during = sent.filter((t) => t < T0 + 100_000);
+  const after = sent.filter((t) => t >= T0 + 100_000);
+  assert.ok(during.length <= 2, `during the burst the sweep at most probes (${during.length})`);
+  const firstAfter = after[0];
+  assert.ok(firstAfter - (T0 + 99_000) <= FG_FAILURE_PAUSE_MS + 250, `the sweep is back within 30 s of the last foreground failure (${(firstAfter - T0) / 1000}s)`);
+  // 10 clean minutes at 0.4 req/s, shared with the lane's 20 req/min under the 60/min ceiling: ~240 requests
+  assert.ok(after.length >= 200, `the sweep runs at its rate once the burst is over (${after.length} requests in 10 min)`);
+  assert.equal(g.stats(T0 + 700_000).backoff_s, 0);
+});
+
+test("foreground failures that never stop: the sweep still gets through every two minutes, and its own failure backs off on its own count", () => {
+  const g = new UpstreamGovernor({ bgRps: 0.4, ceilingRps: 1 });
+  // 20 minutes of a foreground failure every 3 s (400 of them), every sweep request answered
+  const sent = runSweep(g, T0, T0 + 20 * 60_000, () => true, 3_000);
+  // each two-minute bound lets one request out, plus the one more that fits before the next foreground failure
+  assert.ok(sent.length >= 9 && sent.length <= 22, `a trickle, about ${20 * 60_000 / FG_PAUSE_MAX_MS} openings in 20 min (${sent.length} requests; an unpaused sweep sends ~480)`);
+  for (let i = 1; i < sent.length; i++) {
+    assert.ok(sent[i] - sent[i - 1] <= FG_PAUSE_MAX_MS + 3_500, `never held longer than the bound (${(sent[i] - sent[i - 1]) / 1000}s)`);
+  }
+  const st = g.stats(T0 + 20 * 60_000);
+  assert.ok(st.backoff_s <= FG_PAUSE_MAX_MS / 1000, `the hold is the bounded pause, never the 15-minute ceiling (${st.backoff_s}s)`);
+  assert.equal(st.sweep_backoff_s, 0, "the sweep's own backoff was never started: its requests all succeeded");
+  assert.equal(st.sweep_consecutive_failures, 0);
+  // 400 foreground failures behind it, the sweep's first own failure is step one (30 s), not the ceiling
+  const t = T0 + 21 * 60_000;
+  g.noteResult("bg", 503, t);
+  assert.equal(g.stats(t).sweep_backoff_s, 30);
+  g.noteResult("bg", 0, t + 1);
+  assert.equal(g.stats(t + 1).sweep_backoff_s, 60, "and doubles on its own count");
+  assert.equal(g.stats(t + 1).sweep_consecutive_failures, 2);
+});
+
+test("a real outage: both lanes fail, the sweep's probes thin out to the 15-minute ceiling and a foreground success never clears it", () => {
+  const g = new UpstreamGovernor({ bgRps: 0.4, ceilingRps: 1 });
+  const sent: number[] = [];
+  for (let t = T0; t <= T0 + 60 * 60_000; t += 250) {
+    if ((t - T0) % 3_000 === 0) { g.noteRequest("fg", t); g.noteResult("fg", 0, t); }
+    if (g.tryAcquireBackground(t)) { sent.push(t); g.noteResult("bg", 0, t); }
+  }
+  // 30 s, 60 s, 2, 4, 8, then 15 min steps: 8 probes in the hour, not a sweep
+  assert.ok(sent.length >= 6 && sent.length <= 9, `probes only (${sent.length} in an hour)`);
+  const gaps = sent.slice(1).map((t, i) => t - sent[i]);
+  assert.ok(gaps[gaps.length - 1] >= 14 * 60_000, "the last gap is at the ceiling");
+  const end = T0 + 60 * 60_000;
+  g.noteResult("fg", 200, end);
+  assert.ok(g.stats(end).sweep_backoff_s > 0, "a foreground success does not clear the sweep's own backoff");
+  g.noteResult("bg", 200, end + 1);
+  assert.equal(g.stats(end + 1).backoff_s, 0, "a sweep success does");
+  assert.equal(g.stats(end + 1).consecutive_failures, 0);
+});
+
+test("a foreground Retry-After is honored in full, past the two-minute bound; the stats name both holds", () => {
+  const g = new UpstreamGovernor({ bgRps: 10, ceilingRps: 100 });
+  assert.equal(g.tryAcquireBackground(T0), true);
+  g.noteResult("bg", 200, T0);
+  g.noteResult("fg", 429, T0 + 1_000, 300); // "retry after 5 minutes", said to a viewer's request
+  const st = g.stats(T0 + 1_000);
+  assert.equal(st.viewer_pause_s, 300);
+  assert.equal(st.sweep_backoff_s, 0);
+  assert.equal(st.backoff_s, 300, "backoff_s is the whole hold");
+  assert.equal(g.tryAcquireBackground(T0 + 200_000), false, "still held after the two-minute bound");
+  assert.equal(g.tryAcquireBackground(T0 + 301_001), true);
+  // a plain foreground failure: 30 s, and the constants are the documented ones
+  const h = new UpstreamGovernor({ bgRps: 10, ceilingRps: 100 });
+  h.noteResult("fg", 0, T0);
+  assert.equal(h.stats(T0).viewer_pause_s, 30);
+  assert.equal(FG_FAILURE_PAUSE_MS, 30_000);
+  assert.equal(FG_PAUSE_MAX_MS, 120_000);
 });
