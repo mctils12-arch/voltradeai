@@ -1,0 +1,39 @@
+{
+ "stream": "flight_plan_versions",
+ "storage": "append-only JSONL hour-files <archive>/flight_plan_versions/YYYY-MM-DD-HH.jsonl (UTC hour the line was WRITTEN; gzipped after 2 hours; deleted after 7 days). CHANGES ONLY: a flight's version 1 is written together with its first change, so a never-amended flight has no line.",
+ "written_by": "server/flightPlanVersionStore.ts PlanVersionArchive (fed by SwimPlanStore.onPlanContent in server/swimSfdps.ts; buffered, flushed every 15 s through datacoreArchive.appendLines)",
+ "source": "FAA SWIM SFDPS flight-plan messages (Flight FIXM), as received: route text, expanded route points, airports, cruise altitude, message type and time",
+ "license": "US-government FAA SWIM data. FAA LADD privacy-program aircraft are excluded at write time by callsign and withheld again at read time by hex and callsign (server/laddRegistry.ts); a LADD aircraft not yet known to the registry when its plan changed can be in a file, so raw rows must never be served without that check.",
+ "attribution": "FAA SWIM SFDPS",
+ "schema_version": 1,
+ "field_map": {
+  "k": "flight key (gufi:<GUFI>, or cs:<callsign>|<UTC day> when the message had no GUFI)",
+  "n": "version number within one server run, 1 = the first route we held (restarts at 1 after a restart)",
+  "t": "when we applied the message, ms epoch (our clock)",
+  "mt": "the SWIM message's own timestamp, ms epoch (absent when the message carried none)",
+  "ty": "SFDPS source code of the message (FH flight plan, AH amendment, ...)",
+  "cs": "callsign",
+  "dep": "departure aerodrome as carried",
+  "arr": "arrival aerodrome as carried",
+  "alt": "filed cruise altitude, feet",
+  "rt": "route text as carried (absent with rs=1: same as this flight's previous line)",
+  "rs": "1 = route text unchanged from this flight's previous line",
+  "rk": "how the route points were obtained: expanded | airway | direct | radial | corridor",
+  "pn": "route point names joined by | (empty = unnamed)",
+  "pc": "route point coordinates, flat [lat, lon, lat, lon, ...], 5 decimal places",
+  "pz": "per-point altitude in feet or null (present only when a message carried one)",
+  "ps": "1 = route points unchanged from this flight's previous line",
+  "d": "what changed against the previous version, in the SWIM store's own words (versions after 1)",
+  "o": "version 1 only: 1 = from a flight-plan (FH) message that was the first message we saw for the flight; 0 = the plan as first SEEN, earlier versions may exist",
+  "fs": "version 1 only: when the SWIM store first saw the flight, ms epoch"
+ },
+ "confidence_model": "RAW: each line is what one FAA message carried, plus our receive time. Route points of kind 'expanded' are the fix names the message carried, placed at their FAA NASR positions; the other kinds are placed by our parser from the route text. Version 1 is 'as filed' only when o=1. A version is recorded when the route text, route geometry, destination or cruise altitude changed; an amendment message that changed none of those records nothing. Lines skipped for low disk, the daily byte cap, a full buffer or a write error are counted on /api/data/aircraft/plan-status (planVersions.archive.skipped), so a gap in a flight's version numbers is visible.",
+ "geo_fields": [
+  "pc"
+ ],
+ "entity_key": "k + n + t",
+ "sentiment": null,
+ "started": "2026-11-16",
+ "cadence": "event-driven (one line per detected plan change; about 109,000 lines a day estimated from the live feed, bounded at 72 MiB of raw lines per UTC day)",
+ "_note": "Universal archive envelope (approved 2026-07-04). Serves GET /api/data/aircraft/plan-history/:hex after a restart and for flights that have left memory. Not in the R2 cold tier and not rolled up: the stream owns its 7-day retention (short because the volume is tight)."
+}
