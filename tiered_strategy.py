@@ -1499,6 +1499,69 @@ def update_peak_equity(current_equity: float) -> float:
     return peak
 
 
+def rebaseline_peak_equity(new_peak: float, basis: str) -> Dict[str, Any]:
+    """WRITE-DOWN of the shared peak (PEAK_EQUITY_PATH, voltrade_peak_equity.json)
+    to a validated equity — the ONLY function that lowers it.
+
+    2026-11-11 (KNOWN BROKEN #49, research/wishlist.md option (a)): the paper
+    re-baseline (human-directed 2026-09-28) lowered Node's equityPeak and
+    bot_engine's DD-halt peak but could not lower this file (only max-ratchet
+    writers existed), so tiered_strategy's master kill / T2 gate and
+    risk_kill_switch's -20% kill kept measuring from the pre-re-baseline high.
+    Callers: paper_resume_sync only (a paper re-baseline, or its one-time
+    catch-up). update_peak_equity stays the only writer that RAISES it.
+
+    Refuses a non-finite or non-positive value and never raises the peak: a
+    target at or above the stored peak changes nothing. Returns
+    {"before", "after", "changed", "basis", "note"}; never raises.
+    """
+    out: Dict[str, Any] = {"before": None, "after": None, "changed": False, "basis": basis, "note": ""}
+    try:
+        target = float(new_peak)
+    except (TypeError, ValueError):
+        out["note"] = "refused: not a number"
+        return out
+    if not math.isfinite(target) or target <= 0:
+        out["note"] = "refused: not a credible positive number"
+        return out
+    before = 0.0
+    try:
+        if os.path.exists(PEAK_EQUITY_PATH):
+            with open(PEAK_EQUITY_PATH) as f:
+                before = float(json.load(f).get("peak_equity", 0) or 0)
+    except Exception as e:
+        out["note"] = f"refused: stored peak unreadable ({e})"
+        return out
+    out["before"] = before
+    out["after"] = before
+    if target >= before:
+        out["note"] = "no change: the target is not below the stored peak (this function never raises it)"
+        return out
+    try:
+        import tempfile
+        dirname = os.path.dirname(PEAK_EQUITY_PATH) or "."
+        fd, tmp = tempfile.mkstemp(dir=dirname, prefix=".peak.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump({"peak_equity": target,
+                           "last_updated": datetime.now().isoformat(),
+                           "rebaselined_from": before,
+                           "rebaselined_basis": str(basis)}, f)
+            os.replace(tmp, PEAK_EQUITY_PATH)
+        except Exception:
+            try: os.unlink(tmp)
+            except OSError: pass  # the temp file may not exist; the write error below is the one reported
+            raise
+    except Exception as e:
+        out["note"] = f"write failed: {e}"
+        return out
+    out["after"] = target
+    out["changed"] = True
+    out["note"] = f"shared peak written down {before:.2f} -> {target:.2f} ({basis})"
+    logger.warning(f"[peak] {out['note']}")
+    return out
+
+
 def get_portfolio_margin_status() -> bool:
     """
     Query Alpaca account endpoint for portfolio margin approval.

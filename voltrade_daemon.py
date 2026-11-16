@@ -301,6 +301,12 @@ class RPCDispatcher:
             # human-directed; server/killSwitchAutoResume.ts). Re-baselines the
             # Python DD halts through their EXISTING functions only.
             "paper_resume_sync": ("paper_resume_sync", "rebaseline_python_halts"),
+            # ONE-TIME shared-peak catch-up (2026-11-11, KNOWN BROKEN #49, the
+            # human's wishlist option (a); server/peakCatchUp.ts, marker-guarded):
+            # writes the shared peak DOWN to Node's re-baselined equityPeak and
+            # clears a Portfolio-DD kill via risk_kill_switch.reset_kill_state().
+            # args {"target_peak": float, "equity": float}; python3 -c fallback in bot.ts.
+            "paper_resume_catch_up": ("paper_resume_sync", "catch_up_shared_peak"),
             # ENGINE KILL VISIBILITY (2026-11-10, KNOWN BROKEN #49): read-only
             # report of the three Python-side drawdown latches and the peaks
             # they measure from (kill_state_probe.py; no bot_engine import).

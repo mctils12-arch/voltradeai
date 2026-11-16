@@ -7532,7 +7532,9 @@
     - Regime follow-up F7 is unblocked; its premise is corrected in regime
       handoff #4.
 
-49. **[FOUND 2026-11-10, scheduled-routine session, LIVE PRODUCTION
+49. **[FIX SHIPPED 2026-11-16 (wishlist option (a), human-approved "yes (a)"
+    2026-11-16; [REPAIR] entry of that date in experiments.md) — confirm on
+    /api/diag/kill_state after the first post-deploy scan] [FOUND 2026-11-10, scheduled-routine session, LIVE PRODUCTION
     ENTRY HALT — VISIBILITY FIX SHIPPED (v1.0.1347), THE LATCH ITSELF IS A
     HUMAN DECISION (wishlist.md 2026-11-10).] The Python engine's -20% kill
     switch has been latched since 2026-11-06 against the stale ~$110.7K
