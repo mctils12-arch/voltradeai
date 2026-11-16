@@ -195,7 +195,7 @@ export function barIndexAt(bars: readonly Bar[], timeS: number, minutes: number)
 // ── the component ───────────────────────────────────────────────────────────
 export const LOADING_WATCHDOG_MS = 30_000;
 /** glossary entry behind each legend label (levels.ts words) */
-const LEGEND_HELP: Record<string, GlossaryKey> = { phase: "phase", R: "rMultiple", entry: "entry", stop: "stop", "1R": "atr", "scale-outs": "scaleOut", target: "target", floor: "hardFloor", held: "timeStop", regime: "trailingStop", leg: "strike", expiry: "strike", premium: "breakevenAtExpiry", "manager target": "managerTarget", price: "priceAtScan", score: "score", why: "factors", rank: "admission" };
+const LEGEND_HELP: Record<string, GlossaryKey> = { phase: "phase", R: "rMultiple", entry: "entry", stop: "stop", "1R": "atr", "scale-outs": "scaleOut", target: "target", backstop: "backstop", held: "timeStop", regime: "trailingStop", leg: "strike", expiry: "strike", premium: "breakevenAtExpiry", "manager target": "managerTarget", price: "priceAtScan", score: "score", why: "factors", rank: "admission" };
 
 export interface BotChartProps {
   /** what to fetch bars for (an option leg charts its underlying) */

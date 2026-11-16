@@ -1,11 +1,16 @@
-// shared/positionLevels.ts pinned against bot_engine.py manage_positions'
-// formulas (read 2026-10-21). Every expected number below is worked by hand
-// from the engine's own arithmetic, so a drift in either file fails here.
+// shared/positionLevels.ts pinned by hand-worked numbers. STOCKS: the ladder
+// the engine executes (shared/stockExitLadder.ts, the mirror of server/bot.ts
+// checkPositionOnTick + syncMonitoredPositions; server/stockExitLadder.test.ts
+// runs that code as written against it). Until 2026-11-12 (KNOWN BROKEN #50a)
+// these tests pinned bot_engine.manage_positions' formulas instead — a regime
+// scalar on every stop, a 10 % phase-1 clamp, a 60-minute and a 4-day
+// suppression, a −20 % hard floor — which Tier 1 never executes. OPTIONS:
+// options_manager.py, further down.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as positionLevelsModule from "../shared/positionLevels";
 import {
-  positionLevels, optionLegLevels, regimeMults, pricePct, parseEngineTime, levelConfigFromBaseConfig,
-  HARD_STOP_PCT_DEFAULT, TIME_STOP_DAYS_ENGINE, SHORT_HOLD_DEEP_LOSS_PCT, MIN_HOLD_CATASTROPHE_PCT, OPTIONS_PROFIT_TARGET_FRAC,
+  positionLevels, optionLegLevels, regimeMults, pricePct, parseEngineTime, OPTIONS_PROFIT_TARGET_FRAC,
   type StopStateRow,
 } from "../shared/positionLevels";
 import {
@@ -20,10 +25,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const NOW = Date.parse("2026-10-21T15:00:00Z");
-const cfg = { stopScalar: 1.0, hardStopPct: 20, hardStopEnabled: true };
 const close = (a: number | null, b: number, eps = 1e-6) => { assert.ok(a !== null && Math.abs(a - b) < eps, `${a} ≠ ${b}`); };
 
-test("regime multipliers mirror the engine's is_bullish / is_bearish branches", () => {
+test("regime multipliers mirror checkPositionOnTick's isBullish / isBearish branches", () => {
   assert.deepEqual(regimeMults("BULL"), { bullish: true, bearish: false, trailAtrMult: 3, scaleOut2R: 3 });
   assert.deepEqual(regimeMults("NEUTRAL_BULL"), { bullish: true, bearish: false, trailAtrMult: 3, scaleOut2R: 3 });
   assert.deepEqual(regimeMults("CAUTION"), { bullish: false, bearish: true, trailAtrMult: 1.5, scaleOut2R: 1.5 });
@@ -31,15 +35,16 @@ test("regime multipliers mirror the engine's is_bullish / is_bearish branches", 
   assert.deepEqual(regimeMults(null), { bullish: false, bearish: false, trailAtrMult: 2, scaleOut2R: 2 });
 });
 
-test("phase 1 long: stop 2×ATR from entry (clamped 1.5–10), TP max(4, min(3×ATR, 15)) armed only after ⅔ out, thirds at +1R and the regime's 2R, hard floor −20", () => {
+test("phase 1 long: stop 2×ATR from entry (clamped 1.5–8), TP max(4, min(3×ATR, 15)) armed only after ⅔ out, thirds at +1R and the regime's 2R, the −25 % backstop, nothing suppressed", () => {
   const stop: StopStateRow = { phase: 1, initial_risk_pct: 5.0, current_stop_pct: 2.5, highest_pnl: 0.4, highest_price: 101, original_qty: 30, remaining_qty: 30, scales_completed: 0, breakeven_active: false, regime: "NEUTRAL", days_held: 5, entry_date: "2026-10-16", entry_timestamp: "2026-10-16T14:31:00.000000" };
-  const lv = positionLevels({ entry: 100, current: 100.4, qty: 30, pnlPct: 0.4, stop, config: cfg, nowMs: NOW });
+  const lv = positionLevels({ entry: 100, current: 100.4, qty: 30, pnlPct: 0.4, stop, nowMs: NOW });
   assert.equal(lv.recorded, true);
   assert.equal(lv.side, "long");
   assert.equal(lv.phase, 1);
-  close(lv.stopPct, 5.0); // max(1.5, min(2.5×2×1.0, 10))
+  close(lv.stopPct, 5.0); // max(1.5, min(2.5×2, 8))
   close(lv.stopPrice, 95.0);
   assert.equal(lv.stopFrom, "entry");
+  assert.equal(lv.stopHit, false);
   close(lv.takeProfitPct, 7.5); // max(4, min(2.5×3, 15))
   close(lv.takeProfitPrice, 107.5);
   assert.equal(lv.takeProfitArmed, false);
@@ -48,93 +53,185 @@ test("phase 1 long: stop 2×ATR from entry (clamped 1.5–10), TP max(4, min(3×
   assert.equal(lv.scaleOuts[0].done, false);
   assert.equal(lv.scaleOuts[1].rMultiple, 2); // NEUTRAL → 2R
   close(lv.scaleOuts[1].price, 110.0);
-  assert.equal(lv.hardFloorPct, HARD_STOP_PCT_DEFAULT);
-  close(lv.hardFloorPrice, 80.0);
-  assert.equal(lv.stopSuppressed, null); // day 5, past the short-hold window
-  assert.equal(lv.timeStop.day, TIME_STOP_DAYS_ENGINE);
+  // 2026-11-12: was HARD_STOP_PCT_DEFAULT (20) → 80.0, manage_positions' phase-1 hard stop, which nothing executes.
+  // 25 is POS-KILL's STOCK_KILL_LOSS_PCT (server/stockExitLadder.test.ts ties the number to server/bot.ts).
+  assert.equal(lv.hardFloorPct, 25);
+  close(lv.hardFloorPrice, 75.0);
+  // 2026-11-12: was `stopSuppressed === null` ("day 5, past the short-hold window") — the engine has no such window
+  assert.equal("stopSuppressed" in lv, false);
+  assert.equal(lv.timeStop.day, 7); // was TIME_STOP_DAYS_ENGINE, the same 7
+  assert.equal(lv.timeStop.withinPct, 2);
   assert.equal(lv.timeStop.armed, false);
+  assert.equal(lv.daysHeld, 5);
   close(lv.rMultiple, 0.08);
 });
 
-test("phase 2 long (peak ≥ 1R): stop trails 1.5×ATR×scalar from the P&L high-water mark; first third done; TP still pending; no hard floor", () => {
-  const stop: StopStateRow = { phase: 2, initial_risk_pct: 4.0, current_stop_pct: 2.0, highest_pnl: 6.0, highest_price: 106, original_qty: 30, remaining_qty: 20, scales_completed: 1, breakeven_active: true, regime: "BEAR", days_held: 9 };
-  const lv = positionLevels({ entry: 100, current: 104, qty: 20, pnlPct: 4.0, stop, config: { stopScalar: 1.2, hardStopPct: 20, hardStopEnabled: true }, nowMs: NOW });
+test("phase 2 long (peak ≥ 1R): stop trails 1.5×ATR from the P&L high-water mark, no regime scalar; first third done; TP still pending; the backstop stays", () => {
+  // entry_date added 2026-11-12: the engine counts the time stop's days from it (a real row always carries it)
+  const stop: StopStateRow = { phase: 2, initial_risk_pct: 4.0, current_stop_pct: 2.0, highest_pnl: 6.0, highest_price: 106, original_qty: 30, remaining_qty: 20, scales_completed: 1, breakeven_active: true, regime: "BEAR", days_held: 9, entry_date: "2026-10-12" };
+  const lv = positionLevels({ entry: 100, current: 104, qty: 20, pnlPct: 4.0, stop, nowMs: NOW });
   assert.equal(lv.phase, 2); // peak 6 / 4 = 1.5R
-  close(lv.stopPct, 3.6); // max(1.5, 2.0 × 1.5 × 1.2)
-  close(lv.stopPrice, 102.4); // entry × (1 + (6.0 − 3.6) / 100) — above entry, so breakeven does not raise it
+  // 2026-11-12: was 3.6 = max(1.5, 2.0 × 1.5 × 1.2), with BEAR's STOP_SCALAR — the engine applies none
+  close(lv.stopPct, 3.0); // max(1.5, 2.0 × 1.5)
+  // 2026-11-12: was 102.4
+  close(lv.stopPrice, 103.0); // entry × (1 + (6.0 − 3.0) / 100) — above entry, so breakeven does not raise it
   assert.equal(lv.stopFrom, "peak_pnl");
+  assert.equal(lv.stopHit, false); // 2.0 off the peak, under the 3.0 trail
   assert.equal(lv.breakevenActive, true);
   assert.equal(lv.scaleOuts[0].done, true);
   assert.equal(lv.scaleOuts[1].rMultiple, 1.5); // BEAR
   close(lv.scaleOuts[1].price, 106.0);
-  assert.equal(lv.hardFloorPrice, null);
+  // 2026-11-12: was null ("no hard floor" in phase 2) — POS-KILL judges a stock in every phase
+  close(lv.hardFloorPrice, 75.0);
   assert.equal(lv.takeProfitArmed, false);
+  close(lv.takeProfitPrice, 106.0); // max(4, 6) = 6 %, under +2R (8 %)
   assert.equal(lv.timeStop.armed, true); // held 9 ≥ 7
+  assert.equal(lv.daysHeld, 9);
 });
 
 test("breakeven raises a trailing stop that sits below entry; the live price can lift the peak (and the phase) past the stored one", () => {
   const stop: StopStateRow = { phase: 1, initial_risk_pct: 4.0, current_stop_pct: 2.0, highest_pnl: 0.9, highest_price: 100.9, original_qty: 30, remaining_qty: 20, scales_completed: 1, breakeven_active: true, regime: "NEUTRAL", days_held: 3 };
   // live P&L +4.2 % → peak 4.2 / 4 = 1.05R → phase 2; stop = 4.2 − max(1.5, 3.0) = +1.2 % → 101.2 (above entry)
-  const live = positionLevels({ entry: 100, current: 104.2, qty: 20, pnlPct: 4.2, stop, config: cfg, nowMs: NOW });
+  const live = positionLevels({ entry: 100, current: 104.2, qty: 20, pnlPct: 4.2, stop, nowMs: NOW });
   assert.equal(live.phase, 2);
   close(live.stopPrice, 101.2);
   // live P&L +2.0 % with a stored peak of 4.1 % → stop = 4.1 − 3.0 = +1.1 → 101.1; breakeven irrelevant
-  const held = positionLevels({ entry: 100, current: 102, qty: 20, pnlPct: 2.0, stop: { ...stop, highest_pnl: 4.1 }, config: cfg, nowMs: NOW });
+  const held = positionLevels({ entry: 100, current: 102, qty: 20, pnlPct: 2.0, stop: { ...stop, highest_pnl: 4.1 }, nowMs: NOW });
   close(held.stopPrice, 101.1);
   // stored peak 4.1 with ATR 3 → stop width max(1.5, 4.5) = 4.5 → 4.1 − 4.5 = −0.4 % → breakeven lifts it to entry
-  const be = positionLevels({ entry: 100, current: 102, qty: 20, pnlPct: 2.0, stop: { ...stop, highest_pnl: 4.1, current_stop_pct: 3.0 }, config: cfg, nowMs: NOW });
+  const be = positionLevels({ entry: 100, current: 102, qty: 20, pnlPct: 2.0, stop: { ...stop, highest_pnl: 4.1, current_stop_pct: 3.0 }, nowMs: NOW });
   close(be.stopPrice, 100.0);
   assert.equal(be.stopFrom, "breakeven");
+  assert.equal(be.stopHit, false);
+  // under entry with breakeven on: the engine's breakeven test is met
+  const under = positionLevels({ entry: 100, current: 99.9, qty: 20, pnlPct: -0.1, stop: { ...stop, highest_pnl: 4.1, current_stop_pct: 3.0 }, nowMs: NOW });
+  assert.equal(under.stopHit, true);
+  // the stored phase stands when it is ahead of what the rounded peak gives (the sync takes it as written)
+  assert.equal(positionLevels({ entry: 100, current: 103, qty: 20, pnlPct: 3.0, stop: { ...stop, phase: 2, highest_pnl: 3.99 }, nowMs: NOW }).phase, 2);
 });
 
-test("phase 4 trails the highest PRICE by trail×ATR×scalar (BULL → 3×)", () => {
+test("phase 4 trails the highest PRICE by trail×ATR (BULL → 3×), no regime scalar", () => {
   const stop: StopStateRow = { phase: 4, initial_risk_pct: 3.0, current_stop_pct: 2.0, highest_pnl: 12.0, highest_price: 112, original_qty: 30, remaining_qty: 10, scales_completed: 2, breakeven_active: true, regime: "BULL", days_held: 20 };
-  const lv = positionLevels({ entry: 100, current: 110, qty: 10, pnlPct: 10, stop, config: { stopScalar: 0.9, hardStopPct: 20, hardStopEnabled: true }, nowMs: NOW });
+  const lv = positionLevels({ entry: 100, current: 110, qty: 10, pnlPct: 10, stop, nowMs: NOW });
   assert.equal(lv.phase, 4); // 12 / 3 = 4R
-  close(lv.stopPct, 5.4); // 2.0 × 3 × 0.9
-  close(lv.stopPrice, 112 * (1 - 0.054));
+  // 2026-11-12: was 5.4 = 2.0 × 3 × 0.9, with BULL's STOP_SCALAR — the engine applies none
+  close(lv.stopPct, 6.0); // 2.0 × 3
+  // 2026-11-12: was 112 × (1 − 0.054)
+  close(lv.stopPrice, 112 * (1 - 0.06));
   assert.equal(lv.stopFrom, "peak_price");
   assert.equal(lv.takeProfitPct, null); // no fixed target in phase 3+
   assert.equal(lv.takeProfitArmed, true);
+  close(lv.hardFloorPrice, 75.0);
 });
 
-test("suppression: the first hour only lets a −10 % loss out; days 0–3 in phase 1 only a −15 % loss", () => {
+// 2026-11-12: this test was "suppression: the first hour only lets a −10 % loss out; days 0–3 in phase 1 only a
+// −15 % loss". It pinned manage_positions' 60-minute minimum hold and 4-day short-hold grace (stopSuppressed.until
+// "60min" / "day4", overridePct 10 / 15, minutesLeft 40, daysLeft 2). The engine has neither: its phase-1 stop is
+// live from the first tick. Same three positions, the engine's answer.
+test("no suppression: 20 minutes in, or on day 2, the phase-1 stop is live and a price past it is a hit", () => {
   const base: StopStateRow = { phase: 1, initial_risk_pct: 5.0, current_stop_pct: 2.5, highest_pnl: 0, original_qty: 10, remaining_qty: 10, scales_completed: 0, regime: "NEUTRAL" };
-  const fresh = positionLevels({ entry: 100, current: 99, qty: 10, pnlPct: -1, stop: { ...base, days_held: 0, entry_timestamp: "2026-10-21T14:40:00.000000" }, config: cfg, nowMs: NOW });
-  assert.equal(fresh.stopSuppressed?.until, "60min");
-  assert.equal(fresh.stopSuppressed?.overridePct, MIN_HOLD_CATASTROPHE_PCT);
-  close(fresh.stopSuppressed?.minutesLeft ?? null, 40);
-  const young = positionLevels({ entry: 100, current: 99, qty: 10, pnlPct: -1, stop: { ...base, days_held: 2, entry_timestamp: "2026-10-19T14:40:00.000000" }, config: cfg, nowMs: NOW });
-  assert.equal(young.stopSuppressed?.until, "day4");
-  assert.equal(young.stopSuppressed?.overridePct, SHORT_HOLD_DEEP_LOSS_PCT);
-  assert.equal(young.stopSuppressed?.daysLeft, 2);
-  // phase 2 is never suppressed by the day-4 grace
-  const p2 = positionLevels({ entry: 100, current: 105, qty: 10, pnlPct: 5, stop: { ...base, highest_pnl: 5.5, days_held: 2, entry_timestamp: "2026-10-19T14:40:00.000000" }, config: cfg, nowMs: NOW });
+  const fresh = positionLevels({ entry: 100, current: 99, qty: 10, pnlPct: -1, stop: { ...base, days_held: 0, entry_date: "2026-10-21", entry_timestamp: "2026-10-21T14:40:00.000000" }, nowMs: NOW });
+  assert.equal("stopSuppressed" in fresh, false);
+  close(fresh.stopPrice, 95.0);
+  assert.equal(fresh.stopHit, false);
+  close(fresh.heldMinutes, 20);
+  const young = positionLevels({ entry: 100, current: 99, qty: 10, pnlPct: -1, stop: { ...base, days_held: 2, entry_date: "2026-10-19", entry_timestamp: "2026-10-19T14:40:00.000000" }, nowMs: NOW });
+  assert.equal("stopSuppressed" in young, false);
+  close(young.stopPrice, 95.0);
+  assert.equal(young.daysHeld, 2);
+  // −6 % twenty minutes after entry: manage_positions would wait for −10 %; the engine's stop test is already met
+  const freshPast = positionLevels({ entry: 100, current: 94, qty: 10, pnlPct: -6, stop: { ...base, days_held: 0, entry_date: "2026-10-21", entry_timestamp: "2026-10-21T14:40:00.000000" }, nowMs: NOW });
+  assert.equal(freshPast.stopHit, true);
+  close(freshPast.stopPrice, 95.0);
+  // −7 % on day 2: manage_positions would wait for −15 % or day 4
+  const youngPast = positionLevels({ entry: 100, current: 93, qty: 10, pnlPct: -7, stop: { ...base, days_held: 2, entry_date: "2026-10-19", entry_timestamp: "2026-10-19T14:40:00.000000" }, nowMs: NOW });
+  assert.equal(youngPast.stopHit, true);
+  // exactly at the stop counts (the engine's test is <=); a hair inside does not
+  assert.equal(positionLevels({ entry: 100, current: 95, qty: 10, pnlPct: -5, stop: base, nowMs: NOW }).stopHit, true);
+  assert.equal(positionLevels({ entry: 100, current: 95.01, qty: 10, pnlPct: -4.99, stop: base, nowMs: NOW }).stopHit, false);
+  // phase 2 was never suppressed, and still is not
+  const p2 = positionLevels({ entry: 100, current: 105, qty: 10, pnlPct: 5, stop: { ...base, highest_pnl: 5.5, days_held: 2, entry_timestamp: "2026-10-19T14:40:00.000000" }, nowMs: NOW });
   assert.equal(p2.phase, 2);
-  assert.equal(p2.stopSuppressed, null);
+  assert.equal("stopSuppressed" in p2, false);
 });
 
-test("short side: levels mirror below / above entry; a single-share lot cannot scale out; missing config falls back to the engine defaults", () => {
+test("KNOWN BROKEN #50a's example: a 7 % ATR in BULL stops at −8 % on the first tick past it (the Book said −10 %, waiting until day 4)", () => {
+  const stop: StopStateRow = { phase: 1, initial_risk_pct: 14.0, current_stop_pct: 7.0, highest_pnl: 0.3, highest_price: 20.06, original_qty: 150, remaining_qty: 150, scales_completed: 0, breakeven_active: false, regime: "BULL", days_held: 0, entry_date: "2026-10-21", entry_timestamp: "2026-10-21T14:40:00.000000" };
+  const lv = positionLevels({ entry: 20, current: 19.5, qty: 150, pnlPct: -2.5, stop, nowMs: NOW });
+  close(lv.stopPct, 8.0); // max(1.5, min(7 × 2, 8)) — not min(7 × 2 × 0.9, 10)
+  close(lv.stopPrice, 18.4);
+  assert.equal(lv.stopFrom, "entry");
+  assert.equal(lv.stopHit, false);
+  assert.equal("stopSuppressed" in lv, false);
+  close(lv.hardFloorPrice, 15.0); // −25 %, not −20 % (16.00)
+  close(lv.riskPct, 14.0);
+  close(lv.scaleOuts[0].price, 22.8); // +1R
+  assert.equal(lv.scaleOuts[1].rMultiple, 3); // BULL
+  close(lv.scaleOuts[1].price, 28.4); // +3R = +42 %
+  close(lv.takeProfitPrice, 23.0); // max(4, min(21, 15)) = 15 %
+  // the first tick past −8 %: the engine sells; nothing waits
+  const past = positionLevels({ entry: 20, current: 18.3, qty: 150, pnlPct: -8.5, stop, nowMs: NOW });
+  assert.equal(past.stopHit, true);
+  close(past.stopPrice, 18.4);
+});
+
+test("short side: levels mirror below / above entry; a single-share lot cannot scale out, so it has no target", () => {
   const stop: StopStateRow = { phase: 1, initial_risk_pct: 4.0, current_stop_pct: 2.0, highest_pnl: 0, original_qty: 1, remaining_qty: 1, scales_completed: 0, regime: "NEUTRAL", days_held: 6 };
-  const lv = positionLevels({ entry: 50, current: 49, qty: -1, pnlPct: 2, stop, config: null, nowMs: NOW });
+  const lv = positionLevels({ entry: 50, current: 49, qty: -1, pnlPct: 2, stop, nowMs: NOW });
   assert.equal(lv.side, "short");
   close(lv.stopPrice, 52.0); // +4 % against a short
-  close(lv.takeProfitPrice, 47.0); // max(4, 6) = 6 % → 50 × 0.94
-  close(lv.hardFloorPrice, 60.0); // engine default 20 %
+  // 2026-11-12: was 60.0 ("engine default 20 %")
+  close(lv.hardFloorPrice, 62.5); // the −25 % backstop, above a short's entry
   assert.equal(lv.scaleOuts[0].applicable, false);
+  // 2026-11-12: was takeProfitPrice 47.0 — the target fires only after both thirds, which one share never sells
+  assert.equal(lv.takeProfitPrice, null);
+  assert.equal(lv.takeProfitPct, null);
+  // a short lot that can split keeps the target, below entry
+  const lot = positionLevels({ entry: 50, current: 49, qty: -30, pnlPct: 2, stop: { ...stop, original_qty: 30, remaining_qty: 30 }, nowMs: NOW });
+  close(lot.takeProfitPrice, 47.0); // max(4, 6) = 6 % → 50 × 0.94
+  assert.equal(lot.scaleOuts[0].applicable, true);
+  close(lot.scaleOuts[0].price, 48.0);
   assert.equal(pricePct(50, -4, "short"), 52);
 });
 
-test("no stop state → not recorded: no stop, target, thirds or floor, phase 1 by default", () => {
-  const lv = positionLevels({ entry: 100, current: 101, qty: 5, pnlPct: 1, stop: null, config: cfg, nowMs: NOW });
+test("a lot of two cannot sell a third either (floor(2 / 3) = 0): no scale-out, no target; three shares can", () => {
+  const stop: StopStateRow = { phase: 1, initial_risk_pct: 5.0, current_stop_pct: 2.5, highest_pnl: 0, scales_completed: 0, regime: "NEUTRAL" };
+  const two = positionLevels({ entry: 100, current: 100, qty: 2, pnlPct: 0, stop, nowMs: NOW });
+  assert.deepEqual(two.scaleOuts.map((s) => s.applicable), [false, false]);
+  assert.equal(two.takeProfitPrice, null);
+  assert.deepEqual([two.originalQty, two.remainingQty], [2, 2]);
+  const three = positionLevels({ entry: 100, current: 100, qty: 3, pnlPct: 0, stop, nowMs: NOW });
+  assert.deepEqual(three.scaleOuts.map((s) => s.applicable), [true, true]);
+  close(three.takeProfitPrice, 107.5);
+});
+
+test("the time stop counts days from the entry date, as the engine does; days_held alone never arms it", () => {
+  const base: StopStateRow = { phase: 1, initial_risk_pct: 5.0, current_stop_pct: 2.5, highest_pnl: 0.4, scales_completed: 0, regime: "NEUTRAL" };
+  const at = (row: StopStateRow) => positionLevels({ entry: 100, current: 100.4, qty: 30, pnlPct: 0.4, stop: row, nowMs: NOW });
+  assert.deepEqual([at({ ...base, entry_date: "2026-10-14" }).daysHeld, at({ ...base, entry_date: "2026-10-14" }).timeStop.armed], [7, true]);
+  assert.deepEqual([at({ ...base, entry_date: "2026-10-15" }).daysHeld, at({ ...base, entry_date: "2026-10-15" }).timeStop.armed], [6, false]);
+  // a stale days_held (manage_positions stopped ticking) does not hold the count back
+  assert.deepEqual([at({ ...base, entry_date: "2026-10-12", days_held: 3 }).daysHeld, at({ ...base, entry_date: "2026-10-12", days_held: 3 }).timeStop.armed], [9, true]);
+  // no entry date: the engine counts from today, so its time stop cannot arm; the row's days_held still names the age
+  assert.deepEqual([at({ ...base, days_held: 9 }).daysHeld, at({ ...base, days_held: 9 }).timeStop.armed], [9, false]);
+});
+
+test("no stop state → not recorded: no stop, target, thirds or backstop, phase 1 by default", () => {
+  const lv = positionLevels({ entry: 100, current: 101, qty: 5, pnlPct: 1, stop: null, nowMs: NOW });
   assert.equal(lv.recorded, false);
   assert.equal(lv.stopPrice, null);
+  assert.equal(lv.stopHit, false);
   assert.equal(lv.takeProfitPrice, null);
   assert.deepEqual(lv.scaleOuts, []);
   assert.equal(lv.hardFloorPrice, null);
   assert.equal(lv.phase, 1);
   // a row without an ATR is not recorded either (bot.ts used to invent 2.5 %)
-  assert.equal(positionLevels({ entry: 100, current: 101, qty: 5, pnlPct: 1, stop: { phase: 2 }, config: cfg, nowMs: NOW }).recorded, false);
+  assert.equal(positionLevels({ entry: 100, current: 101, qty: 5, pnlPct: 1, stop: { phase: 2 }, nowMs: NOW }).recorded, false);
+  // nor is a row whose ATR is zero: the engine falls back to its 2 % default there, and the Book draws nothing
+  // rather than the 1.5 % stop a zero ATR would give
+  const zero = positionLevels({ entry: 100, current: 101, qty: 5, pnlPct: 1, stop: { phase: 1, current_stop_pct: 0, initial_risk_pct: 0 }, nowMs: NOW });
+  assert.equal(zero.recorded, false);
+  assert.equal(zero.stopPrice, null);
 });
 
 test("engine timestamps are the container's clock (UTC), never the reader's local zone", () => {
@@ -161,14 +258,33 @@ test("option legs: breakeven at expiry and the keep-the-premium side, from the l
   assert.equal(optionLegLevels({ optionType: "PUT", strike: 0, qty: -1, premium: 1 }), null);
 });
 
-test("the regime's scalar is picked from BASE_CONFIG; an unknown regime (NEUTRAL_BULL has no key) reads 1.0 as the engine's .get default; a failed read is null", () => {
-  const cfg = { STOP_SCALAR_BULL: 0.9, STOP_SCALAR_BEAR: 1.2, POSITION_HARD_STOP_PCT: 20, POSITION_HARD_STOP_ENABLED: true };
-  assert.deepEqual(levelConfigFromBaseConfig(cfg, "BEAR"), { stopScalar: 1.2, hardStopPct: 20, hardStopEnabled: true });
-  assert.deepEqual(levelConfigFromBaseConfig(cfg, "NEUTRAL_BULL"), { stopScalar: 1.0, hardStopPct: 20, hardStopEnabled: true });
-  assert.deepEqual(levelConfigFromBaseConfig({ STOP_SCALAR_BULL: 0.9, POSITION_HARD_STOP_ENABLED: false }, "BULL"), { stopScalar: 0.9, hardStopPct: null, hardStopEnabled: false });
-  assert.equal(levelConfigFromBaseConfig({}, "BULL"), null);
-  assert.equal(levelConfigFromBaseConfig({ error: "import failed" }, "BULL"), null);
-  assert.equal(levelConfigFromBaseConfig(null, "BULL"), null);
+// 2026-11-12: this test was "the regime's scalar is picked from BASE_CONFIG; …" — six assertions on
+// levelConfigFromBaseConfig (STOP_SCALAR_<regime>, POSITION_HARD_STOP_PCT / _ENABLED → LevelConfig). The function is
+// deleted: the ladder the engine executes reads no config, so there is nothing for the Book to resolve.
+test("the stock ladder reads no config: a stop scalar or a hard-stop setting cannot move a level, and the route sends none", () => {
+  const stop: StopStateRow = { phase: 2, initial_risk_pct: 4.0, current_stop_pct: 2.0, highest_pnl: 6.0, highest_price: 106, original_qty: 30, remaining_qty: 20, scales_completed: 1, breakeven_active: true, regime: "BEAR", days_held: 9, entry_date: "2026-10-12" };
+  const plain = { entry: 100, current: 104, qty: 20, pnlPct: 4.0, stop, nowMs: NOW };
+  // what /api/bot/positions passed until 2026-11-12 (BEAR's scalar 1.2; and with the hard stop switched off)
+  const withScalar = { ...plain, config: { stopScalar: 1.2, hardStopPct: 20, hardStopEnabled: true } };
+  const withFloorOff = { ...plain, config: { stopScalar: 0.7, hardStopPct: 12, hardStopEnabled: false } };
+  assert.deepEqual(positionLevels(withScalar), positionLevels(plain));
+  assert.deepEqual(positionLevels(withFloorOff), positionLevels(plain));
+  close(positionLevels(withScalar).stopPct, 3.0);
+  close(positionLevels(withFloorOff).hardFloorPrice, 75.0);
+  assert.equal("levelConfigFromBaseConfig" in positionLevelsModule, false, "the config resolver is gone");
+  for (const gone of ["HARD_STOP_PCT_DEFAULT", "SHORT_HOLD_DAYS", "SHORT_HOLD_DEEP_LOSS_PCT", "MIN_HOLD_MINUTES", "MIN_HOLD_CATASTROPHE_PCT"]) {
+    assert.equal(gone in positionLevelsModule, false, `${gone}: a manage_positions constant nothing executes`);
+  }
+  const here = path.dirname(new URL(import.meta.url).pathname);
+  const bot = readFileSync(path.join(here, "bot.ts"), "utf8");
+  const body = bot.slice(bot.indexOf("async function positionsBody(): Promise<unknown[]>"), bot.indexOf('app.get("/api/bot/positions"'));
+  assert.ok(body.length > 2000, "positionsBody not found");
+  assert.ok(body.includes("const levels = positionLevels({ entry, current, qty: parseFloat(p.qty), pnlPct: Number.isFinite(pnlPct) ? pnlPct : null, stop: ss, nowMs: Date.now() });"), "the route passes the stop state and the position, nothing else");
+  assert.ok(!/STOP_SCALAR|POSITION_HARD_STOP|levelConfigFromBaseConfig/.test(body.replace(/^\s*\/\/.*$/gm, "")), "the route no longer reads manage_positions' stop scalar or hard stop");
+  assert.ok(body.includes("levels: isOption ? null : levels,"), "share lots carry the ladder; option legs do not");
+  const shared = readFileSync(path.join(here, "..", "shared", "positionLevels.ts"), "utf8");
+  assert.ok(shared.includes('} from "./stockExitLadder";'), "the stock half is the executed ladder's module");
+  assert.ok(!/stopScalar|stopSuppressed|SHORT_HOLD|hardStopEnabled/.test(shared), "no manage_positions-only rule is left in the Book's levels");
 });
 
 // ── option exits: the manager's own rules (options_manager.py, read 2026-11-02) ──

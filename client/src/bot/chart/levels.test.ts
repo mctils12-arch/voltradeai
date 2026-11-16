@@ -7,7 +7,9 @@ import type { PositionLevels } from "../../../../shared/positionLevels";
 const T = FALLBACK_THEME;
 const lv = (over: Partial<PositionLevels> = {}): PositionLevels => ({
   recorded: true, side: "long", phase: 1, regime: "NEUTRAL", atrPct: 2.5, riskPct: 5, pnlPct: 0.4, rMultiple: 0.08, peakR: 0.1, highestPnl: 0.5, highestPrice: 100.5,
-  stopPct: 5, stopPrice: 95, stopFrom: "entry", breakevenActive: false, stopSuppressed: null, hardFloorPct: 20, hardFloorPrice: 80,
+  // 2026-11-12 (KNOWN BROKEN #50a): the ladder the engine executes — no stopSuppressed, and the floor is POS-KILL's
+  // −25 % backstop (was manage_positions' −20 % hard floor: hardFloorPct 20, hardFloorPrice 80)
+  stopPct: 5, stopPrice: 95, stopFrom: "entry", stopHit: false, breakevenActive: false, hardFloorPct: 25, hardFloorPrice: 75,
   takeProfitPct: 7.5, takeProfitPrice: 107.5, takeProfitArmed: false,
   scaleOuts: [{ n: 1, rMultiple: 1, pct: 5, price: 105, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 10, price: 110, done: false, applicable: true }],
   trailAtrMult: 2, scaleOut2R: 2, originalQty: 30, remainingQty: 30, scalesCompleted: 0, daysHeld: 5, heldMinutes: 7200,
@@ -15,15 +17,19 @@ const lv = (over: Partial<PositionLevels> = {}): PositionLevels => ({
 });
 const pos = (levels: PositionLevels | null, extra: Partial<OverlaySubject> = {}): OverlaySubject => ({ ticker: "QQQ", qty: 30, entryPrice: 100, currentPrice: 100.4, levels, ...extra });
 
-test("a phase-1 long draws entry, stop, both thirds, the pending target and the hard floor (outside the fit), with the risk zone", () => {
+test("a phase-1 long draws entry, stop, both thirds, the pending target and the backstop (outside the fit), with the risk zone", () => {
   const o = positionOverlay(pos(lv()), T);
   const labels = o.levels.map((l) => l.label);
   assert.ok(labels.includes("entry"));
   assert.ok(labels.includes("stop · from entry"));
   assert.ok(labels.includes("sell ⅓ · +1.0R") && labels.includes("sell ⅓ · +2.0R"));
   assert.ok(labels.some((l) => l === "target +7.5% (after ⅔ out)"));
-  const floor = o.levels.find((l) => l.label.startsWith("hard floor"));
-  assert.ok(floor && floor.fit === false && floor.muted);
+  // 2026-11-12: was the "hard floor −20%" level
+  const floor = o.levels.find((l) => l.label === "backstop −25%");
+  assert.ok(floor && floor.fit === false && floor.muted && floor.price === 75);
+  assert.ok(!o.levels.some((l) => /hard floor|waits|exit now only/.test(l.label)), "no manage_positions-only level is drawn");
+  const stop = o.levels.find((l) => l.label === "stop · from entry");
+  assert.ok(stop && !stop.muted && stop.price === 95, "the stop is live: drawn at full strength");
   assert.equal(o.zones[0].label, "risk to the stop");
   assert.ok(o.zones.some((z) => z.label === "to the first ⅓"));
   assert.ok(o.legend.some(([k, v]) => k === "phase" && v === "1 of 4"));
@@ -33,17 +39,28 @@ test("a phase-1 long draws entry, stop, both thirds, the pending target and the 
   assert.ok(o.legend.some(([k, v]) => k === "stop" && v === "95.00 · 5.00% · stop · from entry"));
   assert.ok(o.legend.some(([k, v]) => k === "1R" && v === "5.00% · ATR 2.50%"));
   assert.ok(o.legend.some(([k, v]) => k === "target" && v === "107.50 · +7.5% · after ⅔ out"));
-  assert.ok(o.legend.some(([k, v]) => k === "floor" && v === "80.00 · −20%"));
+  // 2026-11-12: was ["floor", "80.00 · −20%"]
+  assert.ok(o.legend.some(([k, v]) => k === "backstop" && v === "75.00 · −25%"));
+  assert.ok(!o.legend.some(([k]) => k === "floor"));
   assert.deepEqual(o.notes, []);
 });
 
-test("a suppressed stop is muted, the override line is drawn and the note says how long it waits", () => {
-  const o = positionOverlay(pos(lv({ stopSuppressed: { until: "day4", reason: "", overridePct: 15, minutesLeft: null, daysLeft: 2 }, daysHeld: 2 })), T);
+// 2026-11-12: this test was "a suppressed stop is muted, the override line is drawn and the note says how long it
+// waits" (stop muted and labelled "· waits", an "exit now only below −15%" line at 85, a "2 more day(s)" note). The
+// engine has no minimum hold and no day-4 grace, so no stop is ever drawn as waiting.
+test("no stop waits: a stop the last price has passed is drawn live and labelled hit, with the note; an older server's suppression object draws nothing", () => {
+  const o = positionOverlay(pos(lv({ stopHit: true, pnlPct: -7.5, daysHeld: 2 }), { currentPrice: 92.5 }), T);
   const stop = o.levels.find((l) => l.label.startsWith("stop · from entry"));
-  assert.ok(stop && stop.muted && stop.label.endsWith("· waits"));
-  const override = o.levels.find((l) => l.label.startsWith("exit now only below"));
-  assert.ok(override && Math.abs(override.price - 85) < 1e-9);
-  assert.ok(o.notes[0].includes("2 more day(s)"));
+  assert.ok(stop && !stop.muted && stop.label === "stop · from entry · hit" && stop.price === 95);
+  assert.ok(!o.levels.some((l) => l.label.startsWith("exit now only below")));
+  assert.equal(o.notes.length, 1);
+  assert.ok(o.notes[0].startsWith("the last price is past the stop: the engine sells on its next 1-minute bar"));
+  assert.ok(o.legend.some(([k, v]) => k === "stop" && v === "95.00 · 5.00% · stop · from entry · hit"));
+  const stale = { ...lv({ daysHeld: 2 }), stopSuppressed: { until: "day4", reason: "", overridePct: 15, minutesLeft: null, daysLeft: 2 } } as PositionLevels;
+  const s = positionOverlay(pos(stale), T);
+  assert.deepEqual(s.levels.map((l) => l.label), positionOverlay(pos(lv({ daysHeld: 2 })), T).levels.map((l) => l.label));
+  assert.ok(!s.levels.some((l) => l.muted && l.label.startsWith("stop")), "the stop is never muted as waiting");
+  assert.deepEqual(s.notes, []);
 });
 
 test("after the first third the done level is muted, the locked-in zone replaces the risk zone, and phase 3+ carries no fixed target", () => {
@@ -64,6 +81,19 @@ test("not recorded: only the entry line and the honest note; a one-share lot say
   const tiny = positionOverlay(pos(lv({ scaleOuts: [{ n: 1, rMultiple: 1, pct: 5, price: 105, done: false, applicable: false }, { n: 2, rMultiple: 2, pct: 10, price: 110, done: false, applicable: false }] })), T);
   assert.ok(!tiny.levels.some((l) => l.label.includes("⅓")));
   assert.ok(tiny.notes.some((n) => n.startsWith("lot too small")));
+  // 2026-11-12: such a lot has no target either (it fires only after both thirds), and the note says what its exits are
+  const tinyNoTarget = positionOverlay(pos(lv({ takeProfitPct: null, takeProfitPrice: null, scaleOuts: [{ n: 1, rMultiple: 1, pct: 5, price: 105, done: false, applicable: false }, { n: 2, rMultiple: 2, pct: 10, price: 110, done: false, applicable: false }] })), T);
+  assert.deepEqual(tinyNoTarget.levels.map((l) => l.label), ["entry", "stop · from entry", "backstop −25%"]);
+  assert.ok(tinyNoTarget.notes[0].includes("needs 3 or more") && tinyNoTarget.notes[0].includes("the target never arms"));
+  assert.ok(!tinyNoTarget.legend.some(([k]) => k === "target"));
+  // a splittable lot below phase 3 with no target: it would sit at or beyond +2R, and the note says so
+  const far = positionOverlay(pos(lv({ atrPct: 0.8, riskPct: 1.6, takeProfitPct: null, takeProfitPrice: null })), T);
+  assert.ok(!far.levels.some((l) => l.label.startsWith("target")));
+  assert.deepEqual(far.notes, ["no fixed target: it would sit at or beyond +2R, where phase 3 begins and the trailing stop takes over"]);
+  // the first third sold and one share left: the done level stays, the second is not drawn, and it is not "too small"
+  const oneLeft = positionOverlay(pos(lv({ phase: 2, stopFrom: "breakeven", stopPrice: 100, breakevenActive: true, scalesCompleted: 1, takeProfitPct: null, takeProfitPrice: null, scaleOuts: [{ n: 1, rMultiple: 1, pct: 5, price: 105, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 10, price: 110, done: false, applicable: false }] })), T);
+  assert.deepEqual(oneLeft.levels.filter((l) => l.label.includes("⅓")).map((l) => l.label), ["⅓ sold · +1.0R"]);
+  assert.ok(!oneLeft.notes.some((n) => n.startsWith("lot too small")));
 });
 
 test("an option leg draws its strike and expiry breakeven on the underlying with the keep-the-premium side shaded; missing meta falls back honestly", () => {

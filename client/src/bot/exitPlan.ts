@@ -117,23 +117,25 @@ export function optionExitSegments(plan: OptionExitPlan): PlanSegment[] {
 
 const STOP_FROM: Record<string, string> = { entry: "from entry", peak_pnl: "trails peak P&L", peak_price: "trails the high", breakeven: "breakeven" };
 
-/** "stop $719.08 from entry · floor $593.06 (−20%) · ⅓ at $763.56 (+1.0R) ·
+/** "stop $719.08 from entry · backstop $555.99 (−25%) · ⅓ at $763.56 (+1.0R) ·
  *  ⅓ at $785.80 (+2.0R) · target $774.68 after ⅔ out · time stop d7 if ±2%"
- *  — manage_positions' ladder for a share lot, from the levels the server
- *  already computes (shared/positionLevels). The thirds answer "or a
- *  portion": yes, two of them, then the trail takes the rest. */
+ *  — the ladder the engine executes for a share lot (server/bot.ts
+ *  checkPositionOnTick, and POS-KILL as the backstop), from the levels the
+ *  server already computes (shared/positionLevels). The stop is live from the
+ *  first tick: there is no minimum hold and no day-4 grace (2026-11-12), so a
+ *  stop the last price has passed reads "hit" — the engine sells on its next
+ *  1-minute bar. The thirds answer "or a portion": yes, two of them, then the
+ *  trail takes the rest. */
 export function stockExitSegments(lv: PositionLevels | null | undefined): PlanSegment[] {
   if (!lv || !lv.recorded) return [{ text: "stop state not recorded yet" }, { text: "the engine writes it on its first manage tick after entry" }];
   const segs: PlanSegment[] = [];
-  if (lv.stopPrice !== null) {
-    const sup = lv.stopSuppressed;
-    const waits = sup ? (sup.until === "60min" ? ` · waits ${Math.ceil(sup.minutesLeft ?? 0)} min (minimum hold)` : ` · waits ${sup.daysLeft ?? "?"}d (grace to day 4)`) : "";
-    segs.push({ text: `stop ${money(lv.stopPrice)} ${STOP_FROM[lv.stopFrom ?? "entry"] ?? "from entry"}${waits}` });
-    if (sup) segs.push({ text: `exit now only below ${MINUS}${sup.overridePct}%` });
-  } else segs.push({ text: "stop not set" });
-  if (lv.hardFloorPrice !== null && lv.hardFloorPct !== null) segs.push({ text: `floor ${money(lv.hardFloorPrice)} (${MINUS}${lv.hardFloorPct}%)` });
-  if (lv.scaleOuts.length && !lv.scaleOuts[0].applicable) segs.push({ text: "no scale-out (lot of 1)" });
-  else for (const so of lv.scaleOuts) segs.push({ text: so.done ? `⅓ sold at ${money(so.price)}` : `⅓ at ${money(so.price)} (+${so.rMultiple.toFixed(1)}R)` });
+  const hit = lv.stopHit === true;
+  if (lv.stopPrice !== null) segs.push({ text: `stop ${money(lv.stopPrice)} ${STOP_FROM[lv.stopFrom ?? "entry"] ?? "from entry"}${hit ? " · hit" : ""}`, ...(hit ? { hit: true } : {}) });
+  else segs.push({ text: "stop not set" });
+  if (lv.hardFloorPrice !== null && lv.hardFloorPct !== null) segs.push({ text: `backstop ${money(lv.hardFloorPrice)} (${MINUS}${lv.hardFloorPct}%)` });
+  // the engine sells a third only as whole shares (floor(lot / 3) ≥ 1) while more than one share is left
+  if (lv.scaleOuts.length && !lv.scaleOuts.some((so) => so.applicable)) segs.push({ text: `no scale-out (lot of ${lv.originalQty ?? "?"})` });
+  else for (const so of lv.scaleOuts) { if (so.done || so.applicable) segs.push({ text: so.done ? `⅓ sold at ${money(so.price)}` : `⅓ at ${money(so.price)} (+${so.rMultiple.toFixed(1)}R)` }); }
   if (lv.takeProfitPrice !== null && lv.takeProfitPct !== null) segs.push({ text: `target ${money(lv.takeProfitPrice)}${lv.takeProfitArmed ? " armed" : " after ⅔ out"}` });
   else if (lv.phase >= 3) segs.push({ text: "trail takes the rest" });
   segs.push({ text: `time stop d${lv.timeStop.day} if ±${lv.timeStop.withinPct}%${lv.timeStop.armed ? " · armed" : ""}`, hit: lv.timeStop.armed });

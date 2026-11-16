@@ -59,7 +59,7 @@ export interface DrawLevel {
   price: number; color: string; dash: Dash; label: string;
   /** a muted level is drawn faint — pending, done or suppressed */
   muted?: boolean;
-  /** false = the level may sit outside the view (the hard floor); default true keeps it in the price range */
+  /** false = the level may sit outside the view (the backstop); default true keeps it in the price range */
   fit?: boolean;
 }
 export interface DrawZone { lo: number; hi: number; color: string; alpha: number; label?: string }
