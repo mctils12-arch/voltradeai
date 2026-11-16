@@ -118065,3 +118065,21 @@ DOWNSTREAM: nothing changes while Node's kill is off. When the latch trips mid-s
 ROLLBACK TRIGGER: revert if a roll is skipped while Node's kill switch is off, or if any close is refused by the gate.
 TESTS: new test_kill_latch_residuals.py, 6 tests; 5 fail on #1757's head (the sixth pins unchanged behaviour). They cover the roll (unit and through manage_options_positions); every one of the 21 engine order POSTs classified as opening, closing or frozen submitter, with every opening POST behind the gate, no exit reading it, and an unclassified POST failing; the ETF re-check with no await after it; the hermetic default. With #1757's test_kill_latch.py: 24 passed. Affected Python suites (floor, third leg, options manager, entry shadow, broker clock): 352 passed. Server tests (haltScope, floorAudit, leg3Audit, etfSubstitution, executeTrades readers): 116/116. tsc: 6 errors, the same as main. Counter ratchet OK.
 STARVED: no.
+
+## 2026-11-12 [RULE-REVIEW] — T-BOT (server/bot.ts: executeMorningQueue, the tier dispatcher's T3 BUY, runUpgradeCandidates' buy, executeScaleInTranches; new server/entryLatchRecheck.test.ts) — KNOWN BROKEN #51 residual: Node's own opening orders re-read the kill latch right before they are sent
+VERSION: v1.0.1418 (shipped 2026-11-16 by the parent session; main was v1.0.1417)
+WHY: the #51 fixes (#1757 and its residuals PR: Python's opening orders read Node's latch) leave four Node paths with the same gap. Each one checks state.killSwitch at its own start or loop top, then awaits Python or the broker before its order, so a latch that trips in between lets the entry through:
+- executeMorningQueue: positions and the Python price check;
+- the tier dispatcher's T3 BUY: account and snapshot reads;
+- runUpgradeCandidates: the sale, then a 1 s wait;
+- executeScaleInTranches: the reserve read.
+This closes a gap in the enforcement path, not a threshold: no threshold, no mechanism and no order transmission changes.
+CHANGE: a re-check after the last await before each post, using that path's own loop-top handling:
+- the morning queue: `if (state.killSwitch) break`;
+- the dispatcher: rejected_killswitch for the rest of the actions, then break;
+- scale-in: the killSwitch/haltAllows expression, placed before the order's try.
+- A rotation's sale is an exit and stands. Its buy is skipped when entries halted after the sale, with a ROTATE-BUY-HALTED audit line. The rotation log then records buy_qty 0, not a buy that was never sent.
+DOWNSTREAM: nothing changes while Node's kill is off. When the latch trips mid-path, the path stops before its next entry, exactly as its own loop-top check would on the next iteration. A rotation caught mid-way leaves cash where the new position would have been, which is the latch's intent.
+ROLLBACK TRIGGER: revert if an entry is skipped while Node's kill is off and entries are allowed (a ROTATE-BUY-HALTED line, or a morning queue or tier batch that ends early, with killSwitch false). No exit is touched.
+TESTS: new server/entryLatchRecheck.test.ts, 7 tests, all 7 fail on main. For each of the four opening posts there is no await between its last latch check and the post. The tests also pin each re-check's handling, the rotation's halted buy and its log quantity, and the scale-in check sitting outside the order's try. Server tests reading these functions: 148/148. Python tests reading bot.ts: 694 passed, 1 skipped. tsc: 6 errors, the same as main. Counter ratchet OK.
+STARVED: no.
