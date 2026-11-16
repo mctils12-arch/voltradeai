@@ -596,7 +596,14 @@ class RPCDispatcher:
         return {
             "alive": True,
             "uptime_seconds": int(time.time() - _DAEMON_START),
+            # rss_mb is ru_maxrss: the process's HIGH-WATER MARK, which never
+            # falls. It is what _memory_watchdog compares with max_rss_mb.
+            # rss_peak_mb names it honestly; rss_current_mb is what the
+            # process holds now (None where /proc is unavailable) and is the
+            # number bot_engine's deep-score guard reads (_mem_rss_mb).
             "rss_mb": round(rss_mb, 1),
+            "rss_peak_mb": round(rss_mb, 1),
+            "rss_current_mb": _current_rss_mb(),
             "max_rss_mb": MAX_RSS_MB,
             "modules_loaded": list(_modules_loaded.keys()),
             "active_dispatches": _active_dispatch_count,
@@ -801,6 +808,20 @@ class ThreadingUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSe
 
 
 # ── Memory self-monitoring ───────────────────────────────────────────────────
+def _current_rss_mb(status_path="/proc/self/status"):
+    """Resident memory the process holds NOW, in MB, from VmRSS (Linux —
+    what Railway runs). None when it cannot be read: the caller must never
+    mistake the ru_maxrss peak for a current reading."""
+    try:
+        with open(status_path) as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return round(int(line.split()[1]) / 1024, 1)
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
 def _memory_watchdog():
     """Background thread — self-kill if memory exceeds limit."""
     while True:
