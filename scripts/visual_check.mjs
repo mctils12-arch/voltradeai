@@ -813,15 +813,22 @@ function pagedFilingHistory(req, kind) {
     entryTotal: 20 + i, valueTotal: 150000000 * (i + 1), otherManagersCount: 0, holdingsOmitted: false,
     holdings: [{ issuer: `FIXTURE HOLDING ${i} CORP`, titleOfClass: "COM", cusip: `00000000${i}`, value: 9000000 * (i + 1), shares: 100000 * (i + 1), sharesType: "SH", putCall: null, discretion: "SOLE" }],
   });
-  const make = kind === "form4" ? form4 : f13;
+  const e8k = (i, day) => ({
+    accession: `0000000000-26-${String(900 + i).padStart(6, "0")}`, cik: String(3000 + i), companyName: `FIXTURE RESULTS ${i} INC`,
+    filedAt: day, itemCodes: i % 2 ? ["2.02", "9.01"] : ["2.02"],
+    indexUrl: `https://www.sec.gov/Archives/edgar/data/${3000 + i}/`, exhibitUrl: `https://www.sec.gov/Archives/edgar/data/${3000 + i}/ex99.htm`,
+    text: `Fixture Results ${i} Inc today reported quarterly results and updated its full-year guidance.`, textLength: 92, truncated: false,
+  });
+  const make = kind === "form4" ? form4 : kind === "earnings" ? e8k : f13;
   const filings = older
     ? [make(3, "2026-11-13"), make(4, "2026-11-06"), make(5, "2026-10-20")]
     : [make(0, "2026-11-15"), make(1, "2026-11-14"), make(2, "2026-11-14")];
   return {
-    kind: "raw", source: kind === "form4" ? "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04) (fixture)" : "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05) (fixture)",
+    kind: "raw", source: kind === "form4" ? "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04) (fixture)" : kind === "earnings" ? "SEC EDGAR (8-K Item 2.02 / Exhibit 99) — accumulated archive (began 2026-07-04) (fixture)" : "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05) (fixture)",
     ...(kind === "13f" ? { focused_cap: 250 } : {}),
     days: older ? null : 30, window, covered, truncated: !older, next: older ? null : "?from=2026-10-17&to=2026-11-13",
-    max_filings: kind === "form4" ? 2000 : 500, days_scanned: older ? 28 : 2, archive_start: kind === "form4" ? "2026-07-04" : "2026-07-05",
+    max_filings: kind === "form4" ? 2000 : 500, days_scanned: older ? 28 : 2, archive_start: kind === "13f" ? "2026-07-05" : "2026-07-04",
+    ...(kind === "earnings" ? { text_omitted: false } : {}),
     malformed_lines: 0, count: filings.length, filings,
   };
 }
@@ -1013,6 +1020,7 @@ const PAGES = {
   filingspaged: { route: "/app#/data/filings", map: false, fixtures: { "/api/data/insider/history": (req) => pagedFilingHistory(req, "form4") } },
   filings13fpaged: { route: "/app#/data/filings13f", map: false, fixtures: { "/api/data/filings13f/history": (req) => pagedFilingHistory(req, "13f") } },
   earnings: { route: "/app#/data/earnings", map: false },
+  earningspaged: { route: "/app#/data/earnings", map: false, fixtures: { "/api/data/earnings-language/history": (req) => pagedFilingHistory(req, "earnings") } },
   shortvolume: { route: "/app#/data/short-volume", map: false },
   cot: { route: "/app#/data/cot", map: false },
   graph: { route: "/app#/data/graph", map: false },
@@ -3652,27 +3660,32 @@ async function main() {
       // ── FILING HISTORY COVERAGE (2026-11-15): on a truncated history page
       // the header states the archive days loaded (never "last N days"), and
       // the footer control walks the server's `next` until the window is whole.
-      if (name === "filingspaged" || name === "filings13fpaged") {
+      if (name === "filingspaged" || name === "filings13fpaged" || name === "earningspaged") {
+        // the earnings page lists release cards, the two filing pages table rows
+        const rowCount = () => name === "earningspaged"
+          ? page.locator(".vt-earnings-list > li").count()
+          : page.locator(".vt-filings-table").first().locator("tbody tr").count();
+        const countWord = name === "earningspaged" ? /\b3 releases\b/ : /\b3 filings\b/;
         const fail = (m) => checks.failures.push("filing-coverage: " + m);
         const cov = page.locator("[data-vt-coverage]");
         const before = (await cov.count()) ? await cov.first().innerText() : "";
         if (!/2026-11-14 → 2026-11-15 · 2 of the 30 days asked for/.test(before)) fail(`header does not state the loaded days ("${before}")`);
         const head = await page.locator(".vt-filings-sub").first().innerText();
         if (/last \d+ days/.test(head)) fail(`header still claims "last N days": ${head}`);
-        if (!/\b3 filings\b/.test(head)) fail(`header filing count is not the loaded count: ${head}`);
+        if (!countWord.test(head)) fail(`header filing count is not the loaded count: ${head}`);
         const btn = page.locator("[data-vt-load-older]");
         if (!(await btn.count()) || !(await btn.first().isVisible())) fail("no 'load older days' control on a truncated page");
         else {
           const box = await btn.first().boundingBox();
           if (box && (box.x < 0 || box.x + box.width > vp.w + 0.5)) fail(`load-older control overflows the viewport (${Math.round(box.x)}..${Math.round(box.x + box.width)} of ${vp.w})`);
           if (box && vp.touch && box.height < 44) fail(`load-older control is ${Math.round(box.height)}px tall on touch (<44)`);
-          const rows0 = await page.locator(".vt-filings-table").first().locator("tbody tr").count();
+          const rows0 = await rowCount();
           await btn.first().click();
           await page.waitForTimeout(600);
           const after = (await cov.count()) ? await cov.first().innerText() : "";
           if (!/2026-10-17 → 2026-11-15 · all 30 days/.test(after)) fail(`after loading older days the header reads "${after}"`);
           if (await page.locator("[data-vt-load-older]").count()) fail("load-older control still shown after the window is whole");
-          const rows1 = await page.locator(".vt-filings-table").first().locator("tbody tr").count();
+          const rows1 = await rowCount();
           if (rows1 !== rows0 + 3) fail(`older rows not appended (${rows0} -> ${rows1}, expected +3)`);
           if (!apiLog.some((u) => /history\?from=2026-10-17&to=2026-11-13$/.test(u))) fail(`the older page was not fetched through the server's next query (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
           await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-older.png`) });
