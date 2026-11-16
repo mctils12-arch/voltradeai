@@ -35,7 +35,9 @@ import {
   recentTrackCached, archiveStats, archiveBaseDir,
 } from "./datacoreArchive";
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
-import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS } from "./trackedPlanes";
+import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS, TRACKED_FAST_POLL_MS, TRACKED_ACTIVE_WINDOW_MS, TRACKED_MAX_REQ_PER_MIN } from "./trackedPlanes";
+import { registerAircraftFindRoute } from "./aircraftFind";
+import { publishFixes } from "./aircraftFixBus";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
 import { registerGlobalAircraftRoutes } from "./globalAircraft";
 import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
@@ -1008,8 +1010,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({
       planes: r.planes, count: r.planes.length, cap: TRACKED_CAP,
       poll_s: TRACKED_POLL_MS / 1000,
-      source: "adsb.lol registration query (ODbL), one batched request per cycle",
-      note: "tracked tails are archived continuously whenever they broadcast — no viewer required; last_seen null = never seen since tracking began",
+      // 2026-11-12: a plane heard in the last active_window_s is polled by
+      // hex every fast_poll_s; `heard` / `last_heard` on a row = its
+      // transponder was heard (has_position false: no position decoded yet)
+      fast_poll_s: TRACKED_FAST_POLL_MS / 1000,
+      active_window_s: TRACKED_ACTIVE_WINDOW_MS / 1000,
+      max_requests_per_min: TRACKED_MAX_REQ_PER_MIN,
+      cycles: trackedPoller.cycleStats(),
+      source: "adsb.lol registration query (ODbL), one batched request per cycle, plus one batched hex query for tracked planes it returned no position for",
+      note: "tracked tails are archived continuously whenever they broadcast — no viewer required; last_seen null = never seen since tracking began. last_seen / last_pos are a real position fix; heard / last_heard say the provider heard the transponder (heard.has_position false = altitude and ground speed only, no position yet)",
     });
   });
   app.post("/api/data/aircraft/tracked/:reg", (req, res) => {
@@ -1045,7 +1054,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       note: "the free tier's worldwide coverage: these scopes are served globally in one request each; all-civil global live is a paid product (see wishlist) — per_scope -1 = that scope's fetch failed this cycle; skipped_low_disk true = archiving paused to protect bot state writes",
     });
   });
-  registerGlobalAircraftRoutes(app); // FLIGHT PROGRAM B1: GET /api/data/aircraft/global (sweep + snapshot, server/globalAircraft.ts)
+  const globalAircraft = registerGlobalAircraftRoutes(app); // FLIGHT PROGRAM B1: GET /api/data/aircraft/global (sweep + snapshot, server/globalAircraft.ts)
+  // GET /api/data/aircraft/find?q= — one plane, anywhere: live / heard / last_seen / unknown (server/aircraftFind.ts)
+  registerAircraftFindRoute(app, {
+    snapshot: globalAircraft.snapshot,
+    tracked: () => trackedPoller.getRegistry().planes,
+    publish: publishFixes,
+    lastArchived: async (hex) => { const pts = await recentTrackCached("aircraft", hex); return pts.length ? pts[pts.length - 1] : null; },
+  });
 
   // Recent trail for one entity (serves the client's track-on-click).
   // PERF (session #2, user-reported freezes): was the sync recentTrack —

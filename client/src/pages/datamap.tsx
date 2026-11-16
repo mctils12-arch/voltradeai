@@ -176,6 +176,7 @@ import { intentStatusParts, type IntentViewWire } from "@/lib/air/intentStatus";
 import { IntentStatusRow } from "@/components/IntentStatus";
 import { cumulativeAlongM, currentDeviceTier, GROUND_TOL_M, lerpPoints, refineForGround, subdivisionCount, trackBudget } from "@/lib/air/terrainFollow";
 import { aircraftFreshnessClause, decideWatchedOpen, fetchWatchedSources, fmtAgeShort, type WatchedRow } from "@/lib/air/watchedLookup";
+import { SIGNAL_MARK, TRACKED_SIGNAL_REFRESH_MS, decidePlaneFind, fetchPlaneFind, findPendingNote, heardSentence, planeSignal, publishTrackedSignals, refreshTrackedSignals, subscribeTrackedSignals, trackedChipText, trackedSignalFor, type TrackedSignalRow } from "@/lib/air/planeFind";
 import type { SatcatWorkerOutbound } from "@/lib/orbital/satcatWorker";
 import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
@@ -1368,7 +1369,7 @@ function TrackedPlanesPanel({ onOpen }: {
   onOpen: (p: { hex: string; reg?: string | null; callsign?: string | null; type?: string | null }) => void;
 }) {
   const [reg, setReg] = useState("");
-  const [rows, setRows] = useState<Array<{ reg: string; hex?: string | null; last_seen?: number | null; last_pos?: { la: number; lo: number; al: number | null } | null }>>([]);
+  const [rows, setRows] = useState<Array<TrackedSignalRow & { reg: string; last_pos?: { la: number; lo: number; al: number | null } | null }>>([]);
   const [cap, setCap] = useState(20);
   const [err, setErr] = useState<string | null>(null);
   const load = async () => {
@@ -1377,6 +1378,8 @@ function TrackedPlanesPanel({ onOpen }: {
       if (!r.ok) throw new Error(String(r.status));
       const d = await r.json();
       setRows(d.planes || []);
+      // the legend's watchlist chips read the same rows (one poll, two readers)
+      publishTrackedSignals(d.planes || []);
       setCap(d.cap ?? 20);
       setErr(null);
     } catch { setErr("tracked list unavailable"); }
@@ -1409,11 +1412,6 @@ function TrackedPlanesPanel({ onOpen }: {
       if (r.ok) setRows(d.planes || []);
     } catch { /* next 30s refresh corrects */ }
   };
-  const ago = (ms?: number | null): string => {
-    if (ms == null) return "awaiting first signal";
-    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-    return s < 90 ? `${s}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
-  };
   return (
     <div className="vt-field-controls" role="group" aria-label="Nonstop tracked planes" data-testid="tracked-planes">
       <span className="vt-legend-note">
@@ -1432,14 +1430,21 @@ function TrackedPlanesPanel({ onOpen }: {
         <button className="vt-satfinder-chip" onClick={() => void add()}>+ Track</button>
       </div>
       {err && <span className="vt-legend-note">{err}</span>}
+      {rows.length > 0 && (
+        <span className="vt-legend-note">● position under 2 min old · ◐ transponder heard, no position yet · ○ no signal now</span>
+      )}
       {rows.map((p) => (
         <span key={p.reg} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
           <button
-            className={`vt-satfinder-chip${p.last_seen != null && Date.now() - p.last_seen < 120_000 ? " vt-satfinder-chip-on" : ""}`}
+            className={`vt-satfinder-chip${planeSignal(p, Date.now()) === "live" ? " vt-satfinder-chip-on" : ""}`}
+            data-signal={planeSignal(p, Date.now())}
             disabled={!p.hex}
-            title={p.hex ? "open — flies to it if broadcasting, archive card if dark" : "no signal seen yet since tracking began"}
+            title={!p.hex ? "no signal seen yet since tracking began"
+              : planeSignal(p, Date.now()) === "heard" && p.heard
+                ? heardSentence(p.reg, p.heard, Date.now(), null)
+                : "open — flies to it if broadcasting, archive card if dark"}
             onClick={() => { if (p.hex) onOpen({ hex: String(p.hex).toLowerCase(), reg: p.reg }); }}>
-            {p.reg} · {ago(p.last_seen)}
+            {trackedChipText(p, Date.now())}
           </button>
           <button aria-label={`stop tracking ${p.reg}`} className="vt-satfinder-chip"
                   style={{ padding: "0 6px" }} onClick={() => void remove(p.reg)}>✕</button>
@@ -1508,9 +1513,10 @@ interface LegendPanelProps {
    *  re-render on store changes), snapshot search, and watched-plane open.
    *  Both callbacks are ref-backed useCallback([]) in the parent — stable
    *  identities per the memo contract. onFindPlane returns a miss note or
-   *  null on success. */
+   *  null on success; on a viewport miss it asks the server for the plane
+   *  anywhere and reports the answer through setNote (2026-11-12). */
   wlTick: number;
-  onFindPlane: (q: string) => string | null;
+  onFindPlane: (q: string, setNote: (note: string | null) => void) => string | null;
   onOpenWatched: (p: { hex: string; reg?: string | null; callsign?: string | null; type?: string | null }) => void;
 }
 
@@ -1528,6 +1534,22 @@ const LegendPanel = memo(function LegendPanel({
 }: LegendPanelProps) {
   // plane search feedback is legend-local state (memo-safe)
   const [airSearchMiss, setAirSearchMiss] = useState<string | null>(null);
+  // watchlist chip marks re-render when the tracked registry's rows refresh.
+  // The tracked-planes panel publishes them from its own poll; when it is
+  // closed (a phone's layers sheet) this asks instead — refreshTrackedSignals
+  // only fetches when nothing was published in the last poll interval.
+  const [, setSignalTick] = useState(0);
+  useEffect(() => subscribeTrackedSignals(() => setSignalTick((n) => n + 1)), []);
+  const airOn = !!enabled.aircraft;
+  const hasWatch = getWatchlist().length > 0;
+  useEffect(() => {
+    if (!airOn || !legendOpen || !hasWatch) return;
+    const ac = new AbortController();
+    const refresh = () => { if (!document.hidden) void refreshTrackedSignals({ signal: ac.signal }); };
+    refresh();
+    const t = window.setInterval(refresh, TRACKED_SIGNAL_REFRESH_MS / 4);
+    return () => { window.clearInterval(t); ac.abort(); };
+  }, [airOn, legendOpen, hasWatch, wlTick]);
   return (
     <div className="vt-legend" data-vt-legend>
       <button className="vt-legend-head" aria-expanded={legendOpen}
@@ -1588,7 +1610,9 @@ const LegendPanel = memo(function LegendPanel({
                     {/* plane-tracking T3 (2026-08-08): find a plane by tail
                         number / callsign / hex / type over the CURRENT
                         snapshot, and the persistent watchlist. Parent handles
-                        the map/card actions via ref-backed stable callbacks. */}
+                        the map/card actions via ref-backed stable callbacks.
+                        2026-11-12: a viewport miss asks the server for the
+                        plane anywhere (live / heard / last seen / unknown). */}
                     <input
                       className="vt-filter-input"
                       style={{ width: "100%", marginTop: 6 }}
@@ -1598,26 +1622,31 @@ const LegendPanel = memo(function LegendPanel({
                         if (e.key !== "Enter") return;
                         const q = (e.target as HTMLInputElement).value.trim();
                         if (!q) return;
-                        setAirSearchMiss(onFindPlane(q));
+                        setAirSearchMiss(onFindPlane(q, setAirSearchMiss));
                       }}
                     />
-                    {airSearchMiss && <span className="vt-legend-note">{airSearchMiss}</span>}
+                    {airSearchMiss && <span className="vt-legend-note" role="status" data-testid="plane-find-note">{airSearchMiss}</span>}
                     {(() => {
                       void wlTick;
                       const wl = getWatchlist();
                       if (!wl.length) return null;
                       return (
                         <div className="vt-satfinder-groups" style={{ width: "100%", marginTop: 4 }} data-testid="plane-watchlist">
-                          <span className="vt-legend-note">Watchlist ({wl.length}) — ● broadcasting now, ○ archive only:</span>
+                          <span className="vt-legend-note">Watchlist ({wl.length}) — ● broadcasting now, ◐ transponder heard (no position yet), ○ archive only; marked for 24/7-tracked tails, tap any to check:</span>
                           {wl.map((p) => {
                             const label = p.reg || p.callsign || p.hex;
+                            // known only for tails on the 24/7 tracked list — no mark otherwise
+                            const signal = trackedSignalFor(p.hex, Date.now());
                             return (
                               <span key={p.hex} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
                                 <button
                                   className="vt-satfinder-chip"
-                                  title="tap to fly to it if broadcasting, or open its archived trips"
+                                  data-signal={signal ?? undefined}
+                                  title={signal === "heard"
+                                    ? "transponder heard, no position yet — tap for details"
+                                    : "tap to fly to it if broadcasting, or open its archived trips"}
                                   onClick={() => onOpenWatched(p)}>
-                                  {label}
+                                  {signal ? `${SIGNAL_MARK[signal]} ${label}` : label}
                                 </button>
                                 <button aria-label={`remove ${label} from watchlist`}
                                         className="vt-satfinder-chip" style={{ padding: "0 6px" }}
@@ -5255,8 +5284,10 @@ export default function DataMapPage() {
   /** assigned inside the aircraft wiring effect where the click handler
    *  lives — the search/watchlist paths reuse the exact plane-click path */
   const airClickRef = useRef<((p: any, lngLat: any) => void | Promise<void>) | null>(null);
-  const findPlaneCb = useCallback((q: string): string | null => {
+  const findAbortRef = useRef<AbortController | null>(null);
+  const findPlaneCb = useCallback((q: string, setNote: (note: string | null) => void): string | null => {
     const Q = q.trim().toUpperCase();
+    findAbortRef.current?.abort(); // a newer search supersedes a pending one
     const rows: any[] = airPayloadRef.current || [];
     const hit = rows.find((a) => String(a.registration || "").toUpperCase() === Q)
       || rows.find((a) => String(a.callsign || "").toUpperCase() === Q)
@@ -5265,7 +5296,22 @@ export default function DataMapPage() {
       || rows.find((a) => String(a.callsign || "").toUpperCase().startsWith(Q))
       || rows.find((a) => String(a.type || "").toUpperCase() === Q);
     if (!hit) {
-      return `no "${Q}" in the current snapshot — the live feed covers the viewport area (pan/zoom to search elsewhere); watched planes stay reachable via their archive`;
+      // NOT IN THIS VIEW (2026-11-12, N843S): the viewport rows are not the
+      // world. Ask the server for the plane anywhere — its worldwide feed,
+      // the 24/7 tracked list, one provider lookup — and act on the honest
+      // answer. The note under the box says "checking" at once (the lookup
+      // never blocks the paint); a user action, never a map event (Law I).
+      const ac = new AbortController();
+      findAbortRef.current = ac;
+      void fetchPlaneFind(Q, { signal: ac.signal }).then((ans) => {
+        if (ac.signal.aborted) return;
+        const d = decidePlaneFind(Q, ans, Date.now());
+        setNote(d.note);
+        if (d.kind === "live") openLiveAircraftRowRef.current(d.row);
+        // last seen: the archive card (trips + trail), as a watchlist tap opens it
+        else if (d.kind === "last_seen" && d.hex) openWatchedCb({ hex: d.hex, reg: d.reg });
+      });
+      return findPendingNote(Q);
     }
     try { mapRef.current?.easeTo({ center: [hit.lon, hit.lat], zoom: Math.max(mapRef.current.getZoom(), 8.5), duration: 900 }); } catch {}
     void airClickRef.current?.({
@@ -5336,6 +5382,9 @@ export default function DataMapPage() {
       // (trips + trail still work), worded from the real last-seen time
       const label = p.reg || p.callsign || hex;
       const lastSeen = d.lastSeenMs;
+      // heard without a position (24/7 tracked tails): say so before "last seen"
+      const heardNow = tracked?.heard && planeSignal(tracked, Date.now()) === "heard"
+        ? `${heardSentence(label, tracked.heard, Date.now(), null)}. ` : "";
       setDetail({
         kind: "aircraft",
         title: `✈ ${label}`,
@@ -5347,11 +5396,12 @@ export default function DataMapPage() {
           { label: "ICAO24", value: hex },
         ],
         sourceTag: "ARCHIVE",
-        body: (lastSeen != null
+        body: heardNow + (lastSeen != null
           ? `No position from this watched plane in the last 2 minutes — last seen ${fmtAgeShort(Date.now() - lastSeen)} ago (worldwide snapshot / 24-7 tracked poll). `
           : "No position from this watched plane in our worldwide snapshot or the 24-7 tracked poll. ")
           + (failed ? "One of the live lookups could not be reached just now, so this may be out of date. " : "")
-          + "Usually on the ground without ADS-B, or out of receiver coverage. Trips and the trail come from our own archive; the card switches to live values the moment a fix arrives.",
+          + (heardNow ? "" : "Usually on the ground without ADS-B, or out of receiver coverage. ")
+          + "Trips and the trail come from our own archive; the card switches to live values the moment a fix arrives.",
         trailId: hex, trailKind: "aircraft",
         links: [{ label: "Photos/registry (Planespotters)", href: `https://www.planespotters.net/hex/${hex.toUpperCase()}` }],
       } as Detail);

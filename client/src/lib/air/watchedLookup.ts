@@ -47,6 +47,9 @@ export interface TrackedEntry {
   /** epoch ms of the last broadcast the tracked poller saw; null = never */
   last_seen?: number | null;
   last_pos?: { la: number; lo: number; al: number | null } | null;
+  /** the provider heard the transponder (2026-11-12): has_position false =
+   *  altitude and ground speed only — never used as a position here */
+  heard?: { at: number; alt_ft: number | null; gs_kt: number | null; source?: string | null; has_position: boolean } | null;
 }
 
 export type WatchedDecision =

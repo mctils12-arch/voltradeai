@@ -10,15 +10,30 @@
 // poll simply returns nothing for it — last_seen says how long it's been
 // dark, honestly, and the moment its signal pops up the fixes flow again.
 //
-// Provider politeness: ONE request per cycle at a fixed 30s cadence,
-// registry capped at TRACKED_CAP tails. adsb.lol is the monetization-lawful
-// primary (ODbL) — same provider, same UA as the viewport path.
+// Provider politeness: ONE registration request per 30s cycle, registry
+// capped at TRACKED_CAP tails. adsb.lol is the monetization-lawful primary
+// (ODbL) — same provider, same UA as the viewport path.
+//
+// HEARD BEFORE POSITIONED (owner report 2026-11-12: "not tracking or picking
+// up on adsb ... the planes right away i am looking for n843s"). Measured
+// live as N843S left Chicago Midway: 19:48:28Z /v2/reg/N843S -> 0 aircraft;
+// 19:49:43Z /v2/hex/ab8c8e -> 1 aircraft, type "mode_s", 850 ft, 144 kt, NO
+// lat/lon; 19:50:29Z a real position; 19:50:52Z the registration query
+// finally returned it. The registration query omits an aircraft that is
+// heard without a position; the hex query returns it. So each cycle also
+// asks by hex for the tracked planes the registration batch gave no position
+// for (ONE request: /v2/hex accepts a comma-separated list — verified live
+// 2026-11-12, /v2/hex/ab8c8e,a42dee -> both aircraft), records what it hears
+// as `heard` (altitude + ground speed, never a position), and while a plane
+// was heard in the last TRACKED_ACTIVE_WINDOW_MS polls its hex every
+// TRACKED_FAST_POLL_MS so its first position lands within seconds.
 
 import fs from "fs";
 import path from "path";
 import { archiveAircraft, archiveAircraftAt, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
 import { publishFixes } from "./aircraftFixBus";
+import { adsbLolGovernor, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 
 // ── TRACE BACKFILL (phase 2, same 2026-08-08 directive: "every time a plane
 // turn on we have the data all over the world not just the 250nm") ─────────
@@ -85,13 +100,55 @@ export const TRACKED_CAP = 20;
 export const TRACKED_POLL_MS = 30_000;
 /** archive EVERY polled fix — the poll cadence IS the sampling cadence */
 export const TRACKED_ARCHIVE_INTERVAL_MS = 15_000;
+/** Cadence of the hex poll while a tracked plane is ACTIVE (heard, with or
+ *  without a position, in the last TRACKED_ACTIVE_WINDOW_MS). 5 s = 0.2
+ *  request/s for the WHOLE registry (one batched /v2/hex request, however
+ *  many planes are active): a fifth of what the selected-aircraft fast lane
+ *  may send (FAST_MAX_RPS = 1, aircraftFastLane.ts) and, added to the world
+ *  sweep's 0.4 request/s, still under the governor's 1 request/s ceiling for
+ *  all of adsb.lol (adsbGovernor.ts). */
+export const TRACKED_FAST_POLL_MS = 5_000;
+/** a plane silent this long drops back to the 30 s cadence */
+export const TRACKED_ACTIVE_WINDOW_MS = 5 * 60_000;
+/** Hard ceiling on fast-tick requests per rolling minute (60 s / 5 s). With
+ *  the base cycle's at most 2 requests every 30 s the poller's worst case is
+ *  TRACKED_MAX_REQ_PER_MIN, whatever the registry holds (cap 20 planes). */
+export const TRACKED_FAST_MAX_PER_MIN = 12;
+export const TRACKED_MAX_REQ_PER_MIN = TRACKED_FAST_MAX_PER_MIN + 4;
+/** a request that hangs must not stall the self-rescheduling poller */
+export const TRACKED_TIMEOUT_MS = 10_000;
+/** registry writes are coalesced to one per this interval on fast ticks */
+export const TRACKED_SAVE_MIN_MS = 15_000;
+/** a `heard` reading younger than this is "being heard now" (the same 2 min
+ *  line the map uses for "broadcasting now") */
+export const HEARD_FRESH_MS = 120_000;
+
+/** The provider HEARD this aircraft's transponder. `has_position` false =
+ *  heard without a decoded position (e.g. source "mode_s" in the first
+ *  minute of a flight): altitude and ground speed only. NEVER a position. */
+export interface HeardReading {
+  /** unix ms of the newest message the provider reported (its clock − `seen`) */
+  at: number;
+  /** barometric (else geometric) altitude, ft; null on the ground / not sent */
+  alt_ft: number | null;
+  /** ground speed, knots; null when not sent */
+  gs_kt: number | null;
+  /** the provider's source type for the row (mode_s, adsb_icao, mlat, …) */
+  source: string | null;
+  has_position: boolean;
+}
 
 export interface TrackedPlane {
   reg: string;                 // normalized tail number — the registry key
   added_at: number;            // unix ms
   hex?: string | null;         // learned from the first live fix
-  last_seen?: number | null;   // unix ms of the newest fix we archived
+  last_seen?: number | null;   // unix ms of the newest POSITION fix we archived
   last_pos?: { la: number; lo: number; al: number | null } | null;
+  /** newest reading of the transponder being heard at all (with or without
+   *  a position). last_seen/last_pos keep their meaning: a real position. */
+  heard?: HeardReading | null;
+  /** unix ms high-water mark of `heard.at` */
+  last_heard?: number | null;
   /** unix SEC high-water mark of the day-trace backfill — each cycle only
    *  archives trace points newer than this (small overlap is collapsed by
    *  the read-side t-dedupe) */
@@ -158,37 +215,301 @@ export function batchUrl(regs: string[]): string {
   return `https://api.adsb.lol/v2/reg/${regs.map((r) => encodeURIComponent(r)).join(",")}`;
 }
 
-/** One poll cycle, pure-injectable: fetch the batch, map through the SAME
- *  normalizer as the viewport path, and fold updates into the registry.
- *  Planes with no signal are untouched (last_seen keeps aging — honest). */
+const HEX_RE = /^[0-9a-f]{6}$/;
+/** ONE request for several aircraft by ICAO hex (comma-separated list). */
+export function hexBatchUrl(hexes: string[]): string {
+  return `https://api.adsb.lol/v2/hex/${hexes.map((h) => h.toLowerCase()).filter((h) => HEX_RE.test(h)).join(",")}`;
+}
+
+/** one aircraft row exactly as the provider sent it */
+export type RawAircraft = Record<string, unknown>;
+
+/** never let a poller timer hold the process open */
+const unrefTimer = (t: unknown): void => { (t as { unref?: () => void } | null)?.unref?.(); };
+const finiteNum = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+export function rawAircraftRows(raw: unknown): RawAircraft[] {
+  const ac = (raw as { ac?: unknown } | null)?.ac;
+  return Array.isArray(ac) ? ac.filter((a): a is RawAircraft => !!a && typeof a === "object") : [];
+}
+
+/** a row carries a decoded position only when BOTH lat and lon are numbers */
+export function rawHasPosition(a: RawAircraft): boolean {
+  return finiteNum(a.lat) != null && finiteNum(a.lon) != null;
+}
+
+/** The provider's own clock for a response (readsb `now`, ms), bounded by
+ *  ours so a skewed upstream clock can never date a reading in the future. */
+export function upstreamBaseMs(raw: unknown, nowMs: number): number {
+  const n = finiteNum((raw as { now?: unknown } | null)?.now);
+  if (n == null || n <= 0) return nowMs;
+  return Math.min(nowMs, n < 1e11 ? n * 1000 : n); // seconds form tolerated
+}
+
+/** Pure: what one provider row says about the transponder being heard.
+ *  `at` = the provider's clock minus the row's own `seen` (seconds since its
+ *  last message). Altitude: barometric, else geometric; "ground" -> null. */
+export function heardFromRaw(a: RawAircraft, baseMs: number): HeardReading {
+  const seen = finiteNum(a.seen);
+  return {
+    at: Math.round(baseMs - (seen != null && seen > 0 ? seen * 1000 : 0)),
+    alt_ft: a.alt_baro === "ground" ? null : finiteNum(a.alt_baro) ?? finiteNum(a.alt_geom),
+    gs_kt: finiteNum(a.gs),
+    source: typeof a.type === "string" && a.type ? a.type : null,
+    has_position: rawHasPosition(a),
+  };
+}
+
+/** Pure: is this plane inside the fast-poll window? (hex known, and heard —
+ *  with or without a position — within TRACKED_ACTIVE_WINDOW_MS) */
+export function isTrackedActive(tp: TrackedPlane, nowMs: number): boolean {
+  if (!tp.hex || !HEX_RE.test(tp.hex.toLowerCase())) return false;
+  const newest = Math.max(tp.last_heard ?? 0, tp.last_seen ?? 0);
+  return newest > 0 && nowMs - newest <= TRACKED_ACTIVE_WINDOW_MS;
+}
+
+export function activeHexes(registry: TrackedRegistry, nowMs: number): string[] {
+  return registry.planes.filter((tp) => isTrackedActive(tp, nowMs)).map((tp) => String(tp.hex).toLowerCase());
+}
+
+export interface PollOutcome {
+  /** POSITION fixes only (the archive + fix-bus input) */
+  points: AircraftPoint[];
+  registry: TrackedRegistry;
+  /** tracked planes heard WITHOUT a position this cycle */
+  heard: number;
+  /** upstream requests this cycle made */
+  requests: number;
+  /** the hex lookup's failure, when it failed (the registration batch's
+   *  fixes are still returned); null = ran clean, not needed, or held back */
+  hexNote: string | null;
+}
+
+export interface PollHooks {
+  /** may the extra hex request be sent now? (governor backoff / own cap) */
+  allowHex?: () => boolean;
+  /** called when a hex request is sent, and with its outcome (0 = network) */
+  noteHexRequest?: () => void;
+  noteHexResult?: (status: number, retryAfterSec: number | null) => void;
+}
+
+/** Pure: fold provider rows into the registry. A row belongs to a tracked
+ *  plane when its registration matches, or when its hex is the plane's known
+ *  hex and the row names no OTHER registration (identity is never inferred).
+ *  A row with a position updates last_seen/last_pos exactly as before; a row
+ *  WITHOUT one only records `heard` — last_seen/last_pos are left alone. */
+export function foldTrackedRows(
+  registry: TrackedRegistry, rows: RawAircraft[], baseMs: number, nowMs: number,
+): { registry: TrackedRegistry; positioned: RawAircraft[]; heard: number } {
+  const byReg = new Map<string, RawAircraft>();
+  const byHex = new Map<string, RawAircraft>();
+  const better = (cur: RawAircraft | undefined, next: RawAircraft) => !cur || (!rawHasPosition(cur) && rawHasPosition(next));
+  for (const a of rows) {
+    const reg = normalizeReg(typeof a.r === "string" ? a.r : null);
+    const hex = typeof a.hex === "string" ? a.hex.toLowerCase() : "";
+    if (reg && better(byReg.get(reg), a)) byReg.set(reg, a);
+    if (HEX_RE.test(hex) && better(byHex.get(hex), a)) byHex.set(hex, a);
+  }
+  const positioned: RawAircraft[] = [];
+  let heard = 0;
+  const planes = registry.planes.map((tp) => {
+    let hit = byReg.get(tp.reg);
+    if (!hit && tp.hex) {
+      const h = byHex.get(tp.hex.toLowerCase());
+      const named = h ? normalizeReg(typeof h.r === "string" ? h.r : null) : null;
+      if (h && (named == null || named === tp.reg)) hit = h;
+    }
+    if (!hit) return tp;
+    const reading = heardFromRaw(hit, baseMs);
+    const lastHeard = Math.max(tp.last_heard ?? 0, reading.at);
+    const hex = typeof hit.hex === "string" && HEX_RE.test(hit.hex.toLowerCase()) ? hit.hex : tp.hex;
+    if (!reading.has_position) {
+      heard++;
+      // an older reading never replaces a newer one
+      const keep = tp.heard && tp.heard.at > reading.at ? tp.heard : reading;
+      return { ...tp, hex, heard: keep, last_heard: lastHeard };
+    }
+    positioned.push(hit);
+    return {
+      ...tp,
+      hex,
+      last_seen: nowMs,
+      last_pos: { la: hit.lat as number, lo: hit.lon as number, al: reading.alt_ft == null ? null : Math.round(reading.alt_ft * 0.3048) },
+      heard: reading,
+      last_heard: lastHeard,
+    };
+  });
+  return { registry: { planes }, positioned, heard };
+}
+
+async function fetchHexRows(
+  hexes: string[], fetchImpl: typeof fetch, headers: Record<string, string>, hooks: PollHooks,
+): Promise<unknown> {
+  hooks.noteHexRequest?.();
+  let status = 0;
+  try {
+    const res = await fetchImpl(hexBatchUrl(hexes), { headers, signal: AbortSignal.timeout(TRACKED_TIMEOUT_MS) });
+    status = res.status;
+    hooks.noteHexResult?.(res.status, res.ok ? null : parseRetryAfter(res.headers?.get?.("retry-after") ?? null));
+    if (!res.ok) throw new Error(`adsb.lol hex batch ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    if (status === 0) hooks.noteHexResult?.(0, null); // network error / timeout
+    throw e;
+  }
+}
+
+/** One poll cycle, pure-injectable: fetch the registration batch, map
+ *  through the SAME normalizer as the viewport path, and fold updates into
+ *  the registry; then ONE hex request for the known-hex planes the batch
+ *  gave no position for (heard-without-position lives only there). Planes
+ *  with no signal are untouched (last_seen keeps aging — honest). A failed
+ *  hex lookup never loses the registration batch's fixes. */
 export async function pollTrackedOnce(
   registry: TrackedRegistry,
   fetchImpl: typeof fetch,
   headers: Record<string, string>,
   nowMs: number,
-): Promise<{ points: AircraftPoint[]; registry: TrackedRegistry }> {
-  if (!registry.planes.length) return { points: [], registry };
-  const res = await fetchImpl(batchUrl(registry.planes.map((p) => p.reg)), { headers });
+  hooks: PollHooks = {},
+): Promise<PollOutcome> {
+  if (!registry.planes.length) return { points: [], registry, heard: 0, requests: 0, hexNote: null };
+  const res = await fetchImpl(batchUrl(registry.planes.map((p) => p.reg)), {
+    headers, signal: AbortSignal.timeout(TRACKED_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`adsb.lol reg batch ${res.status}`);
   const raw = await res.json();
-  // tracked poller uses the adsb.lol reg-batch endpoint (batchUrl) — tag it
-  const points = mapPointAircraft(raw, "ac", "adsblol") as AircraftPoint[];
-  const byReg = new Map<string, AircraftPoint>();
-  for (const p of points) {
-    const reg = normalizeReg((p as any).registration);
-    if (reg) byReg.set(reg, p);
+  const regRows = rawAircraftRows(raw);
+  const first = foldTrackedRows(registry, regRows, upstreamBaseMs(raw, nowMs), nowMs);
+  // tracked poller uses the adsb.lol reg-batch endpoint (batchUrl) — tag it.
+  // Every row the batch returned WITH a position, as before.
+  const points = mapPointAircraft({ ac: regRows.filter(rawHasPosition) }, "ac", "adsblol") as AircraftPoint[];
+  let out = first.registry;
+  let heard = first.heard;
+  let requests = 1;
+  let hexNote: string | null = null;
+  const gotPosition = new Set(first.positioned.map((a) => String(a.hex || "").toLowerCase()));
+  const missing = out.planes
+    .map((tp) => String(tp.hex || "").toLowerCase())
+    .filter((h) => HEX_RE.test(h) && !gotPosition.has(h));
+  if (missing.length) {
+    if (!hooks.allowHex || hooks.allowHex()) {
+      try {
+        requests++;
+        const hexRaw = await fetchHexRows(missing, fetchImpl, headers, hooks);
+        const second = foldTrackedRows(out, rawAircraftRows(hexRaw), upstreamBaseMs(hexRaw, nowMs), nowMs);
+        out = second.registry;
+        heard += second.heard;
+        points.push(...(mapPointAircraft({ ac: second.positioned }, "ac", "adsblol") as AircraftPoint[]));
+      } catch (e) {
+        hexNote = errText(e);
+      }
+    }
   }
-  const planes = registry.planes.map((tp) => {
-    const hit = byReg.get(tp.reg);
-    if (!hit) return tp;
-    return {
-      ...tp,
-      hex: hit.icao24 || tp.hex,
-      last_seen: nowMs,
-      last_pos: { la: hit.lat, lo: hit.lon, al: hit.altitude_m ?? null },
-    };
+  return { points, registry: out, heard, requests, hexNote };
+}
+
+/** A FAST tick: ONE hex request for the active planes only. Throws on an
+ *  upstream failure (the caller treats it as a missed sample). */
+export async function pollHexesOnce(
+  registry: TrackedRegistry,
+  hexes: string[],
+  fetchImpl: typeof fetch,
+  headers: Record<string, string>,
+  nowMs: number,
+  hooks: PollHooks = {},
+): Promise<PollOutcome> {
+  if (!hexes.length) return { points: [], registry, heard: 0, requests: 0, hexNote: null };
+  const raw = await fetchHexRows(hexes, fetchImpl, headers, hooks);
+  const f = foldTrackedRows(registry, rawAircraftRows(raw), upstreamBaseMs(raw, nowMs), nowMs);
+  return {
+    points: mapPointAircraft({ ac: f.positioned }, "ac", "adsblol") as AircraftPoint[],
+    registry: f.registry, heard: f.heard, requests: 1, hexNote: null,
+  };
+}
+
+export type CycleKind = "base" | "fast" | "skipped-backoff" | "skipped-cap" | "idle";
+
+export interface TrackedCycle {
+  /** run whichever cycle is due at `nowMs` */
+  run(registry: TrackedRegistry, nowMs: number): Promise<PollOutcome & { kind: CycleKind }>;
+  /** ms until the next tick: fast while any plane is active, else 30 s */
+  nextDelayMs(registry: TrackedRegistry, nowMs: number): number;
+  stats(): Record<string, number>;
+}
+
+/** The cadence decision, clock-injectable so tests never sleep.
+ *  - every TRACKED_POLL_MS: the BASE cycle (registration batch + hex lookup);
+ *  - between base cycles, while a plane is active: a FAST tick (hex only).
+ *  Hex requests are accounted to the shared adsb.lol governor on its
+ *  foreground lane (recorded, counted toward the total ceiling so the world
+ *  sweep yields — the same lane the selected-aircraft fast lane uses) and
+ *  are NOT sent while the governor is backing off after an adsb.lol
+ *  429/5xx/network failure: then only the base registration request runs,
+ *  as it always has. */
+export function createTrackedCycle(deps: {
+  fetchImpl: typeof fetch;
+  headers: Record<string, string>;
+  governor?: UpstreamGovernor;
+}): TrackedCycle {
+  const gov = deps.governor ?? adsbLolGovernor;
+  let lastBaseAt: number | null = null;
+  const fastSent: number[] = [];
+  const counts = { base_cycles: 0, fast_cycles: 0, skipped_backoff: 0, skipped_cap: 0, requests: 0, hex_requests: 0, hex_failures: 0 };
+  const hooksAt = (nowMs: number): PollHooks => ({
+    allowHex: () => {
+      if (gov.backoffMs(nowMs) <= 0) return true;
+      counts.skipped_backoff++;
+      return false;
+    },
+    noteHexRequest: () => { counts.hex_requests++; gov.noteRequest("fg", nowMs); },
+    noteHexResult: (status, retryAfterSec) => {
+      if (status < 200 || status >= 400) counts.hex_failures++;
+      gov.noteResult("fg", status, nowMs, retryAfterSec);
+    },
   });
-  return { points, registry: { planes } };
+  return {
+    async run(registry, nowMs) {
+      const baseDue = lastBaseAt == null || nowMs - lastBaseAt >= TRACKED_POLL_MS - 100;
+      if (baseDue) {
+        lastBaseAt = nowMs;
+        counts.base_cycles++;
+        const out = await pollTrackedOnce(registry, deps.fetchImpl, deps.headers, nowMs, hooksAt(nowMs));
+        counts.requests += out.requests;
+        return { ...out, kind: "base" };
+      }
+      const none = { points: [], registry, heard: 0, requests: 0, hexNote: null };
+      const hexes = activeHexes(registry, nowMs);
+      if (!hexes.length) return { ...none, kind: "idle" };
+      while (fastSent.length && nowMs - fastSent[0] >= 60_000) fastSent.shift();
+      if (fastSent.length >= TRACKED_FAST_MAX_PER_MIN) { counts.skipped_cap++; return { ...none, kind: "skipped-cap" }; }
+      if (gov.backoffMs(nowMs) > 0) { counts.skipped_backoff++; return { ...none, kind: "skipped-backoff" }; }
+      fastSent.push(nowMs);
+      counts.fast_cycles++;
+      const out = await pollHexesOnce(registry, hexes, deps.fetchImpl, deps.headers, nowMs, hooksAt(nowMs));
+      counts.requests += out.requests;
+      return { ...out, kind: "fast" };
+    },
+    nextDelayMs(registry, nowMs) {
+      return activeHexes(registry, nowMs).length ? TRACKED_FAST_POLL_MS : TRACKED_POLL_MS;
+    },
+    stats() { return { ...counts }; },
+  };
+}
+
+/** Pure: land one cycle's readings on the CURRENT registry by tail number.
+ *  The registry can change while a cycle is in flight (a tail added or
+ *  removed through the API, the backfill's high-water mark) — only the
+ *  fields a poll owns are taken from the polled copy. */
+export function mergePolled(current: TrackedRegistry, polled: TrackedRegistry): TrackedRegistry {
+  const byReg = new Map(polled.planes.map((p) => [p.reg, p] as const));
+  return {
+    planes: current.planes.map((cur) => {
+      const p = byReg.get(cur.reg);
+      if (!p) return cur;
+      return { ...cur, hex: p.hex, last_seen: p.last_seen, last_pos: p.last_pos, heard: p.heard, last_heard: p.last_heard };
+    }),
+  };
 }
 
 /** Boot the poller. Deps injectable for tests; the interval is unref'd so
@@ -200,41 +521,63 @@ export function startTrackedPoller(deps: {
   sites: SitePoint[];
   baseDir?: string;
   onCycle?: (archived: number, live: number) => void;
+  /** adsb.lol governor the hex requests are accounted to (tests inject) */
+  governor?: UpstreamGovernor;
 }): {
   getRegistry: () => TrackedRegistry;
+  /** cadence counters (base/fast cycles, skips, requests) */
+  cycleStats: () => Record<string, number>;
   mutate: (fn: (r: TrackedRegistry) => TrackedRegistry | null) => boolean;
   stop: () => void;
 } {
   let registry = loadRegistry(deps.baseDir);
   saveRegistry(registry, deps.baseDir); // persist the seed on first boot
   let stopped = false;
+  const cycle = createTrackedCycle({ fetchImpl: deps.fetchImpl, headers: deps.headers, governor: deps.governor });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let dirty = false;
+  let lastSaveAt = 0;
   const tick = async () => {
-    if (stopped || !registry.planes.length) return;
+    if (stopped) return;
+    const started = Date.now();
     try {
-      const now = Date.now();
-      const out = await pollTrackedOnce(registry, deps.fetchImpl, deps.headers, now);
-      registry = out.registry;
-      // WATCHED-PLANE LOOKUP (2026-09-30): tracked fixes also feed the
-      // worldwide snapshot, so GET /api/data/aircraft/live/:hex (and the
-      // plan's missing-callsign fill) always hold a watched plane's newest
-      // fix even where no sweep disc or viewer covered it. Origin "tracked"
-      // is not in the global archiver's origins — these archive below.
-      if (out.points.length) {
-        publishFixes({ provider: "adsblol", origin: "tracked", aircraft: out.points, fetchedAt: now });
+      if (registry.planes.length) {
+        const out = await cycle.run(registry, started);
+        registry = mergePolled(registry, out.registry);
+        // WATCHED-PLANE LOOKUP (2026-09-30): tracked fixes also feed the
+        // worldwide snapshot, so GET /api/data/aircraft/live/:hex (and the
+        // plan's missing-callsign fill) always hold a watched plane's newest
+        // fix even where no sweep disc or viewer covered it. Origin "tracked"
+        // is not in the global archiver's origins — these archive below.
+        if (out.points.length) {
+          publishFixes({ provider: "adsblol", origin: "tracked", aircraft: out.points, fetchedAt: started });
+        }
+        const archived = out.points.length
+          ? archiveAircraft(out.points, deps.sites, deps.baseDir, started, TRACKED_ARCHIVE_INTERVAL_MS)
+          : 0;
+        if (out.points.length || out.heard) dirty = true;
+        // a base cycle writes as before (a plane is always FIRST heard by
+        // one); fast ticks coalesce their writes — the API serves the
+        // in-memory registry, so nothing a viewer sees waits on the file
+        if (dirty && (out.kind === "base" || started - lastSaveAt >= TRACKED_SAVE_MIN_MS)) {
+          saveRegistry(registry, deps.baseDir);
+          dirty = false;
+          lastSaveAt = started;
+        }
+        if (out.hexNote) console.error("[tracked-planes] hex lookup failed:", out.hexNote);
+        if (out.kind === "base" || out.kind === "fast") deps.onCycle?.(archived, out.points.length);
       }
-      const archived = out.points.length
-        ? archiveAircraft(out.points, deps.sites, deps.baseDir, now, TRACKED_ARCHIVE_INTERVAL_MS)
-        : 0;
-      if (out.points.length) saveRegistry(registry, deps.baseDir);
-      deps.onCycle?.(archived, out.points.length);
     } catch (e: any) {
-      // a failed cycle is just a missed sample — next tick retries; the
-      // viewport chain's backoff machinery is not needed at 2 req/min
+      // a failed cycle is just a missed sample — the next tick retries
       console.error("[tracked-planes] poll:", e?.message || e);
+    } finally {
+      if (!stopped) {
+        const wait = cycle.nextDelayMs(registry, Date.now()) - (Date.now() - started);
+        timer = setTimeout(() => { void tick(); }, Math.max(250, wait));
+        unrefTimer(timer);
+      }
     }
   };
-  const timer = setInterval(() => { void tick(); }, TRACKED_POLL_MS);
-  (timer as any).unref?.();
   void tick(); // first cycle immediately — "when their signal pops up"
   // day-trace backfill: global-network fidelity for every tracked plane
   const backfill = async () => {
@@ -259,11 +602,12 @@ export function startTrackedPoller(deps: {
     }
   };
   const backfillTimer = setInterval(() => { void backfill(); }, TRACE_BACKFILL_MS);
-  (backfillTimer as any).unref?.();
+  unrefTimer(backfillTimer);
   const firstBackfill = setTimeout(() => { void backfill(); }, 60_000); // after the poller learns hexes
-  (firstBackfill as any).unref?.();
+  unrefTimer(firstBackfill);
   return {
     getRegistry: () => registry,
+    cycleStats: () => cycle.stats(),
     mutate: (fn) => {
       const next = fn(registry);
       if (!next) return false;
@@ -271,6 +615,6 @@ export function startTrackedPoller(deps: {
       saveRegistry(registry, deps.baseDir);
       return true;
     },
-    stop: () => { stopped = true; clearInterval(timer); clearInterval(backfillTimer); clearTimeout(firstBackfill); },
+    stop: () => { stopped = true; if (timer) clearTimeout(timer); clearInterval(backfillTimer); clearTimeout(firstBackfill); },
   };
 }
