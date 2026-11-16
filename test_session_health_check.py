@@ -247,6 +247,35 @@ def test_daemon_memory_respects_custom_thresholds():
     assert f["severity"] == hc.ALARM
 
 
+# 2026-11-16: the guard reads current memory; the daemon's rss_mb is a peak.
+
+def test_daemon_memory_judged_on_current_not_peak():
+    """The live reading of 2026-11-16: peak 695.7 MB after 6.5 h, enrichment
+    fresh. A current reading under the trim line is OK whatever the peak."""
+    f = hc.check_daemon_memory({"alive": True, "rss_mb": 695.7, "rss_current_mb": 310.0})
+    assert f["severity"] == hc.OK
+    assert "310.0" in f["detail"] and "peak 695.7" in f["detail"]
+
+
+def test_daemon_memory_current_over_skip_still_alarms():
+    f = hc.check_daemon_memory({"alive": True, "rss_mb": 700, "rss_current_mb": 560})
+    assert f["severity"] == hc.ALARM
+    assert "recurrence" in f["detail"]
+
+
+def test_daemon_memory_current_in_trim_band_warns():
+    f = hc.check_daemon_memory({"alive": True, "rss_mb": 700, "rss_current_mb": 420})
+    assert f["severity"] == hc.WARN
+
+
+def test_daemon_memory_unreadable_current_falls_back_to_peak():
+    """rss_current_mb None (no /proc) or absent (older daemon): judged on
+    rss_mb exactly as before — a missing reading never reads as healthy."""
+    for d in ({"alive": True, "rss_mb": 560, "rss_current_mb": None},
+              {"alive": True, "rss_mb": 560}):
+        assert hc.check_daemon_memory(d)["severity"] == hc.ALARM
+
+
 # ── check_tier2_daemon_timeouts (KNOWN BROKEN #18) ───────────────────────
 
 def _t2_entry(msg):

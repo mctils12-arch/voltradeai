@@ -270,29 +270,41 @@ import { archiveBaseDir } from "./datacoreArchive";
 import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryResponse } from "./filingHistoryPage";
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
-import { AccessionLedger } from "./archiveLedger";
 
-// [2026-11-16] the seen-accession Set (rebuilt from two day files after a
-// restart, cleared at 50,000) is replaced by a ledger that asks the archive's
-// own day files, from each filing's filedAt forward — see archiveLedger.ts.
-const archivedAccessions = new AccessionLedger();
-trackSet("edgarForm4.archivedAccessions", archivedAccessions); // memory audit 2026-11-03 A0; gauge carries the ledger's stats()
+const archivedAccessions = new Set<string>();
+trackSet("edgarForm4.archivedAccessions", archivedAccessions, 50_000); // memory audit 2026-11-03 A0
 
 function filingsDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "filings");
 }
 
+/** Loads accession ids already archived today/yesterday so restarts don't
+ *  duplicate rows (append-only files are never rewritten). */
+function seedSeen(dir: string, nowMs: number): void {
+  for (const dayMs of [nowMs, nowMs - 86400_000]) {
+    const fp = path.join(dir, `${new Date(dayMs).toISOString().slice(0, 10)}.jsonl`);
+    try {
+      for (const line of fs.readFileSync(fp, "utf8").split("\n")) {
+        if (!line) continue;
+        try { archivedAccessions.add(JSON.parse(line).accession); } catch {}
+      }
+    } catch {}
+  }
+}
+
+let seeded = false;
 export function archiveFilings(filings: Form4Filing[], baseDir?: string, nowMs?: number): number {
   const dir = filingsDir(baseDir);
   const now = nowMs ?? Date.now();
-  const fresh = archivedAccessions.filterFresh(dir, filings, now);
+  if (!seeded) { seedSeen(dir, now); seeded = true; }
+  const fresh = filings.filter((f) => f.accession && !archivedAccessions.has(f.accession));
   if (!fresh.length) return 0;
   try {
     fs.mkdirSync(dir, { recursive: true });
     const fp = path.join(dir, `${new Date(now).toISOString().slice(0, 10)}.jsonl`);
-    const body = fresh.map((f) => JSON.stringify(f)).join("\n") + "\n";
-    fs.appendFileSync(fp, body);
-    archivedAccessions.recordAppended(dir, fresh, now, Buffer.byteLength(body));
+    fs.appendFileSync(fp, fresh.map((f) => JSON.stringify(f)).join("\n") + "\n");
+    fresh.forEach((f) => archivedAccessions.add(f.accession));
+    if (archivedAccessions.size > 50_000) archivedAccessions.clear(); // bound memory
     return fresh.length;
   } catch (e: any) {
     console.error("[datacore] filings archive:", e?.message || e);

@@ -43,7 +43,6 @@ import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
-import { AccessionLedger } from "./archiveLedger";
 
 // ── Minimal dependency-free Atom-feed tag extraction (mirrors edgarForm4.ts's
 // approach: SEC's feed schema is flat and predictable, a full XML parser is
@@ -372,27 +371,38 @@ export async function fetchLatestEarnings8Ks(
 // <archive>/earnings8k/, deduped by accession, gzipped after 2 days —
 // identical shape to edgarForm4.ts's filings archive. ───────────────────────
 
-// [2026-11-16] the seen-accession Set (rebuilt from two day files after a
-// restart, cleared at 50,000) is replaced by a ledger that asks the archive's
-// own day files, from each filing's filedAt forward — see archiveLedger.ts.
-const archivedAccessions = new AccessionLedger();
-trackSet("sec8kEarnings.archivedAccessions", archivedAccessions); // memory audit 2026-11-03 A0; gauge carries the ledger's stats()
+const archivedAccessions = new Set<string>();
+trackSet("sec8kEarnings.archivedAccessions", archivedAccessions, 50_000); // memory audit 2026-11-03 A0
+let seeded = false;
 
 function earnings8kDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "earnings8k");
 }
 
+function seedSeen(dir: string, nowMs: number): void {
+  for (const dayMs of [nowMs, nowMs - 86400_000]) {
+    const fp = path.join(dir, `${new Date(dayMs).toISOString().slice(0, 10)}.jsonl`);
+    try {
+      for (const line of fs.readFileSync(fp, "utf8").split("\n")) {
+        if (!line) continue;
+        try { archivedAccessions.add(JSON.parse(line).accession); } catch {}
+      }
+    } catch {}
+  }
+}
+
 export function archiveEarnings8Ks(filings: Earnings8K[], baseDir?: string, nowMs?: number): number {
   const dir = earnings8kDir(baseDir);
   const now = nowMs ?? Date.now();
-  const fresh = archivedAccessions.filterFresh(dir, filings, now);
+  if (!seeded) { seedSeen(dir, now); seeded = true; }
+  const fresh = filings.filter((f) => f.accession && !archivedAccessions.has(f.accession));
   if (!fresh.length) return 0;
   try {
     fs.mkdirSync(dir, { recursive: true });
     const fp = path.join(dir, `${new Date(now).toISOString().slice(0, 10)}.jsonl`);
-    const body = fresh.map((f) => JSON.stringify(f)).join("\n") + "\n";
-    fs.appendFileSync(fp, body);
-    archivedAccessions.recordAppended(dir, fresh, now, Buffer.byteLength(body));
+    fs.appendFileSync(fp, fresh.map((f) => JSON.stringify(f)).join("\n") + "\n");
+    fresh.forEach((f) => archivedAccessions.add(f.accession));
+    if (archivedAccessions.size > 50_000) archivedAccessions.clear(); // bound memory
     return fresh.length;
   } catch (e: any) {
     console.error("[datacore] earnings8k archive:", e?.message || e);
