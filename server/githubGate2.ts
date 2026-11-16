@@ -32,9 +32,13 @@
  * bundle: the archive is read directly (githubOrgActivity.lookupGithubOrgHistory,
  * the same reader behind the public /history route the script fetched), and
  * forward returns come from Alpaca daily bars (adjustment=all like the price
- * panel; the feed from resolveAlpacaFeed — delayed_sip by default, the
- * subscription-permitted form, ALPACA_DATA_FEED overrides) instead of the
- * script's Yahoo adjusted closes. That is the ONE measurement-input difference between a
+ * panel; the feed from resolveHistoricalBarsFeed — sip, the consolidated tape
+ * the price panel reads, for a window ending the ET day before today;
+ * ALPACA_DATA_FEED overrides; if Alpaca refuses that feed with 400/403 the
+ * request is repeated once on iex and the result says so. NOT delayed_sip:
+ * the bars endpoint rejects it with HTTP 400, which is how the first
+ * registered run, 2026-11-16 00:26Z, ended in 83 ms with no verdict) instead
+ * of the script's Yahoo adjusted closes. That is the ONE measurement-input difference between a
  * hand run and the job; the rule, the bar and the evaluation are the same
  * code. FIRST SUFFICIENT RUN IS THE REGISTERED VERDICT: latest.json carries
  * `first_sufficient_run` forward unchanged (earningsQoq.ts's convention) —
@@ -55,7 +59,8 @@ import path from "path";
 import { beat, zonedParts } from "./jobHeartbeat";
 import { WATCHLIST, lookupGithubOrgHistory, type GithubActivityRecord } from "./githubOrgActivity";
 import { isoWeekKey, type RunOutcome } from "./walkforward";
-import { resolveAlpacaFeed } from "./alpacaFeed";
+import { BARS_FALLBACK_FEED, resolveHistoricalBarsFeed } from "./alpacaFeed";
+import { vendorMsgClass } from "./barsCoverage";
 import { clusterMeanTTest, survivesAtCrit005, type ClusterTTestResult } from "../scripts/statsUtils";
 import { version as pkgVersion } from "../package.json";
 
@@ -273,8 +278,8 @@ export type JsonGetter = (url: string) => Promise<unknown>;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 /** Daily adjusted closes for `symbols` from Alpaca's multi-symbol bars endpoint
- *  (adjustment=all like the price panel; `feed` from resolveAlpacaFeed — never
- *  hardcoded, alpacaFeed.test.ts's ratchet), all pages, into ascending
+ *  (adjustment=all like the price panel; `feed` from resolveHistoricalBarsFeed —
+ *  never resolveAlpacaFeed's delayed_sip, alpacaFeed.test.ts's ratchet), all pages, into ascending
  *  CloseSeries per symbol. A symbol Alpaca returns nothing for is omitted (the
  *  evaluation then scores it as unpriced), never zero-filled. */
 export async function fetchAlpacaCloses(get: JsonGetter, dataBase: string, symbols: readonly string[], start: string, end: string, feed: string, maxPages = 20): Promise<Map<string, CloseSeries>> {
@@ -309,12 +314,24 @@ export async function fetchAlpacaCloses(get: JsonGetter, dataBase: string, symbo
   return out;
 }
 
+/** A refused bars request: the HTTP status and the whitelisted vendor-message
+ *  class (never the vendor's text), so the heartbeat names the cause. */
+export class AlpacaRefused extends Error {
+  constructor(public readonly http: number, public readonly cls: string | null) {
+    super(`alpaca HTTP ${http}${cls ? ` (${cls})` : ""}`);
+  }
+}
+
 /** Alpaca GET with the server's data-API credentials; one attempt, 20 s cap. */
 export function alpacaJsonGetter(env: Record<string, string | undefined>, fetchImpl: typeof fetch = fetch): JsonGetter {
   const headers = { "APCA-API-KEY-ID": env.ALPACA_KEY || "", "APCA-API-SECRET-KEY": env.ALPACA_SECRET || "" };
   return async (url: string) => {
     const r = await fetchImpl(url, { headers, signal: AbortSignal.timeout(20_000) });
-    if (!r.ok) throw new Error(`alpaca HTTP ${r.status}`);
+    if (!r.ok) {
+      let body: unknown = null;
+      try { body = await r.json(); } catch { body = null; /* a non-JSON error body carries no message class */ }
+      throw new AlpacaRefused(r.status, vendorMsgClass(body));
+    }
     return r.json();
   };
 }
@@ -456,14 +473,28 @@ export async function runGithubGate2(deps: GithubGate2Deps): Promise<RunOutcome>
     }
     const get = deps.get ?? alpacaJsonGetter(deps.env);
     const dataBase = deps.dataBase || "https://data.alpaca.markets";
-    const feed = resolveAlpacaFeed(deps.env.ALPACA_DATA_FEED);
-    const priceSeries = await fetchAlpacaCloses(get, dataBase, Array.from(seriesByTicker.keys()), window.start, window.end, feed);
+    let feed = resolveHistoricalBarsFeed(deps.env.ALPACA_DATA_FEED);
+    const symbols = Array.from(seriesByTicker.keys());
+    let feedFallback: { from: string; refused: string } | null = null;
+    let priceSeries: Map<string, CloseSeries>;
+    try {
+      priceSeries = await fetchAlpacaCloses(get, dataBase, symbols, window.start, window.end, feed);
+    } catch (e) {
+      // The feed itself was refused (400 invalid feed / 403 not permitted): one
+      // repeat on the always-accepted bars feed, recorded in the result. Any
+      // other failure, or a refusal of the fallback feed, is the run's error.
+      const refused = e instanceof AlpacaRefused && (e.http === 400 || e.http === 403);
+      if (!refused || feed === BARS_FALLBACK_FEED) throw e;
+      feedFallback = { from: feed, refused: (e as AlpacaRefused).message };
+      feed = BARS_FALLBACK_FEED;
+      priceSeries = await fetchAlpacaCloses(get, dataBase, symbols, window.start, window.end, feed);
+    }
     const ev = evaluateGithubGate2(seriesByTicker, priceSeries);
     const prev = readJson(path.join(deps.root, "latest.json"));
     const first = carryFirstSufficientRun(prev, ev, generatedAt, codeVersion);
     const latest = {
       schema: GITHUB_GATE2_SCHEMA, generated_at: generatedAt, code_version: codeVersion,
-      source: { archive: "github_activity (datacoreArchive)", prices: `alpaca /v2/stocks/bars adjustment=all feed=${feed}`, bars_window: window },
+      source: { archive: "github_activity (datacoreArchive)", prices: `alpaca /v2/stocks/bars adjustment=all feed=${feed}`, bars_window: window, feed_fallback: feedFallback },
       root: "github_org_engineering_momentum", registered_not_before: GITHUB_GATE2_REGISTERED_NOT_BEFORE,
       verdict: ev.verdict, ready: ev.ready, n_clusters: ev.n_clusters, min_clusters: ev.min_clusters, panel: ev.panel,
       pooled5: { top: ev.pooledTop5, mid: ev.pooledMid5, bottom: ev.pooledBottom5, orderingHolds: ev.orderingHolds },

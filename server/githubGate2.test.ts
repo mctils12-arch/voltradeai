@@ -18,7 +18,7 @@ import { inLazyPricesWindow } from "./lazyPrices";
 import { WINDOW_START_MIN as PANEL_WINDOW_START_MIN } from "./pricePanel";
 import { WATCHLIST, archiveGithubActivity, _resetGithubActivityForTests, type GithubActivityRecord } from "./githubOrgActivity";
 import { JOB_REGISTRY } from "./jobHeartbeat";
-import { resolveAlpacaFeed } from "./alpacaFeed";
+import { resolveHistoricalBarsFeed } from "./alpacaFeed";
 import { sanitizeDiag, DIAG_PROBES } from "./diag";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -207,12 +207,15 @@ test("fetchAlpacaCloses: multi-symbol adjustment=all request on the resolved fee
     }
     return { bars: { MDB: [{ t: "2026-11-05T05:00:00Z", c: 252 }], DDOG: [{ t: "2026-11-03T05:00:00Z", c: 120 }] }, next_page_token: null };
   };
-  const out = await fetchAlpacaCloses(get, "https://data.example", ["MDB", "NET", "DDOG"], "2026-07-13", "2026-11-14", resolveAlpacaFeed(undefined));
+  const out = await fetchAlpacaCloses(get, "https://data.example", ["MDB", "NET", "DDOG"], "2026-07-13", "2026-11-14", resolveHistoricalBarsFeed(undefined));
   assert.equal(urls.length, 2);
   const u = new URL(urls[0]);
   assert.equal(u.pathname, "/v2/stocks/bars");
   assert.equal(u.searchParams.get("symbols"), "MDB,NET,DDOG");
-  assert.equal(u.searchParams.get("feed"), "delayed_sip", "the subscription-permitted default, never a hardcoded sip");
+  // CORRECTED 2026-11-16: this asserted "delayed_sip", the value Alpaca's bars
+  // endpoint refuses with HTTP 400 — the test pinned the bug the first live run hit.
+  assert.equal(u.searchParams.get("feed"), "sip", "historical bars: the consolidated tape the price panel reads");
+  assert.notEqual(u.searchParams.get("feed"), "delayed_sip", "the bars endpoint rejects delayed_sip (HTTP 400 invalid feed)");
   assert.equal(u.searchParams.get("adjustment"), "all");
   assert.equal(u.searchParams.get("timeframe"), "1Day");
   assert.equal(u.searchParams.get("start"), "2026-07-13");
@@ -280,7 +283,7 @@ test("run: reads the real archive format, writes latest.json + last_run.json wit
     assert.match(r1.detail, /verdict PASS/);
     assert.equal(urls.length, 1);
     assert.ok(urls[0].startsWith("https://data.example/v2/stocks/bars?"));
-    assert.equal(new URL(urls[0]).searchParams.get("feed"), "delayed_sip", "no ALPACA_DATA_FEED => the resolver's default");
+    assert.equal(new URL(urls[0]).searchParams.get("feed"), "sip", "no ALPACA_DATA_FEED => the historical-bars resolver's default (CORRECTED 2026-11-16 from delayed_sip, which bars refuse)");
     assert.equal(new URL(urls[0]).searchParams.get("adjustment"), "all");
     const latest = JSON.parse(fs.readFileSync(path.join(root, "latest.json"), "utf8"));
     assert.equal(latest.verdict, "PASS");
@@ -358,4 +361,106 @@ test("wiring: whitelisted probe, read-only case in bot.ts, booted from routes.ts
   assert.ok(!/^export function (computeWeeklyDeltas|bucketWeek|toWeeklyTotal)\b/m.test(script), "no second copy of the pre-registered rule");
   assert.equal(MIN_PANEL_FOR_WEEK, 12);
   assert.equal(MIN_CLUSTERS, 15);
+});
+
+// ── REGRESSION 2026-11-16: the first registered run ended "alpaca HTTP 400" in 83 ms ──
+import { AlpacaRefused, alpacaJsonGetter } from "./githubGate2";
+
+/** The 17-week synthetic archive written in the archiver's own on-disk format. */
+function synthArchive(archDir: string) {
+  _resetGithubActivityForTests();
+  const synth = syntheticArchive(MIN_CLUSTERS + 2);
+  const recs: GithubActivityRecord[] = [];
+  for (const [ticker, weeks] of synth) {
+    for (const w of weeks) {
+      recs.push({ t: "org_week", key: `${w.weekStart}|${ticker}`, ticker, org: ticker.toLowerCase(), weekStart: w.weekStart, weekEnd: w.weekEnd, mergedPRs: Math.floor(w.total! / 2), commits: w.total! - Math.floor(w.total! / 2), uniqueActorsSample: null, actorSampleCapped: false, rt: w.weekEnd });
+    }
+  }
+  archiveGithubActivity(recs, archDir, Date.parse("2026-11-10T00:00:00Z"));
+  return synth;
+}
+
+test("REGRESSION 2026-11-16: a getter that behaves like Alpaca's bars endpoint (400 on delayed_sip) still yields a verdict", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ghg2-reg-"));
+  const archDir = fs.mkdtempSync(path.join(os.tmpdir(), "ghg2-reg-arch-"));
+  try {
+    const synth = synthArchive(archDir);
+    const prices = plantedPrices(synth, 0.05);
+    const feeds: string[] = [];
+    const alpacaLike = async (url: string) => {
+      const feed = new URL(url).searchParams.get("feed") ?? "";
+      feeds.push(feed);
+      if (feed === "delayed_sip") throw new AlpacaRefused(400, "invalid_feed"); // production, 2026-11-16 00:26Z
+      const bars: Record<string, Array<{ t: string; c: number }>> = {};
+      for (const [t, s] of prices) bars[t] = s.dates.map((d, i) => ({ t: `${d}T05:00:00Z`, c: s.closes[i] }));
+      return { bars, next_page_token: null };
+    };
+    const env = { ALPACA_KEY: "k", ALPACA_SECRET: "s" };
+    const r = await runGithubGate2({ env, root, archiveBaseDir: archDir, get: alpacaLike, now: () => SUN_IN, codeVersion: "1.0.9" });
+    assert.equal(r.status, "ok", r.detail);
+    assert.deepEqual(feeds, ["sip"]);
+    // an operator who sets ALPACA_DATA_FEED=delayed_sip (right for snapshots) must not break bars
+    feeds.length = 0;
+    const r2 = await runGithubGate2({ env: { ...env, ALPACA_DATA_FEED: "delayed_sip" }, root, archiveBaseDir: archDir, get: alpacaLike, now: () => SUN_IN + 7 * DAY, codeVersion: "1.0.10" });
+    assert.equal(r2.status, "ok", r2.detail);
+    assert.deepEqual(feeds, ["sip"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(archDir, { recursive: true, force: true });
+  }
+});
+
+test("a refused feed (400/403) is repeated once on iex and the result says so; a refused iex, or any other failure, is the run's error", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ghg2-fb-"));
+  const archDir = fs.mkdtempSync(path.join(os.tmpdir(), "ghg2-fb-arch-"));
+  try {
+    const synth = synthArchive(archDir);
+    const prices = plantedPrices(synth, 0.05);
+    const ok = () => {
+      const bars: Record<string, Array<{ t: string; c: number }>> = {};
+      for (const [t, s] of prices) bars[t] = s.dates.map((d, i) => ({ t: `${d}T05:00:00Z`, c: s.closes[i] }));
+      return { bars, next_page_token: null };
+    };
+    const env = { ALPACA_KEY: "k", ALPACA_SECRET: "s" };
+    const feeds: string[] = [];
+    const sipRefused = async (url: string) => {
+      const feed = new URL(url).searchParams.get("feed") ?? "";
+      feeds.push(feed);
+      if (feed === "sip") throw new AlpacaRefused(403, "recent_sip_not_permitted");
+      return ok();
+    };
+    const r = await runGithubGate2({ env, root, archiveBaseDir: archDir, get: sipRefused, now: () => SUN_IN, codeVersion: "1.0.9" });
+    assert.equal(r.status, "ok", r.detail);
+    assert.deepEqual(feeds, ["sip", "iex"]);
+    const latest = JSON.parse(fs.readFileSync(path.join(root, "latest.json"), "utf8"));
+    assert.match(latest.source.prices, /feed=iex$/);
+    assert.deepEqual(latest.source.feed_fallback, { from: "sip", refused: "alpaca HTTP 403 (recent_sip_not_permitted)" });
+
+    // everything refused: one repeat, then an error that names status and class — no third try
+    feeds.length = 0;
+    const allRefused = async (url: string) => { feeds.push(new URL(url).searchParams.get("feed") ?? ""); throw new AlpacaRefused(403, "forbidden"); };
+    const r2 = await runGithubGate2({ env, root: path.join(root, "b"), archiveBaseDir: archDir, get: allRefused, now: () => SUN_IN, codeVersion: "1.0.9" });
+    assert.equal(r2.status, "error");
+    assert.equal(r2.detail, "alpaca HTTP 403 (forbidden)");
+    assert.deepEqual(feeds, ["sip", "iex"]);
+
+    // a 500 or a network error is not a feed refusal: no repeat on another feed
+    feeds.length = 0;
+    const down = async (url: string) => { feeds.push(new URL(url).searchParams.get("feed") ?? ""); throw new AlpacaRefused(500, null); };
+    const r3 = await runGithubGate2({ env, root: path.join(root, "c"), archiveBaseDir: archDir, get: down, now: () => SUN_IN, codeVersion: "1.0.9" });
+    assert.equal(r3.status, "error");
+    assert.equal(r3.detail, "alpaca HTTP 500");
+    assert.deepEqual(feeds, ["sip"]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(archDir, { recursive: true, force: true });
+  }
+});
+
+test("alpacaJsonGetter: a refusal carries the status and the vendor-message CLASS, never the vendor's text", async () => {
+  const fake = (async () => new Response(JSON.stringify({ message: "invalid feed: delayed_sip" }), { status: 400 })) as unknown as typeof fetch;
+  await assert.rejects(alpacaJsonGetter({ ALPACA_KEY: "k", ALPACA_SECRET: "s" }, fake)("https://data.example/v2/stocks/bars?feed=delayed_sip"),
+    (e: unknown) => e instanceof AlpacaRefused && e.http === 400 && e.message === "alpaca HTTP 400 (invalid_feed)");
+  const html = (async () => new Response("<html>bad gateway</html>", { status: 502 })) as unknown as typeof fetch;
+  await assert.rejects(alpacaJsonGetter({}, html)("https://data.example/x"), (e: unknown) => e instanceof AlpacaRefused && e.message === "alpaca HTTP 502");
 });
