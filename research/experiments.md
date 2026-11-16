@@ -118083,3 +118083,24 @@ DOWNSTREAM: nothing changes while Node's kill is off. When the latch trips mid-p
 ROLLBACK TRIGGER: revert if an entry is skipped while Node's kill is off and entries are allowed (a ROTATE-BUY-HALTED line, or a morning queue or tier batch that ends early, with killSwitch false). No exit is touched.
 TESTS: new server/entryLatchRecheck.test.ts, 7 tests, all 7 fail on main. For each of the four opening posts there is no await between its last latch check and the post. The tests also pin each re-check's handling, the rotation's halted buy and its log quantity, and the scale-in check sitting outside the order's try. Server tests reading these functions: 148/148. Python tests reading bot.ts: 694 passed, 1 skipped. tsc: 6 errors, the same as main. Counter ratchet OK.
 STARVED: no.
+
+## 2026-11-12 [REPAIR] — T-BOT/shared (live_price.py; server/alpacaFeed.ts; server/routes.ts /api/market/snapshots; new tests) — Display prices are real-time: the IEX tape's newer regular-hours trade replaces the 15-minute-delayed one (follow-up to the stale-ticker fix, #1714/#1715)
+VERSION: v1.0.1419 (shipped 2026-11-16 by the parent session; main was v1.0.1418)
+WHY: the post-open check of #1714/#1715 (2026-11-12 10:08 ET) confirmed that Analyze, the Ticker Dossier and the ETF Builder now show today's session price instead of the previous close (SPY $758.36 vs the $759.81 close; QQQ $686.71 vs $690.40). Every price was still 15 minutes old: SPY's latest trade read 09:53 ET at 10:08 ET, and the watchlist's read 09:54 at 10:09. This account's plan rejects recent SIP data, so both the Python feed (alpaca_feed.data_feed) and Node's (resolveAlpacaFeed) use "delayed_sip". The plan does carry the IEX tape in real time. The human's report was "tickers ... not what they actually are"; a 15-minute delay is still not that.
+CHANGE: display paths only.
+- live_price.fetch_snapshots under delayed_sip also reads the IEX tape. freshest() takes the IEX trade only when it is a regular-hours print (09:30-16:00 ET, weekday) and newer than the consolidated one.
+- The consolidated snapshot stays the base. In the same session, only the price, time and tape change; the bar's close is the IEX price, its range is widened to include it, and its volume stays the whole tape's.
+- In the open's first ~15 minutes the delayed tape still has only yesterday's bar, so the IEX snapshot (today's session) is used, tagged "iex".
+- Every result names its tape (feed), and its source reads "latest_trade, iex real-time" or "latest_trade, 15-min delayed", which Analyze's price_source carries.
+- The /api/market/snapshots watchlist route does the same in Node: mergeRealtimeTrades, with priceFeed per symbol. The watchlist reads dailyBar.c, so no client change is needed.
+- An IEX failure changes nothing. The scanner and sector routes keep delayed_sip alone, because their volume ranking needs the full tape.
+DOWNSTREAM:
+1. Liquid names show prices seconds old instead of 15 minutes old. The analyze label ("live · h:mm ET") now names a time within the last minute.
+2. A thinly traded name whose last IEX print is older keeps the delayed consolidated price, and its time says so.
+3. Pre-market and after-hours IEX prints never replace a session price.
+4. Each display request makes one extra snapshot call: a watchlist refresh every 60 s per open page, and one per Analyze, Dossier or ETF request.
+5. No trading, scanning or measurement path reads these prices.
+6. The paid alternative, a SIP subscription for real-time consolidated data, is the human's spend decision and is not needed for this.
+ROLLBACK TRIGGER: revert if a displayed price disagrees with the consolidated tape by more than the spread for a liquid name during regular hours, if a pre- or post-market print ever shows as the session price, or if the watchlist route errors on an IEX failure.
+TESTS: new test_live_price_realtime.py, 8 tests: the time and hours helpers; every freshest() branch (newer same-session trade with volume kept; older, pre-market, after-hours or no-trade IEX → delayed; the open's newer session; IEX alone); fetch reads both tapes only under delayed_sip; either tape failing never fails the fetch; latest() hands the callers the fresher price. New server/alpacaRealtime.test.ts, 5 tests, including the same branches in Node and the watchlist route wiring (merge on the display route only, IEX failure tolerated). Related suites: 95 Python (analyze, dossier, ETF, live_price) and 22 server tests pass. tsc: 6 errors, the same as main. Counter ratchet OK.
+STARVED: no.
