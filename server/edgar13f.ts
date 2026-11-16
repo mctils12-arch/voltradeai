@@ -34,6 +34,7 @@ import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryRe
 import { parseFilingFeed } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
+import { createFilingSeen } from "./filingSeen";
 
 export const FOCUSED_MAX_HOLDINGS = 250;
 
@@ -229,38 +230,28 @@ export async function fetchLatest13FFilings(
 // ── Archive (COLLECT-EVERYTHING: append-only JSONL day-files, dedup by
 // accession, old days gzipped — identical lifecycle to <archive>/filings/) ──
 
-const archivedAccessions = new Set<string>();
-trackSet("edgar13f.archivedAccessions", archivedAccessions, 50_000); // memory audit 2026-11-03 A0
-let seeded = false;
+// [REPAIR 2026-11-16] "already archived?" is answered from the day files
+// themselves (filingSeen.ts), from the filing's own filed date forward —
+// not from a set rebuilt out of today's and yesterday's files, which
+// re-appended older rows still on EDGAR's feed page after every restart.
+const archiveSeen = createFilingSeen();
+trackSet("edgar13f.archivedAccessions", archiveSeen); // memory audit 2026-11-03 A0
+export const _filings13fSeenForTests = archiveSeen;
 
 function filings13fDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "filings13f");
 }
 
-function seedSeen(dir: string, nowMs: number): void {
-  for (const dayMs of [nowMs, nowMs - 86400_000]) {
-    const fp = path.join(dir, `${new Date(dayMs).toISOString().slice(0, 10)}.jsonl`);
-    try {
-      for (const line of fs.readFileSync(fp, "utf8").split("\n")) {
-        if (!line) continue;
-        try { archivedAccessions.add(JSON.parse(line).accession); } catch {}
-      }
-    } catch {}
-  }
-}
-
 export function archive13FFilings(filings: Filing13F[], baseDir?: string, nowMs?: number): number {
   const dir = filings13fDir(baseDir);
   const now = nowMs ?? Date.now();
-  if (!seeded) { seedSeen(dir, now); seeded = true; }
-  const fresh = filings.filter((f) => f.accession && !archivedAccessions.has(f.accession));
+  const fresh = archiveSeen.selectFresh(dir, filings, now);
   if (!fresh.length) return 0;
   try {
     fs.mkdirSync(dir, { recursive: true });
     const fp = path.join(dir, `${new Date(now).toISOString().slice(0, 10)}.jsonl`);
     fs.appendFileSync(fp, fresh.map((f) => JSON.stringify(f)).join("\n") + "\n");
-    fresh.forEach((f) => archivedAccessions.add(f.accession));
-    if (archivedAccessions.size > 50_000) archivedAccessions.clear(); // bound memory
+    archiveSeen.noteAppended(dir, fresh.map((f) => f.accession), now);
     return fresh.length;
   } catch (e: any) {
     console.error("[datacore] filings13f archive:", e?.message || e);
