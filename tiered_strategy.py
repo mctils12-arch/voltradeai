@@ -201,7 +201,7 @@ def _apply_floor_exemption(caps: dict, positions: List[Dict], equity: float, env
         }
         return out
     except Exception as e:
-        logger.debug(f"floor exemption unavailable: {e}")
+        logger.warning(f"floor exemption unavailable, the regime cap applies to the whole book: {e}")
         return caps
 
 
