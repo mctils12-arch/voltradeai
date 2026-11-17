@@ -35,7 +35,7 @@ import { readVesselTracks, foldVesselArchiveAsync } from "./shadowFleet";
 import { archiveBaseDir } from "./datacoreArchive";
 import {
   readFoldMode, runIncrementalFold, PartialCacheRegistry, FoldStatsTracker, StringInterner,
-  histAdd, histMergeInto, histMedian, type CachedPartial, type FoldStats, type SpeedHist, type VesselPt,
+  histAdd, histMergeInto, histMedian, type CachedPartial, type FoldMode, type FoldStats, type SpeedHist, type VesselPt,
 } from "./vesselArchiveFold";
 
 export interface PortDef { id: string; name: string; lat: number; lon: number; radius_km: number }
@@ -381,16 +381,44 @@ class PortFoldState {
  *  behavior. */
 // ── [A2 2026-11-03] incremental fold wiring ─────────────────────────────────
 //
-// VOLTRADE_PORTDWELL_FOLD = full | shadow (default) | incremental — see
-// vesselArchiveFold.ts's header for the contract. Rollback = set `full`.
-// Switch to `incremental` only after 24h of zero `FOLD-MISMATCH portdwell`
-// lines (portDwellFoldStats().mismatches stays 0 on /api/health). Governs
+// VOLTRADE_PORTDWELL_FOLD = full | shadow | incremental (the unset default
+// since 2026-11-17, PORTDWELL_FOLD_DEFAULT below) — see
+// vesselArchiveFold.ts's header for the contract. Rollback = set `shadow`
+// (compare again, serve the full fold) or `full` (the original path only).
+// The switch to `incremental` waited for 24h of zero `FOLD-MISMATCH
+// portdwell` lines (portDwellFoldStats().mismatches on /api/health). Governs
 // every caller of foldPortVisitsAsync (computePortDwellAsync, the timed diag
 // variant, entityGraph's calls_at builder) — they share one partial cache
 // per (archive dir, ports) so the second caller's closed hours are free.
 export const PORTDWELL_FOLD_ENV = "VOLTRADE_PORTDWELL_FOLD";
+
+/** PROMOTED 2026-11-17: `incremental` when VOLTRADE_PORTDWELL_FOLD is unset.
+ *  Evidence, read live 2026-11-17 21:05Z (/api/health
+ *  checks.memory.detail.caches `fold.portdwell`, and /api/diag/audit type
+ *  FOLD-MISMATCH over its whole retained history): in shadow since #1600
+ *  (2026-11-04). 17 `FOLD-MISMATCH portdwell` rows exist, ALL on 2026-11-04
+ *  between 14:33Z and 16:11Z: overlapping cycles replaced the partial
+ *  cache's string table mid-pass, fixed that day (#1614, PartialCache
+ *  begin/endCycle; regression test foldCacheConcurrency.test.ts). NONE in
+ *  the 13 days since; 71 matches / 0 mismatches in the current container;
+ *  lastFullMs 120,150 vs lastIncrementalMs 4,438 per ~10-minute cycle.
+ *  Shadow mode re-read and re-parsed the 168h vessel archive every cycle
+ *  only to compare (about 120 s of CPU in every 600 s, and the allocation
+ *  churn that goes with it).
+ *  What is given up: in `incremental` nothing is compared, so `matches` and
+ *  `mismatches` stay 0 and a wrong partial would reach the served dwell
+ *  stats and the entity graph's calls_at edges unseen. Rollback:
+ *  VOLTRADE_PORTDWELL_FOLD=shadow (compare again, serve the full fold) or
+ *  =full. An unrecognised value is still `shadow`. */
+export const PORTDWELL_FOLD_DEFAULT: FoldMode = "incremental";
+
+/** The mode the next port-dwell fold cycle runs in. */
+export function portDwellFoldMode(env: NodeJS.ProcessEnv = process.env): FoldMode {
+  return readFoldMode(PORTDWELL_FOLD_ENV, env, PORTDWELL_FOLD_DEFAULT);
+}
+
 const portFoldRegistry = new PartialCacheRegistry<PortDwellPartial>();
-const portFoldStats = new FoldStatsTracker();
+const portFoldStats = new FoldStatsTracker(() => portDwellFoldMode());
 
 /** Cheap snapshot for the /api/health diagnostic. */
 export function portDwellFoldStats(): FoldStats { return portFoldStats.snapshot(); }
@@ -410,7 +438,7 @@ export async function foldPortVisitsAsync(ports: PortDef[], windowHours = 168,
     Promise<{ visitsByPort: Map<string, PortVisit[]>; vesselsSeen: number; pointsScanned: number }> {
   const now = nowMs ?? Date.now();
   const nowSec = Math.floor(now / 1000);
-  const mode = readFoldMode(PORTDWELL_FOLD_ENV);
+  const mode = portDwellFoldMode();
   if (mode === "full") {
     const t0 = performance.now();
     const state = new PortFoldState(ports, nowSec);
