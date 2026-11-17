@@ -139,18 +139,11 @@ class TestMasterSwitch(Base):
 class TestRiskBudgetStillScalesTheRoom(Base):
     def test_budget_applies_to_the_exempt_room(self):
         # the live state of 2026-11-17: budget 0.62
-        state = {"risk_budget": 0.62, "risk_budget_detail": {"budget": 0.62, "band": "reduced"}}
-        try:
-            from test_regime_budget import budget_state
-            state = budget_state(0.62)
-        except Exception:
-            pass
-        re_._STATE_CACHE.update(at=time.time(), state=state)
+        from test_regime_budget import budget_state
+        re_._STATE_CACHE.update(at=time.time(), state=budget_state(0.62))
         with patch.dict(os.environ, {"VOLTRADE_REGIME_ENGINE": "1", "VOLTRADE_REGIME_BUDGET": "1"}):
             caps = self.caps("BEAR", book(59_880), equity=88_795)
-        rb = caps["RISK_BUDGET_CAP"]
-        if not rb.get("applied"):
-            self.skipTest("the regime state fixture is not accepted as fresh here")
+        self.assertTrue(caps["RISK_BUDGET_CAP"]["applied"])
         floor = 59_880 / 88_795
         exempt = 0.50 + floor * (1 - 0.50 / CEIL)
         self.assertAlmostEqual(caps["MAX_TOTAL_EXPOSURE_LEGACY"], exempt, places=3)
