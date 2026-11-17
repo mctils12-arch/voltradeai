@@ -25,6 +25,15 @@
 // Viewport and scope fixes are archived by their own paths (never twice).
 // GLOBAL_SWEEP_ARCHIVE=0 keeps the snapshot live but stops these writes.
 //
+// SELECTED-AIRCRAFT LANE (2026-11-16, owner: "archive every received
+// position"): fixes with origin "fastlane" (the one aircraft a viewer has
+// selected, asked of the provider about every 2.5 s) were served live and
+// then dropped. They are now archived too, by archiveFastlaneBatch below:
+// at the fix's OWN time (never our receive time), each distinct fix once,
+// under the shared 1 GiB floor (not the sweep's 2 GiB gate) and bounded per
+// hour. AIRCRAFT_FASTLANE_ARCHIVE=0 stops these writes. Counters are in the
+// coverage block under archive.fastlane.
+//
 // RESPONSE CONTRACT (FLIGHT_PROGRAM_BRIEF): { at, count, fields, rows,
 // coverage, honesty } — rows are positional arrays in `fields` order.
 // Optional query: lamin/lamax/lomin/lomax (all four) filters rows to a
@@ -39,18 +48,18 @@
 
 import type { Express } from "express";
 import datacoreSites from "../datacore/sites/strategic_sites.json";
-import { archiveAircraft, archiveBaseDir, intentArchiveStats, type SitePoint } from "./datacoreArchive";
-import { volumeAllowsWrite, readFreeBytes } from "./globalScopes";
+import { archiveAircraft, archiveAircraftAt, archiveBaseDir, intentArchiveStats, type SitePoint } from "./datacoreArchive";
+import { volumeAllowsWrite, readFreeBytes, MIN_FREE_BYTES } from "./globalScopes";
 import { createGapFiller, gapFiller, gapFillEnabled } from "./coverageGapFill";
 import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
 import { createFastLane, ICAO_HEX_LC_RE } from "./aircraftFastLane";
-import { GlobalSnapshot, ROW_FIELDS, SNAPSHOT_CAP, encodeRow, type BBox, type SnapRow } from "./globalSnapshot";
+import { GlobalSnapshot, ROW_FIELDS, SNAPSHOT_CAP, encodeRow, toSnapRow, type BBox, type SnapRow } from "./globalSnapshot";
 import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
 import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
 import { setPlanLiveLookup } from "./flightPlans";
-import { IntentStore } from "./aircraftIntent";
+import { IntentStore, type IntentView } from "./aircraftIntent";
 import { foldIntentDays, intentDailyInventory } from "./aircraftIntentDaily";
 import { registerHeapGauge, trackMap } from "./heapDiag";
 import { idleTtlMap } from "./idleTtl"; // memory audit 2026-11-03 A3
@@ -62,6 +71,49 @@ export const SWEEP_ARCHIVE_MIN_FREE_BYTES = 2 * 1_073_741_824;
 export function sweepArchiveAllowed(freeBytes: number | null): boolean {
   return freeBytes != null && volumeAllowsWrite(freeBytes, SWEEP_ARCHIVE_MIN_FREE_BYTES);
 }
+/** Selected-aircraft lane archive: a fix is written only when it is at least
+ *  this much newer than the last one written for that aircraft. The lane
+ *  re-serves the same upstream fix on consecutive polls, and its computed
+ *  time (provider clock minus position age, 0.1 s steps) can wobble by a
+ *  fraction of a second, so "newer" needs a margin — the snapshot's own tie
+ *  window (globalSnapshot TIE_MS) is the same 1 s. */
+export const FASTLANE_NEW_FIX_MIN_MS = 1_000;
+/** A lane fix older than this is not archived. Two reasons: the snapshot
+ *  itself refuses a position older than 10 min, and an own-time write must
+ *  never land in an hour file that has already been gzipped (hour files are
+ *  compressed 2 h after their hour STARTS; a fix under 10 min old always
+ *  lands in a file under 70 min old). */
+export const FASTLANE_MAX_FIX_AGE_MS = 10 * 60_000;
+/** ... and one dated more than this AHEAD of our clock is not archived either:
+ *  its time comes from the provider's clock, and a wrong clock must not write
+ *  lines into a future hour. */
+export const FASTLANE_MAX_FIX_AHEAD_MS = 60_000;
+/** Hard bound on lane lines per clock hour (1 per second — the lane's own
+ *  upstream ceiling, held here too so a change there cannot grow the disk). */
+export const FASTLANE_ARCHIVE_MAX_LINES_PER_HOUR = 3_600;
+/** Aircraft whose last written fix time is remembered (oldest dropped first;
+ *  a dropped aircraft can at worst write one repeated line). */
+export const FASTLANE_DEDUPE_MAX_HEXES = 2_000;
+/** Pure gate for selected-aircraft-lane archive writes: the SHARED 1 GiB
+ *  floor, failing CLOSED when free space is unreadable (a new optional
+ *  writer must never be the one that fills the bot's volume). */
+export function fastlaneArchiveAllowed(freeBytes: number | null): boolean {
+  return freeBytes != null && freeBytes >= MIN_FREE_BYTES;
+}
+
+/** What the worldwide snapshot and the intent store hold for one aircraft
+ *  right now (aircraftTrackData.ts reads this for the "live on top" part). */
+export interface AircraftLiveState { row: SnapRow; intent: IntentView | null }
+export interface AircraftLiveLookup {
+  byHex(hex: string, nowMs: number): AircraftLiveState | null;
+  /** the freshest live row whose registration field equals `reg` (upper case) */
+  byReg(reg: string): SnapRow | null;
+}
+let liveLookup: AircraftLiveLookup | null = null;
+/** The registered worldwide snapshot's lookup; null before the routes are
+ *  registered (tests, a boot in progress). */
+export function aircraftLiveLookup(): AircraftLiveLookup | null { return liveLookup; }
+
 export const GLOBAL_RESPONSE_CACHE_MS = 5_000;
 /** origins whose fixes THIS module archives (others archive themselves) */
 export const ARCHIVED_ORIGINS = new Set(["sweep-type", "sweep-disc", "opensky"]);
@@ -134,6 +186,20 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     const r = snapshot.get(hex);
     return r ? { callsign: r.callsign, lat: r.lat, lon: r.lon, altFt: r.altFt, trk: r.trk, seenAt: r.seenAt } : null;
   });
+  const lookup: AircraftLiveLookup = {
+    byHex: (hex, nowMs) => {
+      const r = snapshot.get(hex);
+      return r ? { row: r, intent: intent.view(hex, nowMs) } : null;
+    },
+    byReg: (reg) => {
+      let best: SnapRow | null = null;
+      for (const r of snapshot.rows({})) {
+        if (r.reg && r.reg.toUpperCase() === reg && (!best || r.seenAt > best.seenAt)) best = r;
+      }
+      return best;
+    },
+  };
+  liveLookup = lookup;
 
   const sweep = startGlobalSweep({
     env, fetchImpl: deps.fetchImpl, typeCounts: () => snapshot.typeCounts(),
@@ -160,10 +226,13 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
       console.error(`[global-aircraft] ${where} (x${n}):`, e instanceof Error ? e.message : String(e));
     }
   };
-  const guardAllows = (): boolean => {
+  const refreshFree = (): number | null => {
     const t = now();
     if (t - freeAt > 60_000 || freeAt === 0) { freeAt = t; freeBytes = readFree(deps.baseDir || archiveBaseDir()); }
-    const ok = sweepArchiveAllowed(freeBytes);
+    return freeBytes;
+  };
+  const guardAllows = (): boolean => {
+    const ok = sweepArchiveAllowed(refreshFree());
     if (!ok && !lowDiskWarned) {
       lowDiskWarned = true;
       console.error(`[global-aircraft] sweep/OpenSky archiving PAUSED — ${freeBytes == null ? "free space unreadable (fails closed)" : `${freeBytes} bytes free`} < ${SWEEP_ARCHIVE_MIN_FREE_BYTES} floor; live snapshot unaffected, viewport/tracked archiving keeps priority`);
@@ -172,6 +241,53 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
       console.error("[global-aircraft] disk headroom above the sweep floor — sweep/OpenSky archiving resumed");
     }
     return ok;
+  };
+
+  // ── selected-aircraft lane archive (see the header) ─────────────────────
+  const fastArchiveOn = String(env.AIRCRAFT_FASTLANE_ARCHIVE ?? "1").trim() !== "0";
+  const fast = {
+    fixes_offered_total: 0,          // lane fixes that reached the archive decision
+    lines_archived_total: 0,         // written, each at its fix's own time
+    skipped_same_fix_total: 0,       // not newer than the last written fix of that aircraft (an unchanged upstream fix)
+    skipped_no_fix_time_total: 0,    // the row carried no position age, so its own time is unknown
+    skipped_stale_total: 0,          // fix older than FASTLANE_MAX_FIX_AGE_MS
+    skipped_future_total: 0,         // fix dated more than FASTLANE_MAX_FIX_AHEAD_MS ahead of our clock
+    skipped_hour_cap_total: 0,       // over FASTLANE_ARCHIVE_MAX_LINES_PER_HOUR
+    skipped_low_disk_total: 0,       // free < the shared 1 GiB floor, or unreadable
+    skipped_disabled_total: 0,       // AIRCRAFT_FASTLANE_ARCHIVE=0
+  };
+  const fastLastFixMs = new Map<string, number>();
+  let fastHour = -1;
+  let fastHourLines = 0;
+  const archiveFastlaneBatch = (b: FixBatch): void => {
+    const t = now();
+    for (const p of b.aircraft) {
+      const row = toSnapRow(p, b);
+      if (!row) continue;
+      fast.fixes_offered_total++;
+      if (!fastArchiveOn) { fast.skipped_disabled_total++; continue; }
+      // the fix's own time needs the row's position age (or its own clock)
+      if (!Number.isFinite(p.seen_at_ms as number) && !Number.isFinite(p.seen_pos as number)) { fast.skipped_no_fix_time_total++; continue; }
+      if (t - row.seenAt > FASTLANE_MAX_FIX_AGE_MS) { fast.skipped_stale_total++; continue; }
+      if (row.seenAt - t > FASTLANE_MAX_FIX_AHEAD_MS) { fast.skipped_future_total++; continue; }
+      const last = fastLastFixMs.get(row.hex);
+      if (last !== undefined && row.seenAt < last + FASTLANE_NEW_FIX_MIN_MS) { fast.skipped_same_fix_total++; continue; }
+      if (!fastlaneArchiveAllowed(refreshFree())) { fast.skipped_low_disk_total++; continue; }
+      const hour = Math.floor(t / 3_600_000);
+      if (hour !== fastHour) { fastHour = hour; fastHourLines = 0; }
+      if (fastHourLines >= FASTLANE_ARCHIVE_MAX_LINES_PER_HOUR) { fast.skipped_hour_cap_total++; continue; }
+      const n = archiveAircraftAt([{ ...p, provider: p.provider ?? b.provider, tSec: row.seenAt / 1000 }], deps.baseDir);
+      if (n > 0) {
+        fast.lines_archived_total += n;
+        fastHourLines += n;
+        fastLastFixMs.delete(row.hex); // re-insert: Map order = least recently written first
+        fastLastFixMs.set(row.hex, row.seenAt);
+        if (fastLastFixMs.size > FASTLANE_DEDUPE_MAX_HEXES) {
+          const oldest = fastLastFixMs.keys().next().value;
+          if (oldest !== undefined) fastLastFixMs.delete(oldest);
+        }
+      }
+    }
   };
 
   const onBatch = (b: FixBatch) => {
@@ -186,6 +302,9 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
       else if (guardAllows()) {
         try { counters.lines_archived_total += archiveAircraft(b.aircraft, sites, deps.baseDir, now()); } catch (e) { noteError("archive", e); }
       } else counters.fixes_skipped_low_disk_total += b.aircraft.length;
+    }
+    if (b.origin === "fastlane" && b.aircraft.length) {
+      try { archiveFastlaneBatch(b); } catch (e) { noteError("fastlane-archive", e); }
     }
   };
   const unsubscribe = subscribeFixes(onBatch);
@@ -286,6 +405,15 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
           free_bytes: freeBytes,
           paused: archiveOn && !sweepArchiveAllowed(freeBytes) && freeAt > 0,
           ...counters,
+          // the selected-aircraft lane's own writer (separate floor + bounds)
+          fastlane: {
+            enabled: fastArchiveOn,
+            rule: `each distinct fix of a selected aircraft is written once, at the fix's own time; skipped when it is not at least ${FASTLANE_NEW_FIX_MIN_MS / 1000} s newer than the last one written, older than ${FASTLANE_MAX_FIX_AGE_MS / 60_000} min or dated more than ${FASTLANE_MAX_FIX_AHEAD_MS / 1000} s ahead of our clock, over ${FASTLANE_ARCHIVE_MAX_LINES_PER_HOUR} lines in the clock hour, or while free space is under the shared floor (fails closed when unreadable)`,
+            min_free_bytes: MIN_FREE_BYTES,
+            paused: fastArchiveOn && !fastlaneArchiveAllowed(freeBytes) && freeAt > 0,
+            max_lines_per_hour: FASTLANE_ARCHIVE_MAX_LINES_PER_HOUR,
+            ...fast,
+          },
         },
         internal_errors: { ...internalErrors },
         note: "remote oceans and polar regions may be uncovered (ground-receiver ADS-B only); aircraft without an ICAO type appear only where a disc (sweep or viewer) was fetched in the last 10 min",
@@ -379,6 +507,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   return {
     snapshot, sweep, opensky, intent, onBatch,
     stop: () => {
+      if (liveLookup === lookup) liveLookup = null;
       unsubscribe();
       clearInterval(evictTimer);
       clearTimeout(foldBoot);

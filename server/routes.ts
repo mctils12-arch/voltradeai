@@ -41,6 +41,7 @@ import { registerAircraftEstimateRoute } from "./aircraftEstimate";
 import { publishFixes } from "./aircraftFixBus";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
 import { registerGlobalAircraftRoutes } from "./globalAircraft";
+import { registerAircraftTrackDataRoutes } from "./aircraftTrackData";
 import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
 import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
@@ -1071,6 +1072,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     archiveTail: (hex) => recentTrackCached("aircraft", hex),
     plan: (q) => resolveFlightPlan(q, getFlightPlanContext()),
   });
+  registerAircraftTrackDataRoutes(app, { tracked: () => trackedPoller.getRegistry().planes }); // app data: GET /api/data/aircraft/track/:hex + /fleet (server/aircraftTrackData.ts)
 
   // Recent trail for one entity (serves the client's track-on-click).
   // PERF (session #2, user-reported freezes): was the sync recentTrack —
