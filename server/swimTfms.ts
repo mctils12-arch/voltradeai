@@ -19,7 +19,7 @@
 // Everything else (track, sector, times, schedule…) is counted, not parsed:
 // SFDPS already supplies positions and plans.
 
-import { parseXmlLite, attr, findAll, findFirst, type XNode } from "./swimSfdps";
+import { parseXmlLite, attr, findAll, findFirst, detachString, type XNode } from "./swimSfdps";
 
 export const TFMS_AMENDMENT_TTL_MS = 12 * 3600_000;
 export const TFMS_MAX_FLIGHTS = 20_000;
@@ -30,6 +30,41 @@ export const TFMS_MAX_PROGRAMS = 2_000;
 
 /** msgTypes worth a full parse; everything else is only counted */
 const PARSE_RE = /msgType="(RSTR|GDP|GS|AFP|CTOP|GADV|FXA|APTC|TMI_UPDATE|TMI_FLIGHT_LIST|flightPlanAmendmentInformation)"/;
+/** ... the same without the two types that yield only PER-FLIGHT records
+ *  (flow-list entries and amendments): what is parsed while the per-flight
+ *  store is off */
+const PARSE_RE_NO_FLIGHTS = /msgType="(RSTR|GDP|GS|AFP|CTOP|GADV|FXA|APTC|TMI_UPDATE)"/;
+
+// THE PER-FLIGHT STORE IS OFF BY DEFAULT (2026-11-17, Railway memory).
+// TfmsStore kept, for up to 20,000 flights, each flight's last 8 amendments
+// and 8 flow-list entries. Nothing reads them: forFlight() has no caller
+// outside this file's test (the deviation classifier, the card and E1 named
+// in the class comment were never wired to it). Every kept record holds
+// strings cut out of its XML message, and V8 keeps the WHOLE message alive
+// for a cut of 13 or more characters (the defect swimSfdps.detachString fixed
+// for the plan store on 2026-09-30; this store was missed). Measured with the
+// real store on real message sizes: 4.2 KB kept per flow-list entry, 12.7 KB
+// per amendment — an estimated 0.5 to 1.4 GB at the 20,000-flight cap the
+// live store sits at. VOLTRADE_TFMS_FLIGHT_STORE=1 turns it back on (its
+// records are then detached from their messages); programs and airport
+// configurations, which ARE served, are kept either way and detached too.
+export function tfmsFlightStoreEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = String(env.VOLTRADE_TFMS_FLIGHT_STORE ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "on" || v === "yes";
+}
+
+/** A copy of a parsed record whose strings share nothing with the XML they
+ *  were cut from (arrays and plain objects are walked; numbers pass). */
+export function detachRecord<T>(x: T): T {
+  if (typeof x === "string") return detachString(x) as unknown as T;
+  if (Array.isArray(x)) return x.map((v) => detachRecord(v)) as unknown as T;
+  if (x && typeof x === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(x as Record<string, unknown>)) out[k] = detachRecord(v);
+    return out as T;
+  }
+  return x;
+}
 
 export interface TfmsAmendment {
   acid: string;
@@ -217,13 +252,14 @@ function parseFltdAmendment(m: XNode, now: number): TfmsAmendment | null {
 }
 
 /** Pure: one TFMS payload → the records worth keeping. */
-export function parseTfmsPayload(xml: string, now: number = Date.now()): TfmsParsed {
+export function parseTfmsPayload(xml: string, now: number = Date.now(), opts: { flights?: boolean } = {}): TfmsParsed {
   const out: TfmsParsed = { amendments: [], programs: [], configs: [], tmis: [], types: [] };
   if (typeof xml !== "string" || !xml) return out;
   const typeRe = /msgType="([^"]{1,48})"/g;
   let m: RegExpExecArray | null;
   while ((m = typeRe.exec(xml))) out.types.push(m[1]);
-  if (!PARSE_RE.test(xml)) return out; // counted only — never parsed
+  const flights = opts.flights !== false;
+  if (!(flights ? PARSE_RE : PARSE_RE_NO_FLIGHTS).test(xml)) return out; // counted only — never parsed
   const doc = parseXmlLite(xml);
   if (!doc) return out;
   for (const fi of findAll(doc, "fiMessage")) {
@@ -233,6 +269,7 @@ export function parseTfmsPayload(xml: string, now: number = Date.now()): TfmsPar
     out.configs.push(...(r.configs ?? []));
     out.tmis.push(...(r.tmis ?? []));
   }
+  if (!flights) { out.amendments.length = 0; out.tmis.length = 0; return out; }
   for (const fm of findAll(doc, "fltdMessage")) {
     if (attr(fm, "msgType") !== "flightPlanAmendmentInformation") continue;
     const a = parseFltdAmendment(fm, now);
@@ -249,36 +286,43 @@ export class TfmsStore {
   readonly typeCounts: Record<string, number> = {};
   parsedMessages = 0;
   parseErrors = 0;
+  /** keep per-flight amendments and flow-list entries (default off: see the
+   *  note above tfmsFlightStoreEnabled) */
+  readonly flightStore: boolean;
+
+  constructor(opts: { flightStore?: boolean; env?: NodeJS.ProcessEnv } = {}) {
+    this.flightStore = opts.flightStore ?? tfmsFlightStoreEnabled(opts.env);
+  }
 
   ingest(xml: string, now: number = Date.now()): void {
     let p: TfmsParsed;
-    try { p = parseTfmsPayload(xml, now); } catch { this.parseErrors++; return; }
+    try { p = parseTfmsPayload(xml, now, { flights: this.flightStore }); } catch { this.parseErrors++; return; }
     for (const t of p.types) this.typeCounts[t] = (this.typeCounts[t] || 0) + 1;
     if (p.amendments.length || p.programs.length || p.configs.length || p.tmis.length) this.parsedMessages++;
-    for (const a of p.amendments) {
+    for (const a of this.flightStore ? p.amendments : []) {
       const f = this.flight(a.acid, now);
-      f.amendments.push(a);
+      f.amendments.push(detachRecord(a));
       f.amendments.sort((x, y) => x.at - y.at);
       if (f.amendments.length > TFMS_AMENDMENTS_PER_FLIGHT) f.amendments.splice(0, f.amendments.length - TFMS_AMENDMENTS_PER_FLIGHT);
     }
-    for (const t of p.tmis) {
+    for (const t of this.flightStore ? p.tmis : []) {
       const f = this.flight(t.acid, now);
-      if (!f.tmis.some((x) => x.fcaId === t.fcaId)) f.tmis.push(t);
+      if (!f.tmis.some((x) => x.fcaId === t.fcaId)) f.tmis.push(detachRecord(t));
       if (f.tmis.length > 8) f.tmis.shift();
     }
     for (const pr of p.programs) {
       const prev = this.programs.get(pr.id);
-      if (!prev || pr.updatedAt >= prev.updatedAt) this.programs.set(pr.id, pr);
+      if (!prev || pr.updatedAt >= prev.updatedAt) this.programs.set(detachString(pr.id), detachRecord(pr));
     }
     for (const c of p.configs) {
       const prev = this.configs.get(c.airport);
-      if (!prev || c.at >= prev.at) this.configs.set(c.airport, c);
+      if (!prev || c.at >= prev.at) this.configs.set(detachString(c.airport), detachRecord(c));
     }
     if (this.programs.size > TFMS_MAX_PROGRAMS) this.evict(now);
   }
 
   private flight(acid: string, now: number) {
-    const k = acid.trim().toUpperCase();
+    const k = detachString(acid.trim().toUpperCase());
     let f = this.flights.get(k);
     if (!f) {
       f = { amendments: [], tmis: [], lastAt: now };
@@ -327,7 +371,8 @@ export class TfmsStore {
 
   stats() {
     return {
-      flights: this.flights.size, programs: this.programs.size, airportConfigs: this.configs.size,
+      flights: this.flights.size, flightStore: this.flightStore,
+      programs: this.programs.size, airportConfigs: this.configs.size,
       parsedMessages: this.parsedMessages, parseErrors: this.parseErrors, typeCounts: { ...this.typeCounts },
     };
   }
