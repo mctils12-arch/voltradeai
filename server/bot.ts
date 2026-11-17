@@ -16,7 +16,7 @@ import { sleeveLedger, realizedEvents, SLEEVE_FILLS_PAGE_SIZE, SLEEVE_FILLS_MAX_
 import { taxLedger, ratesFromQuery, type TaxRates } from "./taxLedger";
 import { edgeLedger, brokerBlock, type EdgeLedger } from "./edgeLedger";
 import { parseNonTradeActivities, activityLedger, reconcile } from "./accountActivities";
-import { nextLiveness, loopDark, shouldSendLivenessReminder, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
+import { nextLiveness, loopDark, shouldSendLivenessReminder, parseLivenessFile, LIVENESS_REMINDER_INTERVAL_HOURS, type LivenessFile } from "./liveness";
 import { resolveInflightRefreshes } from "./crashSafeRefresh";
 import { scannerDegraded } from "./scannerHealth";
 import { retrainStatusIsSuccess, retrainFailureDetail, retrainHonestDetail } from "./mlRetrainStatus";
@@ -1317,13 +1317,9 @@ function loadLiveness(): LivenessFile | null {
   for (const p of [LIVENESS_PATH, LIVENESS_FALLBACK]) {
     try {
       if (fs.existsSync(p)) {
-        const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
-        if (Number.isFinite(parsed?.lastActiveAt)) {
-          return {
-            lastActiveAt: parsed.lastActiveAt,
-            ...(Number.isFinite(parsed?.lastReminderAt) ? { lastReminderAt: parsed.lastReminderAt } : {}),
-          };
-        }
+        // 2026-11-12: parsed by liveness.ts (also keeps the active run's two stamps)
+        const parsed = parseLivenessFile(JSON.parse(fs.readFileSync(p, "utf8")));
+        if (parsed) return parsed;
       }
     } catch (e: any) {
       console.error(`[liveness] could not load ${p}:`, e?.message || e);
