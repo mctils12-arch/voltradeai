@@ -35,10 +35,19 @@
 //     and pauses when a viewport disc sees adsb.lol struggle;
 //   - every successful disc is PUBLISHED on the fix bus (aircraftFixBus.ts),
 //     so the global snapshot reuses viewport results instead of refetching.
+//
+// ADSB.LOL'S DAILY QUOTA (2026-11-17, adsbGovernor.ts). adsb.lol counts
+// requests per day (500 without a key). A disc request to adsb.lol carries
+// the API key when one is configured (to adsb.lol ONLY — never to the other
+// providers) and reports the response's quota headers to the governor. While
+// the quota is spent, or kept for the watched planes ("watched_only"), a
+// disc does not ask adsb.lol at all: it goes to the next provider at once,
+// with no request spent and no backoff bumped.
 
-import { adsbLolGovernor, GOVERNED_PROVIDER_KEY, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
+import { adsbLolGovernor, adsbLolKeyHeader, GOVERNED_PROVIDER_KEY, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 import { providerClockMs, publishFixes } from "./aircraftFixBus";
 import { attachIntent, parseReadsbIntent } from "./aircraftIntent";
+import { markLaddRow, rawRowIsLadd } from "./laddRegistry";
 
 /** adsb.lol / airplanes.live / adsb.fi point-query hard radius cap (nm). */
 export const DISC_RADIUS_MAX_NM = 250;
@@ -264,6 +273,9 @@ export function mapPointAircraft(raw: any, arrKey: string, provider?: string): a
     // here, and ride on the row under a symbol key (aircraftIntent) — the row's
     // JSON shape, and so every serialized aircraft payload, is unchanged.
     attachIntent(row, parseReadsbIntent(a));
+    // FAA LADD bit of the community aircraft database (dbFlags & 8), from any
+    // provider: remembered under a symbol key too, for laddRegistry.ts
+    if (rawRowIsLadd(a)) markLaddRow(row);
     return row;
   }).filter((a: any) => a.lat != null && a.lon != null);
 }
@@ -302,6 +314,8 @@ export interface TiledFetchDeps {
   /** shared adsb.lol governor (records only — never blocks this chain);
    *  null disables accounting (tests). Default: the process singleton. */
   governor?: UpstreamGovernor | null;
+  /** where ADSBLOL_API_KEY is read (default process.env) */
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface TiledFetchResult {
@@ -337,19 +351,25 @@ export async function fetchDiscs(plan: DiscPlan, deps: TiledFetchDeps): Promise<
     sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
     governor = adsbLolGovernor,
   } = deps;
+  // adsb.lol's key goes to adsb.lol only
+  const governedHeaders = { ...headers, ...adsbLolKeyHeader(deps.env) };
   const errs: string[] = [];
   const sources = new Set<string>();
 
   async function oneDisc(c: DiscCenter): Promise<any[] | null> {
     for (const p of providers) {
       if (backoffActive(p.key)) { errs.push(`${p.key} in backoff`); continue; }
-      const gov = p.key === GOVERNED_PROVIDER_KEY ? governor : null;
+      const governed = p.key === GOVERNED_PROVIDER_KEY;
+      const gov = governed ? governor : null;
+      // daily quota spent, or kept for the watched planes: the next provider, at once
+      if (gov && !gov.admit("viewport", Date.now())) { errs.push(`${p.key} held by its daily quota`); continue; }
       let statusNoted = false;
       try {
         gov?.noteRequest("fg", Date.now());
         const r = await fetchImpl(p.url(c.lat, c.lon, plan.radiusNm), {
-          headers, signal: AbortSignal.timeout(timeoutMs),
+          headers: governed ? governedHeaders : headers, signal: AbortSignal.timeout(timeoutMs),
         });
+        gov?.noteQuota(r.headers, Date.now(), r.status);
         if (!r.ok) {
           statusNoted = true;
           gov?.noteResult("fg", r.status, Date.now(), parseRetryAfter(r.headers?.get?.("retry-after") ?? null));

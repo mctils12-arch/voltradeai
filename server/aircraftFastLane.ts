@@ -33,13 +33,19 @@
 //     probe per FAST_BREAKER_PROBE_MS until a probe succeeds. A viewer no
 //     longer waits out a 6 s timeout on each poll, and a struggling provider
 //     gets one request per 15 s from this lane, not one per poll.
+// ADSB.LOL'S DAILY QUOTA (2026-11-17, adsbGovernor.ts). adsb.lol counts
+// requests per day (500 without a key). Each lookup carries the API key when
+// one is configured and reports the response's quota headers to the
+// governor. While the quota is spent, or kept for the watched planes
+// ("watched_only"), a lookup does not ask adsb.lol: it goes straight to the
+// second provider (counted in quota_skips).
 // adsb.fi is NON-COMMERCIAL (providerCompliance.ts already lists it; the
 // monetization tripwire sees these rows as it sees the gap-fill's). Its own
 // 1 request/second bucket (coverageGapFill.ts) bounds the extra requests; an
 // empty bucket skips the fill and the answer is the honest "error".
 
 import type { FixBatch } from "./aircraftFixBus";
-import { adsbLolGovernor, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
+import { ADSB_LOL_UA, adsbLolGovernor, adsbLolRequestHeaders, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 import { mapPointAircraft } from "./aircraftTiling";
 import type { SnapRow } from "./globalSnapshot";
 
@@ -57,7 +63,7 @@ export const FAST_TIMEOUT_MS = 6_000;
 export const FAST_BREAKER_FAILURES = 2;
 /** ... once per this interval, until a probe answers */
 export const FAST_BREAKER_PROBE_MS = 15_000;
-export const FAST_UA = "voltradeai-datacore/1.0 (+https://voltradeai.com)";
+export const FAST_UA = ADSB_LOL_UA;
 
 export const ICAO_HEX_LC_RE = /^[0-9a-f]{6}$/;
 export const fastLaneUrl = (hex: string): string => `https://api.adsb.lol/v2/hex/${hex}`;
@@ -81,6 +87,8 @@ export interface FastLaneDeps {
   governor?: UpstreamGovernor;
   now?: () => number;
   headers?: Record<string, string>;
+  /** where ADSBLOL_API_KEY is read when `headers` is not given (default process.env) */
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   /** COVERAGE GAP-FILL (2026-10-14): rows for a hex adsb.lol returned NOTHING
    *  for, from adsb.fi (coverageGapFill.ts) — e.g. a plane taxiing on a
@@ -98,6 +106,8 @@ export interface FastLane {
     breaker_skips: number;
     primary_consecutive_failures: number;
     primary_probe_only: boolean;
+    /** lookups that did not ask adsb.lol because its daily quota is spent or kept for the watched planes */
+    quota_skips: number;
   };
 }
 
@@ -105,7 +115,7 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
   const now = deps.now ?? Date.now;
   const fetchImpl = deps.fetchImpl ?? fetch;
   const gov = deps.governor ?? adsbLolGovernor;
-  const headers = deps.headers ?? { "User-Agent": FAST_UA };
+  const headers = deps.headers ?? adsbLolRequestHeaders(deps.env);
   const timeoutMs = deps.timeoutMs ?? FAST_TIMEOUT_MS;
   const cache = new Map<string, { at: number; res: FastResult }>();
   const inflight = new Map<string, Promise<FastResult>>();
@@ -115,7 +125,7 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
   const baro = new Map<string, { seenAt: number; fpm: number }>();
   let tokens = FAST_BURST;
   let lastRefill = now();
-  const counts = { upstream_requests: 0, coalesced: 0, cache_hits: 0, snapshot_hits: 0, limited: 0, errors: 0, fallback_rows: 0, fallback_answers: 0, breaker_skips: 0 };
+  const counts = { upstream_requests: 0, coalesced: 0, cache_hits: 0, snapshot_hits: 0, limited: 0, errors: 0, fallback_rows: 0, fallback_answers: 0, breaker_skips: 0, quota_skips: 0 };
   /** consecutive adsb.lol failures on this lane, and when it was last asked */
   let primaryFails = 0;
   let primaryLastTryAt = -Infinity;
@@ -166,6 +176,7 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
     try {
       const r = await fetchImpl(fastLaneUrl(hex), { headers, signal: AbortSignal.timeout(timeoutMs) });
       status = r.status;
+      gov.noteQuota(r.headers, now(), r.status);
       if (!r.ok) {
         gov.noteResult("fg", r.status, now(), parseRetryAfter(r.headers?.get?.("retry-after") ?? null));
         throw new Error(`adsb.lol hex ${r.status}`);
@@ -229,8 +240,11 @@ export function createFastLane(deps: FastLaneDeps): FastLane {
         counts.limited++;
         return { row: snap ?? null, baroRateFpm: baroFor(snap), source: snap ? "limited" : "absent", upstreamStatus: null };
       }
-      const skipPrimary = probeOnly(t);
-      if (skipPrimary) { counts.breaker_skips++; hexSeen.set(hex, t); }
+      // the daily quota first (spent, or kept for the watched planes), then the breaker
+      const quotaHeld = !gov.admit("selected", t);
+      const skipPrimary = quotaHeld || probeOnly(t);
+      if (quotaHeld) { counts.quota_skips++; hexSeen.set(hex, t); }
+      else if (skipPrimary) { counts.breaker_skips++; hexSeen.set(hex, t); }
       const p = (skipPrimary ? viaFallback(hex, null) : goUpstream(hex)).then((res) => {
         cache.set(hex, { at: now(), res });
         return res;

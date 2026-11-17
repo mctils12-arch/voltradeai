@@ -27,13 +27,36 @@
 // as `heard` (altitude + ground speed, never a position), and while a plane
 // was heard in the last TRACKED_ACTIVE_WINDOW_MS polls its hex every
 // TRACKED_FAST_POLL_MS so its first position lands within seconds.
+//
+// ADSB.LOL'S DAILY QUOTA (2026-11-17, adsbGovernor.ts). adsb.lol counts
+// requests per day (500 without a key); this poller alone sent 2,880. Every
+// request here carries the API key when one is configured (ADSBLOL_API_KEY,
+// to api.adsb.lol only — not to the globe.adsb.lol trace backfill) and
+// reports the response's quota headers to the governor. The tracked planes
+// are what a small quota is spent on:
+//   - limit under QUOTA_FULL_MIN_DAILY ("watched_only"): the other lanes stop
+//     asking adsb.lol and this poller paces itself to TRACKED_QUOTA_SHARE of
+//     the limit — one REQUEST per 86,400 s / (limit x 0.4), i.e. 432 s at
+//     500/day. A cycle that needed two requests (the registration batch and
+//     the hex lookup) is followed by two gaps. No 5 s fast ticks: there is no
+//     quota for them. Never faster than TRACKED_POLL_MS.
+//   - quota spent: nothing is sent until its reset (the tick still runs,
+//     every 30 s, and asks the governor).
+//   - limit from QUOTA_FULL_MIN_DAILY ("full"): the sweep and the scopes share
+//     the limit with this poller, which gets TRACKED_QUOTA_SHARE_FULL (0.25):
+//     48 s a request at 7,200/day. The cycle kinds are the usual ones (base
+//     every 30 s, hex ticks between while a plane is active), each sent only
+//     once the last cycle's requests have been paid for. From 92,160/day the
+//     standard cadence (at most TRACKED_MAX_REQ_PER_MIN) fits the share and
+//     nothing is paced.
+//   - no limit read yet: the cadence above, unchanged.
 
 import fs from "fs";
 import path from "path";
 import { archiveAircraft, archiveAircraftAt, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
 import { providerClockMs, publishFixes } from "./aircraftFixBus";
-import { adsbLolGovernor, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
+import { TRACKED_QUOTA_SHARE, TRACKED_QUOTA_SHARE_FULL, adsbLolGovernor, adsbLolKeyHeader, parseRetryAfter, type HeaderSource, type QuotaMode, type UpstreamGovernor } from "./adsbGovernor";
 
 // ── TRACE BACKFILL (phase 2, same 2026-08-08 directive: "every time a plane
 // turn on we have the data all over the world not just the 250nm") ─────────
@@ -291,6 +314,10 @@ export interface PollHooks {
   /** called when a hex request is sent, and with its outcome (0 = network) */
   noteHexRequest?: () => void;
   noteHexResult?: (status: number, retryAfterSec: number | null) => void;
+  /** EVERY adsb.lol response of the cycle (registration batch and hex), as
+   *  soon as it arrives and before its outcome is recorded: the daily quota
+   *  is read off its headers */
+  noteResponse?: (status: number, headers: HeaderSource | null | undefined) => void;
 }
 
 /** Pure: fold provider rows into the registry. A row belongs to a tracked
@@ -350,6 +377,7 @@ async function fetchHexRows(
   try {
     const res = await fetchImpl(hexBatchUrl(hexes), { headers, signal: AbortSignal.timeout(TRACKED_TIMEOUT_MS) });
     status = res.status;
+    hooks.noteResponse?.(res.status, res.headers);
     hooks.noteHexResult?.(res.status, res.ok ? null : parseRetryAfter(res.headers?.get?.("retry-after") ?? null));
     if (!res.ok) throw new Error(`adsb.lol hex batch ${res.status}`);
     return await res.json();
@@ -376,6 +404,7 @@ export async function pollTrackedOnce(
   const res = await fetchImpl(batchUrl(registry.planes.map((p) => p.reg)), {
     headers, signal: AbortSignal.timeout(TRACKED_TIMEOUT_MS),
   });
+  hooks.noteResponse?.(res.status, res.headers);
   if (!res.ok) throw new Error(`adsb.lol reg batch ${res.status}`);
   const raw = await res.json();
   const regRows = rawAircraftRows(raw);
@@ -427,13 +456,35 @@ export async function pollHexesOnce(
   };
 }
 
-export type CycleKind = "base" | "fast" | "skipped-backoff" | "skipped-cap" | "idle";
+/** "skipped-quota" = adsb.lol's daily quota is spent, nothing was sent;
+ *  "quota-wait" = paced by the quota and the next request is not due yet */
+export type CycleKind = "base" | "fast" | "skipped-backoff" | "skipped-cap" | "idle" | "skipped-quota" | "quota-wait";
+
+/** How the poller is paced right now, and why (GET /api/data/aircraft/tracked). */
+export interface TrackedPacing {
+  /** adsb.lol's quota mode as the governor reads it */
+  quota_mode: QuotaMode;
+  /** true while the daily quota sets the interval */
+  paced: boolean;
+  /** true while the quota is spent: no request is sent */
+  blocked: boolean;
+  /** seconds between two cycles as they run now; null while blocked */
+  effective_poll_s: number | null;
+  /** the quota's gap between two REQUESTS (s); null when not paced */
+  request_gap_s: number | null;
+  /** requests the last cycle made (a paced cycle waits that many gaps) */
+  last_cycle_requests: number;
+  reason: string;
+}
 
 export interface TrackedCycle {
   /** run whichever cycle is due at `nowMs` */
   run(registry: TrackedRegistry, nowMs: number): Promise<PollOutcome & { kind: CycleKind }>;
-  /** ms until the next tick: fast while any plane is active, else 30 s */
+  /** ms until the next tick: fast while any plane is active, else 30 s; the
+   *  time to the next request the daily quota allows when it sets the pace */
   nextDelayMs(registry: TrackedRegistry, nowMs: number): number;
+  /** the interval in force and why */
+  pacing(registry: TrackedRegistry, nowMs: number): TrackedPacing;
   stats(): Record<string, number>;
 }
 
@@ -450,13 +501,36 @@ export function createTrackedCycle(deps: {
   fetchImpl: typeof fetch;
   headers: Record<string, string>;
   governor?: UpstreamGovernor;
+  /** where ADSBLOL_API_KEY is read (default process.env) */
+  env?: NodeJS.ProcessEnv;
 }): TrackedCycle {
   const gov = deps.governor ?? adsbLolGovernor;
+  // both request kinds go to api.adsb.lol: the key rides on them, and only them
+  const headers = { ...deps.headers, ...adsbLolKeyHeader(deps.env) };
   let lastBaseAt: number | null = null;
+  /** the last cycle that sent anything: when, and how many requests */
+  let lastSentAt: number | null = null;
+  let lastSentRequests = 1;
   const fastSent: number[] = [];
-  const counts = { base_cycles: 0, fast_cycles: 0, skipped_backoff: 0, skipped_cap: 0, requests: 0, hex_requests: 0, hex_failures: 0 };
+  const counts = { base_cycles: 0, fast_cycles: 0, skipped_backoff: 0, skipped_cap: 0, requests: 0, hex_requests: 0, hex_failures: 0, skipped_quota: 0, quota_paced_cycles: 0 };
+  /** the quota's gap between two requests (0 = the quota does not set the
+   *  pace: no limit read, or the standard cadence's worst case fits the share) */
+  const quotaGapMs = (nowMs: number): number => {
+    const g = gov.trackedMinGapMs(nowMs);
+    return g > 60_000 / TRACKED_MAX_REQ_PER_MIN ? g : 0;
+  };
+  const standardDelayMs = (registry: TrackedRegistry, nowMs: number): number =>
+    (activeHexes(registry, nowMs).length ? TRACKED_FAST_POLL_MS : TRACKED_POLL_MS);
+  /** when the quota allows the next cycle: one gap per request the last one made */
+  const quotaDueAt = (gapMs: number): number => (lastSentAt == null ? 0 : lastSentAt + gapMs * lastSentRequests);
+  const sent = (nowMs: number, requests: number) => {
+    if (requests > 0) { lastSentAt = nowMs; lastSentRequests = requests; }
+  };
   const hooksAt = (nowMs: number): PollHooks => ({
+    noteResponse: (status, h) => { gov.noteQuota(h, nowMs, status); },
     allowHex: () => {
+      // the registration batch may just have found the quota spent
+      if (!gov.admit("tracked", nowMs)) { counts.skipped_quota++; return false; }
       if (gov.backoffMs(nowMs) <= 0) return true;
       counts.skipped_backoff++;
       return false;
@@ -469,15 +543,25 @@ export function createTrackedCycle(deps: {
   });
   return {
     async run(registry, nowMs) {
+      const none = { points: [], registry, heard: 0, requests: 0, hexNote: null };
+      // adsb.lol's daily quota is spent: nothing is sent until its reset
+      if (!gov.admit("tracked", nowMs)) { counts.skipped_quota++; return { ...none, kind: "skipped-quota" }; }
+      // the quota sets the pace: nothing goes out until the last cycle's
+      // requests are paid for (one gap each). With a gap of 30 s or more
+      // every allowed slot is a base cycle, so there are no fast ticks.
+      const gap = quotaGapMs(nowMs);
+      if (gap > 0 && nowMs < quotaDueAt(gap)) return { ...none, kind: "quota-wait" };
       const baseDue = lastBaseAt == null || nowMs - lastBaseAt >= TRACKED_POLL_MS - 100;
       if (baseDue) {
         lastBaseAt = nowMs;
         counts.base_cycles++;
-        const out = await pollTrackedOnce(registry, deps.fetchImpl, deps.headers, nowMs, hooksAt(nowMs));
+        if (gap > 0) counts.quota_paced_cycles++;
+        sent(nowMs, 1); // a cycle that throws sent its registration batch
+        const out = await pollTrackedOnce(registry, deps.fetchImpl, headers, nowMs, hooksAt(nowMs));
         counts.requests += out.requests;
+        sent(nowMs, out.requests);
         return { ...out, kind: "base" };
       }
-      const none = { points: [], registry, heard: 0, requests: 0, hexNote: null };
       const hexes = activeHexes(registry, nowMs);
       if (!hexes.length) return { ...none, kind: "idle" };
       while (fastSent.length && nowMs - fastSent[0] >= 60_000) fastSent.shift();
@@ -485,12 +569,50 @@ export function createTrackedCycle(deps: {
       if (gov.backoffMs(nowMs) > 0) { counts.skipped_backoff++; return { ...none, kind: "skipped-backoff" }; }
       fastSent.push(nowMs);
       counts.fast_cycles++;
-      const out = await pollHexesOnce(registry, hexes, deps.fetchImpl, deps.headers, nowMs, hooksAt(nowMs));
+      if (gap > 0) counts.quota_paced_cycles++;
+      sent(nowMs, 1);
+      const out = await pollHexesOnce(registry, hexes, deps.fetchImpl, headers, nowMs, hooksAt(nowMs));
       counts.requests += out.requests;
       return { ...out, kind: "fast" };
     },
     nextDelayMs(registry, nowMs) {
-      return activeHexes(registry, nowMs).length ? TRACKED_FAST_POLL_MS : TRACKED_POLL_MS;
+      const until = gov.quotaExhaustedUntil(nowMs);
+      // spent: look again at the reset, or in 30 s, whichever is sooner
+      if (until != null) return Math.max(1_000, Math.min(TRACKED_POLL_MS, until - nowMs));
+      const gap = quotaGapMs(nowMs);
+      // never sooner than the standard cadence
+      if (gap > 0) return Math.max(standardDelayMs(registry, nowMs), quotaDueAt(gap) - nowMs);
+      return standardDelayMs(registry, nowMs);
+    },
+    pacing(registry, nowMs) {
+      const quota_mode = gov.quotaMode(nowMs);
+      const q = gov.stats(nowMs).quota;
+      const until = gov.quotaExhaustedUntil(nowMs);
+      if (until != null) {
+        return {
+          quota_mode, paced: false, blocked: true, effective_poll_s: null, request_gap_s: null, last_cycle_requests: lastSentRequests,
+          reason: `adsb.lol daily quota spent until ${new Date(until).toISOString()}: no request is sent until then`,
+        };
+      }
+      const gap = quotaGapMs(nowMs);
+      const std = standardDelayMs(registry, nowMs);
+      if (gap > 0) {
+        const share = Math.round((quota_mode === "watched_only" ? TRACKED_QUOTA_SHARE : TRACKED_QUOTA_SHARE_FULL) * 100);
+        const every = Math.round(Math.max(std, gap * lastSentRequests) / 1000);
+        return {
+          quota_mode, paced: true, blocked: false,
+          effective_poll_s: every, request_gap_s: Math.round(gap / 1000), last_cycle_requests: lastSentRequests,
+          reason: `adsb.lol daily quota ${q.limit}/day: the tracked planes get ${share}% of it, one request per ${Math.round(gap / 1000)} s; ` +
+            `the last cycle made ${lastSentRequests} request${lastSentRequests === 1 ? "" : "s"}, so the next follows after ${every} s`,
+        };
+      }
+      return {
+        quota_mode, paced: false, blocked: false,
+        effective_poll_s: std / 1000, request_gap_s: null, last_cycle_requests: lastSentRequests,
+        reason: quota_mode === "unknown"
+          ? "adsb.lol has not stated its daily quota yet: the standard cadence"
+          : `adsb.lol daily quota ${q.limit ?? "unknown"}/day (mode ${quota_mode}): the standard cadence, not paced by the quota`,
+      };
     },
     stats() { return { ...counts }; },
   };
@@ -522,17 +644,21 @@ export function startTrackedPoller(deps: {
   onCycle?: (archived: number, live: number) => void;
   /** adsb.lol governor the hex requests are accounted to (tests inject) */
   governor?: UpstreamGovernor;
+  /** where ADSBLOL_API_KEY is read (default process.env) */
+  env?: NodeJS.ProcessEnv;
 }): {
   getRegistry: () => TrackedRegistry;
   /** cadence counters (base/fast cycles, skips, requests) */
   cycleStats: () => Record<string, number>;
+  /** the interval in force and why (the daily quota may set it) */
+  pacing: () => TrackedPacing;
   mutate: (fn: (r: TrackedRegistry) => TrackedRegistry | null) => boolean;
   stop: () => void;
 } {
   let registry = loadRegistry(deps.baseDir);
   saveRegistry(registry, deps.baseDir); // persist the seed on first boot
   let stopped = false;
-  const cycle = createTrackedCycle({ fetchImpl: deps.fetchImpl, headers: deps.headers, governor: deps.governor });
+  const cycle = createTrackedCycle({ fetchImpl: deps.fetchImpl, headers: deps.headers, governor: deps.governor, env: deps.env });
   let timer: ReturnType<typeof setTimeout> | null = null;
   let dirty = false;
   let lastSaveAt = 0;
@@ -571,7 +697,11 @@ export function startTrackedPoller(deps: {
       console.error("[tracked-planes] poll:", e?.message || e);
     } finally {
       if (!stopped) {
-        const wait = cycle.nextDelayMs(registry, Date.now()) - (Date.now() - started);
+        const t = Date.now();
+        const p = cycle.pacing(registry, t);
+        // a fixed interval is measured from the tick's start; the quota's
+        // wait is already the time left to the next allowed request
+        const wait = cycle.nextDelayMs(registry, t) - (p.paced || p.blocked ? 0 : t - started);
         timer = setTimeout(() => { void tick(); }, Math.max(250, wait));
         unrefTimer(timer);
       }
@@ -607,6 +737,7 @@ export function startTrackedPoller(deps: {
   return {
     getRegistry: () => registry,
     cycleStats: () => cycle.stats(),
+    pacing: () => cycle.pacing(registry, Date.now()),
     mutate: (fn) => {
       const next = fn(registry);
       if (!next) return false;

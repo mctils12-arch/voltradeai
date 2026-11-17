@@ -39,6 +39,15 @@
 // it never gets the whole budget. Default steady state ≈ 0.08 (type) +
 // 0.15 (disc) ≈ 0.23 req/s, under the 0.4 ceiling with headroom to spare.
 //
+// DAILY QUOTA (2026-11-17, adsbGovernor.ts): adsb.lol counts requests per
+// day (500 without a key). Every request here carries the API key when one
+// is configured (ADSBLOL_API_KEY) and reports the response's quota headers
+// to the governor. While the quota is spent, or too small for a world sweep
+// ("watched_only"), this loop sends NOTHING: the governor's wait covers it
+// and sweepFailover.ts carries the world feed through the other providers.
+// With a limit large enough the sweep is spaced to SWEEP_QUOTA_SHARE of it,
+// and the disc lane asks adsb.lol only from DISC_LANE_MIN_DAILY a day.
+//
 // KILL SWITCH: GLOBAL_SWEEP_ENABLED=0 stops the sweep (default ON at the
 // conservative rate). The snapshot keeps serving viewport + scope + OpenSky
 // fixes either way.
@@ -49,7 +58,7 @@
 // globe.adsb.lol; halve the type lane with GLOBAL_SWEEP_TYPE_REFRESH_S=120.
 
 import { mapPointAircraft } from "./aircraftTiling";
-import { adsbLolGovernor, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
+import { ADSB_LOL_UA, adsbLolGovernor, adsbLolRequestHeaders, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 import { publishFixes, type FixBatch } from "./aircraftFixBus";
 import { haversineNm, worldPlan, type PlanDisc } from "./globalDiscPlan";
 import type { BBox } from "./globalSnapshot";
@@ -77,7 +86,9 @@ export const INTEREST_TTL_MS = 2 * 60_000;
 /** how long a viewport disc credits overlapping plan discs */
 export const VIEWPORT_CREDIT_WINDOW_MS = 60_000;
 export const SWEEP_START_DELAY_MS = 20_000;
-export const UA = { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" };
+/** User-Agent only — what the OTHER providers get (sweepFailover.ts). A
+ *  request to adsb.lol uses adsbLolRequestHeaders(), which adds the API key. */
+export const UA = { "User-Agent": ADSB_LOL_UA };
 
 /** Seed ICAO type designators — the most common airframes in ADS-B traffic
  *  (airliners, regional, cargo, business jets, GA, helicopters). Order is
@@ -307,6 +318,8 @@ export interface SweepDeps {
   publish?: (b: FixBatch) => void;
   now?: () => number;
   timeoutMs?: number;
+  /** request headers (default: the User-Agent, plus x-api-key when ADSBLOL_API_KEY is set) */
+  headers?: Record<string, string>;
 }
 
 export interface StepResult {
@@ -345,8 +358,11 @@ export async function runSweepJob(job: SweepJob, sched: SweepScheduler, deps: Sw
   });
   deadline.catch(() => {}); // never an unhandled rejection if nobody is awaiting
   try {
-    const r = await Promise.race([deps.fetchImpl(url, { headers: UA, signal: ac.signal }), deadline]);
+    const r = await Promise.race([deps.fetchImpl(url, { headers: deps.headers ?? adsbLolRequestHeaders(), signal: ac.signal }), deadline]);
     status = r.status ?? (r.ok ? 200 : 0);
+    // the daily quota, as this response states it (before the outcome: a
+    // quota 429 is not an upstream failure)
+    deps.governor.noteQuota(r.headers, now(), status);
     if (!r.ok) {
       deps.governor.noteResult("bg", status, now(), parseRetryAfter(r.headers?.get?.("retry-after") ?? null));
       if (job.kind === "type") sched.markType(job.batch, now(), 0, false);
@@ -445,6 +461,7 @@ export function startGlobalSweep(deps: {
   let lastPromote = Date.now();
   let lastDiscAt = 0;
   const discMinGapMs = discMinGapMsFromEnv(env);
+  const headers = adsbLolRequestHeaders(env);
   let lastErrLog = 0;
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const sleep = (ms: number) => new Promise<void>((res) => {
@@ -470,16 +487,20 @@ export function startGlobalSweep(deps: {
       const job = scheduler.next(now);
       if (!job) { await sleep(5_000); continue; }
       if (job.kind === "disc") {
+        // a daily limit under DISC_LANE_MIN_DAILY is kept for the type lane
+        if (!governor.discLaneAllowed(now)) { await sleep(2_000); continue; }
         // the disc lane keeps its own slower pace (type batches never wait on it)
         const gap = discMinGapMs - (now - lastDiscAt);
         if (gap > 0) { await sleep(Math.min(Math.max(gap, 50), 5_000)); continue; }
       }
+      // every hold in one figure: tokens, the shared ceiling, the failure
+      // backoff, and the daily quota (spent, or kept for the watched planes)
       const wait = governor.backgroundWaitMs(now);
       if (wait > 0) { await sleep(Math.min(Math.max(wait, 50), 10_000)); continue; }
       if (!governor.tryAcquireBackground(now)) { await sleep(250); continue; }
       if (job.kind === "disc") lastDiscAt = now;
       try {
-        last = await runSweepJob(job, scheduler, { fetchImpl, governor });
+        last = await runSweepJob(job, scheduler, { fetchImpl, governor, headers });
       } catch (e) {
         last = { kind: job.kind, ok: false, status: 0, count: 0, error: errMsg(e) };
       }
@@ -490,7 +511,10 @@ export function startGlobalSweep(deps: {
         // loud but throttled (Law V: silent degradation is how staleness recurs)
         if (lastAt - lastErrLog > 60_000) {
           lastErrLog = lastAt;
-          console.error(`[global-sweep] ${last.kind} request failed (${last.error}) — governor backoff ${governor.stats(lastAt).backoff_s}s`);
+          const until = governor.quotaExhaustedUntil(lastAt);
+          console.error(`[global-sweep] ${last.kind} request failed (${last.error}) — ${until != null
+            ? `adsb.lol's daily quota is spent: no sweep request until ${new Date(until).toISOString()}`
+            : `governor backoff ${governor.stats(lastAt).backoff_s}s`}`);
         }
       }
     }

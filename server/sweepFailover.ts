@@ -13,7 +13,11 @@
 // WHAT. One sequential loop that is idle unless the governor reports the
 // sweep failing (stats().sweep_consecutive_failures > 0 — raised only by a
 // failed sweep request, cleared only by a successful one, so it stays up
-// across the sweep's own retry probes). While it is, the loop takes
+// across the sweep's own retry probes) OR kept off adsb.lol by its DAILY
+// QUOTA (2026-11-17, adsbGovernor.ts: the quota is spent, or the limit is too
+// small for a world sweep and is kept for the watched planes — then the
+// sweep sends nothing, so it has no failure to report, and without this the
+// world feed would simply age). While either holds, the loop takes
 // the plan's discs in value order (the sweep's own scheduler with no type
 // lane: age x sqrt(aircraft last seen there), viewer interest boosted,
 // nothing older than 45 min) and asks the fallback providers for each disc.
@@ -26,6 +30,15 @@
 // Every answer goes on the fix bus with the provider that served it, so the
 // snapshot row's `src` is that provider and `?lawful=1` (adsb.lol only)
 // stays a provable subset.
+//
+// ON DEMAND (2026-11-17). With the quota keeping the sweep off adsb.lol for
+// good ("watched planes only"), a failover that ran whenever it had a reason
+// would ask each provider 43,200 times a day for a world feed nobody may be
+// looking at. So it also needs DEMAND: the caller's `demand()` (the
+// worldwide endpoint was requested in the last FAILOVER_DEMAND_WINDOW_MS).
+// With a reason but no demand it sends nothing and its status says so; the
+// feed takes a minute or two to fill after the first request. Without a
+// `demand` dep it behaves as before (always wanted).
 //
 // WHAT IT IS NOT. Not a replacement for the type lane: neither fallback
 // provider has a worldwide by-type query (adsb.fi answers /v2/type with 400,
@@ -78,6 +91,12 @@ export const FAILOVER_DISC_MAX_FAILS = 2;
 export const FAILOVER_LOG_EVERY_MS = 5 * 60_000;
 /** the window `discs_refreshed_last_cycle` counts over (the snapshot's age limit) */
 export const FAILOVER_CYCLE_WINDOW_MS = 10 * 60_000;
+
+/** the worldwide feed counts as wanted for this long after its endpoint was last requested */
+export const FAILOVER_DEMAND_WINDOW_MS = 10 * 60_000;
+/** what the status says while there is a reason to run and nobody is asking */
+export const FAILOVER_IDLE_NO_DEMAND =
+  `idle: nobody has asked for the worldwide feed in the last ${FAILOVER_DEMAND_WINDOW_MS / 60_000} min`;
 
 /** the snapshot must hold at least this many positions to order the discs
  *  by them; under it the airports are used instead */
@@ -168,8 +187,19 @@ export interface FailoverStatus {
   enabled: boolean;
   /** why it is off (null when enabled) */
   off_reason: string | null;
-  /** true while the adsb.lol sweep is failing and the failover is sweeping */
+  /** true while the adsb.lol sweep is failing, or held off adsb.lol by its
+   *  daily quota, AND the worldwide feed is wanted: the failover is sweeping */
   active: boolean;
+  /** why it has cause to run: "adsb.lol sweep failing", "adsb.lol daily
+   *  quota: watched planes only", "adsb.lol daily quota spent until <ISO
+   *  time>" — followed by "; idle: nobody has asked for the worldwide feed in
+   *  the last 10 min" when that is all that keeps it from running. null when
+   *  the adsb.lol sweep is doing its job. */
+  reason: string | null;
+  /** is the worldwide feed wanted right now (its endpoint was requested recently)? */
+  demand: boolean;
+  /** when the worldwide endpoint was last requested (ms); null = never, or not tracked */
+  last_demand_at: number | null;
   active_since: number | null;
   activations_total: number;
   /** seconds spent active since boot (the current stretch included) */
@@ -202,10 +232,28 @@ export interface FailoverStatus {
 
 export const FAILOVER_RULE =
   "Runs only while the adsb.lol world sweep is failing (a sweep request failed and no later one has " +
-  "succeeded). It then asks adsb.fi and airplanes.live (both non-commercial) for the sweep plan's 250 nm " +
+  "succeeded) or is kept off adsb.lol by its daily request quota (spent, or too small for a world sweep " +
+  "and kept for the watched planes; see reason). It then asks adsb.fi and airplanes.live (both non-commercial) for the sweep plan's 250 nm " +
   "discs, busiest and most-watched first, one request at a time, at most the stated rate per provider. Neither " +
   "has a worldwide by-type query, so this covers part of the plan (see discs_refreshed_last_cycle), not all of " +
-  "it. Each row keeps the provider that served it (src). Off while billing is active.";
+  "it. Each row keeps the provider that served it (src). Off while billing is active. It runs on demand: only " +
+  "while the worldwide endpoint has been requested in the last 10 min, so the feed takes a minute or two to fill " +
+  "after the first request.";
+
+export const FAILOVER_REASON_FAILING = "adsb.lol sweep failing";
+export const FAILOVER_REASON_WATCHED_ONLY = "adsb.lol daily quota: watched planes only";
+
+/** Why the failover should be sweeping now, or null when the adsb.lol sweep
+ *  is doing its job. The quota comes first: while it holds the sweep off,
+ *  that is the reason whatever the last failure count was. */
+export function failoverReason(governor: UpstreamGovernor, now: number): string | null {
+  const held = governor.sweepSuspendedByQuota(now);
+  if (held === "exhausted") {
+    return `adsb.lol daily quota spent until ${new Date(governor.quotaExhaustedUntil(now) ?? now).toISOString()}`;
+  }
+  if (held === "watched_only") return FAILOVER_REASON_WATCHED_ONLY;
+  return governor.stats(now).sweep_consecutive_failures > 0 ? FAILOVER_REASON_FAILING : null;
+}
 
 export interface SweepFailover {
   scheduler: SweepScheduler;
@@ -228,6 +276,11 @@ export function createSweepFailover(deps: {
   airportPoints?: () => Array<{ lat: number; lon: number; large: boolean }>;
   now?: () => number;
   timeoutMs?: number;
+  /** is the worldwide feed wanted right now? No request leaves without it.
+   *  Default: always (the failover runs whenever it has a reason). */
+  demand?: () => boolean;
+  /** when the feed was last asked for (status only) */
+  lastDemandAt?: () => number | null;
   /** false = build it without starting the timer loop (tests drive tick()) */
   start?: boolean;
 } = {}): SweepFailover {
@@ -236,6 +289,7 @@ export function createSweepFailover(deps: {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const publish = deps.publish ?? publishFixes;
   const now = deps.now ?? Date.now;
+  const demand = deps.demand ?? (() => true);
   const offReason = failoverOffReason(env);
   const rps = failoverRpsFromEnv(env);
   const gapMs = rps > 0 ? Math.ceil(1000 / rps) : Number.POSITIVE_INFINITY;
@@ -302,7 +356,8 @@ export function createSweepFailover(deps: {
     }
   };
 
-  const setActive = (on: boolean, t: number) => {
+  const setActive = (why: string | null, t: number) => {
+    const on = why != null;
     if (on === active) return;
     active = on;
     if (on) {
@@ -316,8 +371,10 @@ export function createSweepFailover(deps: {
     if (t - lastStateLog >= FAILOVER_LOG_EVERY_MS) {
       lastStateLog = t;
       console.error(on
-        ? `[sweep-failover] adsb.lol sweep failing (${governor.stats(t).sweep_consecutive_failures} in a row) — sweeping the disc plan through ${provs.map((s) => s.p.key).join(", ")} (activation ${activations})`
-        : "[sweep-failover] adsb.lol sweep answered again — failover idle");
+        ? `[sweep-failover] ${why}${why === FAILOVER_REASON_FAILING ? ` (${governor.stats(t).sweep_consecutive_failures} in a row)` : ""} — sweeping the disc plan through ${provs.map((s) => s.p.key).join(", ")} (activation ${activations})`
+        : failoverReason(governor, t) == null
+          ? "[sweep-failover] the adsb.lol sweep is running again — failover idle"
+          : `[sweep-failover] ${FAILOVER_IDLE_NO_DEMAND}`);
     }
   };
 
@@ -357,7 +414,9 @@ export function createSweepFailover(deps: {
 
   const tick = async (t: number): Promise<FailoverStepResult | null> => {
     if (offReason) return null;
-    setActive(governor.stats(t).sweep_consecutive_failures > 0, t);
+    // a reason to run AND someone asking for the worldwide feed
+    const why = failoverReason(governor, t);
+    setActive(why != null && demand() ? why : null, t);
     if (!active) return null;
     const s = pickProvider(t);
     if (!s) return null;
@@ -423,6 +482,14 @@ export function createSweepFailover(deps: {
     return res;
   };
 
+  /** read live, so the answer to the request that IS the demand never says "nobody has asked" */
+  const statusReason = (t: number): string | null => {
+    if (offReason) return null;
+    const why = failoverReason(governor, t);
+    if (why == null) return null;
+    return demand() ? why : `${why}; ${FAILOVER_IDLE_NO_DEMAND}`;
+  };
+
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const sleep = (ms: number) => new Promise<void>((resolve) => {
     const tm = setTimeout(() => { timers.delete(tm); resolve(); }, ms);
@@ -455,6 +522,9 @@ export function createSweepFailover(deps: {
         enabled: !offReason,
         off_reason: offReason,
         active,
+        reason: statusReason(t),
+        demand: demand(),
+        last_demand_at: deps.lastDemandAt?.() ?? null,
         active_since: activeSince,
         activations_total: activations,
         active_s_total: Math.round((activeMsDone + (activeSince != null ? t - activeSince : 0)) / 1000),

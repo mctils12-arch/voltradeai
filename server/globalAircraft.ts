@@ -55,7 +55,8 @@ import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
 import { createFastLane, ICAO_HEX_LC_RE } from "./aircraftFastLane";
 import { GlobalSnapshot, ROW_FIELDS, SNAPSHOT_CAP, encodeRow, toSnapRow, type BBox, type SnapRow } from "./globalSnapshot";
 import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
-import { createSweepFailover, FAILOVER_ORIGIN, type SweepFailover } from "./sweepFailover";
+import { createSweepFailover, FAILOVER_DEMAND_WINDOW_MS, FAILOVER_ORIGIN, type SweepFailover } from "./sweepFailover";
+import { laddRegistry, learnLaddFromRows, type LaddRegistry } from "./laddRegistry";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
 import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
@@ -123,8 +124,12 @@ export const GLOBAL_HONESTY =
   "Worldwide live aircraft assembled from community ADS-B ground receivers: adsb.lol (ODbL) via a " +
   "type-list lane (all aircraft of each listed ICAO type, worldwide) and a 250nm disc lane over a " +
   "hand-authored traffic mask, plus the discs viewers' maps already fetched and adsb.lol's military/" +
-  "LADD/PIA scopes; while adsb.lol is not answering the sweep, the same discs are asked of adsb.fi and " +
-  "airplanes.live (non-commercial) instead, a part of the plan at a time" +
+  "LADD/PIA scopes; while adsb.lol is not answering the sweep, or its daily request quota is spent or too " +
+  "small for a world sweep (coverage.sweep.governor.quota — adsb.lol is then asked only for the tracked " +
+  "tails, Find lookups and its LADD scope, and its type lane and military/PIA scopes are not running), the same discs are asked of " +
+  "adsb.fi and airplanes.live (non-commercial) instead, a part of the plan at a time, and ON DEMAND: only " +
+  "while this endpoint has been requested in the last 10 min, so the worldwide feed is then empty until " +
+  "someone asks and takes a minute or two to populate after the first request" +
   " — and OpenSky Network (non-commercial) only when credentials are configured. One row per aircraft: " +
   "its FRESHEST fix; seenAt is that fix's time, so a row older than ~2 min is a stale position, not a " +
   "live one. Not every plane on Earth: remote oceans and polar regions beyond receiver range, and " +
@@ -173,6 +178,8 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   now?: () => number;
   /** free-space probe (tests inject; default statfs on the archive dir) */
   readFree?: (dir: string) => number | null;
+  /** the FAA LADD privacy registry the fix bus teaches (tests inject; default the process-wide one) */
+  ladd?: LaddRegistry;
 } = {}): GlobalAircraftHandle {
   const env = deps.env ?? process.env;
   const now = deps.now ?? Date.now;
@@ -208,10 +215,16 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   const sweep = startGlobalSweep({
     env, fetchImpl: deps.fetchImpl, typeCounts: () => snapshot.typeCounts(),
   });
-  // while that sweep is failing, the plan's discs are asked of the other
+  // while that sweep is failing, or held off adsb.lol by its daily quota, the plan's discs are asked of the other
   // community providers (sweepFailover.ts; idle otherwise)
+  // ... on demand: only while GET /api/data/aircraft/global has been
+  // requested in the last FAILOVER_DEMAND_WINDOW_MS (set in its handler)
+  let lastGlobalRequestAt: number | null = null;
+  const worldFeedDemand = (): boolean =>
+    lastGlobalRequestAt != null && now() - lastGlobalRequestAt <= FAILOVER_DEMAND_WINDOW_MS;
   const sweepFailover = createSweepFailover({
     env, fetchImpl: deps.fetchImpl, now, livePositions: () => snapshot.rows({}),
+    demand: worldFeedDemand, lastDemandAt: () => lastGlobalRequestAt,
   });
   const opensky = startOpenSkyGlobal({ env, fetchImpl: deps.fetchImpl });
 
@@ -299,9 +312,14 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     }
   };
 
+  let laddFlaggedRows = 0;
   const onBatch = (b: FixBatch) => {
     snapshot.ingest(b, now());
     try { intent.ingest(b, now()); } catch (e) { noteError("intent", e); }
+    // FAA LADD privacy registry: any provider's row that carries the LADD bit
+    // teaches it (laddRegistry.ts), so it keeps learning whatever adsb.lol's
+    // quota leaves of the /v2/ladd scope
+    try { laddFlaggedRows += learnLaddFromRows(b.aircraft, deps.ladd ?? laddRegistry()); } catch (e) { noteError("ladd", e); }
     if (b.origin === "viewport" && b.disc) {
       try { sweep.scheduler.creditViewportDisc(b.disc, now()); } catch (e) { noteError("viewport-credit", e); }
       // a disc a viewer's map just fetched is not asked again by the failover
@@ -349,6 +367,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   app.get("/api/data/aircraft/global", (req, res) => {
     complianceAuditTick();
     const t = now();
+    lastGlobalRequestAt = t; // the worldwide feed is wanted (sweep failover demand)
     const q = req.query as Record<string, unknown>;
     const bbox = parseBBoxQuery(q);
     const lawfulOnly = String(q.lawful ?? "") === "1";
@@ -379,7 +398,9 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     const sources = Object.entries(SOURCE_META).map(([k, m]) => ({
       key: k, ...m,
       active: k === "opensky" ? !!osStatus.enabled
-        : k === "adsblol" ? (!!sweepStatus.enabled || (summary.rows_by_source[k] || 0) > 0)
+        // the sweep counts only while the daily quota lets it ask adsb.lol
+        : k === "adsblol" ? ((!!sweepStatus.enabled && !sweepStatus.governor.quota.exhausted && sweepStatus.governor.quota.mode !== "watched_only")
+          || (summary.rows_by_source[k] || 0) > 0)
         : (summary.rows_by_source[k] || 0) > 0,
       rows: summary.rows_by_source[k] || 0,
       last_ingest_at: summary.source_last_ingest_at[k] ?? null,
@@ -430,6 +451,12 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
             ...fast,
           },
         },
+        // FAA LADD privacy registry (counts only): what it holds and how many
+        // rows carrying the LADD bit have taught it since boot
+        ladd: {
+          ...(deps.ladd ?? laddRegistry()).size, flagged_rows_total: laddFlaggedRows,
+          learns_from: "adsb.lol /v2/ladd (paced by its daily quota) and the LADD bit (dbFlags 8) on any provider's rows",
+        },
         internal_errors: { ...internalErrors },
         note: "remote oceans and polar regions may be uncovered (ground-receiver ADS-B only); aircraft without an ICAO type appear only where a disc (sweep or viewer) was fetched in the last 10 min",
       },
@@ -468,6 +495,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     publish: (b) => publishFixes(b),
     fetchImpl: deps.fetchImpl,
     now,
+    env, // ADSBLOL_API_KEY rides on the adsb.lol lookup
     fallbackHex: (hex) => filler.fetchHex(hex),
   });
   app.get("/api/data/aircraft/live/:hex", async (req, res) => {
