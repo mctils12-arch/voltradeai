@@ -116,7 +116,7 @@ The response is positional: `rows` is an array of arrays in `fields` order.
 | `t_src` | `fix` \| `receive_minus_age` \| `unadjusted` | `fix`: written at the fix's own time. `receive_minus_age`: the line was stamped when the server received it and the feed's position age was subtracted (good to 1-2 s). `unadjusted`: no age was recorded, the time may be late |
 | `src` | `adsblol` \| `adsbfi` \| `airplaneslive` \| `opensky` \| `null` | provider of the fix |
 | `pos_type` | `adsb_icao`, `adsr_icao`, `mlat`, `tisb_*`, `mode_s`, `null` | `mlat` and `tisb_*` positions are computed on the ground, not by the aircraft, and are noisier |
-| `origin` | `archive` \| `live` | `live` = the newest fix in the live snapshot, appended when it is newer than the last archived line |
+| `origin` | `archive` \| `tracked_log` \| `live` | `live` = the newest fix in the live snapshot, appended when it is newer than the last archived line. `tracked_log` = a fix from a tracked tail's permanent log (see "Full history for saved tails") |
 
 Other parts of the response:
 
@@ -130,8 +130,9 @@ Other parts of the response:
   gap. `stride` is k. `vr_ms` was computed before thinning. If there are more
   gap end points than `max`, `gap_endpoints_kept` is `false`.
 - `coverage`: first and last fix time, counts of broadcast / derived / missing
-  vertical rates and of each altitude kind, the hour files read, and `archive`
-  (see "How far back history goes").
+  vertical rates and of each altitude kind, the hour files read, `archive`
+  (see "How far back history goes") and `tracked_log` (see "Full history for
+  saved tails").
 - `attitude`: plain statements that pitch is not in the data and that bank is
   only in `roll_deg` where broadcast.
 
@@ -159,9 +160,12 @@ The archive keeps a sample, not every broadcast:
 | a tail on the server's tracked list | every 30 s poll, plus the provider's full day trace every 15 min |
 | the aircraft a viewer has selected | every distinct fix the live endpoint receives (about every 2.5 s), since 2026-11-16 |
 
-A fix is archived only when some path received it: a viewer's map covered it,
-the tail is tracked, or the worldwide sweep was archiving (the sweep is paused
-whenever the volume has under 2 GiB free).
+A fix is archived only when some path received it and that path archives: a
+viewer's map covered it, a viewer had it selected, or the tail is tracked.
+Since 2026-11-17 the worldwide sweep is NOT archived (the owner's decision, to
+cut the hosting bill): an aircraft nobody was looking at and nobody tracks has
+no history. `coverage.archive` on endpoint 2 says so (`enabled: false`,
+`decision`).
 
 ## 4. Fleet history: past flights for saved tail numbers (new)
 
@@ -188,6 +192,7 @@ Per aircraft:
 | `tracked` | the tail's entry on the server's tracked list, or `null` |
 | `flights` | newest first, at most 200 listed; `flight_count` is the total |
 | `archive` | `fixes`, `first_fix_t` (the first fix the archive holds for this aircraft), `last_fix_t`, `fixes_dropped_over_cap` (not zero means older flights exist and were not read), `registrations_seen` |
+| `tracked_log_lines` | lines read from the tail's permanent log for what is older than the local hour files; `0` when it has none (see "Full history for saved tails") |
 | `live` | the newest live fix (`seen_t`, `age_s`, `fresh`, `lat`, `lon`, `alt_m`, `on_ground`, `gs_ms`, `track_deg`, `callsign`, `src`) or `null` |
 | `live_note` | `"no signal now: ..."` when `live` is `null`; `"last known position, N s old"` when the fix is over 2 minutes old |
 
@@ -236,10 +241,46 @@ result feeds endpoint 3.
 ## 6. The server's tracked tail list (existing)
 
 `GET /api/data/aircraft/tracked` returns `planes` (`reg`, `hex` once learned,
-`last_seen` ms, `last_pos`), `cap` (20) and `poll_s` (30).
+`last_seen` ms, `last_pos`, and since 2026-11-17 `log`), `cap` (20), `poll_s`
+(30) and a top-level `log` (the total against the caps).
 `POST /api/data/aircraft/tracked/:reg` adds a tail,
 `DELETE /api/data/aircraft/tracked/:reg` removes one. A tracked tail is
 archived at every poll whether or not anyone is looking at it.
+
+### Full history for saved tails (new, 2026-11-17)
+
+A tail on the tracked list has a permanent flight log of its own, kept apart
+from the shared archive. It is where history older than the shared archive's
+window (about 22 days on the server) comes from.
+
+- **What is in it.** Every position fix the server receives for that aircraft,
+  from any path, written once at the fix's own time. It is not thinned: about
+  one fix every 5 s while the aircraft broadcasts, more while someone has it
+  selected. It starts the day the tail was added (2026-11-17 at the earliest);
+  nothing from before is in it.
+- **How to read it.** Endpoints 3 and 4, unchanged. Endpoint 4 lists the
+  flights it holds from before the shared archive's window
+  (`tracked_log_lines` says how many lines it gave). Endpoint 3 serves the
+  part of a window that is older than the oldest hour file on the server from
+  it; those points say `origin: "tracked_log"`, and `coverage.tracked_log` states what
+  the log holds (`months`, `bytes`, `first_fix_t`, `last_fix_t`) and whether
+  this window read it. These points carry `alt_geom_m`, `alt_baro_m` and the
+  broadcast `vr_ms`; `roll_deg` is always `null` on them.
+- **The cap.** 50 MiB on disk per aircraft and 500 MiB for all of them
+  together. Over a cap the oldest month is deleted first; the current month is
+  never deleted, so an aircraft whose current month alone reaches the cap stops
+  being logged until the month turns. There is no age limit.
+- **Status.** Each row of `planes` has `log`: `months`, `bytes`, `first_fix_t`,
+  `last_fix_t`, `paused` and `why` (the hex is not known yet, a cap, low disk,
+  or the writer switched off). The top-level `log` has `bytes`,
+  `cap_bytes_per_plane`, `cap_bytes_total`, counters, and `untracked_logs`.
+- **Removing a tail keeps its log.** `DELETE` stops new fixes from being
+  written; what was logged stays on disk, is still served by endpoint 3 for
+  that hex, still counts toward the 500 MiB total and can be deleted by that
+  cap. Adding the tail again continues the same log.
+- **Licence.** Each point keeps the provider that served it (`src`). The log
+  holds `adsblol` rows (ODbL) and, where a fallback served the fix, `adsbfi` /
+  `airplaneslive` rows (non-commercial): filter on `src` as everywhere else.
 
 ## 7. Flight plan (existing)
 
@@ -316,7 +357,9 @@ Limits to show honestly:
 
 ## How far back history goes
 
-- Raw fixes are kept 30 days in total, then deleted everywhere.
+- Raw fixes are kept 30 days in total, then deleted everywhere. The one
+  exception is a tail on the tracked list: its permanent log has no age limit
+  (see "Full history for saved tails"), only a size cap.
 - Endpoints 3, 4 and 5 read the hour files on the server's local disk only.
   With the cold tier (R2) configured, days older than about 22 days may already
   be off the local disk and are then not read by these endpoints.
@@ -353,3 +396,4 @@ domain.
 | track | 48 h window, 2 to 5000 points, 50,000 fixes read per request (newest kept, the rest counted) |
 | fleet | 20 aircraft, 200 flights listed per aircraft, 1,000,000 fixes per request split across the aircraft asked for (newest kept, the rest counted) |
 | tracked list | 20 tails |
+| permanent log of tracked tails | 50 MiB per aircraft, 500 MiB in total, oldest month deleted first |

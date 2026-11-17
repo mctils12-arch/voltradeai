@@ -10,7 +10,18 @@
 //   - globalScopes.ts  — adsb.lol mil / ladd / pia
 //   - openskyGlobal.ts — OPTIONAL, only with OPENSKY_CLIENT_ID+SECRET
 //                        (non-commercial; providerCompliance.ts)
-// RECORDING: sweep + OpenSky fixes go through the EXISTING archiveAircraft
+// RECORDING — THE BULK WORLD LOG IS OFF (owner's decision, 2026-11-17: "for
+// the memory get rid of it to reduce vol ... I want to reduce my railway cost
+// per month rn or keep full flight logs for watched or favorited planes and if
+// that vol get to big have a cap as well but in that order of logic"). Sweep,
+// sweep-failover and OpenSky fixes are served live and NOT written unless
+// GLOBAL_SWEEP_ARCHIVE is "1" / "true" / "on" (sweepArchiveEnabled). Unset is
+// off: until 2026-11-17 unset meant on. What was offered and skipped is still
+// counted (fixes_skipped_disabled_total). The tails on the tracked list keep a
+// full permanent log of their own (trackedPlaneLog.ts), whatever this is set
+// to; the viewport writer (routes.ts) and the selected-aircraft lane writer
+// below are not part of the bulk log and are unchanged.
+// WHEN IT IS ON: sweep + OpenSky fixes go through the EXISTING archiveAircraft
 // path (standard adaptive thinning + record-on-change), behind a STRICTER,
 // SEPARATE volume gate than every other aircraft writer: they are archived
 // only while the volume has ≥ SWEEP_ARCHIVE_MIN_FREE_BYTES (2 GiB) free —
@@ -23,7 +34,6 @@
 // cheap, filling the bot's volume is not. Skipped fixes are still served
 // live; archived-vs-skipped counters are in the endpoint's coverage block.
 // Viewport and scope fixes are archived by their own paths (never twice).
-// GLOBAL_SWEEP_ARCHIVE=0 keeps the snapshot live but stops these writes.
 //
 // SELECTED-AIRCRAFT LANE (2026-11-16, owner: "archive every received
 // position"): fixes with origin "fastlane" (the one aircraft a viewer has
@@ -69,6 +79,19 @@ import { idleTtlMap } from "./idleTtl"; // memory audit 2026-11-03 A3
 export const GLOBAL_EVICT_TICK_MS = 30_000;
 /** sweep/OpenSky archive floor — 2x the shared MIN_FREE_BYTES (1 GiB) */
 export const SWEEP_ARCHIVE_MIN_FREE_BYTES = 2 * 1_073_741_824;
+/** Is the bulk world-sweep log switched on? OFF unless GLOBAL_SWEEP_ARCHIVE
+ *  is "1" / "true" / "on" (owner's decision 2026-11-17; before it, unset was
+ *  on). When on, the 2 GiB free-disk gate below still applies. */
+export function sweepArchiveEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = String(env.GLOBAL_SWEEP_ARCHIVE ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "on";
+}
+export const SWEEP_ARCHIVE_DECISION =
+  "The bulk log of every aircraft in the world (world sweep, sweep failover and OpenSky fixes) is OFF by the owner's decision of 2026-11-17, "
+  + "to cut the hosting bill: those fixes are served live and are not written to the archive. They are still counted here as offered and "
+  + "skipped (fixes_skipped_disabled_total). To turn the bulk log on, set GLOBAL_SWEEP_ARCHIVE=1 (\"true\" and \"on\" also work); the 2 GiB "
+  + "free-disk gate then still applies. Not affected: tails on the tracked list keep a full, permanent, capped flight log "
+  + "(GET /api/data/aircraft/tracked, `log`), and aircraft a viewer's map covers or a viewer has selected are archived as before.";
 /** Pure gate for sweep-sourced archive writes (fails CLOSED). */
 export function sweepArchiveAllowed(freeBytes: number | null): boolean {
   return freeBytes != null && volumeAllowsWrite(freeBytes, SWEEP_ARCHIVE_MIN_FREE_BYTES);
@@ -185,7 +208,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   const now = deps.now ?? Date.now;
   const sites: SitePoint[] = deps.sites
     ?? ((datacoreSites as { sites?: SitePoint[] }).sites || []).map((s) => ({ lat: s.lat, lon: s.lon }));
-  const archiveOn = String(env.GLOBAL_SWEEP_ARCHIVE ?? "1").trim() !== "0";
+  const archiveOn = sweepArchiveEnabled(env); // off unless set (owner's decision 2026-11-17)
   const snapshot = new GlobalSnapshot();
   registerHeapGauge("globalAircraft.snapshot", () => ({ entries: snapshot.size, cap: SNAPSHOT_CAP })); // memory audit 2026-11-03 A0
   // AIRCRAFT INTENT A (2026-10-14): mode bits / selected altitude / derived
@@ -236,7 +259,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     fixes_offered_total: 0,          // sweep/OpenSky fixes that reached the archive decision
     lines_archived_total: 0,         // lines actually written (post adaptive thinning)
     fixes_skipped_low_disk_total: 0, // skipped: free < SWEEP_ARCHIVE_MIN_FREE_BYTES or unreadable
-    fixes_skipped_disabled_total: 0, // skipped: GLOBAL_SWEEP_ARCHIVE=0
+    fixes_skipped_disabled_total: 0, // skipped: the bulk log is off (GLOBAL_SWEEP_ARCHIVE not "1"/"true"/"on")
   };
   const readFree = deps.readFree ?? readFreeBytes;
   // internal failures are COUNTED (coverage.internal_errors) and logged on
@@ -436,7 +459,12 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
         snapshot: { ...summary, evict_after_s: snapshot.evictMs / 1000, cap: snapshot.cap },
         archive: {
           enabled: archiveOn,
-          gate: `sweep/OpenSky fixes archived only while ≥ ${SWEEP_ARCHIVE_MIN_FREE_BYTES} bytes (2 GiB) are free — stricter than the shared 1 GiB floor so viewport/tracked archiving keeps priority; fails closed when free space is unreadable`,
+          // plain words first: is the bulk world log on, by whose decision, how to change it
+          decision: archiveOn
+            ? "The bulk log of every aircraft in the world is ON (GLOBAL_SWEEP_ARCHIVE is set); the owner's decision of 2026-11-17 was to keep it off. Unset GLOBAL_SWEEP_ARCHIVE to turn it off."
+            : SWEEP_ARCHIVE_DECISION,
+          turn_on: "GLOBAL_SWEEP_ARCHIVE=1",
+          gate: `when the bulk log is on: sweep/OpenSky fixes archived only while ≥ ${SWEEP_ARCHIVE_MIN_FREE_BYTES} bytes (2 GiB) are free — stricter than the shared 1 GiB floor so viewport/tracked archiving keeps priority; fails closed when free space is unreadable`,
           min_free_bytes: SWEEP_ARCHIVE_MIN_FREE_BYTES,
           free_bytes: freeBytes,
           paused: archiveOn && !sweepArchiveAllowed(freeBytes) && freeAt > 0,

@@ -152,3 +152,20 @@ test("after the deploy: the persisted pre-change total is served first, then the
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+// PIN (2026-11-17; passes before the change too, by design): the tracked tails'
+// permanent log keeps its files one directory down (aircraft_tracked/<HEX>/),
+// so this module's walk neither lists it as a stream nor counts its lines —
+// each of them is a fix the aircraft feed already counted.
+test("the tracked tails' permanent log adds no stream and no observation: its fixes are the aircraft feed's", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "pstats-tracked-"));
+  fs.mkdirSync(path.join(base, "aircraft"), { recursive: true });
+  fs.mkdirSync(path.join(base, "aircraft_tracked", "AB8C8E"), { recursive: true });
+  const line = JSON.stringify({ t: 1, i: "ab8c8e", la: 1, lo: 2 });
+  fs.writeFileSync(path.join(base, "aircraft", "2026-11-17-15.jsonl"), `${line}\n${line}\n`);
+  fs.writeFileSync(path.join(base, "aircraft_tracked", "AB8C8E", "2026-11.jsonl"), `${line}\n${line}\n${line}\n`);
+  _resetPlatformStatsCache();
+  assert.equal(await countObservations(base), 2, "a fix kept in both places is one observation, counted where the feed archives it");
+  assert.deepEqual(listArchiveDirs(base), ["aircraft"]);
+  assert.equal(streamsRecording(["aircraft", "vessels"], listArchiveDirs(base)), 2, "one aircraft feed, however many places keep its fixes");
+});

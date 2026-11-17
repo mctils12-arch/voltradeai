@@ -859,3 +859,22 @@ test("originOfPosType decodes broadcast vs ground-derived (the one decode table)
   assert.equal(originOfPosType(null), "unknown");
   assert.equal(originOfPosType("something_new"), "unknown");
 });
+
+test("archiveStats counts a kind kept one directory per entity (aircraft_tracked/<HEX>/YYYY-MM.jsonl): its bytes are not reported as 0", () => {
+  const base = tmp();
+  const a = path.join(base, "aircraft_tracked", "AB8C8E"), b = path.join(base, "aircraft_tracked", "A42DEE");
+  fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });
+  fs.writeFileSync(path.join(a, "2026-10.jsonl.gz"), zlib.gzipSync('{"t":1}\n'));
+  fs.writeFileSync(path.join(a, "2026-11.jsonl"), '{"t":2}\n{"t":3}\n');
+  fs.writeFileSync(path.join(b, "2026-09.jsonl.gz"), zlib.gzipSync('{"t":0}\n'));
+  // a flat kind beside it, with a stray sub-directory: counted as it always was
+  fs.mkdirSync(path.join(base, "fredmacro", "scratch"), { recursive: true });
+  fs.writeFileSync(path.join(base, "fredmacro", "2026-07-05.jsonl"), '{"x":1}\n');
+  fs.writeFileSync(path.join(base, "fredmacro", "scratch", "big.jsonl"), "x".repeat(500));
+  const s = archiveStats(base);
+  const want = ["AB8C8E/2026-10.jsonl.gz", "AB8C8E/2026-11.jsonl", "A42DEE/2026-09.jsonl.gz"].reduce((n, f) => n + fs.statSync(path.join(base, "aircraft_tracked", f)).size, 0);
+  assert.deepStrictEqual(s.kinds.aircraft_tracked, { files: 3, bytes: want, oldest: "A42DEE/2026-09.jsonl.gz", newest: "AB8C8E/2026-11.jsonl" });
+  assert.deepStrictEqual({ files: s.kinds.fredmacro.files, bytes: s.kinds.fredmacro.bytes }, { files: 1, bytes: 8 }, "a kind with top-level files is counted as before");
+  assert.strictEqual(s.totalBytes, want + 8, "the permanent log's bytes are in the volume total");
+  fs.rmSync(base, { recursive: true, force: true });
+});
