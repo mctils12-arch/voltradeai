@@ -185,6 +185,23 @@ export interface FilingIndexEntry {
   title: string;
   filedAt: string | null;
   indexUrl: string;
+  /** The entry's own form type: the Atom `<category … term="…">`, else the
+   *  title's text before " - ". Null when the entry states neither. */
+  form: string | null;
+}
+
+/** The form type one "getcurrent" entry states about itself. */
+export function feedEntryForm(entryBlock: string, title: string): string | null {
+  const cat = entryBlock.match(/<category\b[^>]*\bterm="([^"]*)"/i);
+  const fromCategory = cat ? cat[1].trim() : "";
+  if (fromCategory) return fromCategory;
+  const lead = title.match(/^(.+?) - /);
+  return lead ? lead[1].trim() || null : null;
+}
+
+/** Form 4 and its amendment, by exact match. EDGAR's `type=4` is a PREFIX. */
+export function isForm4Type(form: string | null): form is "4" | "4/A" {
+  return form === "4" || form === "4/A";
 }
 
 const SEC_UA = { "User-Agent": "voltradeai-datacore/1.0 (research@voltradeai.com)" };
@@ -214,6 +231,7 @@ export function parseFilingFeed(atomXml: string): FilingIndexEntry[] {
       title,
       filedAt: filedMatch ? filedMatch[1] : null,
       indexUrl,
+      form: feedEntryForm(entryBlock, title),
     });
   }
   return out;
@@ -261,9 +279,45 @@ async function fetchText(fetchImpl: FetchFn, url: string): Promise<string> {
   return r.text();
 }
 
+/** What the latest Form 4 poll read off the feed page. Counts only. */
+export interface Form4PollStats {
+  at: string;
+  /** distinct accessions on the feed page */
+  feed_filings: number;
+  /** of those, form type exactly 4 or 4/A */
+  form4: number;
+  /** another form type (424B2, 485BPOS, 497…): not fetched */
+  other_form: number;
+  /** the entry stated no form type: fetched, kept only with an issuer */
+  unknown_form: number;
+  /** Form 4s on the page beyond this poll's limit: left for the next poll or the nightly pass */
+  over_limit: number;
+  /** documents fetched and returned */
+  returned: number;
+  /** fetched, but no ownership document or no issuer in it: not returned, not archived */
+  no_issuer: number;
+  /** the directory or the document could not be read */
+  failed: number;
+}
+let lastPollStats: Form4PollStats | null = null;
+export function form4PollStats(): Form4PollStats | null {
+  return lastPollStats;
+}
+
 /** Fetches the N most recent Form 4 filings, parsed. Sequential with a small
  *  delay between filings (SEC fair-access: keep well under 10 req/s even
- *  though each filing needs 2 requests — index.json then the XML). */
+ *  though each filing needs 2 requests — index.json then the XML).
+ *
+ *  [REPAIR 2026-11-17] EDGAR's `type=4` is a prefix match. Measured live
+ *  2026-11-17 16:14Z on a 100-entry page: 30 entries were Form 4 (15
+ *  filings) and 70 were 424B2 / 497J / 485BXT / 485APOS / 40-17G / 497K (54
+ *  filings). The poll took the first 25 filings whatever their form and wrote
+ *  each prospectus as a Form 4 row with no issuer. Now: only entries whose
+ *  own form type is exactly 4 or 4/A are fetched, the limit counts Form 4s,
+ *  and a document with no issuer is never returned. (The page size is
+ *  unchanged; what the page holds beyond the limit is `over_limit`.) An entry stating no form type is still fetched
+ *  (a feed format change must not silence the archive) and kept only if its
+ *  document names an issuer. */
 export async function fetchLatestForm4Filings(
   limit: number,
   fetchImpl: FetchFn = fetch as any,
@@ -271,22 +325,40 @@ export async function fetchLatestForm4Filings(
 ): Promise<Form4Filing[]> {
   const feedUrl = edgarCurrentFeedUrl("4", limit * 3);
   const feedXml = await fetchText(fetchImpl, feedUrl);
-  const entries = parseFilingFeed(feedXml).slice(0, limit);
+  const all = parseFilingFeed(feedXml);
+  const wanted = all.filter((e) => e.form == null || isForm4Type(e.form));
+  const entries = wanted.slice(0, Math.max(0, limit));
+  const stats: Form4PollStats = {
+    at: new Date().toISOString(),
+    feed_filings: all.length,
+    form4: all.filter((e) => isForm4Type(e.form)).length,
+    other_form: all.length - wanted.length,
+    unknown_form: all.filter((e) => e.form == null).length,
+    over_limit: wanted.length - entries.length,
+    returned: 0,
+    no_issuer: 0,
+    failed: 0,
+  };
   const out: Form4Filing[] = [];
   for (const entry of entries) {
     try {
       const base = entry.indexUrl.replace(/[^/]+$/, "");
       const indexJson = JSON.parse(await fetchText(fetchImpl, `${base}index.json`));
       const xmlName = pickOwnershipXmlName(indexJson);
-      if (!xmlName) continue;
-      const xml = await fetchText(fetchImpl, `${base}${xmlName}`);
-      const parsed = parseForm4Xml(xml);
-      out.push({ ...parsed, accession: entry.accession, filedAt: entry.filedAt, cik: entry.cik, indexUrl: entry.indexUrl });
+      const parsed = xmlName ? parseForm4Xml(await fetchText(fetchImpl, `${base}${xmlName}`)) : null;
+      if (parsed && parsed.issuerCik) {
+        out.push({ ...parsed, accession: entry.accession, filedAt: entry.filedAt, cik: entry.cik, indexUrl: entry.indexUrl });
+        stats.returned++;
+      } else {
+        stats.no_issuer++;
+      }
     } catch {
       // one bad filing (malformed doc, transient 4xx) never kills the batch
+      stats.failed++;
     }
     if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
   }
+  lastPollStats = stats;
   return out;
 }
 
@@ -478,4 +550,5 @@ export function bootForm4Poll(intervalMs = 15 * 60_000): void {
 export function _resetForm4CacheForTests(): void {
   cache = null;
   polling = false;
+  lastPollStats = null;
 }

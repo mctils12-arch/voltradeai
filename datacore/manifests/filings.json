@@ -17,7 +17,7 @@
   "form": "only on recovered rows: EDGAR daily form index type, \"4\" or \"4/A\"",
   "backfilledAt": "only on recovered rows: ISO time the nightly completeness pass (server/edgarForm4Completeness.ts) fetched a filing the live poll had not archived; the row sits in the day file of that night (for an older day that can be months after filedAt), filedAt is the index's filing date; read by filed day with ?filed_from=&filed_to= on the history routes (server/filedDayHistory.ts)"
  },
- "confidence_model": "as-filed regulatory records (high; filing errors possible, never corrected in-archive)",
+ "confidence_model": "as-filed regulatory records (high; filing errors possible, never corrected in-archive). Rows the live poll wrote from 2026-07-04 until the 2026-11-17 repair deployed include other form types (424B2, 424B3, 485BPOS, 497 and similar: EDGAR's type=4 listing is a prefix match) stored with issuerCik, issuerName and issuerTradingSymbol null and no owners or transactions: 189 of 600 rows filed 2026-11-13. They are not Form 4s; a reader counts a row only when issuerCik is set. From the repair on, the poll fetches only entries whose form type is exactly 4 or 4/A and never writes a row without an issuer",
  "geo_fields": [],
  "entity_key": "issuerTradingSymbol (company) + owners[].cik (person)",
  "sentiment": null,

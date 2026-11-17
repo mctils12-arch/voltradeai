@@ -17,8 +17,8 @@
 # gates them in node-build against ci/tsc_baseline.txt, and two pins for one
 # number is how they drift apart.
 
-tests_run_in_ci          910      non-decreasing
-tests_gating_merge       910      non-decreasing
+tests_run_in_ci          911      non-decreasing
+tests_gating_merge       911      non-decreasing
 silent_py_handlers       243      non-increasing
 bare_except              3        non-increasing
 empty_ts_catch           480      non-increasing
@@ -30,12 +30,12 @@ order_post_sites         6        non-increasing
 design_token_drift       0        non-increasing
 long_try_empty_catch     3        non-increasing
 boundary_any             232      non-increasing
-commented_empty_catch    109      non-increasing
+commented_empty_catch    108      non-increasing
 conflicting_const        3        non-increasing
 undeclared_py_import     2        non-increasing
 dead_workflow_env        0        non-increasing
 uncapped_surface         0        non-increasing
-assertions               39200    non-decreasing
+assertions               39231    non-decreasing
 harness_rules_checked    91       non-decreasing
 baseline_divergence      0        non-increasing
 dup_precise_literal      3        non-increasing
