@@ -893,3 +893,41 @@ def test_run_ops_checks_passes_the_uptime_to_the_upstream_check():
     assert late["severity"] == hc.WARN and "STARVED" in late["detail"]
     young = [f for f in hc.run_ops_checks(*args, uptime_s=600, now_ms=NOW_MS) if f["label"] == "adsb.lol upstream"][0]
     assert "STARVED" not in young["detail"]
+
+
+# ── adsb.lol's daily quota (2026-11-17): a sweep that does not ask adsb.lol by design is not starved ──
+
+def _quota_gov(**quota):
+    g = _gov(bg_n=1, r429=1, fg_n=3, fg_ok=0)   # the live reading after a boot: 1 sweep request, the quota's 429
+    g["effective_bg_rps"] = 0.19
+    g["quota"] = {"limit": 500, "remaining": 0, "exhausted": True, "mode": "watched_only", "key_configured": False, **quota}
+    return g
+
+
+def test_adsb_upstream_quota_spent_or_small_is_not_starved_and_not_a_429_warning():
+    # live 2026-11-17 23:26Z: limit 500, remaining 0, watched_only, no key; uptime over an hour
+    f = hc.check_adsb_upstream(_quota_gov(), uptime_s=3 * 3600)
+    assert f["severity"] == hc.OK, f
+    assert "STARVED" not in f["detail"]
+    assert "500/day" in f["detail"] and "spent until its reset" in f["detail"]
+    assert "ADSBLOL_API_KEY" in f["detail"]
+    # the quota not spent yet today, still small: the same answer, worded for what it is
+    g = hc.check_adsb_upstream(_quota_gov(remaining=312, exhausted=False), uptime_s=3 * 3600)
+    assert g["severity"] == hc.OK and "small: watched planes only" in g["detail"] and "312 left" in g["detail"]
+
+
+def test_adsb_upstream_a_configured_key_with_a_small_or_spent_quota_is_a_warning():
+    f = hc.check_adsb_upstream(_quota_gov(key_configured=True), uptime_s=3 * 3600)
+    assert f["severity"] == hc.WARN
+    assert "key" in f["fix"].lower()
+
+
+def test_adsb_upstream_full_quota_is_judged_as_before_including_starved():
+    # a large quota (a key), mode full: the starved rule still applies
+    g = _quota_gov(limit=7200, remaining=5000, exhausted=False, mode="full", key_configured=True)
+    f = hc.check_adsb_upstream(g, uptime_s=3 * 3600)
+    assert f["severity"] == hc.WARN and "STARVED" in f["detail"]
+    # and a build without the quota block (older server) is judged exactly as before
+    old = _gov(bg_n=1, r429=1, fg_n=3, fg_ok=0)
+    old["effective_bg_rps"] = 0.19
+    assert "STARVED" in hc.check_adsb_upstream(old, uptime_s=3 * 3600)["detail"]

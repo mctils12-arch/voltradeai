@@ -677,6 +677,20 @@ def check_adsb_upstream(governor, min_results=30, max_429_share=0.25, max_failov
     fg_fail = fg_n - (fg.get("ok") or 0)
     detail = (f"sweep {bg_n} req/h, {r429} rate-limited; viewport {fg_n} req/h, {fg_fail} failed over "
               f"to the next provider")
+    # adsb.lol's DAILY QUOTA (2026-11-17: 500 requests a day per IP without a key). With a small or spent
+    # quota the sweep does not ask adsb.lol at all, by design (the governor's quota block): that is not a
+    # starved sweep, and its 429 share means nothing. It is worth a warning only when a key IS configured
+    # and the quota is still small or spent, because then the key is not doing its job.
+    quota = governor.get("quota") or {}
+    if quota.get("exhausted") or quota.get("mode") == "watched_only":
+        state = "spent until its reset" if quota.get("exhausted") else "small: watched planes only"
+        q = (f" (adsb.lol daily quota {quota.get('limit')}/day, {quota.get('remaining')} left, {state}; "
+             f"the worldwide feed is served on demand by the other providers)")
+        if quota.get("key_configured"):
+            return finding(WARN, label, detail + q,
+                           "ADSBLOL_API_KEY is set but the quota is still small or spent: check the key's tier "
+                           "at adsb.lol and coverage.sweep.governor.quota on /api/data/aircraft/global")
+        return finding(OK, label, detail + q + " — no API key set (ADSBLOL_API_KEY); a key raises the limit")
     # judged only with a full hour of outcomes behind it: a young container has sent less by construction
     pace = governor.get("effective_bg_rps")
     if pace is None:
