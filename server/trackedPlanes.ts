@@ -32,7 +32,7 @@ import fs from "fs";
 import path from "path";
 import { archiveAircraft, archiveAircraftAt, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
-import { publishFixes } from "./aircraftFixBus";
+import { providerClockMs, publishFixes } from "./aircraftFixBus";
 import { adsbLolGovernor, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 
 // ── TRACE BACKFILL (phase 2, same 2026-08-08 directive: "every time a plane
@@ -242,9 +242,8 @@ export function rawHasPosition(a: RawAircraft): boolean {
 /** The provider's own clock for a response (readsb `now`, ms), bounded by
  *  ours so a skewed upstream clock can never date a reading in the future. */
 export function upstreamBaseMs(raw: unknown, nowMs: number): number {
-  const n = finiteNum((raw as { now?: unknown } | null)?.now);
-  if (n == null || n <= 0) return nowMs;
-  return Math.min(nowMs, n < 1e11 ? n * 1000 : n); // seconds form tolerated
+  // one unit rule for every publisher: aircraftFixBus.providerClockMs
+  return providerClockMs((raw as { now?: unknown } | null)?.now, nowMs) ?? nowMs;
 }
 
 /** Pure: what one provider row says about the transponder being heard.

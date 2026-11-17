@@ -20,7 +20,7 @@
 // paths here, and an empty bucket just skips the fill (counted).
 
 import { mapPointAircraft, type DiscPlan } from "./aircraftTiling";
-import { publishFixes } from "./aircraftFixBus";
+import { providerClockMs, publishFixes } from "./aircraftFixBus";
 
 /** viewports wider than this (one disc) are not gap-filled */
 export const GAPFILL_MAX_RADIUS_NM = 60;
@@ -123,7 +123,8 @@ export function createGapFiller(deps: {
         publishFixes({
           provider: GAPFILL_PROVIDER, origin: "gapfill",
           aircraft: (merged as unknown[]).slice(primary.length) as never[], fetchedAt: now(),
-          upstreamNowMs: typeof raw?.now === "number" ? raw.now : null,
+          // adsb.fi's `now` is in SECONDS (aircraftFixBus.providerClockMs)
+          upstreamNowMs: providerClockMs(raw?.now),
         });
       }
       return { aircraft: merged, added };

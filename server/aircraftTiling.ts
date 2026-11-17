@@ -37,7 +37,7 @@
 //     so the global snapshot reuses viewport results instead of refetching.
 
 import { adsbLolGovernor, GOVERNED_PROVIDER_KEY, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
-import { publishFixes } from "./aircraftFixBus";
+import { providerClockMs, publishFixes } from "./aircraftFixBus";
 import { attachIntent, parseReadsbIntent } from "./aircraftIntent";
 
 /** adsb.lol / airplanes.live / adsb.fi point-query hard radius cap (nm). */
@@ -364,7 +364,8 @@ export async function fetchDiscs(plan: DiscPlan, deps: TiledFetchDeps): Promise<
         // fix bus: the global snapshot reuses this disc (never refetches it)
         publishFixes({
           provider: p.key, origin: "viewport", aircraft: mapped, fetchedAt: Date.now(),
-          upstreamNowMs: numOrNull(raw?.now),
+          // adsb.fi sends `now` in seconds, the other two in ms (aircraftFixBus)
+          upstreamNowMs: providerClockMs(raw?.now),
           disc: { lat: c.lat, lon: c.lon, radiusNm: plan.radiusNm },
         });
         return mapped;

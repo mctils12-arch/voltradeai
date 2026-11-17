@@ -29,6 +29,9 @@ import type { FixBatch } from "./aircraftFixBus";
 
 export const SNAPSHOT_EVICT_MS = 10 * 60_000;
 export const SNAPSHOT_CAP = 25_000;
+/** a batch of at least this many valid rows, ALL refused as too old, is
+ *  logged and counted as a suspect provider clock (see ingest) */
+export const ALL_REFUSED_MIN_ROWS = 3;
 /** fixes this close in time are a tie → prefer the lawful provider */
 export const TIE_MS = 1_000;
 export const LAWFUL_PROVIDER = "adsblol";
@@ -115,6 +118,13 @@ export class GlobalSnapshot {
   evictedTotal = 0;
   lastIngestAt = 0;
   private perSourceLastAt: Record<string, number> = {};
+  /** fixes refused at ingest because their own time was already past the
+   *  eviction age, per provider. A few are normal (a row the provider last
+   *  heard long ago). A provider whose EVERY fix lands here has a clock we
+   *  are misreading — the adsb.fi seconds-for-milliseconds case (2026-11-16)
+   *  dropped that provider's whole contribution with nothing counting it. */
+  private refusedTooOld: Record<string, number> = {};
+  private allRefusedBatches: Record<string, number> = {};
 
   constructor(o: { evictMs?: number; cap?: number } = {}) {
     this.evictMs = o.evictMs ?? SNAPSHOT_EVICT_MS;
@@ -126,10 +136,13 @@ export class GlobalSnapshot {
   /** Merge one batch; returns how many rows changed. */
   ingest(batch: FixBatch, now: number = Date.now()): number {
     let changed = 0;
+    let valid = 0;
+    let tooOld = 0;
     for (const p of batch.aircraft || []) {
       const r = toSnapRow(p, batch);
       if (!r) continue;
-      if (r.seenAt < now - this.evictMs) continue; // already too old to show
+      valid++;
+      if (r.seenAt < now - this.evictMs) { tooOld++; continue; } // already too old to show
       const prev = this.rowsByHex.get(r.hex);
       if (prev) {
         const newer = r.seenAt > prev.seenAt + TIE_MS;
@@ -149,6 +162,17 @@ export class GlobalSnapshot {
       r.ingestAt = now;
       this.rowsByHex.set(r.hex, r);
       changed++;
+    }
+    if (tooOld) {
+      this.refusedTooOld[batch.provider] = (this.refusedTooOld[batch.provider] || 0) + tooOld;
+      // a whole batch of several rows refused is not "a few old rows": say so
+      // (1st and every 100th time per provider — loud, never a flood)
+      if (tooOld === valid && valid >= ALL_REFUSED_MIN_ROWS) {
+        const n = (this.allRefusedBatches[batch.provider] = (this.allRefusedBatches[batch.provider] || 0) + 1);
+        if (n === 1 || n % 100 === 0) {
+          console.error(`[global-snapshot] every fix of a ${batch.provider} batch (${valid} rows, via ${batch.origin}) was older than ${this.evictMs / 1000}s and refused (x${n}) — is this provider's clock being read in the wrong unit?`);
+        }
+      }
     }
     if (changed) {
       this.version++;
@@ -217,6 +241,8 @@ export class GlobalSnapshot {
       source_last_ingest_at: { ...this.perSourceLastAt },
       dropped_at_cap_total: this.droppedAtCap,
       evicted_total: this.evictedTotal,
+      refused_too_old_by_source: { ...this.refusedTooOld },
+      all_refused_batches_by_source: { ...this.allRefusedBatches },
     };
   }
 
