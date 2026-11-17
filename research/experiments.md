@@ -118570,3 +118570,37 @@ TESTS: new test_options_earnings_close_adjusted_root.py, 12 tests (25 subtests).
 Fail-on-parent proof: the same file on origin/main (7d757eb7) fails 10 of its 12 tests (pytest, counting subtests: 28 failed, 6 passed). The lookup was sent ['IONQ1'], not ['IONQ']. The two that pass there are the unparseable-symbol pin and the standard-root pin.
 Gates on the commit: the earnings-close test files plus test_options_exit_market_hours.py and test_options_halt_exits_only.py, 77 passed; test_ts_code_only.py and test_collection_health.py, 12 passed; the 35 Python test files that touch options_manager or the parser, 635 passed. No existing assertion changed. tsc (6 errors, the pinned baseline) and the counter ratchet (OK) were run once, on the last commit of the three-commit stack.
 STARVED: no.
+
+## 2026-11-12 [REPAIR] — T-BOT (options_manager.py: _unrecorded_structure_notices, _defined_risk, _earnings_close_context; server/optionsMgmtAudit.ts; new test_options_earnings_close_setup_unknown.py) — Earnings close: a defined-risk structure closed with its setup unknown is named in the audit log; the exemption is not inferred (residual of #1642)
+VERSION: v1.0.1439 (shipped 2026-11-17 by the parent session; main was v1.0.1438)
+WHY: filed with the rule ("A Setup-1 condor whose recorded state was lost carries no setup, so it is not exempt and closes"). The earnings close exempts a defined-risk group whose recorded setup is "earnings_iv_crush": Setup 1 opens that condor 0-7 days before a report, for the report. The setup lives only in each leg's options state (options_execution.register_contract_entry, then options_manager.register_options_entry and merge_options_meta). Reading the code and probing it shows what "lost" does:
+- Every leg's state gone: the condor is not a group at all, so `_earnings_close_exempt` is never asked. The four legs are single legs, and the single-leg rule buys the two sold legs back before the report. A probe on main gave two buy-to-close orders and no group close; the new test pins the same on both commits. The audit rows read like any accident's.
+- At least one leg's state left: the other legs are adopted into its group (the 2026-11-02 adoption repair) and take its setup. The group stays exempt. That case needed nothing.
+Can the exemption be inferred for the first case? Not safely.
+- Shape: `select_contract` builds every `iron_condor` with one builder (`_select_condor`), whatever the setup.
+- Timing: the entry time is part of the same lost state. And "opened within 7 days of a report" also fits a condor another path opened there because a calendar lookup missed the date. That is the accident the rule exists for (the IREN put of 2026-11-04 was sold the day before its report through a calendar bug).
+- The broker: the opening order carries no setup (no client_order_id is set).
+- The decision journal (voltrade_decisions.jsonl, since 2026-11-06) does record an entry's setup and legs. It is a logging file, written by Node at submit time, capped, rotated and switchable off. Trading on it would make a log a decision input. Not used here.
+Exempting a condor that is not an earnings play would leave a sold structure open through a report. That is worse than closing an earnings play early. So nothing is inferred.
+CHANGE: the close is unchanged. The pass now says what it is doing.
+- New `_unrecorded_structure_notices`: one WARNING action, type "earnings_setup_unknown", per structure per ET day.
+- A structure here is a set of legs held outside every strategy group, whose state records no strategy (none, or the manager's own "unknown"), on one OCC root and one expiry, in which every sold contract is covered by a bought one of the same type. That coverage test is the exemption's own, moved into `_defined_risk`. `_earnings_close_exempt` returns what it did; its 7 existing tests pass unchanged.
+- The notice fires only when the earnings close is due on the structure's sold legs. It names the underlying, the expiry, every leg, the sold legs being closed, the report date and the close session.
+- It decides nothing. A failure inside it is logged and the rule runs on (tested). With no exempt setup configured there is no exemption to miss, so there is no notice.
+- server/optionsMgmtAudit.ts lists the type, so the notice becomes an OPTIONS-EARNINGS audit row beside the exits it explains.
+- No notice for: a recorded group (exempt or not), a partly lost condor (adopted, still exempt), a lone sold leg, an uncovered structure, recorded single legs in a spread shape, a report that is not due, a failed lookup.
+DOWNSTREAM:
+1. A lost-state condor is still closed before its report, by the same orders as before. Its close can now be told from an accident's in the audit log. That keeps the two reviews filed with #1642 readable: the first 20 earnings closes, and the first 10 exempt Setup-1 condors.
+2. The row also shows the state loss itself, on the day it costs something. How the state is lost is not fixed here.
+3. Volume: one OPTIONS-EARNINGS row per structure per ET day while it is due, which is one or two days. The memo is process memory, like the lookup-failed warning's. A daemon restart repeats the row, and so does each tick of the halted subprocess fallback.
+ROLLBACK TRIGGER: revert if the notice appears for a group whose state records a strategy, if any close changes with it, or if it repeats for one structure within one process and ET day.
+TESTS: new test_options_earnings_close_setup_unknown.py, 15 tests (7 subtests).
+- A condor whose state is lost is closed as before (two buy-backs at the ask, no group close) and named once: underlying, expiry, legs, sold legs, report date, close session, the exact reason text.
+- State the manager rebuilt as "unknown" counts as lost. A lost credit spread with its wing is named too. Two lost structures get one notice each.
+- Once per structure per ET day, again the next day while still due, and once while the close is deferred.
+- No notice, and the same closes as before, for every case listed above and for an emptied exemption list (8 tests).
+- A failing notice never stops the close.
+Fail-on-parent proof: the same file on the parent commit (15a0b248) gives 7 failed, 8 passed. The 7 are the tests that expect a notice. The 8 that pass on both commits pin "same closes as before".
+server/optionsMgmtAudit.test.ts: 11 pass. One assertion changed because it pinned the old list: in "a long earnings notice is cut at OPTIONS_EARNINGS_NOTICE_MAX_CHARS and never counts against the exit cap", `assert.deepEqual(OPTIONS_EARNINGS_NOTICE_TYPES, ["earnings_backfill", "earnings_lookup_failed"])` now ends with "earnings_setup_unknown". One test is new (the notice is one OPTIONS-EARNINGS row beside the exits) and one gained a line (the Python constant exists). With that test file on the parent's source, 3 of the 11 fail.
+Gates on the commit: the earnings-close test files plus test_options_exit_market_hours.py and test_options_halt_exits_only.py, 92 passed; test_ts_code_only.py and test_collection_health.py, 12 passed; the 36 Python test files that touch options_manager, 650 passed; the 10 server test files that read options_manager.py, storage_config.py or the formatter, 126 passed. tsc (6 errors, the pinned baseline) and the counter ratchet (OK) were run once, on the last commit of the three-commit stack.
+STARVED: no.
