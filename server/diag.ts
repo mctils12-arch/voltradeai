@@ -417,6 +417,12 @@ export const DIAG_PROBES = [
   // bucket means, first_sufficient_run. Derived statistics only: no price, no
   // URL; no network; no Python; no query parameters.
   "github_gate2",
+  // ADDED 2026-11-17 ([PIPELINE]): read-only status of the nightly Form 4
+  // archive completeness pass (server/edgarForm4Completeness.ts
+  // form4CompletenessStatus) — per-day counts of EDGAR's daily-index Form 4
+  // accessions, held, backfilled, unparsed, failed, deferred. Counts only: no
+  // ticker, name, CIK, accession or filing URL; no network; no query parameters.
+  "form4_completeness",
   // ADDED 2026-11-06 ([RESEARCH], human "fix all of this"): read-only status of
   // the weekly re-run of the pre-registered event-reaction study on the
   // delisting-inclusive panel (server/eventStudy.ts eventStudyStatus) — flag,

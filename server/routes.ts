@@ -148,6 +148,7 @@ import { bootLazyPrices } from "./lazyPrices";
 import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { bootEarningsQoq } from "./earningsQoq";
 import { bootGithubGate2 } from "./githubGate2";
+import { bootForm4Completeness } from "./edgarForm4Completeness";
 import { bootEventStudy } from "./eventStudy";
 import { platformStats } from "./platformStats";
 import {
@@ -1665,6 +1666,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // filed, not an interpreted claim — the "does clustering predict returns"
   // question is gate 2, unattempted, tracked in research/open_questions.md.
   bootForm4Poll();
+  // Nightly completeness pass (server/edgarForm4Completeness.ts): EDGAR's daily
+  // form index lists every Form 4 of a day; what the poll missed is fetched
+  // and appended with `backfilledAt`. VOLTRADE_FORM4_COMPLETENESS=0 disables.
+  bootForm4Completeness();
   app.get("/api/data/insider", (_req, res) => {
     const hit = latestForm4Filings();
     if (!hit) {
