@@ -141,8 +141,77 @@ def get_regime_caps(vxx_ratio: float, spy_vs_ma50: float,
             "regime":              "NEUTRAL",
         }
     if positions is not None:
+        caps = _apply_floor_exemption(caps, positions, equity)
         caps = _apply_risk_budget(caps, positions, equity)
     return caps
+
+
+def exposure_cap_floor_mode(env=None) -> str:
+    """'exempt' or 'legacy': system_config EXPOSURE_CAP_FLOOR_MODE, overridden by env
+    VOLTRADE_EXPOSURE_CAP_FLOOR (the no-deploy rollback). Anything unreadable is 'legacy'."""
+    e = os.environ if env is None else env
+    v = str(e.get("VOLTRADE_EXPOSURE_CAP_FLOOR", "") or "").strip().lower()
+    if v in ("legacy", "exempt"):
+        return v
+    try:
+        from system_config import BASE_CONFIG
+        v = str(BASE_CONFIG.get("EXPOSURE_CAP_FLOOR_MODE", "legacy")).strip().lower()
+    except Exception:
+        return "legacy"
+    return v if v in ("legacy", "exempt") else "legacy"
+
+
+def _apply_floor_exemption(caps: dict, positions: List[Dict], equity: float, env=None) -> dict:
+    """EXPOSURE CAP vs THE FLOOR (2026-11-17, EXPLORATORY; see system_config
+    EXPOSURE_CAP_FLOOR_MODE). In a regime whose cap is below the deployment ceiling
+    (PANIC / BEAR / CAUTION) the regime's haircut applies to the room ABOVE the passive
+    floor, not to the floor, which has its own volatility rule:
+
+        cap = regime_cap + floor_share x (1 - regime_cap / ceiling)
+
+    so satellite room = (ceiling - floor_share) x regime_cap / ceiling. Bounded:
+    regime_cap <= cap <= ceiling (system_config MAX_TOTAL_EXPOSURE, 0.95): it never adds
+    margin, and a regime at the ceiling (BULL / NEUTRAL) is unchanged. The regime's own
+    value rides along as MAX_TOTAL_EXPOSURE_REGIME and the detail as FLOOR_EXEMPT_CAP.
+    Never raises: on any failure the caps come back unchanged (the legacy cap)."""
+    try:
+        if exposure_cap_floor_mode(env) != "exempt":
+            return caps
+        from system_config import BASE_CONFIG
+        ceiling = float(BASE_CONFIG.get("MAX_TOTAL_EXPOSURE", 0.95))
+        regime_cap = float(caps.get("MAX_TOTAL_EXPOSURE", ceiling))
+        eq = float(equity or 0.0)
+        if eq <= 0 or ceiling <= 0 or regime_cap >= ceiling or regime_cap < 0:
+            return caps
+        import regime_engine as _re_fx
+        floor = _re_fx.passive_floor_tickers()
+        passive = sum(abs(float(p.get("market_value") or 0.0)) for p in (positions or [])
+                      if str(p.get("symbol", "")).upper() in floor) / eq
+        if not (passive > 0):
+            return caps
+        share = min(passive, ceiling)
+        cap = min(ceiling, regime_cap + share * (1.0 - regime_cap / ceiling))
+        out = dict(caps)
+        out["MAX_TOTAL_EXPOSURE_REGIME"] = regime_cap
+        out["MAX_TOTAL_EXPOSURE"] = round(cap, 4)
+        out["FLOOR_EXEMPT_CAP"] = {
+            "regime_cap": regime_cap, "ceiling": ceiling, "floor_pct": round(passive, 4),
+            "cap": round(cap, 4), "satellite_room": round(max(0.0, cap - passive), 4),
+        }
+        return out
+    except Exception as e:
+        logger.debug(f"floor exemption unavailable: {e}")
+        return caps
+
+
+def _floor_note(caps: dict) -> str:
+    """' [regime cap 50% applied above the floor's 67.4%: 81.9%]' when the floor exemption
+    set the cap, else ''. Appended to the cap's log/kill text next to the budget note."""
+    fx = caps.get("FLOOR_EXEMPT_CAP") or {}
+    if not fx:
+        return ""
+    return (f" [regime cap {float(fx.get('regime_cap') or 0.0) * 100:.0f}% applied above the floor's "
+            f"{float(fx.get('floor_pct') or 0.0) * 100:.1f}%: {float(fx.get('cap') or 0.0) * 100:.1f}%]")
 
 
 def _apply_risk_budget(caps: dict, positions: List[Dict], equity: float) -> dict:
@@ -332,6 +401,8 @@ def master_kill_switch(ctx: TierContext) -> Tuple[bool, str]:
     # 3. Portfolio invested ceiling — from system_config (authoritative).
     # Regime-adaptive: PANIC=30%, BEAR=50%, CAUTION=60%, BULL/NEUTRAL=95%.
     # 2026-11-06: the room above the passive floor is scaled by the regime risk budget.
+    # 2026-11-17: in PANIC/BEAR/CAUTION the regime's haircut applies above the floor
+    # only (_apply_floor_exemption; never above the 95% ceiling).
     caps = get_regime_caps(ctx.vxx_ratio, ctx.spy_vs_ma50, ctx.equity, positions=ctx.positions)
     max_invested = caps.get("MAX_TOTAL_EXPOSURE", 1.00)
     current_invested = sum(abs(float(p.get("market_value", 0))) for p in ctx.positions)
@@ -339,7 +410,7 @@ def master_kill_switch(ctx: TierContext) -> Tuple[bool, str]:
     if invested_pct >= max_invested:
         return (True,
             f"Portfolio invested {invested_pct*100:.1f}% >= {max_invested*100:.0f}% "
-            f"(regime={caps.get('regime', ctx.regime)}){_budget_note(caps)}")
+            f"(regime={caps.get('regime', ctx.regime)}){_floor_note(caps)}{_budget_note(caps)}")
 
     # 4. Regime kill for T2-4 (not a full kill, handled per tier)
     return (False, "ok")

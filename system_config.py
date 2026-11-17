@@ -121,6 +121,27 @@ BASE_CONFIG = {
     # the MIN_FREE_BP=0.10 target. Total deployment ceiling stays below buying
     # power. Stress regimes still reduce below this.
     "MAX_TOTAL_EXPOSURE":   0.95,  # 95% deployment ceiling (was 1.00)
+    # EXPOSURE CAP vs THE FLOOR (2026-11-17, EXPLORATORY, kill date 2027-02-17;
+    # human, 2026-11-17, on the cap question put to them on 11-16: "What best
+    # for the bot figure that out").
+    # Reason: the regime caps below (PANIC 0.30, BEAR 0.50, CAUTION 0.60) were
+    # written when the floor itself shrank with the regime. Since 2026-11-05
+    # the floor is the volatility-managed SPY/SSO sleeve with its own exposure
+    # rule, and it alone is ~67% of equity, so in every regime but BULL/NEUTRAL
+    # the tier engine's master switch read "invested 67.5% >= 50%" and refused
+    # the whole engine on every scan (45 name-days of Tier-1 puts dropped
+    # 10-29..11-17, none of them labelled yet), although the BEAR and NEUTRAL
+    # notes below say the options engine keeps running there.
+    # "exempt": the regime's haircut applies to the room ABOVE the floor only:
+    #   cap = regime_cap + floor_share x (1 - regime_cap / MAX_TOTAL_EXPOSURE)
+    # so the satellite room is (0.95 - floor) x regime_cap/0.95, then the
+    # regime risk budget scales it as before. The total never exceeds
+    # MAX_TOTAL_EXPOSURE (0.95): no margin is added. BULL/NEUTRAL: unchanged.
+    # Prior value: "legacy" (the regime cap on the whole book). Expected
+    # effect on 2026-11-17 (BEAR, floor 67.4%, budget 0.62): cap 50% -> 76.4%,
+    # satellite room 0 -> about 9% of equity, before the cash reserve's own
+    # bound. Rollback without a deploy: env VOLTRADE_EXPOSURE_CAP_FLOOR=legacy.
+    "EXPOSURE_CAP_FLOOR_MODE": "exempt",   # "exempt" | "legacy"
     "MAX_TOTAL_CAPITAL_PCT": 0.95,  # Never deploy more than 95% of equity across all components
     "MAX_SECTOR_POSITIONS": 2,     # Max 2 from the same sector
     "MAX_POSITIONS":        6,     # Max total open STOCK positions (see below — do not reuse for options)
