@@ -118904,3 +118904,15 @@ CHANGED ASSERTION (marked in the test): shadowFleetIncremental.test.ts's shadow-
 ROLLBACK TRIGGER: set =shadow at the first report of a wrong shadow-fleet number, and once a month for a day as a spot check.
 TESTS: +4 (fail on main). Full server suite 3,997 pass; tsc 6; counter ratchet OK.
 STARVED: no.
+
+## 2026-11-17 [REPAIR] — T-DATACORE (server/portDwell.ts, tests) — Port-dwell fold: incremental by default after 13 days without a mismatch in shadow
+VERSION: v1.0.1456 (shipped 2026-11-17 by the parent session; main was v1.0.1455)
+WHY: as the shadow-fleet entry above: in `shadow` this fold ran the full recomputation (lastFullMs 120,150) next to the incremental path (4,438) every ~10-minute cycle only to compare: about 120 s of CPU in every 600 s re-parsing 168 h of the vessel archive.
+EVIDENCE (read live 2026-11-17 21:05Z): /api/diag/audit holds 17 `FOLD-MISMATCH portdwell` rows, ALL on 2026-11-04 between 14:33Z and 16:11Z (overlapping cycles replaced the partial cache's string table mid-pass; fixed that day, regression test foldCacheConcurrency.test.ts). NONE in the 13 days since. 71 matches / 0 mismatches in the current container.
+CHANGE: PORTDWELL_FOLD_DEFAULT = "incremental" (unset VOLTRADE_PORTDWELL_FOLD). An unrecognised value is still `shadow`.
+DOWNSTREAM: the served port-dwell stats and the entity graph's calls_at edges now come from the incremental fold. The graph poll's own shadow comparison is not affected: both of its builds receive the SAME port-visits object from one fold call (a new test pins one port fold per shadow graph poll and no FOLD-MISMATCH graph). The graph poll itself stays in shadow: it still mismatches (last 2026-11-16 22:16Z, node counts 18216 vs 18170) and is NOT promoted.
+WHAT IS GIVEN UP: nothing is compared, so a wrong partial would be served unseen. Rollback: VOLTRADE_PORTDWELL_FOLD=shadow or =full.
+CHANGED ASSERTION (marked in the test): portDwellIncremental.test.ts's shadow-mode test now sets `shadow` explicitly; every assertion kept.
+ROLLBACK TRIGGER: set =shadow at the first report of a wrong dwell number or a calls_at edge that cannot be reproduced from the archive.
+TESTS: +3 (fail on the parent). Full server suite 4,000 pass; tsc 6; counter ratchet OK.
+STARVED: no.

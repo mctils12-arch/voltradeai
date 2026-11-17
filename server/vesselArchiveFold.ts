@@ -35,8 +35,9 @@
  * result (switch after 24h of zero mismatches in shadow mode). An UNSET
  * variable is the stream's own default: `shadow` (DEFAULT_FOLD_MODE) until
  * the stream's module promotes it through readFoldMode's unsetDefault, as
- * foldShadow.ts's header allows (shadow-fleet: SHADOWFLEET_FOLD_DEFAULT,
- * 2026-11-17). An unrecognised value is always `shadow`.
+ * foldShadow.ts's header allows (shadow-fleet: SHADOWFLEET_FOLD_DEFAULT;
+ * port-dwell: PORTDWELL_FOLD_DEFAULT; both 2026-11-17). An unrecognised
+ * value is always `shadow`.
  *
  * Pure module: fs reads only, baseDir-injectable, no trading imports.
  */
