@@ -29,6 +29,7 @@ import {
   // the close reading ([RULE-REVIEW] 2026-11-06): the account's equity at the close, for the line's account day
   DAILY_LINE_CLOSE_TICK_MS, closeReadingFor, closeReadingFrom, closeReadingWindow, readCloseReadings, saveCloseReading,
 } from "./dailyLine";
+import { OPENING_FIRST_FIRED_FILENAME } from "./openingCounterfactual";
 import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonExec";
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
@@ -9156,6 +9157,7 @@ print(json.dumps(out))
       floorCfg: floor.cfg, vmState: readJsonFile(path.join(dir, FLOOR_VM_STATE_FILENAME)),
       prev: win.prev, windowFromMs: win.fromMs, events, orders,
       ledger: readOptionFillLedger(dir), deferrals: readJsonFile(path.join(dir, OPENING_DEFERRALS_FILENAME)),
+      firstFired: readJsonFile(path.join(dir, OPENING_FIRST_FIRED_FILENAME)),
       posKillRows, missing,
     });
     return { line, missing };

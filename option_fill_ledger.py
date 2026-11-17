@@ -27,6 +27,18 @@ from the chain quote the roll priced it with). A path without a quote writes
 bid/ask/mid null — the daily line counts such fills as "unattributed" and
 never guesses a mid. A one-sided or crossed quote has no mid.
 
+OPTIONAL "first_fired" (2026-11-12, the opening-window counterfactual). A
+row for a CLOSE of a contract whose exit the 09:30-09:45 ET window held back
+earlier the same ET day also carries
+
+    "first_fired": {"key", "at", "rule", "kind", "bid", "ask", "mid"}
+
+the record options_manager wrote when a rule first fired on it inside the
+window: the record's key, time and rule, and that contract's quote at that
+moment. The close paths pass it in (record_order / record_mleg_order's
+`first_fired`); every other row is written exactly as before, without the
+key, and a reader that does not know the key is unaffected.
+
 Rotation: above LEDGER_MAX_BYTES the file moves to <file>.1 (one old
 generation kept; a day's rows are a few kB, so .1 always covers the line's
 window).
@@ -41,6 +53,7 @@ import math
 import os
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 try:
@@ -99,16 +112,41 @@ def forget_quote(symbol):
         _quotes.pop(symbol, None)
 
 
-def quote_for(symbol, now=None):
+def quote_for(symbol, now=None, max_age_s=None):
     """The latest quote noted for `symbol`, if at most QUOTE_MAX_AGE_S old:
-    {"bid", "ask", "mid", "quote_age_s"} (all None when there is none)."""
+    {"bid", "ask", "mid", "quote_age_s"} (all None when there is none).
+    `max_age_s` is for a reader other than a ledger row (the opening-window
+    record reads the quote its rule was judged on at the end of the same
+    run); a row's own limit stays QUOTE_MAX_AGE_S."""
     t = time.time() if now is None else float(now)
+    oldest = QUOTE_MAX_AGE_S if max_age_s is None else float(max_age_s)
     with _lock:
         hit = _quotes.get(symbol)
-    if not hit or t - hit[0] > QUOTE_MAX_AGE_S:
+    if not hit or t - hit[0] > oldest:
         return {"bid": None, "ask": None, "mid": None, "quote_age_s": None}
     noted_at, bid, ask = hit
     return {"bid": bid, "ask": ask, "mid": mid_of(bid, ask), "quote_age_s": round(max(0.0, t - noted_at), 1)}
+
+
+@contextmanager
+def quotes_not_kept(symbols):
+    """Quotes read for `symbols` inside the block are not kept: on exit the
+    memo holds for each of them what it held on entry. A read made for another
+    measurement (the opening-window record reads a held group's legs) must not
+    become "the quote at submission" of an order sent within QUOTE_MAX_AGE_S
+    of it, which would turn a row that has no mid today into one that has."""
+    syms = [s for s in symbols or [] if s]
+    with _lock:
+        before = {s: _quotes.get(s) for s in syms}
+    try:
+        yield
+    finally:
+        with _lock:
+            for s, held in before.items():
+                if held is None:
+                    _quotes.pop(s, None)
+                else:
+                    _quotes[s] = held
 
 
 def ledger_path():
@@ -131,11 +169,13 @@ def append_row(row):
         return False
 
 
-def record_order(order_id, symbol, side, qty, source, limit=None, order_class=None, now=None):
+def record_order(order_id, symbol, side, qty, source, limit=None, order_class=None, now=None, first_fired=None):
     """One row for an option order the broker accepted (call it AFTER the
     POST returned, with the id from its response). The quote is the latest
-    one noted for `symbol` (quote_for). Returns whether a row was written;
-    never raises."""
+    one noted for `symbol` (quote_for). `first_fired`, a non-empty dict, is
+    written as the row's "first_fired" (the module docstring); anything else
+    leaves the row as it always was. Returns whether a row was written; never
+    raises."""
     try:
         if not order_id or not symbol:
             return False
@@ -155,22 +195,28 @@ def record_order(order_id, symbol, side, qty, source, limit=None, order_class=No
         }
         if order_class:
             row["order_class"] = str(order_class)
+        if isinstance(first_fired, dict) and first_fired:
+            row["first_fired"] = dict(first_fired)
         return append_row(row)
     except Exception as e:  # an order path must never see a measurement failure
         logger.warning(f"option fill ledger: record_order({order_id}, {symbol}) failed: {e}")
         return False
 
 
-def record_mleg_order(order_id, legs, qty, source, now=None):
+def record_mleg_order(order_id, legs, qty, source, now=None, first_fired=None):
     """One row per leg of an accepted mleg order, all under the PARENT order
-    id; a leg's qty is the order qty x its ratio. Returns rows written."""
+    id; a leg's qty is the order qty x its ratio. `first_fired` maps a leg's
+    symbol to that leg's first-fired record (record_order). Returns rows
+    written."""
     written = 0
     try:
         units = _num(qty) or 0.0
+        links = first_fired if isinstance(first_fired, dict) else {}
         for leg in legs or []:
             ratio = _num((leg or {}).get("ratio_qty")) or 1.0
-            if record_order(order_id, (leg or {}).get("symbol"), (leg or {}).get("side"), units * ratio,
-                            source, order_class="mleg", now=now):
+            symbol = (leg or {}).get("symbol")
+            if record_order(order_id, symbol, (leg or {}).get("side"), units * ratio,
+                            source, order_class="mleg", now=now, first_fired=links.get(symbol)):
                 written += 1
     except Exception as e:
         logger.warning(f"option fill ledger: record_mleg_order({order_id}) failed: {e}")

@@ -52,6 +52,10 @@
 //      set of (contract, rule) deferrals (voltrade_option_opening_deferrals
 //      .json) + the day's POS-KILL-OPTION-OPENING audit rows (one per ticker
 //      per day by construction).
+//   4a. WHAT THAT WAIT COST OR SAVED (2026-11-12, server/openingCounterfactual
+//      .ts): the manager's exits that first fired in the window, how many were
+//      sent later and how many never, and the later price against the quote at
+//      the first fire. Only on the line of a day an exit first fired in it.
 // Nothing is inferred: a piece whose input is missing is null with a reason.
 import fs from "node:fs";
 import path from "node:path";
@@ -60,6 +64,7 @@ import { benchmarkVsSpy, type BenchWindow, type CurvePoint, type DailyClose } fr
 import { spyToday } from "./todayTile";
 import { isTradingDay, zonedParts, zonedInstant, type MarketCalendar } from "./jobHeartbeat";
 import { isOptionPosition } from "./reconstructPnl";
+import { ledgerRowExtras, openingCounterfactual, openingCounterfactualText, type FirstFiredLink, type OpeningCounterfactual } from "./openingCounterfactual";
 import type { RealizedEvent } from "./sleeveLedger";
 
 const ET = "America/New_York";
@@ -508,8 +513,10 @@ export function floorExposure(i: { positions: PositionLite[] | null; equity: num
 
 // ── 3. option P&L: fills/slippage vs direction ──────────────────────────────
 
-/** One fill-ledger row (option_fill_ledger.py / bot.ts write the same shape). */
-export interface LedgerRow { order_id: string; symbol: string; side: string; qty: number | null; bid: number | null; ask: number | null; mid: number | null; source: string }
+/** One fill-ledger row (option_fill_ledger.py / bot.ts write the same shape). The optional three (2026-11-12) are
+ *  read by the opening-window counterfactual alone: the row's time and limit, and the first-fired record the row
+ *  of a close the window held carries. */
+export interface LedgerRow { order_id: string; symbol: string; side: string; qty: number | null; bid: number | null; ask: number | null; mid: number | null; source: string; ts?: string; limit?: number | null; first_fired?: FirstFiredLink }
 
 export function parseLedger(text: string): { rows: LedgerRow[]; malformed: number } {
   const rows: LedgerRow[] = [];
@@ -526,7 +533,7 @@ export function parseLedger(text: string): { rows: LedgerRow[]; malformed: numbe
     const orderId = str(o.order_id);
     const symbol = str(o.symbol);
     if (!orderId || !symbol) { malformed++; continue; }
-    rows.push({ order_id: orderId, symbol, side: str(o.side).toLowerCase(), qty: num(o.qty), bid: num(o.bid), ask: num(o.ask), mid: num(o.mid), source: str(o.source) });
+    rows.push({ order_id: orderId, symbol, side: str(o.side).toLowerCase(), qty: num(o.qty), bid: num(o.bid), ask: num(o.ask), mid: num(o.mid), source: str(o.source), ...ledgerRowExtras(o) });
   }
   return { rows, malformed };
 }
@@ -763,6 +770,9 @@ export interface DailyLine {
   floor: FloorBlock;
   options: OptionsBlock;
   opening_window: OpeningWindowBlock;
+  /** what waiting out the window cost or saved ([RULE-REVIEW] 2026-11-12, openingCounterfactual.ts); absent when
+   *  no exit first fired in the window that day, and on the lines written before */
+  opening_counterfactual?: OpeningCounterfactual;
   /** the previous session's line against Alpaca's close of it ([RULE-REVIEW] 2026-11-06; null = no previous line;
    *  absent on the lines written before) */
   close_check?: CloseCheck | null;
@@ -791,6 +801,8 @@ export interface DailyLineInputs {
   orders: unknown[] | null;
   ledger: { rows: LedgerRow[]; malformed: number };
   deferrals: unknown;
+  /** options_manager's first-fired records (voltrade_option_opening_first_fired.json), or null/absent */
+  firstFired?: unknown;
   posKillRows: ReadonlyArray<{ time: string; message: string }> | null;
   missing: string[];
 }
@@ -824,6 +836,8 @@ export function buildDailyLine(i: DailyLineInputs): DailyLine {
     close_check: closeCheck(i.prev, i.account?.lastEquity, i.account?.balanceAsof, prevSession),
     missing: [...i.missing], message: "",
   };
+  const counterfactual = openingCounterfactual(i.firstFired, i.day, i.ledger.rows, i.orders);
+  if (counterfactual) line.opening_counterfactual = counterfactual;
   line.message = dailyLineMessage(line);
   return line;
 }
@@ -858,6 +872,10 @@ export function dailyLineMessage(l: DailyLine): string {
   const c = l.close_check;
   if (c && c.error_pp !== null) parts.push(`${c.day.slice(5)} line ${pctTxt(c.line_pct)} vs Alpaca close ${pctTxt(c.alpaca_pct)} (${ppTxt(c.error_pp)})`);
   if (l.missing.length) parts.push(`partial: ${l.missing.map((m) => m.split(":")[0]).join(", ")}`);
+  // what waiting out the window cost or saved, only on a day an exit first fired in it; last, so that the cut
+  // below can shorten this clause alone and never the text the message already carried
+  const waited = openingCounterfactualText(l.opening_counterfactual);
+  if (waited) parts.push(waited);
   return parts.join(" | ").slice(0, 490);
 }
 
