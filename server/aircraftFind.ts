@@ -54,6 +54,27 @@ export const FIND_CACHE_MAX = 200;
 /** upstream lookups allowed per rolling minute, all queries together */
 export const FIND_MAX_UPSTREAM_PER_MIN = 12;
 export const FIND_TIMEOUT_MS = 6_000;
+/** The archive's recent-track read (two days of hour files) may take this
+ *  long inside one answer, no longer. Measured live 2026-11-16 on a freshly
+ *  booted server with adsb.lol down: the provider lookup timed out (6 s) and
+ *  the archive read then took about 45 s; GET /find?q=N843S answered after
+ *  53 s. */
+export const FIND_ARCHIVE_BUDGET_MS = 2_500;
+
+/** `p`'s value, or `fallback` once `ms` have passed. `p` keeps running (the
+ *  archive read fills its own 30 s cache, so the next lookup is fast) and a
+ *  late rejection is swallowed here, never unhandled. */
+export function withinBudget<T>(p: Promise<T>, ms: number, fallback: T): Promise<{ value: T; timedOut: boolean }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve({ value: fallback, timedOut: true }), ms);
+    (timer as { unref?: () => void }).unref?.();
+    p.then(
+      (value) => { clearTimeout(timer); resolve({ value, timedOut: false }); },
+      // after the budget this reject is a no-op on a settled promise: the late failure ends here
+      (e: unknown) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
 
 export const FIND_SOURCE =
   "adsb.lol (ODbL) community ADS-B — the server's worldwide snapshot and 24/7 tracked-tails registry, " +
@@ -114,6 +135,11 @@ export interface FindResult {
   tracked: boolean;
   answered_from: "snapshot" | "tracked" | "upstream" | "archive" | null;
   upstream: FindUpstream;
+  /** what happened to the archive's recent-track read for this answer:
+   *  "read"; "not_needed" (a live or heard answer); "timed_out"
+   *  (not finished within FIND_ARCHIVE_BUDGET_MS: this answer does not include
+   *  it, and asking again in a few seconds will); "failed"; "no_hex" */
+  archive: "read" | "not_needed" | "timed_out" | "failed" | "no_hex";
   source: string;
   honesty: string;
 }
@@ -129,6 +155,8 @@ export interface FindDeps {
   now?: () => number;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** time allowed for lastArchived inside one answer (default FIND_ARCHIVE_BUDGET_MS) */
+  archiveBudgetMs?: number;
 }
 
 export interface AircraftFinder {
@@ -148,7 +176,7 @@ export function createAircraftFinder(deps: FindDeps): AircraftFinder {
   const cache = new Map<string, { at: number; res: FindResult }>();
   const inflight = new Map<string, Promise<FindResult>>();
   const upstreamSent: number[] = [];
-  const counts = { requests: 0, cache_hits: 0, coalesced: 0, upstream_requests: 0, upstream_limited: 0, upstream_errors: 0, archive_reads: 0 };
+  const counts = { requests: 0, cache_hits: 0, coalesced: 0, upstream_requests: 0, upstream_limited: 0, upstream_errors: 0, archive_reads: 0, archive_timeouts: 0 };
   let lastError: string | null = null;
 
   const allowUpstream = (t: number): boolean => {
@@ -194,7 +222,7 @@ export function createAircraftFinder(deps: FindDeps): AircraftFinder {
     const base = (o: Partial<FindResult> & { state: FindState }): FindResult => ({
       kind: "raw", q: q.ident, hex: null, reg: null, at: now(), age_s: null,
       fields: ROW_FIELDS, rows: [], heard: null, last_seen: null, tracked: false,
-      answered_from: null, upstream: "not-needed", source: FIND_SOURCE, honesty: FIND_HONESTY,
+      answered_from: null, upstream: "not-needed", archive: "not_needed", source: FIND_SOURCE, honesty: FIND_HONESTY,
       ...o,
     });
     const ageS = (ms: number) => Math.max(0, Math.round((now() - ms) / 100) / 10);
@@ -264,23 +292,33 @@ export function createAircraftFinder(deps: FindDeps): AircraftFinder {
       }
     }
 
-    // 4. the newest position we hold: snapshot / registry / our archive
+    // 4. the newest position we hold: snapshot / registry / our archive.
+    // The archive read gets FIND_ARCHIVE_BUDGET_MS. Past that the answer is
+    // built from what is already held and says the archive was not read in
+    // time; the read keeps running and fills its cache for the next lookup.
+    let archive: FindResult["archive"] = hex ? "not_needed" : "no_hex";
     if (hex && deps.lastArchived) {
       counts.archive_reads++;
       try {
-        const a = await deps.lastArchived(hex);
-        if (a && Number.isFinite(a.la) && Number.isFinite(a.lo)) {
-          lastSeen.push({ at: a.t * 1000, lat: a.la, lon: a.lo, alt_ft: a.al == null ? null : Math.round(a.al * M_TO_FT), via: "archive" });
+        const got = await withinBudget(deps.lastArchived(hex), deps.archiveBudgetMs ?? FIND_ARCHIVE_BUDGET_MS, null);
+        if (got.timedOut) { counts.archive_timeouts++; archive = "timed_out"; }
+        else {
+          archive = "read";
+          const a = got.value;
+          if (a && Number.isFinite(a.la) && Number.isFinite(a.lo)) {
+            lastSeen.push({ at: a.t * 1000, lat: a.la, lon: a.lo, alt_ft: a.al == null ? null : Math.round(a.al * M_TO_FT), via: "archive" });
+          }
         }
       } catch (e) {
+        archive = "failed";
         lastError = errText(e);
       }
     }
     const last = newest();
     if (last) {
-      return base({ ...ident, state: "last_seen", age_s: ageS(last.at), last_seen: last, answered_from: last.via === "upstream" ? "upstream" : last.via, upstream });
+      return base({ ...ident, state: "last_seen", age_s: ageS(last.at), last_seen: last, answered_from: last.via === "upstream" ? "upstream" : last.via, upstream, archive });
     }
-    return base({ ...ident, state: "unknown", upstream });
+    return base({ ...ident, state: "unknown", upstream, archive });
   };
 
   return {

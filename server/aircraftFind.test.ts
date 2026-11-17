@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import {
-  FIND_CACHE_MS, FIND_LIVE_MAX_AGE_MS, FIND_MAX_UPSTREAM_PER_MIN, createAircraftFinder, parseFindQuery,
+  FIND_ARCHIVE_BUDGET_MS, FIND_CACHE_MS, FIND_LIVE_MAX_AGE_MS, FIND_MAX_UPSTREAM_PER_MIN, createAircraftFinder, parseFindQuery, withinBudget,
   registerAircraftFindRoute, type FindDeps, type FindResult,
 } from "./aircraftFind";
 import { GlobalSnapshot, ROW_FIELDS } from "./globalSnapshot";
@@ -288,4 +288,70 @@ test("routes.ts wiring: one registration, fed by the global snapshot and the tra
   // community ADS-B only: this feature adds no FAA/SWIM-sourced data
   const find = fs.readFileSync(path.join(here, "aircraftFind.ts"), "utf8");
   assert.ok(!/from "\.\/flightPlans"|swim|faa\.gov/i.test(find.replace(/\/\/.*$/gm, "")), "no FAA/SWIM source in the find path");
+});
+
+// ── 2026-11-16 [REPAIR]: the archive read gets a time budget ──
+// Measured live that evening, adsb.lol down, a freshly booted server: GET /find?q=N843S answered after 53 s (the
+// provider lookup's 6 s timeout, then about 45 s reading two days of archive hour files). N843S is on the tracked
+// list, whose last position was already in hand.
+const neverBefore = <T,>(ms: number, value: T): Promise<T> => new Promise((r) => setTimeout(() => r(value), ms));
+
+test("a slow archive read no longer holds the answer: the tracked list's last position is served, and the answer says the archive was not read in time", async () => {
+  const r = rig();
+  r.tracked.push({ reg: "N843S", added_at: T0 - 9e8, hex: "ab8c8e", last_seen: T0 - 95 * 3600_000, last_pos: { la: 41.786, lo: -87.752, al: 189 } });
+  r.deps.lastArchived = () => neverBefore(400, { t: T0 / 1000 - 60, la: 1, lo: 2 });
+  r.deps.archiveBudgetMs = 30;
+  const started = Date.now();
+  const res = await createAircraftFinder(r.deps).find(q("N843S"));
+  const took = Date.now() - started;
+  assert.ok(took < 300, `answered in ${took} ms, not after the 400 ms read`);
+  assert.equal(res.state, "last_seen");
+  assert.equal(res.answered_from, "tracked");
+  assert.equal(res.last_seen?.lat, 41.786);
+  assert.equal(res.archive, "timed_out");
+  assert.equal(FIND_ARCHIVE_BUDGET_MS, 2_500);
+});
+
+test("nothing held and the archive not read in time: 'unknown', honestly marked, never a wait", async () => {
+  const r = rig();
+  r.deps.lastArchived = () => neverBefore(400, { t: T0 / 1000 - 60, la: 1, lo: 2 });
+  r.deps.archiveBudgetMs = 30;
+  const finder = createAircraftFinder(r.deps);
+  const res = await finder.find(q("ab8c8e"));
+  assert.equal(res.state, "unknown");
+  assert.equal(res.archive, "timed_out");
+  assert.equal(finder.stats().archive_timeouts, 1);
+});
+
+test("the archive field says what happened: read, failed, not needed for a live answer, no hex", async () => {
+  const read = rig({ archived: { t: T0 / 1000 - 600, la: 41.5, lo: -87.7, al: 300 } });
+  const a = await createAircraftFinder(read.deps).find(q("ab8c8e"));
+  assert.equal(a.archive, "read");
+  assert.equal(a.answered_from, "archive");
+  const failed = rig();
+  failed.deps.lastArchived = async () => { throw new Error("disk"); };
+  assert.equal((await createAircraftFinder(failed.deps).find(q("ab8c8e"))).archive, "failed");
+  const live = rig();
+  live.snapshot.ingest({ provider: "adsblol", origin: "sweep-disc", fetchedAt: T0, upstreamNowMs: T0, aircraft: [fix()] }, T0);
+  const l = await createAircraftFinder(live.deps).find(q("ab8c8e"));
+  assert.equal(l.state, "live");
+  assert.equal(l.archive, "not_needed");
+  assert.equal((await createAircraftFinder(rig().deps).find(q("N404XX"))).archive, "no_hex");
+});
+
+test("withinBudget: the value in time, the fallback after it, an early failure thrown, a late failure swallowed", async () => {
+  assert.deepEqual(await withinBudget(Promise.resolve(7), 50, 0), { value: 7, timedOut: false });
+  assert.deepEqual(await withinBudget(neverBefore(200, 7), 20, 0), { value: 0, timedOut: true });
+  await assert.rejects(withinBudget(Promise.reject(new Error("early")), 50, 0), /early/);
+  let unhandled = 0;
+  const onUnhandled = () => { unhandled++; };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const late = new Promise<number>((_, rej) => setTimeout(() => rej(new Error("late")), 60));
+    assert.deepEqual(await withinBudget(late, 10, 0), { value: 0, timedOut: true });
+    await neverBefore(120, null);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+  assert.equal(unhandled, 0, "a read that fails after its budget is not an unhandled rejection");
 });
