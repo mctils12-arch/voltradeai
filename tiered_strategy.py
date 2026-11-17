@@ -156,7 +156,8 @@ def exposure_cap_floor_mode(env=None) -> str:
     try:
         from system_config import BASE_CONFIG
         v = str(BASE_CONFIG.get("EXPOSURE_CAP_FLOOR_MODE", "legacy")).strip().lower()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"exposure cap floor mode unreadable, using legacy: {e}")
         return "legacy"
     return v if v in ("legacy", "exempt") else "legacy"
 
