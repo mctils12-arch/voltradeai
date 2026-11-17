@@ -21,10 +21,39 @@ export interface FixBatch {
   aircraft: Array<AircraftPoint & { seen_at_ms?: number | null }>;
   /** when WE received it (ms) */
   fetchedAt: number;
-  /** the upstream's own generation clock when it sent one (readsb `now`, ms) */
+  /** the upstream's own generation clock when it sent one, in MILLISECONDS.
+   *  Publishers pass the provider's `now` through providerClockMs(): adsb.lol
+   *  and airplanes.live send ms, adsb.fi sends seconds. */
   upstreamNowMs?: number | null;
   /** set when the batch is one point-query disc (viewport credit for the sweep) */
   disc?: { lat: number; lon: number; radiusNm: number } | null;
+}
+
+/** A provider `now` below this is SECONDS, at or above it MILLISECONDS:
+ *  1e11 ms is March 1973 and 1e11 s is the year 5138, so no real clock sits
+ *  on the wrong side of it. */
+export const PROVIDER_CLOCK_SECONDS_BELOW = 1e11;
+
+/**
+ * A provider's own response clock (`now`) in milliseconds.
+ *
+ * The three community providers share the readsb row shape but NOT the unit
+ * of `now`: adsb.lol and airplanes.live send milliseconds, adsb.fi sends
+ * seconds with a fraction (1794880068.001, read live 2026-11-16). A fix's
+ * time is this clock minus the row's own position age, so the seconds form
+ * read as milliseconds dates every adsb.fi fix in January 1970 — and the
+ * worldwide snapshot then refuses each one as far too old. That happened to
+ * every adsb.fi answer of the viewport chain and of the coverage gap-fill
+ * until 2026-11-16.
+ *
+ * Returns null when `v` is not a positive finite number (the caller then
+ * falls back to its own receive time). `ourNowMs`, when given, is an upper
+ * bound: a provider clock ahead of ours never dates a fix in the future.
+ */
+export function providerClockMs(v: unknown, ourNowMs?: number): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
+  const ms = v < PROVIDER_CLOCK_SECONDS_BELOW ? v * 1000 : v;
+  return ourNowMs != null && Number.isFinite(ourNowMs) ? Math.min(ourNowMs, ms) : ms;
 }
 
 export type FixSubscriber = (b: FixBatch) => void;
