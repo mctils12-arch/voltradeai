@@ -7,6 +7,19 @@
 // destination, cruise altitude) says the plan changed. A message that changes
 // none of those records nothing.
 //
+// NOT A VERSION EITHER (2026-11-17, from 307 recorded changes on 111 live
+// flights): a message whose route only RESTATES the route held — the FAA
+// re-issues an airborne route from the aircraft's position ("./.", often with
+// a fix-radial-distance position that keeps moving) and still sends the full
+// text — and a message whose route text the flight already had in an EARLIER
+// version, because different centers hold different texts for one flight and
+// their messages alternate. Both are counted (routeRestatements,
+// earlierTextAgain). What the second rule misses: a clearance that genuinely
+// puts a flight back on a route text it had before is not recorded as a new
+// version. Fixes dropped from the START of a present-position route are
+// still a version; whether they were flown or skipped is judged when the
+// history is served, from the aircraft's position (shared/flightPlanDiff.ts).
+//
 // TWO TIERS
 //   memory  every version of every plan the SWIM store holds, bounded by the
 //           caps below and dropped with the plan (plus one hour after a flight
@@ -58,6 +71,7 @@
 //   If the true share of changing amendments is above about 20%, the daily cap
 //   skips lines late in the UTC day; the skipped.day_cap counter shows it.
 
+import { isRouteRestatement } from "../shared/flightPlanDiff";
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
@@ -531,6 +545,15 @@ export class PlanVersionStore {
     versionsRecorded: 0, firstVersions: 0, changeVersions: 0,
     /** plan-content messages that changed nothing we version (no version recorded) */
     messagesNoChange: 0,
+    /** messages whose route text only restated the same remaining route from
+     *  the aircraft's position (or sent the full text again), with nothing
+     *  else changed: not a version (measured 2026-11-17: at least 22% of the
+     *  changes recorded before this rule) */
+    routeRestatements: 0,
+    /** messages whose route text equals an EARLIER version still held for the
+     *  flight (not the newest), with nothing else changed: another center's
+     *  view of the same flight, not a version */
+    earlierTextAgain: 0,
     /** a held version gained a field it lacked (not a new version) */
     fieldsFilled: 0,
     skippedLadd: 0,
@@ -577,6 +600,21 @@ export class PlanVersionStore {
     if (!detail) {
       this.fill(rec, last, plan);
       this.counters.messagesNoChange++;
+      return null;
+    }
+    const otherChange = (plan.arrival && last.arrival && plan.arrival !== last.arrival)
+      || (plan.cruiseAltFt != null && last.cruiseAltFt != null && plan.cruiseAltFt !== last.cruiseAltFt);
+    if (!otherChange && isRouteRestatement(last.routeText, plan.routeText)) {
+      this.fill(rec, last, plan);
+      this.counters.routeRestatements++;
+      return null;
+    }
+    // different FAA centers hold different texts for one flight and their
+    // messages alternate, so a text this flight already had in an earlier
+    // version is that other view again, not a new amendment. (A genuine
+    // return to an earlier route is missed by this rule; see the header.)
+    if (!otherChange && plan.routeText && rec.versions.some((x) => x !== last && x.routeText === plan.routeText)) {
+      this.counters.earlierTextAgain++;
       return null;
     }
     const v = this.versionOf(plan, msg, rec.recorded + 1, now, detail);
