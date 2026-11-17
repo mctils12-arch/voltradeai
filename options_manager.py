@@ -278,7 +278,7 @@ def _parse_occ_symbol(occ_symbol: str) -> dict:
     """
     Parse an OCC symbol into components.
     Format: AAPL260418C00250000
-    Returns: {ticker, expiry_date, option_type, strike}
+    Returns: {ticker, underlying, expiry_date, option_type, strike}
 
     KNOWN BROKEN #31 scope note (options_execution.py/options_scanner.py
     carried the identical bug, fixed 2026-08-21 v1.0.760): parsing used to
@@ -290,6 +290,17 @@ def _parse_occ_symbol(occ_symbol: str) -> dict:
     chars: 6-digit date + 1-char C/P + 8-digit strike) regardless of root
     length, so anchoring from the END avoids the ambiguity entirely; the
     ticker is simply whatever remains in front of it.
+
+    `underlying` (REPAIR 2026-11-12) is the stock the root belongs to. OCC
+    marks an adjusted series with a number after the root's letters (OCC
+    Information Memo #50867: "Option Symbol: ROOT changes to ROOT1", still
+    delivering ROOT shares; the Options Industry Council: "For any adjusted
+    option there will be a numeral following the letters of the option
+    symbol"). So a root that is letters followed only by digits gives its
+    letters, and every other root gives itself: a standard series' root is
+    the ticker's letters, so a ticker is never cut. `ticker` stays the root
+    (IONQ1): it names the contract. `underlying` (IONQ) is the name a
+    report-date lookup has to ask for.
     """
     try:
         if len(occ_symbol) < 16:
@@ -298,6 +309,7 @@ def _parse_occ_symbol(occ_symbol: str) -> dict:
         ticker = occ_symbol[:-15]
         if not ticker:
             return {}
+        adjusted = re.fullmatch(r"([A-Z]+)\d+", ticker)
         date_digits = occ_symbol[-15:-9]
         type_char = occ_symbol[-9]
         strike_digits = occ_symbol[-8:]
@@ -309,6 +321,7 @@ def _parse_occ_symbol(occ_symbol: str) -> dict:
 
         return {
             "ticker": ticker,
+            "underlying": adjusted.group(1) if adjusted else ticker,
             "expiry_date": expiry_date,
             "option_type": option_type,
             "strike": strike,
@@ -1424,12 +1437,12 @@ def _manage_strategy_group(group: dict, equity: float, state: dict, earnings: di
     # other rules.
     for pos in legs:
         parsed_leg = _parse_occ_symbol(pos.get("symbol", "")) if pos.get("side", "long") == "short" else None
-        earn = _earnings_close_due_for(earnings, parsed_leg["ticker"], _expiry_date(parsed_leg)) if parsed_leg else None
+        earn = _earnings_close_due_for(earnings, parsed_leg["underlying"], _expiry_date(parsed_leg)) if parsed_leg else None
         if not earn:
             continue
         if _earnings_close_exempt(group):
             break
-        reason = _earnings_close_reason(earnings, parsed_leg["ticker"], *earn, f"the whole {strategy}")
+        reason = _earnings_close_reason(earnings, parsed_leg["underlying"], *earn, f"the whole {strategy}")
         result = _request_group_close(legs, ticker, state, "strategy_earnings_close", reason)
         actions.append({
             "action": "CLOSE_STRATEGY",
@@ -1933,6 +1946,11 @@ def _defer_single_leg_close(actions: list, ticker: str, occ_symbol: str, rule: s
 # _fetch_symbol_earnings_reports), looked up once per underlying per ET day. A
 # failed lookup closes nothing on a guess: one WARNING per underlying per ET
 # day, retried every tick. Without FINNHUB_KEY the rule cannot run (logged).
+# The underlying is _parse_occ_symbol's `underlying`, not the OCC root (REPAIR
+# 2026-11-12): an adjusted series (root IONQ1 after a corporate action) is
+# looked up as IONQ. Under its raw root it found no report and was never
+# closed. The contract symbol is untouched and a close's `ticker` is still
+# the root.
 # Backfill: the first pass after a process start (a deploy, a daemon restart)
 # lists every sold option's next report and close session in one
 # "earnings_backfill" action (an exempt group's legs as "exempt_setup"); a leg
@@ -2074,7 +2092,7 @@ def _earnings_close_context(options_positions: list, actions: list, strategy_gro
         expiry = _expiry_date(parsed) if parsed else None
         if expiry is None or p.get("side", "long") != "short" or abs(int(float(p.get("qty", 0) or 0))) <= 0:
             continue
-        leg = (p.get("symbol", ""), parsed["ticker"], expiry)
+        leg = (p.get("symbol", ""), parsed["underlying"], expiry)
         (exempt_shorts if leg[0] in ctx["exempt"] else shorts).append(leg)
     horizon = {}
     for _occ, root, expiry in shorts:
@@ -2975,9 +2993,9 @@ def manage_options_positions(equity: float = 100000, allow_rolls: bool = True,
         # its underlying reports (the EARNINGS CLOSE block above). Judged before
         # the hold gate, like CRITICAL DTE: a leg sold late in that session
         # must not ride into the report.
-        _earn = _earnings_close_due_for(earnings, parsed["ticker"], _expiry_date(parsed)) if side == "short" else None
+        _earn = _earnings_close_due_for(earnings, parsed["underlying"], _expiry_date(parsed)) if side == "short" else None
         if _earn:
-            _earn_reason = _earnings_close_reason(earnings, parsed["ticker"], *_earn, "the sold option")
+            _earn_reason = _earnings_close_reason(earnings, parsed["underlying"], *_earn, "the sold option")
             if _defer_single_leg_close(actions, parsed["ticker"], occ_symbol, "earnings_close", _earn_reason, dte):
                 continue
             # Judged again every tick (before the hold gate): never a second
