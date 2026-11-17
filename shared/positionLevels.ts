@@ -1,15 +1,29 @@
-// shared/positionLevels.ts — the engine's exit levels for ONE position,
-// computed from its stop state with the SAME formulas bot_engine.py
-// manage_positions applies (read 2026-10-21). One source of truth for two
-// readers: server/bot.ts /api/bot/positions (stopPrice, takeProfitPrice and
-// the `levels` block the Bot page chart draws) and the chart's own option-
-// leg arithmetic. Pure; no I/O; no clock of its own (nowMs is an input);
-// pinned by server/positionLevels.test.ts.
+// shared/positionLevels.ts — the engine's exit levels for ONE position.
 //
-// If manage_positions changes a formula, this file changes with it — or the
-// chart draws a level the engine will not honour. Every constant below that
-// is NOT read from system_config is hard-coded in the engine itself, and is
-// named after the engine's own identifier.
+// STOCKS (2026-11-12, KNOWN BROKEN #50a): the ladder the engine executes —
+// server/bot.ts checkPositionOnTick on the levels syncMonitoredPositions
+// builds from the stop state, plus the sync's POS-KILL backstop. The numbers
+// and the arithmetic live in shared/stockExitLadder.ts, which
+// server/stockExitLadder.test.ts pins against server/bot.ts and
+// live_exit_policy.py. Before that date this file followed
+// bot_engine.manage_positions' formulas (a regime scalar on every stop, a 10 %
+// phase-1 clamp, a 60-minute and a 4-day suppression, a −20 % hard floor).
+// Tier 1 never executes those, so the Book showed exits that would not happen.
+//
+// OPTIONS: options_manager.py's rules, further down.
+//
+// One source of truth for two readers: server/bot.ts /api/bot/positions
+// (stopPrice, takeProfitPrice and the `levels` block the Bot page chart draws)
+// and the chart's own option-leg arithmetic. Pure; no I/O; no clock of its own
+// (nowMs is an input); pinned by server/positionLevels.test.ts.
+import {
+  stockLadder, regimeClass, ladderDaysHeld, pricePct,
+  SCALE2_R, TRAIL4_ATR_MULT, TIME_STOP_DAYS, TIME_STOP_BAND_PCT,
+  type Side, type StopBasis,
+} from "./stockExitLadder";
+
+export { pricePct };
+export type { Side, StopBasis };
 
 /** One row of voltrade_stop_state.json (written by manage_positions every
  *  tick; older rows may lack newer fields, so everything is optional). */
@@ -28,16 +42,6 @@ export interface StopStateRow {
   days_held?: number;
   entry_timestamp?: string; // naive ISO, the container's clock (UTC on Railway)
   entry_date?: string;
-  short_hold_suppression?: string;
-}
-
-/** The system_config values the engine reads on this path, resolved for the
- *  position's regime by the caller (STOP_SCALAR_<regime>, missing → 1.0 as in
- *  the engine's `.get(key, 1.0)`; POSITION_HARD_STOP_*). */
-export interface LevelConfig {
-  stopScalar: number;
-  hardStopPct: number | null;
-  hardStopEnabled: boolean;
 }
 
 export interface LevelInput {
@@ -46,12 +50,8 @@ export interface LevelInput {
   qty: number; // negative = short
   pnlPct: number | null; // Alpaca unrealized_plpc × 100 (the engine's pnl_pct); recomputed from prices when null
   stop: StopStateRow | null | undefined;
-  config: LevelConfig | null | undefined;
   nowMs?: number;
 }
-
-export type Side = "long" | "short";
-export type StopBasis = "entry" | "peak_pnl" | "peak_price" | "breakeven";
 
 export interface ScaleOut {
   n: 1 | 2;
@@ -59,20 +59,11 @@ export interface ScaleOut {
   pct: number; // P&L % at the trigger
   price: number;
   done: boolean;
-  applicable: boolean; // the engine skips scale-outs when the lot cannot be split (original_qty ≤ 1)
-}
-
-export interface StopSuppression {
-  until: "60min" | "day4";
-  reason: string;
-  /** the loss that still closes the position while the suppression holds */
-  overridePct: number;
-  minutesLeft: number | null;
-  daysLeft: number | null;
+  applicable: boolean; // done, or the engine can still sell it: more than 1 share left and a third (floor(original / 3)) of at least 1 share
 }
 
 export interface PositionLevels {
-  recorded: boolean; // false until manage_positions has ticked once for this position (no stop state row / no ATR)
+  recorded: boolean; // false until the stop state carries this position's ATR (manage_positions' first tick after entry); no level is drawn before
   side: Side;
   phase: number;
   regime: string | null;
@@ -86,9 +77,13 @@ export interface PositionLevels {
   stopPct: number | null; // the phase's stop width in %
   stopPrice: number | null; // the engine's trigger price for the phase, breakeven-raised when active
   stopFrom: StopBasis | null;
+  stopHit: boolean; // the current reading already meets the engine's stop test: it sells on its next 1-minute bar for the symbol
   breakevenActive: boolean;
-  stopSuppressed: StopSuppression | null;
-  hardFloorPct: number | null; // phase 1 only
+  /** The stock BACKSTOP, every phase: server/bot.ts POS-KILL closes a stock that is this % below entry on two
+   *  valid readings in a row (STOCK_KILL_LOSS_PCT, the 60 s position sync). The field names date from 2026-10-21,
+   *  when they carried manage_positions' −20 % phase-1 hard stop, which nothing executes; they are kept so a Bot
+   *  page already open on the previous bundle still reads a number. */
+  hardFloorPct: number | null;
   hardFloorPrice: number | null;
   takeProfitPct: number | null;
   takeProfitPrice: number | null;
@@ -104,14 +99,6 @@ export interface PositionLevels {
   timeStop: { day: number; withinPct: number; armed: boolean };
 }
 
-// Engine constants that live in bot_engine.py itself (not system_config):
-export const SHORT_HOLD_DAYS = 4; // _in_short_hold_window = days_held < 4
-export const SHORT_HOLD_DEEP_LOSS_PCT = 15; // SHORT_HOLD_DEEP_LOSS_OVERRIDE_PCT
-export const MIN_HOLD_MINUTES = 60; // _MIN_EQUITY_HOLD_MINUTES
-export const MIN_HOLD_CATASTROPHE_PCT = 10; // _is_catastrophic = pnl_pct <= -10.0
-export const TIME_STOP_DAYS_ENGINE = 7; // `days_held >= 7` — hard-coded; TIME_STOP_DAYS in system_config is unread on this path (open_questions.md 2026-10-21)
-export const TIME_STOP_WITHIN_PCT = 2; // abs(pnl_pct) < 2.0
-export const HARD_STOP_PCT_DEFAULT = 20; // BASE_CONFIG.get("POSITION_HARD_STOP_PCT", 20.0)
 /** options_manager.PROFIT_TARGET_PCT — the manager closes sold premium at
  *  this share of max profit; an option-price level, so the chart prints it
  *  in the legend rather than drawing it on the underlying. */
@@ -123,18 +110,10 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/** The regime-adaptive multipliers manage_positions derives before the loop. */
+/** The regime-adaptive multipliers checkPositionOnTick derives (isBullish / isBearish). */
 export function regimeMults(regime: string | null | undefined): { bullish: boolean; bearish: boolean; trailAtrMult: number; scaleOut2R: number } {
-  const r = (regime ?? "").toUpperCase();
-  const bullish = r === "BULL" || r === "NEUTRAL_BULL";
-  const bearish = r === "BEAR" || r === "PANIC" || r === "CAUTION";
-  const m = bullish ? 3.0 : bearish ? 1.5 : 2.0;
-  return { bullish, bearish, trailAtrMult: m, scaleOut2R: m };
-}
-
-/** Price at a P&L % from entry, for either side. */
-export function pricePct(entry: number, pct: number, side: Side): number {
-  return side === "long" ? entry * (1 + pct / 100) : entry * (1 - pct / 100);
+  const cls = regimeClass(regime);
+  return { bullish: cls === "bullish", bearish: cls === "bearish", trailAtrMult: TRAIL4_ATR_MULT[cls], scaleOut2R: SCALE2_R[cls] };
 }
 
 /** The engine's naive ISO timestamps are the container's clock (UTC on
@@ -147,13 +126,6 @@ export function parseEngineTime(ts: string | null | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function daysSince(dateYmd: string | undefined, nowMs: number): number | null {
-  if (!dateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) return null;
-  const t = Date.parse(dateYmd + "T00:00:00Z");
-  if (!Number.isFinite(t)) return null;
-  return Math.floor((nowMs - t) / 86_400_000);
-}
-
 export function positionLevels(i: LevelInput): PositionLevels {
   const nowMs = i.nowMs ?? Date.now();
   const side: Side = i.qty < 0 ? "short" : "long";
@@ -161,98 +133,43 @@ export function positionLevels(i: LevelInput): PositionLevels {
   const entry = num(i.entry);
   const current = num(i.current);
   const atr = num(s?.current_stop_pct);
-  const recorded = !!s && atr !== null && entry !== null && entry > 0;
+  // A row with no ATR (or a zero one) is not recorded: the engine runs its 2 % default there, and the Book
+  // draws nothing rather than a level worked from a number the stop state does not hold.
+  const recorded = !!s && atr !== null && atr > 0 && entry !== null && entry > 0;
   const regime = typeof s?.regime === "string" && s.regime ? s.regime : null;
   const { trailAtrMult, scaleOut2R } = regimeMults(regime);
-  const scalar = num(i.config?.stopScalar) ?? 1.0;
-
   const pnl = num(i.pnlPct) ?? (entry && current ? (side === "long" ? current / entry - 1 : 1 - current / entry) * 100 : null);
-  const risk = num(s?.initial_risk_pct) ?? (atr !== null ? atr * 2.0 : null);
-  const storedPeak = num(s?.highest_pnl);
-  const highestPnl = storedPeak === null && pnl === null ? null : Math.max(storedPeak ?? -Infinity, pnl ?? -Infinity);
-  const storedHigh = num(s?.highest_price);
-  const highestPrice = storedHigh === null && current === null ? null : Math.max(storedHigh ?? -Infinity, current ?? -Infinity);
-  const rMultiple = risk && pnl !== null ? pnl / risk : null;
-  const peakR = risk && highestPnl !== null ? highestPnl / risk : null;
-  // the engine re-derives the phase from peak_r every tick; the stored phase
-  // is the fallback when the peak cannot be computed
-  const phase = peakR === null ? Math.max(1, Math.min(4, Math.round(num(s?.phase) ?? 1))) : peakR >= 3 ? 4 : peakR >= 2 ? 3 : peakR >= 1 ? 2 : 1;
-
-  let stopPct: number | null = null;
-  let stopFrom: StopBasis | null = null;
-  let stopPrice: number | null = null;
-  if (recorded && atr !== null && entry !== null) {
-    if (phase >= 4) {
-      stopPct = atr * trailAtrMult * scalar;
-      stopFrom = "peak_price";
-      // the engine trails the highest PRICE in phase 4 (long-centric); a
-      // short falls back to the P&L form it would use in phases 2–3
-      stopPrice = side === "long" && highestPrice !== null ? highestPrice * (1 - stopPct / 100) : highestPnl !== null ? pricePct(entry, highestPnl - stopPct, side) : null;
-    } else if (phase === 3) {
-      stopPct = Math.max(1.0, atr * 1.0 * scalar);
-      stopFrom = "peak_pnl";
-      stopPrice = highestPnl !== null ? pricePct(entry, highestPnl - stopPct, side) : null;
-    } else if (phase === 2) {
-      stopPct = Math.max(1.5, atr * 1.5 * scalar);
-      stopFrom = "peak_pnl";
-      stopPrice = highestPnl !== null ? pricePct(entry, highestPnl - stopPct, side) : null;
-    } else {
-      stopPct = Math.max(1.5, Math.min(atr * 2.0 * scalar, 10.0));
-      stopFrom = "entry";
-      stopPrice = pricePct(entry, -stopPct, side);
-    }
-  }
-  const breakevenActive = !!s?.breakeven_active;
-  if (breakevenActive && phase >= 2 && entry !== null && (stopPrice === null || (side === "long" ? entry > stopPrice : entry < stopPrice))) {
-    stopPrice = entry;
-    stopFrom = "breakeven";
-  }
-
-  const hardEnabled = i.config ? !!i.config.hardStopEnabled : true;
-  const hardPct = i.config && i.config.hardStopPct !== null ? i.config.hardStopPct : HARD_STOP_PCT_DEFAULT;
-  const hardFloorPct = recorded && phase < 2 && hardEnabled ? hardPct : null;
-  const hardFloorPrice = hardFloorPct !== null && entry !== null ? pricePct(entry, -hardFloorPct, side) : null;
-
-  const daysHeld = num(s?.days_held) ?? daysSince(s?.entry_date, nowMs);
   const entryMs = parseEngineTime(s?.entry_timestamp);
   const heldMinutes = entryMs !== null ? Math.max(0, (nowMs - entryMs) / 60_000) : null;
-  let stopSuppressed: StopSuppression | null = null;
-  if (recorded && heldMinutes !== null && heldMinutes < MIN_HOLD_MINUTES) {
-    stopSuppressed = { until: "60min", reason: "60-minute minimum hold: no exit yet unless the loss reaches the catastrophe line", overridePct: MIN_HOLD_CATASTROPHE_PCT, minutesLeft: MIN_HOLD_MINUTES - heldMinutes, daysLeft: null };
-  } else if (recorded && daysHeld !== null && daysHeld < SHORT_HOLD_DAYS && phase < 2 && !breakevenActive) {
-    stopSuppressed = { until: "day4", reason: "short-hold grace: the phase-1 stop waits until day 4 unless the loss reaches the deep-loss line", overridePct: SHORT_HOLD_DEEP_LOSS_PCT, minutesLeft: null, daysLeft: SHORT_HOLD_DAYS - daysHeld };
+  // the engine's own day count (from the entry date); the row's days_held only names the age when there is no date
+  const engineDays = ladderDaysHeld(s?.entry_date, nowMs);
+  const daysHeld = engineDays ?? num(s?.days_held);
+  const timeStop = { day: TIME_STOP_DAYS, withinPct: TIME_STOP_BAND_PCT, armed: engineDays !== null && engineDays >= TIME_STOP_DAYS };
+  const qtyAbs = Number.isFinite(i.qty) ? Math.abs(i.qty) : null;
+
+  if (!recorded || entry === null) {
+    const storedPeak = num(s?.highest_pnl);
+    const storedHigh = num(s?.highest_price);
+    const scalesCompleted = Math.max(0, Math.round(num(s?.scales_completed) ?? 0));
+    return {
+      recorded: false, side, phase: Math.max(1, Math.min(4, Math.round(num(s?.phase) ?? 1))), regime, atrPct: atr, riskPct: null, pnlPct: pnl, rMultiple: null, peakR: null,
+      highestPnl: storedPeak === null && pnl === null ? null : Math.max(storedPeak ?? -Infinity, pnl ?? -Infinity),
+      highestPrice: storedHigh === null && current === null ? null : Math.max(storedHigh ?? -Infinity, current ?? -Infinity),
+      stopPct: null, stopPrice: null, stopFrom: null, stopHit: false, breakevenActive: !!s?.breakeven_active, hardFloorPct: null, hardFloorPrice: null,
+      takeProfitPct: null, takeProfitPrice: null, takeProfitArmed: scalesCompleted >= 2, scaleOuts: [], trailAtrMult, scaleOut2R,
+      originalQty: num(s?.original_qty) ?? qtyAbs, remainingQty: num(s?.remaining_qty) ?? qtyAbs, scalesCompleted, daysHeld, heldMinutes, timeStop,
+    };
   }
 
-  const scalesCompleted = Math.max(0, Math.round(num(s?.scales_completed) ?? 0));
-  const takeProfitPct = recorded && atr !== null && phase < 3 ? Math.max(4.0, Math.min(atr * 3.0, 15.0)) : null;
-  const takeProfitPrice = takeProfitPct !== null && entry !== null ? pricePct(entry, takeProfitPct, side) : null;
-  const originalQty = num(s?.original_qty) ?? (Number.isFinite(i.qty) ? Math.abs(i.qty) : null);
-  const remainingQty = num(s?.remaining_qty) ?? (Number.isFinite(i.qty) ? Math.abs(i.qty) : null);
-  const applicable = (originalQty ?? 0) > 1;
-  const scaleOuts: ScaleOut[] = recorded && risk !== null && entry !== null ? [
-    { n: 1, rMultiple: 1, pct: risk, price: pricePct(entry, risk, side), done: scalesCompleted >= 1, applicable },
-    { n: 2, rMultiple: scaleOut2R, pct: risk * scaleOut2R, price: pricePct(entry, risk * scaleOut2R, side), done: scalesCompleted >= 2, applicable },
-  ] : [];
-
+  const L = stockLadder({ row: s, side, entry, current, qty: qtyAbs ?? 0, pnlPct: pnl, nowMs });
   return {
-    recorded, side, phase, regime, atrPct: atr, riskPct: risk, pnlPct: pnl, rMultiple, peakR, highestPnl, highestPrice,
-    stopPct, stopPrice, stopFrom, breakevenActive, stopSuppressed, hardFloorPct, hardFloorPrice,
-    takeProfitPct, takeProfitPrice, takeProfitArmed: scalesCompleted >= 2, scaleOuts, trailAtrMult, scaleOut2R,
-    originalQty, remainingQty, scalesCompleted, daysHeld, heldMinutes,
-    timeStop: { day: TIME_STOP_DAYS_ENGINE, withinPct: TIME_STOP_WITHIN_PCT, armed: daysHeld !== null && daysHeld >= TIME_STOP_DAYS_ENGINE },
+    recorded: true, side, phase: L.phase, regime, atrPct: L.atrPct, riskPct: L.riskPct, pnlPct: L.pnlPct, rMultiple: L.rMultiple, peakR: L.peakR,
+    highestPnl: L.highestPnl, highestPrice: L.highestPrice,
+    stopPct: L.stopPct, stopPrice: L.stopPrice, stopFrom: L.stopFrom, stopHit: L.stopHit, breakevenActive: L.breakevenActive,
+    hardFloorPct: L.backstopPct, hardFloorPrice: L.backstopPrice,
+    takeProfitPct: L.takeProfitPct, takeProfitPrice: L.takeProfitPrice, takeProfitArmed: L.takeProfitArmed, scaleOuts: L.scaleOuts, trailAtrMult, scaleOut2R,
+    originalQty: L.originalQty, remainingQty: L.remainingQty, scalesCompleted: L.scalesCompleted, daysHeld, heldMinutes, timeStop,
   };
-}
-
-/** The LevelConfig for a position's regime from the BASE_CONFIG subset the
- *  positions route reads (STOP_SCALAR_* and POSITION_HARD_STOP_*). An empty
- *  or failed read gives null, and positionLevels falls back to the engine's
- *  own defaults (scalar 1.0, hard stop 20 % on). */
-export function levelConfigFromBaseConfig(cfg: Record<string, unknown> | null | undefined, regime: unknown): LevelConfig | null {
-  if (!cfg || typeof cfg !== "object" || !Object.keys(cfg).length || "error" in cfg) return null;
-  const sc = num(cfg[`STOP_SCALAR_${String(regime ?? "").toUpperCase()}`]);
-  const hp = num(cfg.POSITION_HARD_STOP_PCT);
-  const en = cfg.POSITION_HARD_STOP_ENABLED;
-  return { stopScalar: sc ?? 1.0, hardStopPct: hp, hardStopEnabled: en === undefined || en === null ? true : !!en };
 }
 
 // ── option legs (manage_positions skips these; options_manager owns them) ──

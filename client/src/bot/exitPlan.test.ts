@@ -78,22 +78,44 @@ test("line 4, a multi-leg strategy and the hedge: the unit, the group rules with
 
 const lv = (over: Partial<PositionLevels> = {}): PositionLevels => ({
   recorded: true, side: "long", phase: 1, regime: "NEUTRAL", atrPct: 1.5, riskPct: 3, pnlPct: -2.42, rMultiple: -0.81, peakR: 0.2, highestPnl: 0.6, highestPrice: 745.8,
-  stopPct: 3, stopPrice: 719.08, stopFrom: "entry", breakevenActive: false, stopSuppressed: null, hardFloorPct: 20, hardFloorPrice: 593.06,
+  // 2026-11-12 (KNOWN BROKEN #50a): the fixture is the ladder the engine executes — no stopSuppressed, and the floor
+  // is POS-KILL's −25 % backstop (was manage_positions' −20 % hard floor: hardFloorPct 20, hardFloorPrice 593.06)
+  stopPct: 3, stopPrice: 719.08, stopFrom: "entry", stopHit: false, breakevenActive: false, hardFloorPct: 25, hardFloorPrice: 555.99,
   takeProfitPct: 4.5, takeProfitPrice: 774.68, takeProfitArmed: false,
   scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: true }],
   trailAtrMult: 2, scaleOut2R: 2, originalQty: 61, remainingQty: 61, scalesCompleted: 0, daysHeld: 3, heldMinutes: 4320, timeStop: { day: 7, withinPct: 2, armed: false }, ...over,
 });
 
-test("line 4, a share lot: the stop and what it trails, the floor, the two thirds (the portion), the target after ⅔ out, the time stop", () => {
-  assert.equal(joinSegments(stockExitSegments(lv())), "stop $719.08 from entry · floor $593.06 (−20%) · ⅓ at $763.56 (+1.0R) · ⅓ at $785.80 (+2.0R) · target $774.68 after ⅔ out · time stop d7 if ±2%");
+test("line 4, a share lot: the stop and what it trails, the backstop, the two thirds (the portion), the target after ⅔ out, the time stop", () => {
+  // 2026-11-12: was "… · floor $593.06 (−20%) · …"
+  assert.equal(joinSegments(stockExitSegments(lv())), "stop $719.08 from entry · backstop $555.99 (−25%) · ⅓ at $763.56 (+1.0R) · ⅓ at $785.80 (+2.0R) · target $774.68 after ⅔ out · time stop d7 if ±2%");
+  assert.deepEqual(stockExitSegments(lv()).filter((s) => s.hit), [], "nothing is flagged while the price is inside the stop");
+  // a row with no backstop (a server that sends none) prints none
   const phase2 = stockExitSegments(lv({ phase: 2, stopPrice: 551.43, stopFrom: "breakeven", breakevenActive: true, hardFloorPct: null, hardFloorPrice: null, takeProfitPrice: 576.24, takeProfitPct: 4.8, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3.2, price: 569.08, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6.4, price: 586.72, done: false, applicable: true }], scalesCompleted: 1, timeStop: { day: 7, withinPct: 2, armed: true } }));
   assert.equal(joinSegments(phase2), "stop $551.43 breakeven · ⅓ sold at $569.08 · ⅓ at $586.72 (+2.0R) · target $576.24 after ⅔ out · time stop d7 if ±2% · armed");
   assert.deepEqual(phase2.filter((s) => s.hit).map((s) => s.text), ["time stop d7 if ±2% · armed"]);
-  assert.equal(joinSegments(stockExitSegments(lv({ stopPrice: 25.47, stopSuppressed: { until: "day4", reason: "short-hold grace", overridePct: 15, minutesLeft: null, daysLeft: 2 }, hardFloorPrice: 21.22 }))).split(" · ").slice(0, 3).join(" · "), "stop $25.47 from entry · waits 2d (grace to day 4) · exit now only below −15% · floor $21.22 (−20%)".split(" · ").slice(0, 3).join(" · "));
+  // the backstop is on every phase now: the same phase-2 row as the server sends it
+  assert.equal(joinSegments(stockExitSegments(lv({ phase: 2, stopPrice: 551.43, stopFrom: "breakeven", breakevenActive: true, hardFloorPrice: 413.57, takeProfitPrice: 576.24, takeProfitPct: 4.8, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3.2, price: 569.08, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6.4, price: 586.72, done: false, applicable: true }], scalesCompleted: 1 }))),
+    "stop $551.43 breakeven · backstop $413.57 (−25%) · ⅓ sold at $569.08 · ⅓ at $586.72 (+2.0R) · target $576.24 after ⅔ out · time stop d7 if ±2%");
+  // 2026-11-12: was "stop $25.47 from entry · waits 2d (grace to day 4) · exit now only below −15% · …" — the engine has
+  // no grace: a stop the last price has passed is HIT (it sells on its next 1-minute bar), and is flagged like an option rule
+  const past = stockExitSegments(lv({ stopPrice: 25.47, stopHit: true, hardFloorPrice: 19.9 }));
+  assert.equal(joinSegments(past).split(" · ").slice(0, 3).join(" · "), "stop $25.47 from entry · hit · backstop $19.90 (−25%)");
+  assert.deepEqual(past.filter((s) => s.hit).map((s) => s.text), ["stop $25.47 from entry · hit"]);
+  // an older server's suppression object is ignored: no row ever reads "waits"
+  const stale = { ...lv({ stopPrice: 25.47 }), stopSuppressed: { until: "day4", reason: "short-hold grace", overridePct: 15, minutesLeft: null, daysLeft: 2 } } as PositionLevels;
+  assert.doesNotMatch(joinSegments(stockExitSegments(stale)), /waits|grace|exit now only/);
   assert.equal(joinSegments(stockExitSegments(lv({ phase: 4, stopFrom: "peak_price", stopPrice: 801.2, hardFloorPct: null, hardFloorPrice: null, takeProfitPct: null, takeProfitPrice: null, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: true, applicable: true }], scalesCompleted: 2 }))),
     "stop $801.20 trails the high · ⅓ sold at $763.56 · ⅓ sold at $785.80 · trail takes the rest · time stop d7 if ±2%");
-  assert.equal(joinSegments(stockExitSegments(lv({ scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: false }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: false }], originalQty: 1, remainingQty: 1 }))),
-    "stop $719.08 from entry · floor $593.06 (−20%) · no scale-out (lot of 1) · target $774.68 after ⅔ out · time stop d7 if ±2%");
+  // 2026-11-12: was "… · floor $593.06 (−20%) · no scale-out (lot of 1) · target $774.68 after ⅔ out · …" — the target
+  // fires only after both thirds, which a lot of 1 never sells, so the server sends none for it
+  assert.equal(joinSegments(stockExitSegments(lv({ scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: false }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: false }], originalQty: 1, remainingQty: 1, takeProfitPct: null, takeProfitPrice: null }))),
+    "stop $719.08 from entry · backstop $555.99 (−25%) · no scale-out (lot of 1) · time stop d7 if ±2%");
+  // a lot of 2 cannot sell a third either (the engine sells whole shares: floor(2 / 3) = 0)
+  assert.equal(joinSegments(stockExitSegments(lv({ scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: false }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: false }], originalQty: 2, remainingQty: 2, takeProfitPct: null, takeProfitPrice: null }))).split(" · ")[2], "no scale-out (lot of 2)");
+  // the first third sold and one share left: the second third cannot be sold, so it is not listed
+  assert.equal(joinSegments(stockExitSegments(lv({ phase: 2, stopPrice: 741.32, stopFrom: "breakeven", breakevenActive: true, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: false }], originalQty: 3, remainingQty: 1, scalesCompleted: 1, takeProfitPct: null, takeProfitPrice: null }))),
+    "stop $741.32 breakeven · backstop $555.99 (−25%) · ⅓ sold at $763.56 · time stop d7 if ±2%");
   assert.equal(joinSegments(stockExitSegments(null)), "stop state not recorded yet · the engine writes it on its first manage tick after entry");
   assert.equal(joinSegments(stockExitSegments(lv({ recorded: false }))), "stop state not recorded yet · the engine writes it on its first manage tick after entry");
 });

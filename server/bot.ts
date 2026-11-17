@@ -6,7 +6,7 @@ import path from "path";
 import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
-import { positionLevels, levelConfigFromBaseConfig, OPTIONS_DEFINED_RISK_STRATEGIES } from "../shared/positionLevels";
+import { positionLevels, OPTIONS_DEFINED_RISK_STRATEGIES } from "../shared/positionLevels";
 import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
 import {
   AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, classifyLatchReason, evaluateAutoResume, fillsWindowStartMs,
@@ -1909,14 +1909,18 @@ except Exception: data = {}
 cfg = {}
 try:
     from system_config import BASE_CONFIG as _bc
-    cfg = {k: v for k, v in _bc.items() if k.startswith('STOP_SCALAR_') or k in ('POSITION_HARD_STOP_PCT', 'POSITION_HARD_STOP_ENABLED', 'OPTIONS_PROFIT_TAKING')}
+    cfg = {k: v for k, v in _bc.items() if k in ('OPTIONS_PROFIT_TAKING',)}
 except Exception as _e:
     cfg = {'error': str(_e)}
 print(json.dumps({'stop_state': data, 'config': cfg}))
 "`, { timeout: 5000 });
-            // 2026-10-21: the script also carries the BASE_CONFIG subset the
-            // engine's exit formulas read (shared/positionLevels.ts); the
-            // direct-file fallback below has no config → engine defaults
+            // The script also carries the one BASE_CONFIG setting the Book
+            // reads, OPTIONS_PROFIT_TAKING (the option rows' profit-taking
+            // switch); the direct-file fallback below has none → the default,
+            // on. The stock ladder reads no config (2026-11-12, KNOWN BROKEN
+            // #50a): its numbers are hard-coded in checkPositionOnTick, and
+            // STOP_SCALAR_* / POSITION_HARD_STOP_* belong to manage_positions'
+            // recommendations, which nothing executes.
             const parsed = JSON.parse(stopOut.trim() || "{}") as Record<string, unknown>;
             if (parsed && typeof parsed === "object" && "stop_state" in parsed) {
               stopState = (parsed.stop_state as Record<string, unknown>) || {};
@@ -1972,12 +1976,14 @@ print(json.dumps(data))
         const entry = parseFloat(p.avg_entry_price);
         const current = parseFloat(p.current_price);
         const pnlPct = parseFloat(p.unrealized_plpc) * 100;
-        // 2026-10-21: the engine's own exit ladder (shared/positionLevels.ts
-        // mirrors manage_positions). Before this the stop trailed 1×ATR from
-        // the CURRENT price in phase ≥ 2 and the target sat at 1.5×ATR —
-        // neither is what the engine fires on; both are now the engine's
-        // numbers, null until the first manage tick records a stop state.
-        const levels = positionLevels({ entry, current, qty: parseFloat(p.qty), pnlPct: Number.isFinite(pnlPct) ? pnlPct : null, stop: ss, config: levelConfigFromBaseConfig(levelConfig, ss?.regime), nowMs: Date.now() });
+        // The exit ladder the engine executes for a stock (2026-11-12, KNOWN
+        // BROKEN #50a): shared/positionLevels.ts over shared/stockExitLadder.ts,
+        // the mirror of checkPositionOnTick + syncMonitoredPositions below
+        // (and of live_exit_policy.py), with POS-KILL's -25% as the backstop.
+        // Null until the first manage tick records a stop state. From
+        // 2026-10-21 until then it followed manage_positions' formulas, which
+        // Tier 1 never executes.
+        const levels = positionLevels({ entry, current, qty: parseFloat(p.qty), pnlPct: Number.isFinite(pnlPct) ? pnlPct : null, stop: ss, nowMs: Date.now() });
         const phase = levels.phase;
         const stopPrice = levels.stopPrice;
         const tpPrice = levels.takeProfitPrice;

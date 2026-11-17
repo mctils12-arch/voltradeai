@@ -1,9 +1,9 @@
 // Bot page chart — which levels a subject gets drawn with, and their words.
 // Presentation only: every number comes from shared/positionLevels via
-// /api/bot/positions (the engine's own formulas), never recomputed here.
-// Pure; pinned by levels.test.ts.
+// /api/bot/positions (for a share lot, the ladder server/bot.ts executes),
+// never recomputed here. Pure; pinned by levels.test.ts.
 import type { PositionLevels, OptionLegLevels } from "../../../../shared/positionLevels";
-import { optionLegLevels, optionExitPlan, pricePct, OPTIONS_PT_SCALE_OUT_GAIN, OPTIONS_PT_TRAIL_ARM_GAIN, OPTIONS_PT_TRAIL_GIVEBACK } from "../../../../shared/positionLevels";
+import { optionLegLevels, optionExitPlan, OPTIONS_PT_SCALE_OUT_GAIN, OPTIONS_PT_TRAIL_ARM_GAIN, OPTIONS_PT_TRAIL_GIVEBACK } from "../../../../shared/positionLevels";
 import { optionExitSegments, joinSegments } from "../exitPlan";
 import type { DrawLevel, DrawZone, Theme } from "./draw";
 import { MINUS } from "../format";
@@ -16,7 +16,7 @@ export interface Overlay {
   markers: OverlayMarker[];
   /** label → value pairs for the legend row under the chart */
   legend: Array<[string, string]>;
-  /** honest footnotes: what is not recorded, what is suppressed */
+  /** honest footnotes: what is not recorded, what the last price has already passed */
   notes: string[];
 }
 export const EMPTY_OVERLAY: Overlay = { levels: [], zones: [], markers: [], legend: [], notes: [] };
@@ -60,14 +60,12 @@ export function positionOverlay(p: OverlaySubject, theme: Theme, nowMs: number =
     return { levels, zones, markers, legend, notes };
   }
   const long = lv.side === "long";
-  // stop
+  // stop — live from the first tick (2026-11-12: the engine has no minimum hold and no day-4 grace, so the
+  // chart no longer draws a stop as waiting). A stop the last price has passed says so.
+  const hit = lv.stopHit === true;
   if (lv.stopPrice !== null) {
-    const sup = lv.stopSuppressed;
-    levels.push({ price: lv.stopPrice, color: theme.red, dash: "dot", label: sup ? `${STOP_WORDS[lv.stopFrom ?? "entry"]} · waits` : STOP_WORDS[lv.stopFrom ?? "entry"], muted: !!sup });
-    if (sup && entry !== null) {
-      levels.push({ price: pricePct(entry, -sup.overridePct, lv.side), color: theme.red, dash: "solid", label: `exit now only below ${MINUS}${sup.overridePct}%`, fit: false });
-      notes.push(sup.until === "60min" ? `stop waits ${Math.ceil(sup.minutesLeft ?? 0)} min more (60-minute minimum hold); only a ${MINUS}${sup.overridePct}% loss closes it before then` : `stop waits ${sup.daysLeft ?? "?"} more day(s) (short-hold grace to day 4); only a ${MINUS}${sup.overridePct}% loss closes it before then`);
-    }
+    levels.push({ price: lv.stopPrice, color: theme.red, dash: "dot", label: `${STOP_WORDS[lv.stopFrom ?? "entry"]}${hit ? " · hit" : ""}` });
+    if (hit) notes.push("the last price is past the stop: the engine sells on its next 1-minute bar for this symbol (none arrives while the market is closed)");
     if (entry !== null) {
       const locked = long ? lv.stopPrice > entry : lv.stopPrice < entry;
       zones.push(locked
@@ -75,13 +73,14 @@ export function positionOverlay(p: OverlaySubject, theme: Theme, nowMs: number =
         : { lo: Math.min(entry, lv.stopPrice), hi: Math.max(entry, lv.stopPrice), color: theme.red, alpha: 0.06, label: "risk to the stop" });
     }
   }
-  if (lv.hardFloorPrice !== null && lv.hardFloorPct !== null) levels.push({ price: lv.hardFloorPrice, color: theme.red, dash: "dash", label: `hard floor ${MINUS}${lv.hardFloorPct}%`, muted: true, fit: false });
+  // the backstop: POS-KILL, the 60 s position sync's last resort for a stock (every phase)
+  if (lv.hardFloorPrice !== null && lv.hardFloorPct !== null) levels.push({ price: lv.hardFloorPrice, color: theme.red, dash: "dash", label: `backstop ${MINUS}${lv.hardFloorPct}%`, muted: true, fit: false });
   // scale-outs (the "phase out" areas)
   for (const so of lv.scaleOuts) {
     if (!so.applicable) continue;
     levels.push({ price: so.price, color: theme.orange, dash: "dot", label: so.done ? `⅓ sold · +${f2(so.rMultiple, 1)}R` : `sell ⅓ · +${f2(so.rMultiple, 1)}R`, muted: so.done });
   }
-  if (lv.scaleOuts.length && !lv.scaleOuts[0].applicable) notes.push("lot too small to scale out (the engine needs more than one share)");
+  if (lv.scaleOuts.length && !lv.scaleOuts.some((s) => s.applicable)) notes.push("lot too small to scale out (the engine sells thirds of whole shares: it needs 3 or more), so the target never arms — the stop and the time stop are its exits");
   if (lv.scaleOuts.length >= 1 && lv.scaleOuts[0].applicable && entry !== null && !lv.scaleOuts[0].done) {
     const first = lv.scaleOuts[0].price;
     zones.push({ lo: Math.min(entry, first), hi: Math.max(entry, first), color: theme.green, alpha: 0.045, label: "to the first ⅓" });
@@ -90,17 +89,19 @@ export function positionOverlay(p: OverlaySubject, theme: Theme, nowMs: number =
   if (lv.takeProfitPrice !== null && lv.takeProfitPct !== null) {
     levels.push({ price: lv.takeProfitPrice, color: theme.green, dash: "dash", label: lv.takeProfitArmed ? `target +${f2(lv.takeProfitPct, 1)}%` : `target +${f2(lv.takeProfitPct, 1)}% (after ⅔ out)`, muted: !lv.takeProfitArmed });
   } else if (lv.phase >= 3) notes.push("no fixed target in phase 3+ — the trailing stop takes the rest");
+  // both thirds can be sold and the phase is below 3, yet no target: it would sit at or beyond +2R (the server sends none)
+  else if (lv.scaleOuts.length > 0 && lv.scaleOuts.every((s) => s.applicable)) notes.push("no fixed target: it would sit at or beyond +2R, where phase 3 begins and the trailing stop takes over");
   // legend
   legend.push(["phase", `${lv.phase} of 4`]);
   legend.push(["R", `${signed(lv.rMultiple, 2, "R")} · peak ${signed(lv.peakR, 2, "R")}`]);
   if (entry !== null && Number.isFinite(entry)) legend.push(["entry", px(entry)]);
-  if (lv.stopPrice !== null) legend.push(["stop", `${px(lv.stopPrice)}${lv.stopPct !== null ? ` · ${f2(lv.stopPct, 2)}%` : ""} · ${STOP_WORDS[lv.stopFrom ?? "entry"]}${lv.breakevenActive ? " · breakeven" : ""}${lv.stopSuppressed ? " · waits" : ""}`]);
+  if (lv.stopPrice !== null) legend.push(["stop", `${px(lv.stopPrice)}${lv.stopPct !== null ? ` · ${f2(lv.stopPct, 2)}%` : ""} · ${STOP_WORDS[lv.stopFrom ?? "entry"]}${lv.breakevenActive ? " · breakeven" : ""}${hit ? " · hit" : ""}`]);
   if (lv.riskPct !== null) legend.push(["1R", `${f2(lv.riskPct, 2)}%${lv.atrPct !== null ? ` · ATR ${f2(lv.atrPct, 2)}%` : ""}`]);
   const done = lv.scaleOuts.filter((s) => s.done).length;
   const next = lv.scaleOuts.find((s) => !s.done && s.applicable);
   legend.push(["scale-outs", `${done} of 2${next ? ` · next at +${f2(next.rMultiple, 1)}R` : ""}${lv.breakevenActive ? " · breakeven stop on" : ""}`]);
   if (lv.takeProfitPrice !== null && lv.takeProfitPct !== null) legend.push(["target", `${px(lv.takeProfitPrice)} · +${f2(lv.takeProfitPct, 1)}%${lv.takeProfitArmed ? " · armed" : " · after ⅔ out"}`]);
-  if (lv.hardFloorPrice !== null && lv.hardFloorPct !== null) legend.push(["floor", `${px(lv.hardFloorPrice)} · ${MINUS}${lv.hardFloorPct}%`]);
+  if (lv.hardFloorPrice !== null && lv.hardFloorPct !== null) legend.push(["backstop", `${px(lv.hardFloorPrice)} · ${MINUS}${lv.hardFloorPct}%`]);
   if (lv.originalQty !== null && lv.remainingQty !== null && lv.remainingQty !== lv.originalQty) legend.push(["shares", `${lv.remainingQty} of ${lv.originalQty} left`]);
   legend.push(["held", `${lv.daysHeld ?? "?"}d · time stop d${lv.timeStop.day} if ±${lv.timeStop.withinPct}%${lv.timeStop.armed ? " · armed" : ""}`]);
   if (lv.regime) legend.push(["regime", `${lv.regime.toLowerCase()} · ⅔ at ${f2(lv.scaleOut2R, 1)}R · trail ${f2(lv.trailAtrMult, 1)}×ATR`]);

@@ -126,18 +126,22 @@ function botFixtures({ latched, between = false }) {
     row(167, "SHUTDOWN", "All open orders cancelled"), row(167, "STARTUP", "Server boot — code_version 1.0.1096, pid 1"),
   ].filter((r) => latched || !/DRAWDOWN-KILL|KILL-AUTO|EMAIL|POS-KILL/.test(r.type));
   const pos = (ticker, qty, entry, cur, mv, pnl, pnlPct, stop, tp, isOption = false, extra = {}) => ({ ticker, qty, side: "long", entryPrice: entry, currentPrice: cur, marketValue: mv, pnl, pnlPct, stopPrice: stop, takeProfitPrice: tp, phase: 1, rMultiple: 0, highestPnl: 0, daysHeld: 3, asset_class: isOption ? "us_option" : "us_equity", isOption, ...extra });
-  // the engine's exit ladder per position (shared/positionLevels.ts shape):
+  // the exit ladder the engine executes per position (shared/positionLevels.ts
+  // shape; since 2026-11-12, KNOWN BROKEN #50a, the mirror of bot.ts's
+  // checkPositionOnTick with POS-KILL's −25 % as the backstop on every phase):
   // QQQ phase 1 with both thirds ahead, SMH phase 2 after its first third
-  // with the breakeven stop on, KWEB inside the short-hold grace, VXUS/GLD
-  // not yet recorded (the honest path), option legs with their metadata
-  const lv = (o) => ({ recorded: true, side: "long", phase: 1, regime: "NEUTRAL", atrPct: 1.5, riskPct: 3, pnlPct: -2.42, rMultiple: -0.81, peakR: 0.2, highestPnl: 0.6, highestPrice: 745.8, stopPct: 3, stopPrice: 719.08, stopFrom: "entry", breakevenActive: false, stopSuppressed: null, hardFloorPct: 20, hardFloorPrice: 593.06, takeProfitPct: 4.5, takeProfitPrice: 774.68, takeProfitArmed: false, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: true }], trailAtrMult: 2, scaleOut2R: 2, originalQty: 61, remainingQty: 61, scalesCompleted: 0, daysHeld: 3, heldMinutes: 4320, timeStop: { day: 7, withinPct: 2, armed: false }, ...o });
+  // with the breakeven stop on, KWEB past its stop (the engine has no
+  // short-hold grace: the stop reads "hit" and sells on the next 1-minute
+  // bar), VXUS/GLD not yet recorded (the honest path), option legs with
+  // their metadata
+  const lv = (o) => ({ recorded: true, side: "long", phase: 1, regime: "NEUTRAL", atrPct: 1.5, riskPct: 3, pnlPct: -2.42, rMultiple: -0.81, peakR: 0.2, highestPnl: 0.6, highestPrice: 745.8, stopPct: 3, stopPrice: 719.08, stopFrom: "entry", stopHit: false, breakevenActive: false, hardFloorPct: 25, hardFloorPrice: 555.99, takeProfitPct: 4.5, takeProfitPrice: 774.68, takeProfitArmed: false, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3, price: 763.56, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 6, price: 785.8, done: false, applicable: true }], trailAtrMult: 2, scaleOut2R: 2, originalQty: 61, remainingQty: 61, scalesCompleted: 0, daysHeld: 3, heldMinutes: 4320, timeStop: { day: 7, withinPct: 2, armed: false }, ...o });
   // option legs as /api/bot/positions labels them: the engine's own strategy names (options_manager state),
   // "unknown" for a leg the Node tier dispatcher opened (its state never records one) — the honest path
   const optMeta = (underlyingTicker, strike, strategy = "sell_cash_secured_put", optionType = "PUT", daysToExpiry = 30, expiry = "2026-11-20") => ({ optionMeta: { underlyingTicker, expiry, strike, optionType, strategy, setup: null, daysToExpiry }, levels: null });
   const positions = [
     pos("QQQ", 61, 741.32, 723.36, 44124.96, -1095.52, -2.42, 719.08, 774.68, false, { levels: lv({}), dayPct: -2.4 }),
-    pos("SMH", 20, 551.43, 551.49, 11029.7, 1.15, 0.01, 551.43, 576.24, false, { phase: 2, rMultiple: 0.004, highestPnl: 3.4, daysHeld: 9, levels: lv({ phase: 2, atrPct: 1.6, riskPct: 3.2, pnlPct: 0.01, rMultiple: 0.004, peakR: 1.06, highestPnl: 3.4, highestPrice: 570.2, stopPct: 2.4, stopPrice: 551.43, stopFrom: "breakeven", breakevenActive: true, hardFloorPct: null, hardFloorPrice: null, takeProfitPct: 4.8, takeProfitPrice: 576.24, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3.2, price: 569.08, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6.4, price: 586.72, done: false, applicable: true }], originalQty: 30, remainingQty: 20, scalesCompleted: 1, daysHeld: 9, heldMinutes: 12960, timeStop: { day: 7, withinPct: 2, armed: true } }) }),
-    pos("KWEB", 388, 26.53, 24.54, 9521.52, -770.8, -7.49, 25.47, 27.59, false, { daysHeld: 2, levels: lv({ atrPct: 2, riskPct: 4, pnlPct: -7.49, rMultiple: -1.87, peakR: 0.1, highestPnl: 0.4, highestPrice: 26.64, stopPct: 4, stopPrice: 25.47, stopSuppressed: { until: "day4", reason: "short-hold grace", overridePct: 15, minutesLeft: null, daysLeft: 2 }, hardFloorPrice: 21.22, takeProfitPct: 6, takeProfitPrice: 28.12, scaleOuts: [{ n: 1, rMultiple: 1, pct: 4, price: 27.59, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 8, price: 28.65, done: false, applicable: true }], originalQty: 388, remainingQty: 388, daysHeld: 2, heldMinutes: 2880 }) }),
+    pos("SMH", 20, 551.43, 551.49, 11029.7, 1.15, 0.01, 551.43, 576.24, false, { phase: 2, rMultiple: 0.004, highestPnl: 3.4, daysHeld: 9, levels: lv({ phase: 2, atrPct: 1.6, riskPct: 3.2, pnlPct: 0.01, rMultiple: 0.004, peakR: 1.06, highestPnl: 3.4, highestPrice: 570.2, stopPct: 2.4, stopPrice: 551.43, stopFrom: "breakeven", breakevenActive: true, hardFloorPrice: 413.57, takeProfitPct: 4.8, takeProfitPrice: 576.24, scaleOuts: [{ n: 1, rMultiple: 1, pct: 3.2, price: 569.08, done: true, applicable: true }, { n: 2, rMultiple: 2, pct: 6.4, price: 586.72, done: false, applicable: true }], originalQty: 30, remainingQty: 20, scalesCompleted: 1, daysHeld: 9, heldMinutes: 12960, timeStop: { day: 7, withinPct: 2, armed: true } }) }),
+    pos("KWEB", 388, 26.53, 24.54, 9521.52, -770.8, -7.49, 25.47, 27.59, false, { daysHeld: 2, levels: lv({ atrPct: 2, riskPct: 4, pnlPct: -7.49, rMultiple: -1.87, peakR: 0.1, highestPnl: 0.4, highestPrice: 26.64, stopPct: 4, stopPrice: 25.47, stopHit: true, hardFloorPrice: 19.9, takeProfitPct: 6, takeProfitPrice: 28.12, scaleOuts: [{ n: 1, rMultiple: 1, pct: 4, price: 27.59, done: false, applicable: true }, { n: 2, rMultiple: 2, pct: 8, price: 28.65, done: false, applicable: true }], originalQty: 388, remainingQty: 388, daysHeld: 2, heldMinutes: 2880 }) }),
     pos("VXUS", 150, 71.2, 71.4, 10710, 30, 0.28, null, null, false, { levels: null, dayPct: 0.3 }), pos("GLD", 21, 381.05, 380.11, 7982.31, -19.69, -0.25, null, null, false, { levels: null, dayPct: -0.4 }),
     pos("CRWV261120P00055000", -1, 2.47, 2.67, -267, -20, -8.1, null, null, true, optMeta("CRWV", 55)), pos("TEM261120P00070000", -1, 1.4, 1.96, -196, -56, -40.1, null, null, true, optMeta("TEM", 70, "unknown")), pos("PFE261120P00027000", -1, 0.48, 0.21, -21, 27, 56.25, null, null, true, optMeta("PFE", 27, "csp_normal_market")),
     // a bought call up 300 % (the 2026-11-02 question), and the two legs of one credit spread the manager closes as one unit
@@ -3741,6 +3745,38 @@ async function main() {
           if (!card) fail("the help glyph opened no card in the pane"); else if (!card.inside) fail("the pane's help card leaves its window");
           await page.keyboard.press("Escape");
         }
+        // KNOWN BROKEN #50a (2026-11-12): the chart draws the ladder the engine executes. The fixture's KWEB sits
+        // past its stop (last 24.54, stop 25.47), so its chip must show the stop as hit — never as waiting — with
+        // the note that the engine sells on its next 1-minute bar, and POS-KILL's −25 % backstop in the legend.
+        try {
+          const chip = page.locator(".vt-chart-chip", { hasText: "KWEB" }).first();
+          if (!(await chip.count())) fail("no KWEB chip in the chart's symbol strip");
+          else {
+            await chip.scrollIntoViewIfNeeded();
+            if (vp.touch) await chip.tap({ timeout: 5000 }); else await chip.click({ timeout: 5000 });
+            let lg = null;
+            for (let i = 0; i < 40; i++) {
+              lg = await page.evaluate(() => {
+                const box = document.querySelector("section.vt-bot-panel .vt-chart-legend");
+                return box ? { text: (box.textContent || "").trim(), notes: [...box.querySelectorAll(".vt-chart-note")].map((n) => (n.textContent || "").trim()), over: box.scrollWidth - box.clientWidth, right: Math.round(box.getBoundingClientRect().right) } : null;
+              });
+              if (lg && /25\.47/.test(lg.text)) break;
+              await page.waitForTimeout(100);
+            }
+            await page.waitForTimeout(400);
+            await page.screenshot({ path: path.join(OUT, `${name}-kweb-${vp.w}.png`), animations: "disabled" });
+            if (!lg || !/25\.47/.test(lg.text)) fail("the KWEB chip did not put KWEB's levels in the legend");
+            else {
+              if (!/stop\??25\.47 · 4\.00% · stop · from entry · hit/.test(lg.text)) fail(`KWEB's stop is not marked hit in the legend — "${lg.text.slice(0, 220)}"`);
+              if (!lg.notes.some((n) => n.startsWith("the last price is past the stop: the engine sells on its next 1-minute bar"))) fail(`no note says the engine sells on its next 1-minute bar (notes: ${JSON.stringify(lg.notes)})`);
+              if (!/backstop\??19\.90 · −25%/.test(lg.text)) fail(`KWEB's legend has no −25% backstop — "${lg.text.slice(0, 220)}"`);
+              if (/waits|grace to day|hard floor|minimum hold|exit now only/.test(lg.text)) fail("KWEB's legend still shows a rule the engine does not execute");
+              if (lg.over > 1 || lg.right > vp.w + 1) fail(`the legend overflows with the hit note (scroll ${lg.over}px, right edge ${lg.right}px in a ${vp.w}px window)`);
+            }
+          }
+        } catch (e) {
+          fail(`KWEB chip: driver error — ${String(e?.message || e).replace(/\s+/g, " ").slice(0, 300)}`);
+        }
       }
       // ── TRADE COCKPIT (2026-11-06, the port of PR #1556): a tool tab zooms
       // its panel and keeps the one look-up box in the zoomed bar (Research's
@@ -4100,6 +4136,9 @@ async function main() {
                 if (!/Market regime — NEUTRAL: VIX 17\.4/.test(more) || !/Tax — expected \+3\.1% over 20 days/.test(more)) ovFail("the expanded QQQ card does not walk the decision's stages");
                 if (!/61 at \$741\.32 = \$45,221 \(44\.9% of equity\) — the floor's target weight at a full risk budget/.test(more)) ovFail("the expanded QQQ card does not give its size in words");
                 if (!/Exit plan/.test(more) || !/stop \$719\.08 from entry/.test(more)) ovFail("the expanded QQQ card does not give the engine's exit plan");
+                // KNOWN BROKEN #50a (2026-11-12): the plan is the ladder the engine executes — POS-KILL's −25 % backstop, no hard floor, nothing waiting
+                if (!/backstop \$555\.99 \(−25%\)/.test(more)) ovFail(`the expanded QQQ card's exit plan does not show the −25% backstop — "${more.slice(more.indexOf("Exit plan"), more.indexOf("Exit plan") + 220)}"`);
+                if (/floor \$|waits|grace to day|minimum hold/.test(more.slice(more.indexOf("Exit plan")))) ovFail("the expanded QQQ card's exit plan still shows a rule the engine does not execute (hard floor / a waiting stop)");
                 if (!/decision journal · decided/.test(more)) ovFail("the expanded QQQ card does not say where its reason came from");
               } else ovFail("no QQQ card header to expand");
               const smh = page.locator('.vt-pick[data-key="SMH"] .vt-pick-hd');
@@ -4569,6 +4608,19 @@ async function main() {
           if (chips < 2) fail(`chart: symbol strip shows ${chips} chips for 8 positions`);
           const legend = await page.locator('section.vt-bot-panel[data-panel="chart"] .vt-chart-legend .k').count();
           if (!legend) fail("chart: no legend row (phase / R / scale-outs)");
+          // KNOWN BROKEN #50a (2026-11-12): a share lot's legend names the levels the engine executes — the −25 %
+          // backstop (POS-KILL), not manage_positions' hard floor, and no stop that "waits"
+          {
+            const lg = await page.evaluate(() => {
+              const box = document.querySelector('section.vt-bot-panel[data-panel="chart"] .vt-chart-legend');
+              return { keys: [...(box?.querySelectorAll('.k') || [])].map((k) => (k.textContent || '').replace(/\?$/, '').trim()), text: (box?.textContent || '').trim() };
+            });
+            if (lg.keys.includes("stop")) {
+              if (!lg.keys.includes("backstop")) fail(`chart: a share lot's legend has no backstop row (keys: ${lg.keys.join(", ")})`);
+              if (!/backstop\??[\d,.]+ · −25%/.test(lg.text)) fail(`chart: the legend's backstop is not −25% from entry — "${lg.text.slice(0, 260)}"`);
+            }
+            if (lg.keys.includes("floor") || /waits|hard floor|grace to day|minimum hold/.test(lg.text)) fail(`chart: the legend still shows a rule the engine does not execute — "${lg.text.slice(0, 260)}"`);
+          }
         }
         for (const id of panels) {
           try {
@@ -4710,6 +4762,9 @@ async function main() {
               whatLines: rows.filter((r) => /^(bought|sold) (call|put)/.test((r.querySelector('.sub--what')?.textContent || '').trim())).length,
               exitLines: rows.filter((r) => /^exit/.test((r.querySelector('.sub--exit')?.textContent || '').trim())).length,
               clipped: rows.filter((r) => { const e = r.querySelector('.sub--exit'); return !!e && e.scrollWidth > e.clientWidth + 1; }).length,
+              // KNOWN BROKEN #50a (2026-11-12): the share rows' exit lines, and what each flags as already hit
+              stockExits: rows.filter((r) => /sh$/.test((r.querySelector('.q')?.textContent || '').trim())).map((r) => (r.querySelector('.sub--exit')?.textContent || '').trim()),
+              stockHits: rows.filter((r) => /sh$/.test((r.querySelector('.q')?.textContent || '').trim())).flatMap((r) => [...r.querySelectorAll('.sub--exit b.hit')].map((b) => (b.textContent || '').trim())),
             };
           });
           if (bk === null) fail("book: no Book panel");
@@ -4727,6 +4782,16 @@ async function main() {
             if (bk.rows && bk.exitLines !== bk.rows) fail(`book: ${bk.rows - bk.exitLines} row(s) do not say when the engine exits`);
             if (bk.rows && bk.whatLines !== bk.optRows) fail(`book: ${bk.optRows - bk.whatLines} option row(s) do not say bought/sold call/put`);
             if (bk.clipped) fail(`book: ${bk.clipped} exit line(s) clipped — a rule is hidden`);
+            // KNOWN BROKEN #50a (2026-11-12): a share row shows the ladder the engine executes. Recorded rows carry
+            // POS-KILL's −25 % backstop; none shows manage_positions' hard floor or a stop that "waits"; the fixture's
+            // KWEB sits past its stop, so its stop is flagged hit (the engine sells on its next 1-minute bar).
+            const recordedStock = bk.stockExits.filter((t) => /^exit\s*stop \$/.test(t));
+            if (recordedStock.length < 3) fail(`book: ${recordedStock.length} share rows carry a stop (the fixture records three: QQQ, SMH, KWEB)`);
+            const noBackstop = recordedStock.filter((t) => !/ · backstop \$[\d,.]+ \(−25%\)/.test(t));
+            if (noBackstop.length) fail(`book: ${noBackstop.length} recorded share row(s) do not show the −25% backstop — "${noBackstop[0].slice(0, 140)}"`);
+            const stale = bk.stockExits.filter((t) => /floor \$|waits|grace to day|minimum hold|exit now only/.test(t));
+            if (stale.length) fail(`book: a share row still shows a rule the engine does not execute — "${stale[0].slice(0, 160)}"`);
+            if (!bk.stockHits.includes("stop $25.47 from entry · hit")) fail(`book: the KWEB row (last $24.54, stop $25.47) does not flag its stop as hit — flagged: ${JSON.stringify(bk.stockHits)}`);
           }
         }
         // ── DEAD SPACE (2026-10-22, human-approved): at the desktop tiers no
@@ -4973,7 +5038,8 @@ async function main() {
             }
             // viewport-only shots (a clip inside the viewport, or the viewport itself): the page is a fixed layer with its
             // own scroller, so an element shot taller than the viewport would resize the viewport and draw the shell over it
-            for (const id of ["perf", "why", "picks", "daily"]) {
+            // + "book" (2026-11-12, KNOWN BROKEN #50a): the share rows' exit lines are a review surface of their own
+            for (const id of ["perf", "why", "picks", "daily", "book"]) {
               const el = page.locator(`section.vt-bot-panel[data-panel="${id}"]`).first();
               if (!(await el.count())) continue;
               await el.evaluate((e) => e.scrollIntoView({ block: "start" }));
