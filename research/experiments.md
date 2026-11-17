@@ -118892,3 +118892,15 @@ ROLLBACK TRIGGER: set VOLTRADE_TFMS_FLIGHT_STORE=1 the day a consumer of per-fli
 CHANGED FIXTURE (marked in the test): the existing store test constructed `new TfmsStore()` and read forFlight(); it now constructs `new TfmsStore({ flightStore: true })`, so everything it pinned is still pinned for the store when it is on.
 TESTS: server/swimTfms.test.ts +3 (8 total): the store off keeps nothing per flight while active() / airportConfig() / the type counts equal the store-on values; a per-flight-only message is not parsed with flights off and a program message parses the same; detachRecord copies by value through arrays and nested objects. Full server suite, tsc 6 (the same as main), counter ratchet OK.
 STARVED: no.
+
+## 2026-11-17 [REPAIR] — T-DATACORE (server/shadowFleet.ts, server/vesselArchiveFold.ts, tests) — Shadow-fleet fold: incremental by default after two weeks without a mismatch in shadow
+VERSION: v1.0.1455 (shipped 2026-11-17 by the parent session; main was v1.0.1454)
+WHY: the human asked on 2026-11-17 to cut the Railway bill; memory and CPU are what it bills. In `shadow` mode this fold ran BOTH the full recomputation and the incremental path every ~10-minute cycle only to compare them: lastFullMs 68,107 vs lastIncrementalMs 5,218, i.e. about 68 s of CPU in every 600 s re-reading and re-parsing 72 h of the vessel archive, plus the allocation churn. foldShadow.ts's own rule lets a fold promote its unset default after 24 h mismatch-free (gnss did on 2026-11-05).
+EVIDENCE (read live 2026-11-17 21:05Z): /api/health `fold.shadowfleet` mode shadow, 43 matches / 0 mismatches in the current container; /api/diag/audit type FOLD-MISMATCH over its whole retained history: ZERO shadowfleet rows since the comparison began on 2026-11-04 (the same log holds 17 portdwell and 5 graph rows, so the writer works).
+CHANGE: SHADOWFLEET_FOLD_DEFAULT = "incremental" (unset VOLTRADE_SHADOWFLEET_FOLD). readFoldMode takes the stream's unset default; an unrecognised value is still `shadow`. The health gauge reports the mode before the first cycle.
+WHAT IS GIVEN UP: in incremental nothing is compared, so a wrong partial would be served unseen. Rollback: VOLTRADE_SHADOWFLEET_FOLD=shadow (compare again, serve full) or =full.
+DOWNSTREAM: the served shadow-fleet stats now come from the incremental fold (identical in every compared cycle); about 0.11 of a core freed; the full fold's working set is no longer allocated each cycle.
+CHANGED ASSERTION (marked in the test): shadowFleetIncremental.test.ts's shadow-mode test ran with the variable unset (pinning unset == shadow); it now sets `shadow` explicitly and keeps every assertion.
+ROLLBACK TRIGGER: set =shadow at the first report of a wrong shadow-fleet number, and once a month for a day as a spot check.
+TESTS: +4 (fail on main). Full server suite 3,997 pass; tsc 6; counter ratchet OK.
+STARVED: no.
