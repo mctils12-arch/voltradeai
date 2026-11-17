@@ -279,6 +279,14 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
         rss, label = peak, f"daemon rss={peak}MB"
     if rss is None:
         return finding(WARN, "daemon_memory", "rss_mb missing from /api/diag/daemon response")
+    label += _memory_makeup(daemon.get("memory"))
+    # 2026-11-17 (KNOWN BROKEN #55): a daemon that reports `deep_guard`
+    # states what the guard DID; the memory figure is then context, not the
+    # verdict. An idle reading can sit under the line while scans skip, and
+    # the other way round.
+    measured = _deep_guard_verdict(daemon.get("deep_guard"), label)
+    if measured is not None:
+        return measured
     if rss >= skip_mb:
         return finding(
             ALARM, "daemon_memory",
@@ -291,6 +299,47 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
             f"{label} >= trim_mb={trim_mb}MB — deep_score running in trimmed mode",
         )
     return finding(OK, "daemon_memory", f"{label}, well under trim_mb={trim_mb}MB")
+
+
+def _memory_makeup(memory):
+    """' — C heap in use X MB, freed but retained Y MB, python blocks N
+    (start M)' from the daemon's `memory` block; '' when it is absent."""
+    if not isinstance(memory, dict):
+        return ""
+    parts = []
+    malloc = memory.get("malloc")
+    if isinstance(malloc, dict):
+        parts.append(f"C heap in use {malloc.get('in_use_mb')}MB, freed but retained {malloc.get('free_retained_mb')}MB")
+    blocks = memory.get("python_blocks")
+    if isinstance(blocks, int) and not isinstance(blocks, bool):
+        start = (memory.get("at_start") or {}).get("python_blocks")
+        parts.append(f"python blocks {blocks}" + (f" (start {start})" if isinstance(start, int) else ""))
+    return (" — " + "; ".join(parts)) if parts else ""
+
+
+def _deep_guard_verdict(guard, label):
+    """The finding for a daemon that reports its guard decisions, or None
+    when it does not (older daemon, or no scan yet in this process)."""
+    if not isinstance(guard, dict) or not isinstance(guard.get("last"), dict):
+        return None
+    counts = guard.get("counts") or {}
+    last = guard["last"].get("decision")
+    run = guard.get("consecutive_not_normal") or 0
+    tally = ", ".join(f"{k}={counts.get(k, 0)}" for k in ("normal", "trim", "skip", "survival"))
+    detail = f"deep-score guard this process: {tally}; last={last} at {guard['last'].get('rss_mb')}MB; {label}"
+    if last in ("skip", "survival"):
+        return finding(
+            ALARM, "daemon_memory",
+            f"deep scoring is being SKIPPED for memory ({run} scan(s) in a row) — {detail}. "
+            "Candidates reach the trade loop on quick_score alone. Read /api/diag/timings "
+            "(rss_mb per phase) and `memory.largest_containers` before touching any threshold",
+        )
+    if last == "trim":
+        return finding(WARN, "daemon_memory", f"deep scoring trimmed for memory ({run} scan(s) in a row) — {detail}")
+    skipped = counts.get("skip", 0) + counts.get("survival", 0)
+    if skipped:
+        return finding(WARN, "daemon_memory", f"last scan normal, but {skipped} earlier scan(s) skipped deep scoring — {detail}")
+    return finding(OK, "daemon_memory", detail)
 
 
 def check_tier2_daemon_timeouts(tier2_error_entries, cluster_threshold=3):

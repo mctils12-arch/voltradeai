@@ -7769,6 +7769,56 @@
     (PASS/FAIL/WAITING) after Sun 11-22 19:00-20:00 ET; note which feed
     `source.prices` names and whether `feed_fallback` is set.
 
+55. **[FOUND 2026-11-17 20:16Z, DAILY scheduled routine — RECURRENCE of
+    #21's symptom (HEALTH OF THE LOOP rule 4: root-cause analysis, no
+    threshold re-tune). NOT FIXED. v1.0.1450 ships the instrument only.]**
+    The daemon holds its memory and the deep-score guard skips every scan.
+    MEASURED (`/api/diag/daemon`, 14 reads over 5.5 min, 20:18-20:23Z, one
+    full scan inside the window): current 637-643 MB idle AND mid-scan,
+    peak 776.7 MB, uptime 6.4 h. The same process family read 278 MB at
+    13:03Z. `/api/diag/timings` for the scan in progress: `deep_score`
+    phase 0 s. The guard skips at 550 MB (bot_engine
+    `_deep_score_guard_decision`), so deep scoring did not run.
+    WHAT A SKIP DOES (read in code, bot_engine `_scan_market_inner`): the
+    quick-scan top 10 go to the trade loop and
+    `final_score = deep_score or quick_score`: a candidate is judged on
+    quick_score alone, with no ML and no enrichment. Not measured: how
+    many entries were taken that way (the engine was also blocking on
+    `Portfolio invested 67.4% >= 50% (regime=BEAR)` during the window).
+    WHAT THIS ANSWERS: the 2026-11-16 item "the daemon's 1 GB self-kill
+    ... read the peak": current tracks the peak (640 vs 777), so memory
+    is RETAINED, not a transient spike. The peak-based self-kill stays.
+    NOT KNOWN: what holds it. Candidates, none tested: (i) live Python
+    objects in an unbounded module-level cache; (ii) C-heap fragmentation
+    (freed but not returned to the OS; the daemon runs scans on worker
+    threads, each with its own malloc arena); (iii) leaked threads from
+    timed-out dispatches (41 TIER2 timeouts in the audit window, #18).
+    The scan could not be reproduced in a session (no broker keys).
+    INSTRUMENT (v1.0.1450, read-only): `/api/diag/daemon` gains
+    `deep_guard` {counts normal/trim/skip/survival, consecutive_not_normal,
+    last} and `memory` {rss_current_mb, python_blocks, malloc {in_use_mb,
+    free_retained_mb, mmapped_mb, heap_mb}, threads, at_start {same},
+    largest_containers [{name, type, len}]}; every row of
+    `/api/diag/timings` gains `rss_mb` (held at the END of the phase).
+    `scripts/session_health_check.py` alarms on what the guard did.
+    PRIOR (stated before any reading): 50% fragmentation (ii), 35% a
+    growing cache (i), 15% threads (iii).
+    HOW TO READ IT (take the first reading 3+ hours after a deploy):
+    - `python_blocks` several times `at_start` and `malloc.in_use_mb`
+      near the RSS -> live objects (i): `largest_containers` names the
+      cache if it is module-level; bound it.
+    - `malloc.free_retained_mb` is most of the growth -> fragmentation
+      (ii): the candidate fix is returning freed memory after each scan
+      (malloc_trim) or fewer arenas; its own PR, rollback trigger = any
+      rise in scan time.
+    - `threads` climbs with the timeouts -> (iii): this is #18's zombie
+      dispatch, fix there.
+    - the per-phase `rss_mb` column says which phase the rise lands in.
+    CLOSE WHEN: the cause is named from a reading, its fix ships with a
+    test, and `deep_guard.counts.skip` stays 0 across a full session day.
+    Until then every deploy restarts the daemon near 280 MB and deep
+    scoring runs again for some hours: the skip returns the same day.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 

@@ -362,6 +362,41 @@ def _deep_score_guard_decision(rss_mb: int, skip_mb: int, trim_mb: int) -> str:
     return "normal"
 
 
+# 2026-11-17 [REPAIR] (KNOWN BROKEN #55): the guard's decision used to reach
+# stderr only, so a daemon that skipped deep scoring on every scan looked
+# healthy everywhere a session can read. Each decision is counted here and
+# served by the daemon's health RPC (/api/diag/daemon `deep_guard`).
+# Counts are per process: they restart with the daemon.
+_DEEP_GUARD_DECISIONS = ("normal", "trim", "skip", "survival")
+_DEEP_GUARD_STATS = {"counts": {d: 0 for d in _DEEP_GUARD_DECISIONS},
+                     "consecutive_not_normal": 0, "last": None}
+
+
+def _record_deep_guard(decision: str, rss_mb, threshold_mb=None, now=None):
+    """Count one scan's deep-score memory decision. `survival` is the
+    700 MB SURVIVAL_MODE early return (deep scoring and options skipped);
+    `skip` and `trim` are the pre_deep_score guard. Returns the snapshot."""
+    if decision not in _DEEP_GUARD_DECISIONS:
+        raise ValueError(f"unknown deep guard decision: {decision!r}")
+    st = _DEEP_GUARD_STATS
+    st["counts"][decision] += 1
+    st["consecutive_not_normal"] = 0 if decision == "normal" else st["consecutive_not_normal"] + 1
+    st["last"] = {"decision": decision, "rss_mb": rss_mb, "threshold_mb": threshold_mb,
+                  "at": time.time() if now is None else now}
+    return get_deep_guard_stats()
+
+
+def get_deep_guard_stats() -> dict:
+    """A copy of the per-process guard counts ({} before the first scan)."""
+    st = _DEEP_GUARD_STATS
+    if st["last"] is None:
+        return {}
+    return {"counts": dict(st["counts"]),
+            "scans": sum(st["counts"].values()),
+            "consecutive_not_normal": st["consecutive_not_normal"],
+            "last": dict(st["last"])}
+
+
 def _inline_train_allowed(mode: str, env) -> bool:
     """Pure gate for whether bot_engine.py's __main__ may run the inline
     ML training block (imports lightgbm + sklearn, ~150MB RSS).
@@ -3237,7 +3272,11 @@ def _scan_market_inner():
         now = _timing.time()
         elapsed = round(now - _last_t[0], 2)
         total = round(now - _scan_start, 2)
-        _phase_times.append({"phase": phase, "duration_sec": elapsed, "total_sec": total})
+        # 2026-11-17 (KNOWN BROKEN #55): rss_mb is the memory the process
+        # holds at the END of the phase (VmRSS, not the peak), so
+        # /api/diag/timings shows which phase a retained rise lands in.
+        _phase_times.append({"phase": phase, "duration_sec": elapsed, "total_sec": total,
+                             "rss_mb": _mem_rss_mb()})
         print(f"[timing] {phase} took {elapsed:.2f}s (total {total:.2f}s)", file=sys.stderr, flush=True)
         _last_t[0] = now
         # Persist after every phase so timeout kills don't lose data
@@ -3591,6 +3630,7 @@ def _scan_market_inner():
         _survival_mode = _current_rss_mb >= _survival_threshold_mb
     if _survival_mode:
         _surv_mb = _mem_rss_mb()
+        _record_deep_guard("survival", _surv_mb, _survival_threshold_mb)
         print(
             f"[mem] SURVIVAL_MODE skip_deep_score rss~{_surv_mb}MB candidates={len(scored)}",
             file=sys.stderr, flush=True,
@@ -3662,6 +3702,9 @@ def _scan_market_inner():
 
     _pre_mb = _log_mem_phase("pre_deep_score")
     _guard_decision = _deep_score_guard_decision(_pre_mb, _mem_skip_deep_mb, _mem_trim_deep_mb)
+    _record_deep_guard(
+        _guard_decision, _pre_mb,
+        {"skip": _mem_skip_deep_mb, "trim": _mem_trim_deep_mb}.get(_guard_decision))
     if _guard_decision == "skip":
         # Too close to Railway's OOM line — skip deep scoring entirely.
         import logging as _lg

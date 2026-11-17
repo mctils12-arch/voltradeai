@@ -52,6 +52,8 @@ Each method accepts a JSON dict of args and returns a JSON dict.
 Responses always include {"status": "ok" | "error", "result" | "error_message"}.
 """
 
+import collections
+import ctypes
 import inspect
 import json
 import logging
@@ -235,6 +237,95 @@ def _surface_score_stats_snapshot():
     if checked_at:
         stats["age_sec"] = round(time.time() - checked_at, 1)
     return stats
+
+
+# 2026-11-17 [REPAIR] (KNOWN BROKEN #55): on 11-17 the daemon held ~640 MB
+# idle (278 MB that morning), the deep-score guard's 550 MB skip line was
+# passed on every scan, and nothing a session can read said so or said what
+# held the memory. These three reads are served by health(); none imports
+# anything, changes anything, or frees anything.
+def _deep_guard_snapshot():
+    """bot_engine's per-process count of deep-score memory decisions
+    (normal / trim / skip / survival) and the last one, with its age.
+    {} before bot_engine has loaded or before its first scan."""
+    bot_engine = sys.modules.get("bot_engine")
+    if bot_engine is None or not hasattr(bot_engine, "get_deep_guard_stats"):
+        return {}
+    stats = bot_engine.get_deep_guard_stats()
+    last = stats.get("last") if stats else None
+    if last and last.get("at"):
+        last["age_sec"] = round(time.time() - last["at"], 1)
+    return stats
+
+
+class _Mallinfo2(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_size_t) for n in (
+        "arena", "ordblks", "smblks", "hblks", "hblkhd",
+        "usmblks", "fsmblks", "uordblks", "fordblks", "keepcost")]
+
+
+def _malloc_snapshot(libc=None):
+    """glibc's own account of the C heap, in MB: `in_use_mb` (allocated
+    chunks plus mmapped blocks) against `free_retained_mb` (freed by the
+    program, still held from the OS). Retained-but-free memory is
+    fragmentation, in-use memory is something still referenced. CPython's
+    small-object arenas are mmapped by the interpreter itself and are NOT
+    in these figures — `python_blocks` covers those. None where glibc's
+    mallinfo2 is absent (macOS, musl)."""
+    try:
+        libc = libc or ctypes.CDLL(None)
+        fn = libc.mallinfo2
+    except (OSError, AttributeError):
+        return None
+    fn.restype = _Mallinfo2
+    mi = fn()
+    mb = 1024 * 1024
+    return {
+        "in_use_mb": round((mi.uordblks + mi.hblkhd) / mb, 1),
+        "free_retained_mb": round(mi.fordblks / mb, 1),
+        "mmapped_mb": round(mi.hblkhd / mb, 1),
+        "heap_mb": round(mi.arena / mb, 1),
+        "releasable_top_mb": round(mi.keepcost / mb, 1),
+    }
+
+
+_CONTAINER_TYPES = (dict, list, set, frozenset, collections.deque)
+_REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _largest_containers(modules=None, top=12, min_len=200):
+    """The longest module-level dict/list/set/deque in this repo's own
+    loaded modules: [{name, type, len}], longest first. A cache that grows
+    without a bound shows here by name. Length, not bytes; a container
+    held by an instance or a closure is not seen."""
+    rows = []
+    for mod_name, mod in list((modules if modules is not None else sys.modules).items()):
+        path = getattr(mod, "__file__", None) or ""
+        if not path.startswith(_REPO_DIR) or "site-packages" in path:
+            continue
+        for attr, val in list(vars(mod).items()):
+            if isinstance(val, _CONTAINER_TYPES) and len(val) >= min_len:
+                rows.append({"name": f"{mod_name}.{attr}", "type": type(val).__name__, "len": len(val)})
+    rows.sort(key=lambda r: (-r["len"], r["name"]))
+    return rows[:top]
+
+
+def _memory_point():
+    return {
+        "rss_current_mb": _current_rss_mb(),
+        "python_blocks": sys.getallocatedblocks(),
+        "malloc": _malloc_snapshot(),
+        "threads": threading.active_count(),
+    }
+
+
+def _memory_snapshot():
+    """Now against the reading taken when this process finished its
+    startup imports, plus the longest module-level containers."""
+    out = _memory_point()
+    out["at_start"] = _MEMORY_AT_START
+    out["largest_containers"] = _largest_containers()
+    return out
 
 
 # ── Heavy imports happen ONCE at daemon startup ──────────────────────────────
@@ -625,6 +716,11 @@ class RPCDispatcher:
             "layer2_prefetch": _layer2_prefetch_snapshot(),
             "layer1_stats": _layer1_stats_snapshot(),
             "surface_score_stats": _surface_score_stats_snapshot(),
+            # 2026-11-17 (KNOWN BROKEN #55): what the deep-score memory
+            # guard decided on each scan, and what the process's memory is
+            # made of now against its start (read-only, see the helpers).
+            "deep_guard": _deep_guard_snapshot(),
+            "memory": _memory_snapshot(),
             "pid": os.getpid(),
         }
 
@@ -854,6 +950,9 @@ def _memory_watchdog():
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 _DAEMON_START = time.time()
+# The memory reading every later health() answer is compared with: taken
+# once the startup imports above are done, before any RPC has run.
+_MEMORY_AT_START = _memory_point()
 _dispatcher = RPCDispatcher()
 
 
