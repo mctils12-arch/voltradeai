@@ -67,6 +67,11 @@ export interface Form4Filing extends ParsedForm4 {
   filedAt: string | null;
   cik: string;
   indexUrl: string;
+  /** Only on rows the nightly completeness pass recovered from EDGAR's daily
+   *  form index (server/edgarForm4Completeness.ts): the index's exact form
+   *  type, and when the row was recovered. A row recorded live has neither. */
+  form?: "4" | "4/A";
+  backfilledAt?: string;
 }
 
 // ── Minimal dependency-free XML tag extraction ──────────────────────────────

@@ -297,6 +297,21 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_EARNINGS_QOQ off",
   },
   {
+    // edgarForm4Completeness.ts bootForm4Completeness: 30-min tick, one pass per
+    // ET night inside 02:00-06:00 — EDGAR's daily form index (types 4, 4/A)
+    // minus what the Form 4 archive holds is fetched and appended. Up to 2,500
+    // filings at 400 ms spacing (about 35 min); a quiet night is seconds.
+    id: "form4_completeness_nightly", label: "Form 4 archive completeness pass (EDGAR daily form index, 02:00-06:00 ET)",
+    source: "server/edgarForm4Completeness.ts", kind: "daily", tz: "America/New_York", dueMin: 2 * 60,
+    graceMs: 90 * MIN, maxRunMs: 2 * HOUR, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_FORM4_COMPLETENESS;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_FORM4_COMPLETENESS off",
+  },
+  {
     // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,
