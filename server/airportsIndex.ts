@@ -120,5 +120,21 @@ export function airportByIdent(id: string): Airport | null {
   return byIdent.get(id.trim().toUpperCase()) || null;
 }
 
+/** The position of every large and medium airport (the fields airline,
+ *  cargo and business traffic uses) — a static stand-in for "where aircraft
+ *  are" for a caller that has no live answer yet (sweepFailover.ts orders
+ *  its first discs by it). Returns [] when the dataset cannot be read. */
+export function majorAirportPoints(): Array<{ lat: number; lon: number; large: boolean }> {
+  ensureLoaded();
+  const out: Array<{ lat: number; lon: number; large: boolean }> = [];
+  if (!grid) return out;
+  for (const cell of Array.from(grid.values())) {
+    for (const a of cell) {
+      if (a.ty === "L" || a.ty === "M") out.push({ lat: a.la, lon: a.lo, large: a.ty === "L" });
+    }
+  }
+  return out;
+}
+
 /** test hook */
 export function _resetAirports(): void { grid = null; byIdent = null; loadedCount = 0; }

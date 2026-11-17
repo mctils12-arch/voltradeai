@@ -55,6 +55,7 @@ import { publishFixes, subscribeFixes, type FixBatch } from "./aircraftFixBus";
 import { createFastLane, ICAO_HEX_LC_RE } from "./aircraftFastLane";
 import { GlobalSnapshot, ROW_FIELDS, SNAPSHOT_CAP, encodeRow, toSnapRow, type BBox, type SnapRow } from "./globalSnapshot";
 import { startGlobalSweep, unrefTimer, type SweepHandle } from "./globalSweep";
+import { createSweepFailover, FAILOVER_ORIGIN, type SweepFailover } from "./sweepFailover";
 import { startOpenSkyGlobal, type OpenSkyHandle } from "./openskyGlobal";
 import { complianceAuditTick } from "./providerCompliance";
 import { PLAN_RADIUS_NM, TRAFFIC_MASK } from "./globalDiscPlan";
@@ -116,13 +117,14 @@ export function aircraftLiveLookup(): AircraftLiveLookup | null { return liveLoo
 
 export const GLOBAL_RESPONSE_CACHE_MS = 5_000;
 /** origins whose fixes THIS module archives (others archive themselves) */
-export const ARCHIVED_ORIGINS = new Set(["sweep-type", "sweep-disc", "opensky"]);
+export const ARCHIVED_ORIGINS = new Set(["sweep-type", "sweep-disc", "opensky", FAILOVER_ORIGIN]);
 
 export const GLOBAL_HONESTY =
   "Worldwide live aircraft assembled from community ADS-B ground receivers: adsb.lol (ODbL) via a " +
   "type-list lane (all aircraft of each listed ICAO type, worldwide) and a 250nm disc lane over a " +
   "hand-authored traffic mask, plus the discs viewers' maps already fetched and adsb.lol's military/" +
-  "LADD/PIA scopes" +
+  "LADD/PIA scopes; while adsb.lol is not answering the sweep, the same discs are asked of adsb.fi and " +
+  "airplanes.live (non-commercial) instead, a part of the plan at a time" +
   " — and OpenSky Network (non-commercial) only when credentials are configured. One row per aircraft: " +
   "its FRESHEST fix; seenAt is that fix's time, so a row older than ~2 min is a stale position, not a " +
   "live one. Not every plane on Earth: remote oceans and polar regions beyond receiver range, and " +
@@ -131,8 +133,8 @@ export const GLOBAL_HONESTY =
 
 const SOURCE_META: Record<string, { label: string; license: string; commercial_ok: boolean }> = {
   adsblol: { label: "adsb.lol (ADS-B, community)", license: "ODbL 1.0", commercial_ok: true },
-  airplaneslive: { label: "airplanes.live (viewport fallback only)", license: "non-commercial", commercial_ok: false },
-  adsbfi: { label: "adsb.fi (viewport fallback + coverage gap-fill)", license: "non-commercial", commercial_ok: false },
+  airplaneslive: { label: "airplanes.live (viewport fallback + sweep failover)", license: "non-commercial", commercial_ok: false },
+  adsbfi: { label: "adsb.fi (viewport fallback + coverage gap-fill + sweep failover)", license: "non-commercial", commercial_ok: false },
   opensky: { label: "OpenSky Network states/all", license: "non-commercial (research/education; written agreement for operational use)", commercial_ok: false },
 };
 
@@ -153,6 +155,8 @@ export function parseBBoxQuery(q: Record<string, unknown>): BBox | null {
 export interface GlobalAircraftHandle {
   snapshot: GlobalSnapshot;
   sweep: SweepHandle;
+  /** the other providers' disc sweep while adsb.lol's is failing */
+  sweepFailover: SweepFailover;
   opensky: OpenSkyHandle;
   /** per-aircraft intent/derived fields (AIRCRAFT INTENT A) */
   intent: IntentStore;
@@ -203,6 +207,11 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
 
   const sweep = startGlobalSweep({
     env, fetchImpl: deps.fetchImpl, typeCounts: () => snapshot.typeCounts(),
+  });
+  // while that sweep is failing, the plan's discs are asked of the other
+  // community providers (sweepFailover.ts; idle otherwise)
+  const sweepFailover = createSweepFailover({
+    env, fetchImpl: deps.fetchImpl, now, livePositions: () => snapshot.rows({}),
   });
   const opensky = startOpenSkyGlobal({ env, fetchImpl: deps.fetchImpl });
 
@@ -295,6 +304,8 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     try { intent.ingest(b, now()); } catch (e) { noteError("intent", e); }
     if (b.origin === "viewport" && b.disc) {
       try { sweep.scheduler.creditViewportDisc(b.disc, now()); } catch (e) { noteError("viewport-credit", e); }
+      // a disc a viewer's map just fetched is not asked again by the failover
+      try { sweepFailover.scheduler.creditViewportDisc(b.disc, now()); } catch (e) { noteError("failover-credit", e); }
     }
     if (ARCHIVED_ORIGINS.has(b.origin) && b.aircraft.length) {
       counters.fixes_offered_total += b.aircraft.length;
@@ -349,7 +360,10 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     // client applies the same evict_after_s rule and resyncs fully.
     const changedN = parseFloat(String(q.changed ?? ""));
     const changedSinceMs = Number.isFinite(changedN) ? changedN : null;
-    if (bbox) { try { sweep.scheduler.noteInterest(bbox, t); } catch (e) { noteError("interest", e); } }
+    if (bbox) {
+      try { sweep.scheduler.noteInterest(bbox, t); } catch (e) { noteError("interest", e); }
+      try { sweepFailover.scheduler.noteInterest(bbox, t); } catch (e) { noteError("failover-interest", e); }
+    }
     const key = `${snapshot.version}|${bbox ? `${bbox.lamin},${bbox.lamax},${bbox.lomin},${bbox.lomax}` : "world"}|${lawfulOnly ? 1 : 0}|${sinceMs ?? ""}|${changedSinceMs ?? ""}`;
     res.set("Cache-Control", "public, max-age=10");
     const hit = bodyCache.get(key);
@@ -395,6 +409,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
           enabled: sweepStatus.enabled, steps: sweepStatus.steps, errors: sweepStatus.errors,
           last: sweepStatus.last, last_at: sweepStatus.last_at, governor: sweepStatus.governor,
         },
+        sweep_failover: sweepFailover.status(t),
         opensky: osStatus,
         sources,
         snapshot: { ...summary, evict_after_s: snapshot.evictMs / 1000, cap: snapshot.cap },
@@ -505,7 +520,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   });
 
   return {
-    snapshot, sweep, opensky, intent, onBatch,
+    snapshot, sweep, sweepFailover, opensky, intent, onBatch,
     stop: () => {
       if (liveLookup === lookup) liveLookup = null;
       unsubscribe();
@@ -513,6 +528,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
       clearTimeout(foldBoot);
       clearInterval(foldTimer);
       sweep.stop();
+      sweepFailover.stop();
       opensky.stop();
     },
   };
