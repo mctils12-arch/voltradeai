@@ -33,6 +33,10 @@ import { execGroupKill, planPythonExec, ML_RETRAIN_TIMEOUT_MS } from "./pythonEx
 import { formatSizeBlocks } from "./sizeBlocks";
 import { formatOptionsMgmt } from "./optionsMgmtAudit";
 import { floorAuditRows } from "./floorAudit";
+import {
+  floorTracking, parseFloorTrackingConfig, FLOOR_TRACKING_MODE, FLOOR_TRACKING_ORDERS_LOOKBACK_DAYS,
+  type FloorTrackingBars, type FloorTrackingConfig, type FloorTrackingInputs, type FloorTrackingReport,
+} from "./floorTracking";
 import { leg3AuditRows } from "./leg3Audit";
 import { flowsBody, readFlows, flowsAuditMessage, FLOWS_REFRESH_CMD, FLOWS_REFRESH_TIMEOUT_MS } from "./flowsReport";
 import { earningsRefreshAuditMessage, EARNINGS_HISTORY_REFRESH_CMD, EARNINGS_HISTORY_REFRESH_TIMEOUT_MS } from "./earningsHistory";
@@ -3742,6 +3746,89 @@ print(json.dumps(result, default=str))
     return (data.bars || []).map((b: { t: string; c: number }) => ({ date: String(b.t).slice(0, 10), close: b.c }));
   }
 
+  // ── FLOOR TRACKING ([RULE-REVIEW] measurement, 2026-11-12; server/floorTracking.ts) ──
+  // The volatility-managed floor's watch list as one report: its realized
+  // return against target exposure x SPY (per session and over the rolling 20
+  // sessions), the pre-registered rollback trigger, turnover. READ ONLY and
+  // nothing stored: system_config's FLOOR_* values (one short Python read), the
+  // stored daily lines, the positions, the floor tickers' orders (a GET) and
+  // daily closes. One body for the `floor_tracking` diag probe and for the
+  // FLOOR-TRACKING audit row written after each daily line.
+  const FLOOR_TRACKING_CFG_CMD = `python3 -c "import json,system_config as s;print(json.dumps({k:v for k,v in s.BASE_CONFIG.items() if k.startswith('FLOOR_')},default=str))"`;
+
+  // Every order in `symbols` sent after `afterIso`, oldest first, every status; pages of 500, at most 10.
+  async function floorTrackingOrders(symbols: readonly string[], afterIso: string): Promise<unknown[]> {
+    const out: unknown[] = [];
+    let after = afterIso;
+    for (let page = 0; page < 10; page++) {
+      const batch: unknown = await alpaca(`/v2/orders?status=all&symbols=${encodeURIComponent(symbols.join(","))}&after=${encodeURIComponent(after)}&limit=500&direction=asc`);
+      if (!Array.isArray(batch)) throw new Error("an orders page was not a list");
+      out.push(...batch);
+      if (batch.length < 500) return out;
+      const tail: unknown = batch[batch.length - 1];
+      const next = tail && typeof tail === "object" ? String((tail as { submitted_at?: unknown }).submitted_at ?? "") : "";
+      if (!next || next === after) throw new Error("orders paging stalled");
+      after = next;
+    }
+    throw new Error("more than 5000 floor orders in the window");
+  }
+
+  async function floorTrackingBody(): Promise<FloorTrackingReport> {
+    const why = (e: unknown) => String(e instanceof Error ? e.message : e).slice(0, 160);
+    const errors: FloorTrackingInputs["errors"] = {};
+    let cfg: FloorTrackingConfig | null = null;
+    try {
+      const { stdout } = await execPythonSerialized(FLOOR_TRACKING_CFG_CMD, { timeout: 10000 });
+      const parsed = parseFloorTrackingConfig(JSON.parse(String(stdout).trim().split("\n").pop() || "{}"));
+      cfg = parsed.cfg;
+      if (parsed.error) errors.config = parsed.error;
+    } catch (e: unknown) { errors.config = why(e); }
+    const stored = readDailyLines(dailyLineDir(process.env));
+    if (stored.error) errors.lines = stored.error;
+    const inputs: FloorTrackingInputs = {
+      nowMs: Date.now(), cfg, lines: stored.lines, bars: { base: null, levered: null, cash: null }, positions: null, orders: null,
+      ordersFromMs: null, calendar: { holidays: marketHolidays(), halfDays: marketHalfDays() }, errors,
+    };
+    // the broker is read only when there is a volatility-managed floor and a stored line to measure
+    if (!cfg || cfg.mode !== FLOOR_TRACKING_MODE || stored.error || !stored.lines.length) return floorTracking(inputs);
+    const fromMs = Date.parse(`${stored.lines[0].day}T00:00:00Z`) - FLOOR_TRACKING_ORDERS_LOOKBACK_DAYS * 86_400_000;
+    const fromDay = new Date(fromMs).toISOString().slice(0, 10);
+    // SPY comes from the benchmark's own price-only series (one fetch, one cache, asked for over the benchmark's own
+    // range so the two readers never refetch each other's window); any other ticker is read the same way
+    const curveOldest = equityCurve.length ? equityCurve[equityCurve.length - 1].date : fromDay;
+    const closesOf = async (ticker: string): Promise<FloorTrackingBars> => {
+      if (ticker === "SPY") {
+        const spy = await spyBenchBars(curveOldest < fromDay ? curveOldest : fromDay);
+        return { bars: spy.bars, read_at_ms: spy.at };
+      }
+      const readAtMs = Date.now();
+      return { bars: await fetchDailyBarsRange(ticker, fromDay, new Date().toISOString()), read_at_ms: readAtMs };
+    };
+    const tickers = [cfg.base, cfg.levered, ...(cfg.cash ? [cfg.cash] : [])];
+    const [positions, orders, base, levered, cash] = await Promise.allSettled([
+      alpaca("/v2/positions"), floorTrackingOrders(tickers, new Date(fromMs).toISOString()),
+      closesOf(cfg.base), closesOf(cfg.levered), cfg.cash ? closesOf(cfg.cash) : Promise.resolve(null),
+    ]);
+    if (positions.status === "fulfilled") inputs.positions = parsePositionsLite(positions.value);
+    else errors.positions = why(positions.reason);
+    if (orders.status === "fulfilled") { inputs.orders = orders.value; inputs.ordersFromMs = fromMs; } else errors.orders = why(orders.reason);
+    if (base.status === "fulfilled") inputs.bars.base = base.value; else errors.base_bars = why(base.reason);
+    if (levered.status === "fulfilled") inputs.bars.levered = levered.value; else errors.levered_bars = why(levered.reason);
+    if (cash.status === "fulfilled") inputs.bars.cash = cash.value; else errors.cash_bars = why(cash.reason);
+    return floorTracking(inputs);
+  }
+
+  // The report's one line, in the audit log, once per daily line (checkDailyLine calls this after the line's own row).
+  // Nothing when the floor is not the volatility-managed one; a read that failed is logged as such, never skipped.
+  async function auditFloorTracking(): Promise<void> {
+    try {
+      const report = await floorTrackingBody();
+      if (report.status !== "not_applicable") audit("FLOOR-TRACKING", report.message);
+    } catch (e: unknown) {
+      audit("FLOOR-TRACKING", `floor tracking unavailable: ${String(e instanceof Error ? e.message : e).slice(0, 300)}`);
+    }
+  }
+
   // ── Token-gated READ-ONLY diagnostics (wishlist option (d), human-
   // approved 2026-07-04). HARD WHITELIST: audit tail, ml status, daemon
   // health, positions SUMMARY (counts/exposure — never symbols). Closed
@@ -4008,6 +4095,17 @@ print(json.dumps(s))
           // by type / month and the equity reconciliation; no per-fill or
           // per-activity rows.
           return res.json(sanitizeDiag({ probe: "sleeves", ...(await sleevesBody()) }));
+        }
+        case "floor_tracking": {
+          // ADDED 2026-11-12 ([RULE-REVIEW] measurement — see diag.ts and
+          // server/floorTracking.ts): the volatility-managed floor's watch
+          // list. Per session and over the rolling 20 sessions, its realized
+          // return against target exposure x SPY; the pre-registered rollback
+          // trigger, evaluated; orders and dollars traded. Recomputed on every
+          // call from the stored daily lines, the floor tickers' orders, the
+          // positions and daily closes; reads only, nothing stored. The same
+          // body the FLOOR-TRACKING audit row summarizes. No query parameters.
+          return res.json(sanitizeDiag({ probe: "floor_tracking", ...(await floorTrackingBody()) }));
         }
         case "account": {
           // ADDED 2026-09-10 (KNOWN BROKEN #42 support) — see diag.ts's
@@ -9088,6 +9186,7 @@ print(json.dumps(out))
       audit("DAILY-LINE", line.message);
       if (!savedTo) audit("DAILY-LINE-WARN", `${line.day}: the line could not be saved to ${dir} — a restart today would write it again`);
       note("written", savedTo ? null : "not persisted");
+      void auditFloorTracking(); // [RULE-REVIEW] 2026-11-12: the floor's tracking and rollback trigger, once per line (reads only)
     } catch (e: unknown) {
       const msg = String(e instanceof Error ? e.message : e).slice(0, 300);
       note("error", msg);
