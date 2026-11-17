@@ -223,6 +223,33 @@ export function pickOwnershipXmlName(indexJson: any): string | null {
   return (preferred || xmlItems[0]).name;
 }
 
+/** The page sizes EDGAR's "getcurrent" listing offers in its own form. A
+ *  `count` outside this list is not rounded, it is refused.
+ *
+ *  [REPAIR 2026-11-16] Measured 2026-11-17 00:15Z: `count=75` answers HTTP 400
+ *  for type 4 and for type 13F-HR, while 80 and 100 answer the live feed.
+ *  The Form 4 poll asked for `limit * 3` = 75, so from about 12:40Z on
+ *  2026-11-16 every poll threw, the cache was refilled from the archive, and
+ *  the Form 4 archive took no row for the rest of that Monday (39 rows on the
+ *  day file against 553 the Friday before). The 13F poll asked for 80 and
+ *  the 8-K poll for 100, and both kept archiving. */
+export const EDGAR_FEED_PAGE_SIZES: readonly number[] = [10, 20, 40, 80, 100];
+
+/** The smallest offered page size that holds `wantedEntries` (the largest
+ *  one when none does, or when the wish is not a positive number). */
+export function edgarFeedCount(wantedEntries: number): number {
+  const largest = EDGAR_FEED_PAGE_SIZES[EDGAR_FEED_PAGE_SIZES.length - 1];
+  if (!Number.isFinite(wantedEntries) || wantedEntries <= 0) return largest;
+  for (const size of EDGAR_FEED_PAGE_SIZES) if (size >= wantedEntries) return size;
+  return largest;
+}
+
+/** The one place a "getcurrent" Atom feed URL is written, so no poller can
+ *  ask for a page size EDGAR refuses. */
+export function edgarCurrentFeedUrl(formType: string, wantedEntries: number): string {
+  return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${encodeURIComponent(formType)}&company=&dateb=&owner=include&count=${edgarFeedCount(wantedEntries)}&output=atom`;
+}
+
 async function fetchText(fetchImpl: FetchFn, url: string): Promise<string> {
   const r = await fetchImpl(url, { headers: SEC_UA, signal: AbortSignal.timeout(12000) as any });
   if (!r.ok) throw new Error(`${url} -> ${r.status}`);
@@ -237,7 +264,7 @@ export async function fetchLatestForm4Filings(
   fetchImpl: FetchFn = fetch as any,
   delayMs = 150,
 ): Promise<Form4Filing[]> {
-  const feedUrl = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&company=&dateb=&owner=include&count=${Math.min(100, limit * 3)}&output=atom`;
+  const feedUrl = edgarCurrentFeedUrl("4", limit * 3);
   const feedXml = await fetchText(fetchImpl, feedUrl);
   const entries = parseFilingFeed(feedXml).slice(0, limit);
   const out: Form4Filing[] = [];

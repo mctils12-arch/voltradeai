@@ -43,6 +43,7 @@ import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
+import { edgarCurrentFeedUrl } from "./edgarForm4";
 
 // ── Minimal dependency-free Atom-feed tag extraction (mirrors edgarForm4.ts's
 // approach: SEC's feed schema is flat and predictable, a full XML parser is
@@ -310,7 +311,7 @@ export async function fetchLatestEarnings8Ks(
   fetchImpl: FetchFn = fetch as any,
   delayMs = 200,
 ): Promise<Earnings8K[]> {
-  const feedUrl = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&company=&dateb=&owner=include&count=100&output=atom";
+  const feedUrl = edgarCurrentFeedUrl("8-K", 100);
   const feedXml = await fetchText(fetchImpl, feedUrl);
   // One FILING per accession: a joint 8-K (parent + subsidiaries) is one
   // accession listed once per registrant in the feed. Group first so `limit`

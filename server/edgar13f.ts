@@ -31,7 +31,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryResponse } from "./filingHistoryPage";
-import { parseFilingFeed } from "./edgarForm4";
+import { parseFilingFeed, edgarCurrentFeedUrl } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
 
@@ -185,7 +185,7 @@ export async function fetchLatest13FFilings(
   fetchImpl: FetchFn = fetch as any,
   delayMs = 200,
 ): Promise<Filing13F[]> {
-  const feedUrl = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=13F-HR&company=&dateb=&owner=include&count=${Math.min(100, limit * 2)}&output=atom`;
+  const feedUrl = edgarCurrentFeedUrl("13F-HR", limit * 2);
   const feedXml = await fetchText(fetchImpl, feedUrl);
   const entries = parseFilingFeed(feedXml).slice(0, limit);
   const out: Filing13F[] = [];
