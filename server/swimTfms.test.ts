@@ -5,7 +5,7 @@
 // participation and an HCS flightPlanAmendmentInformation batch.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseTfmsPayload, TfmsStore, TFMS_AMENDMENT_TTL_MS } from "./swimTfms";
+import { parseTfmsPayload, TfmsStore, TFMS_AMENDMENT_TTL_MS, tfmsFlightStoreEnabled, detachRecord } from "./swimTfms";
 
 const NOW = Date.parse("2026-10-14T23:30:00Z");
 const fi = (msgType: string, body: string, src = "TFMS", ts = "2026-10-14T23:21:42Z") =>
@@ -80,7 +80,9 @@ test("payloads with nothing worth parsing are counted only (no XML parse)", () =
 });
 
 test("store: active programs exclude purged/expired ones; per-flight lookup by callsign; airport config by FAA or ICAO id; TTL", () => {
-  const s = new TfmsStore();
+  // FIXTURE CHANGED 2026-11-17: the per-flight store is off by default now (nothing reads it and it
+  // held an estimated 0.5-1.4 GB); this test turns it on to keep pinning what it does when it is on.
+  const s = new TfmsStore({ flightStore: true });
   for (const x of [RSTR, GDP_CNX, GADV, FXA, APTC, TMI_UPDATE, TMI_LIST, FLTD, TRACK_ONLY]) s.ingest(x, NOW);
   const act = s.active(NOW);
   const ids = act.programs.map((p) => p.id);
@@ -97,4 +99,51 @@ test("store: active programs exclude purged/expired ones; per-flight lookup by c
   const st = s.stats();
   assert.equal(st.typeCounts.trackInformation, 2);
   assert.equal(st.parseErrors, 0);
+});
+
+// ── the per-flight store is off by default (2026-11-17) ─────────────────────
+
+test("per-flight store off (the default): nothing is kept per flight, programs and airport configs still are", () => {
+  assert.equal(tfmsFlightStoreEnabled({} as NodeJS.ProcessEnv), false);
+  assert.equal(tfmsFlightStoreEnabled({ VOLTRADE_TFMS_FLIGHT_STORE: "1" } as NodeJS.ProcessEnv), true);
+  assert.equal(tfmsFlightStoreEnabled({ VOLTRADE_TFMS_FLIGHT_STORE: "0" } as NodeJS.ProcessEnv), false);
+  assert.equal(new TfmsStore({ env: { VOLTRADE_TFMS_FLIGHT_STORE: "on" } as NodeJS.ProcessEnv }).flightStore, true);
+  const s = new TfmsStore({ env: {} as NodeJS.ProcessEnv });
+  assert.equal(s.flightStore, false);
+  for (const x of [RSTR, GDP_CNX, GADV, FXA, APTC, TMI_UPDATE, TMI_LIST, FLTD, TRACK_ONLY]) s.ingest(x, NOW);
+  const st = s.stats();
+  assert.equal(st.flights, 0, "before: one entry per flight named in a flow list or an amendment, up to 20,000");
+  assert.equal(st.flightStore, false);
+  assert.deepEqual(s.forFlight("SWA331", NOW), { amendments: [], tmis: [] });
+  // what IS served is unchanged
+  const on = new TfmsStore({ flightStore: true });
+  for (const x of [RSTR, GDP_CNX, GADV, FXA, APTC, TMI_UPDATE, TMI_LIST, FLTD, TRACK_ONLY]) on.ingest(x, NOW);
+  assert.deepEqual(s.active(NOW), on.active(NOW));
+  assert.deepEqual(s.airportConfig("KMSP"), on.airportConfig("KMSP"));
+  assert.deepEqual(st.typeCounts, on.stats().typeCounts, "every message is still counted by type");
+  assert.equal(st.parseErrors, 0);
+});
+
+test("per-flight store off: a message that carries only per-flight records is not parsed at all", () => {
+  assert.equal(parseTfmsPayload(TMI_LIST, NOW).tmis.length > 0, true);
+  const off = parseTfmsPayload(TMI_LIST, NOW, { flights: false });
+  assert.deepEqual([off.tmis.length, off.amendments.length, off.programs.length, off.configs.length], [0, 0, 0, 0]);
+  assert.ok(off.types.length > 0, "still counted");
+  const fl = parseTfmsPayload(FLTD, NOW, { flights: false });
+  assert.equal(fl.amendments.length, 0);
+  // a program message is parsed the same either way
+  assert.deepEqual(parseTfmsPayload(RSTR, NOW, { flights: false }).programs, parseTfmsPayload(RSTR, NOW).programs);
+});
+
+test("kept records share no memory with their XML message", () => {
+  // V8 keeps the parent string alive for a slice of 13+ characters; a detached copy is a new
+  // flat string, so it is equal by value and survives a round trip unchanged
+  const big = "<x>" + "A".repeat(5000) + "PROGRAM-TITLE-LONGER-THAN-13" + "B".repeat(5000) + "</x>";
+  const cut = big.slice(5003, 5003 + 28);
+  const rec = { id: cut, title: cut, nested: { names: [cut, cut] }, n: 7, none: null };
+  const d = detachRecord(rec);
+  assert.deepEqual(d, rec);
+  assert.notEqual(d, rec);
+  assert.notEqual(d.nested, rec.nested);
+  assert.equal(Buffer.byteLength(d.id), 28);
 });
