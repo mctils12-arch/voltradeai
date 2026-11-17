@@ -24089,3 +24089,40 @@ STILL OPEN, each its own PR:
 (h) DOES `filedAt` ON POLL ROWS ALWAYS EQUAL THE INDEX'S FILING DATE? The poll takes the feed's "Filed:" date; recovered rows take the daily index's date. On 2026-11-13 the two agree in count (411 + 262 = 673 = the ledger's held). One day is not proof. PRIOR: ~85% they always agree. TESTABLE FORM: once the ledger has 20 complete days, for each compare `filed_days[].filings` with `edgar_index`; any complete day where they differ names a filing whose two dates disagree.
 (i) 13F AND 8-K HISTORY BY FILED DAY. `server/filedDayHistory.ts` is generic over the day-file archives; only Form 4 is wired. The 8-K earnings-language archive holds 24 releases filed in 2020-2021 under archive day 2026-11-15 (entry of 2026-11-16), which is the same question. Wire each when (e) (index vs held for 13F and 8-K) has been measured.
 Ladder: gate 1 (DATA) for a RAW archive, API boundary. No signal claim.
+## 2026-11-16 — status of the follow-ups filed 2026-11-04..11-06 (each checked against the code at 7d757eb7 on 2026-11-12, not against prose; the session stalled 11-12 to 11-16, so this is filed four days late)
+
+The six sections above this one (options-bleed diagnosis 11-04; the volatility-managed floor; opening-window exits; option exits; the 15-change night's follow-ups; the refocus night's findings) list follow-ups whose text was never updated as they shipped. This is their state. An item not listed here was not checked.
+
+DONE (the PR that closed it):
+- TIME-EXIT no longer closes options (#1647).
+- recordDailyEquity keeps the newest row (#1674).
+- Option fill ledger: the POS-KILL ladder's orders and the mid-first ladder's replacements write rows (server/bot.ts ledgerOptionOrder; options_manager.py _replace_order_price).
+- Tier-0 stream signals: the queue is gone; they are a measured signal (server/streamSignals.ts, scripts/stream_signal_gate2.py).
+- Dealer-gamma gate-3 ablation: scripts/edge_p1_gate3_rule_sim.py, with the condor filter (#1651). Its gate 1 (our GEX against SqueezeMetrics) is still open and waits on the terms question in wishlist.md.
+- Convexity overlay off switch (#1643). Its order sides are still invalid; see OPEN.
+- Floor: reduce-only while the kill is tripped (#1640); SPY price-only benchmark (#1646).
+- Option exits: leftover long leg (#1636); bought-option profit taking (#1653); POS-KILL marketable-limit ladder (#1644); mid-first ladder, ON in paper by the human's same-day "as much on as possible" (#1645); credit multi-leg signed limit (#1729); multi-leg openers register every leg (#1672, #1725, #1726).
+- market_calendar.py 2027 dates (#1747).
+- ML v2 training dedupe and date-split CV (#1734); DTCC seen-ID memory (#1721 and its follow-ups); the daily line on the Overview (#1739); the Today tile between sessions (#1733); pre-rank candidates in the walk-forward (#1717, first read 2026-11-14).
+
+BUILT 2026-11-12 and shipped 2026-11-16/17, each as its own PR (see its experiments.md entry):
+- LIVENESS: a toggle that re-latches at once no longer resets the dark clock.
+- Master exposure cap and daily -3% breaker: Tier 2/3 and scale-down counterfactual rows, and a dollar prevention-P&L probe.
+- HONESTY METRIC: the csp-prior cohort (lots opened on or after 2026-11-06, n, Wilson interval, the n >= 30 trigger).
+- Earnings close: adjusted OCC roots; the lost-state Setup-1 condor; the once-per-day marker in the subprocess fallback.
+- Opening window: the first-fired quote against the post-09:45 order.
+- Floor: tracking difference, the pre-registered rollback trigger and turnover.
+
+OPEN, no human needed (not yet built):
+- Convexity overlay order sides (buy_to_open / sell_to_close, a market roll close; its put search matches sold puts). Dead while the overlay is off; fix before it is ever turned on.
+- _unwind_covered_calls buys back with a market order (bot_engine.py). A marketable limit needs a rule for an unfilled buy-back, which blocks the stock sale behind it.
+- The Book's exit line does not know the leftover-long-leg rule (shared/positionLevels.ts, options side).
+- Per-structure, dollar-weighted expectancy (B2, #1610, is per sleeve only).
+- Gamma-rule units: options_manager.py says "per-contract" against a per-share gamma; no counterfactual log.
+- CSPs earn in NEUTRAL, not BULL: no live per-regime CSP split yet; waits on data.
+
+OPEN, the human's call:
+- The master exposure cap counts the floor (0.95 / 0.60 / 0.50 / 0.30 by regime, with the floor near 85% of equity): about 10% of equity is left for tier actions in BULL/NEUTRAL and none below. A risk limit. The counterfactual rows above are the evidence to decide on.
+- The serve-time ML feature fix is still shadow-only (serve_features.py DEFAULT_MODE "shadow"). Composite v2 holds the ML input neutral, so flipping it changes nothing live today.
+- Event trades that exit after the report: no replay and no rule.
+- Rebuilding the csp prior from live lots, once the cohort above reaches n >= 30 and excludes 71.6%.
