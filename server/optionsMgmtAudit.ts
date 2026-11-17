@@ -11,6 +11,10 @@
 // an OPTIONS-EARNINGS row each: the first pass's schedule of every sold option
 // ("earnings_backfill", once per process start) and a failed report-date
 // lookup ("earnings_lookup_failed", once per underlying per ET day).
+// 2026-11-12: a third, "earnings_setup_unknown" (once per structure per ET
+// day): the earnings close is closing a defined-risk structure whose options
+// state records no strategy or setup, so it could not be checked for the
+// Setup-1 exemption.
 
 export interface OptionsMgmtAction {
   action?: string; ticker?: string; strategy?: string; occ_symbol?: string; legs?: string[];
@@ -26,8 +30,8 @@ export interface OptionsMgmtRow { type: "OPTIONS-EXIT" | "OPTIONS-ROLL" | "OPTIO
 
 /** a scan closing more positions than this is summarised in one extra row */
 export const OPTIONS_MGMT_AUDIT_CAP = 10;
-/** options_manager's earnings notices (EARNINGS_BACKFILL_TYPE / EARNINGS_LOOKUP_FAILED_TYPE) */
-export const OPTIONS_EARNINGS_NOTICE_TYPES: readonly string[] = ["earnings_backfill", "earnings_lookup_failed"];
+/** options_manager's earnings notices (EARNINGS_BACKFILL_TYPE / EARNINGS_LOOKUP_FAILED_TYPE / EARNINGS_SETUP_UNKNOWN_TYPE) */
+export const OPTIONS_EARNINGS_NOTICE_TYPES: readonly string[] = ["earnings_backfill", "earnings_lookup_failed", "earnings_setup_unknown"];
 /** an earnings notice lists every sold option; longer text is cut here */
 export const OPTIONS_EARNINGS_NOTICE_MAX_CHARS = 1200;
 
