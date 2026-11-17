@@ -377,6 +377,30 @@ export function appendLines(kind: HourFileStream, lines: string[], base: string,
  *  other writer; caller is responsible for not re-writing ranges it already
  *  backfilled (read-side t-dedupe in aircraftTrips.fullTrackAsync makes
  *  accidental overlap harmless — same-second same-hex fixes collapse). */
+/** ONE archive line for a fix stamped `tSec` (schema_version 5, no x block).
+ *  `ownTime` true (the default) = tSec is the FIX'S OWN time and the line says
+ *  so (ft: 1); false = tSec is our receive time (no ft; the fix is `sp`
+ *  seconds older when sp is on the line). Shared by archiveAircraftAt (the
+ *  hour files) and the tracked tails' permanent log (trackedPlaneLog.ts), so
+ *  one reader (aircraftTrackData.fixFromLine) decodes both. */
+export function aircraftFixLine(p: AircraftPoint & { tSec: number }, ownTime = true): string {
+  return JSON.stringify({
+    t: Math.floor(p.tSec), i: p.icao24, c: p.callsign || undefined,
+    la: +p.lat.toFixed(4), lo: +p.lon.toFixed(4),
+    al: p.altitude_m == null ? undefined : Math.round(p.altitude_m),
+    g: p.on_ground || undefined,
+    v: p.velocity_ms == null ? undefined : Math.round(p.velocity_ms),
+    h: p.heading == null ? undefined : Math.round(p.heading),
+    ty: p.type || undefined, ca: p.category || undefined,
+    rg: p.registration || undefined,
+    ...aircraftIntegrityFields(p),
+    // kinematics + own-time marker (schema_version 5, additive, 2026-11-16):
+    // these lines carry no x block, so the flat keys are their only record
+    ...aircraftKinematicFields(p, false),
+    ft: ownTime ? 1 : undefined,
+  });
+}
+
 export function archiveAircraftAt(
   fixes: Array<AircraftPoint & { tSec: number }>, baseDir?: string,
 ): number {
@@ -386,21 +410,7 @@ export function archiveAircraftAt(
     if (p.lat == null || p.lon == null || !p.icao24 || !Number.isFinite(p.tSec)) continue;
     const d = new Date(p.tSec * 1000);
     const key = d.toISOString().slice(0, 13);
-    const line = JSON.stringify({
-      t: Math.floor(p.tSec), i: p.icao24, c: p.callsign || undefined,
-      la: +p.lat.toFixed(4), lo: +p.lon.toFixed(4),
-      al: p.altitude_m == null ? undefined : Math.round(p.altitude_m),
-      g: p.on_ground || undefined,
-      v: p.velocity_ms == null ? undefined : Math.round(p.velocity_ms),
-      h: p.heading == null ? undefined : Math.round(p.heading),
-      ty: p.type || undefined, ca: p.category || undefined,
-      rg: p.registration || undefined,
-      ...aircraftIntegrityFields(p),
-      // kinematics + own-time marker (schema_version 5, additive, 2026-11-16):
-      // these lines carry no x block, so the flat keys are their only record
-      ...aircraftKinematicFields(p, false),
-      ft: 1,
-    });
+    const line = aircraftFixLine(p);
     const arr = byHour.get(key) || [];
     arr.push(line);
     byHour.set(key, arr);
@@ -1326,11 +1336,38 @@ export function archiveStats(baseDir?: string): any {
     if (!fs.existsSync(dir)) { out.kinds[kind] = { files: 0, bytes: 0 }; continue; }
     let bytes = 0, files = 0, oldest: string | null = null;
     const fileNames: string[] = [];
+    const subdirs: string[] = [];
     for (const f of fs.readdirSync(dir).sort()) {
       const st = fs.statSync(path.join(dir, f));
-      if (!st.isFile()) continue;
+      if (!st.isFile()) { if (st.isDirectory()) subdirs.push(f); continue; }
       files++; bytes += st.size;
       oldest = oldest || f; fileNames.push(f);
+    }
+    // A kind kept ONE DIRECTORY PER ENTITY (aircraft_tracked/<HEX>/YYYY-MM.jsonl,
+    // 2026-11-17) has no file at its top level: its bytes are one level down
+    // and were reported as 0. Counted only when the top level holds no file;
+    // names are "<entity>/<file>", ordered by file name (= by month).
+    if (!files) {
+      const below: Array<{ name: string; file: string }> = [];
+      for (const sub of subdirs) {
+        let names: string[] = [];
+        try { names = fs.readdirSync(path.join(dir, sub)); } catch (e: unknown) {
+          console.error(`[archive] stats ${kind}/${sub}:`, e instanceof Error ? e.message : e);
+        }
+        for (const f of names) {
+          let st: fs.Stats;
+          try { st = fs.statSync(path.join(dir, sub, f)); } catch (e: unknown) {
+            if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.error(`[archive] stats ${kind}/${sub}/${f}:`, e instanceof Error ? e.message : e);
+            continue; // gone between the listing and the stat
+          }
+          if (!st.isFile()) continue;
+          files++; bytes += st.size;
+          below.push({ name: `${sub}/${f}`, file: f });
+        }
+      }
+      below.sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name));
+      for (const b of below) fileNames.push(b.name);
+      oldest = fileNames[0] ?? null;
     }
     const newest = newestDataFile(fileNames);
     out.kinds[kind] = { files, bytes, oldest, newest };

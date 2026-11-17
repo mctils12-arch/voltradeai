@@ -15,7 +15,9 @@ import {
 } from "./archiveOffload";
 import { createR2Client, r2ConfigFromEnv } from "./r2Client";
 import { readWindow, setColdHourSource } from "./aircraftWindow";
-import { rollupDayAsync, rollupOldDaysAsync, RAW_RETENTION_DAYS } from "./datacoreArchive";
+import { rollupDayAsync, rollupOldDaysAsync, RAW_RETENTION_DAYS, compressOldHours, compressOldHoursAsync, rollupOldDays } from "./datacoreArchive";
+import { OFFLOAD_HOUR_KINDS } from "./archiveOffload";
+import { PERMANENT_STREAMS } from "./archivePermanentTier";
 
 // Fixed clock in the PAST (readWindow treats hours after the real clock as
 // "future, not a gap", so fixtures must sit before real time).
@@ -633,4 +635,37 @@ test("cost model: rolling 30 days plateaus inside the free tier at today's growt
   // aircraft-only 10x (the global sweep) stays free
   const air10 = estimateR2MonthlyCost({ storedBytes: ((367_580_397 / 639) * 24 * 10 + (1_417_944_795 / 628) * 24) * 31, ...ops });
   assert.equal(air10.totalUsd, 0);
+});
+
+test("the tracked tails' permanent log (aircraft_tracked/) is never offloaded, evicted, expired, gzipped or rolled up by the archive jobs", async () => {
+  assert.ok(!(OFFLOAD_HOUR_KINDS as readonly string[]).includes("aircraft_tracked"));
+  assert.ok(!PERMANENT_STREAMS.includes("aircraft_tracked"));
+  assert.deepEqual(listLocalHourUnits(tmp(), "aircraft_tracked"), []);
+  const base = tmp();
+  const r2 = fakeR2();
+  // a year-old gzipped month, a raw month far past every retention window, and the current month
+  const dir = path.join(base, "aircraft_tracked", "AB8C8E");
+  fs.mkdirSync(dir, { recursive: true });
+  const line = (t: number) => JSON.stringify({ t, i: "ab8c8e", la: 40, lo: -100, al: 9000, ft: 1, pv: "adsblol" });
+  fs.writeFileSync(path.join(dir, "2025-09.jsonl.gz"), zlib.gzipSync(line(1_757_000_000) + "\n"));
+  fs.writeFileSync(path.join(dir, "2026-06.jsonl"), line(1_781_000_000) + "\n");
+  fs.writeFileSync(path.join(dir, "2026-09.jsonl"), line(NOW / 1000 - 60) + "\n");
+  const snapshot = () => Object.fromEntries(fs.readdirSync(dir).sort().map((f) => [f, fs.readFileSync(path.join(dir, f)).toString("base64")]));
+  const before = snapshot();
+  // the shared archive beside it: one day old enough to offload and evict, one past the raw window
+  const d27 = dateAgo(27), d40 = dateAgo(RAW_RETENTION_DAYS + 10);
+  writeHour(base, "aircraft", d27, 0, rows(d27, 0));
+  writeHour(base, "aircraft", d40, 0, rows(d40, 0), false);
+  const svc = svcFor(base, r2, { free: () => HOT_TIER_TARGET_FREE_BYTES - 1 }); // under pressure: evicts whatever it may
+  const s1 = (await svc.runTick({ forceDaily: true }))!;
+  assert.deepEqual(s1.evicted.map((e) => `${e.kind}/${e.date}`), [`aircraft/${d27}`], "the job did run and evict the shared hour files");
+  compressOldHours(base, NOW);
+  await compressOldHoursAsync(base, NOW);
+  rollupOldDays(base, NOW);
+  await rollupOldDaysAsync(base, NOW);
+  await svc.runTick({ forceDaily: true });
+  assert.deepEqual(snapshot(), before, "every byte of the per-plane log is as it was");
+  assert.deepEqual(Array.from(r2.store.keys()).filter((k) => k.includes("aircraft_tracked")), [], "nothing of it went to R2");
+  assert.ok(r2.log.every((x) => !x.key.includes("aircraft_tracked")), "and R2 was never asked about it");
+  assert.equal(fs.existsSync(path.join(base, "aircraft_tracked_tracks")), false, "no rollup of it either");
 });

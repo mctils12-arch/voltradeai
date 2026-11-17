@@ -204,6 +204,26 @@ export async function buildStreamsInventory(
     } catch {
       // dir missing → no-data row (never hidden)
     }
+    // A stream kept ONE DIRECTORY PER ENTITY (manifest "layout":
+    // "per_entity_dirs" — aircraft_tracked/<HEX>/YYYY-MM.jsonl, 2026-11-17)
+    // has no file at its top level and would read "no-data" while holding
+    // data: its files are one level down. Names become "<entity>/<file>",
+    // ordered oldest write first so the newest file is the last one.
+    if (m.layout === "per_entity_dirs") {
+      const found: Array<[string, number]> = [];
+      const subdirs = await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const d of subdirs) {
+        if (!d.isDirectory()) continue;
+        const names = await fs.promises.readdir(path.join(dir, d.name)).catch(() => [] as string[]);
+        for (const f of names) {
+          const st = await fs.promises.stat(path.join(dir, d.name, f)).catch(() => null);
+          if (!st || !st.isFile()) continue;
+          files++; bytes += st.size;
+          found.push([`${d.name}/${f}`, st.mtimeMs]);
+        }
+      }
+      for (const [name2, mt] of found.sort((a, b) => a[1] - b[1])) mtimes.set(name2, mt);
+    }
     // name order == time order for day/hour files; sentinels (backfill_done
     // .json, _seen_ids_index…) are skipped so they can't masquerade as newest
     let newest = newestDataFile(Array.from(mtimes.keys()));

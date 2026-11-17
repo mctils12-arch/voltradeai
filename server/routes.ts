@@ -42,6 +42,7 @@ import { publishFixes } from "./aircraftFixBus";
 import { startGlobalScopes, GLOBAL_SCOPES, GLOBAL_POLL_MS } from "./globalScopes";
 import { registerGlobalAircraftRoutes } from "./globalAircraft";
 import { registerAircraftTrackDataRoutes } from "./aircraftTrackData";
+import { startTrackedPlaneLog } from "./trackedPlaneLog";
 import { startMeteorsPoller, METEORS_QUIET_AFTER_DAYS } from "./meteors";
 import { readWindow, WINDOW_MAX_SPAN_SEC, WINDOW_STEP_OPTIONS_SEC } from "./aircraftWindow";
 import { nearestAirport } from "./airportsIndex";
@@ -1010,11 +1011,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
     sites: ARCHIVE_SITES,
   });
-  app.get("/api/data/aircraft/tracked", (_req, res) => {
+  // The tracked tails' PERMANENT, capped flight log (owner 2026-11-17; server/trackedPlaneLog.ts):
+  // every fix any path receives for a tracked tail, written once, off the fix bus.
+  const trackedLog = startTrackedPlaneLog({ tracked: () => trackedPoller.getRegistry().planes });
+  app.get("/api/data/aircraft/tracked", async (_req, res) => {
     const r = trackedPoller.getRegistry();
     const trackedPacing = trackedPoller.pacing();
+    const logStatus = await trackedLog.log.status().catch((e: unknown) => {
+      console.error("[tracked-log] status:", e instanceof Error ? e.message : String(e));
+      return null;
+    });
     res.json({
-      planes: r.planes, count: r.planes.length, cap: TRACKED_CAP,
+      // each tail's `log`: months, bytes, first/last fix, paused/why (null = the log status could not be read)
+      planes: r.planes.map((p) => ({ ...p, log: logStatus ? logStatus.by_reg[p.reg] ?? null : null })),
+      log: logStatus ? { enabled: logStatus.enabled, ...logStatus.total, storage: logStatus.storage, rule: logStatus.rule, cap_rule: logStatus.cap_rule, note: logStatus.note } : null,
+      count: r.planes.length, cap: TRACKED_CAP,
       poll_s: TRACKED_POLL_MS / 1000,
       // 2026-11-12: a plane heard in the last active_window_s is polled by
       // hex every fast_poll_s; `heard` / `last_heard` on a row = its

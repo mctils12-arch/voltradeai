@@ -16,7 +16,10 @@
 //     roll when the aircraft sent it); since 2026-11-16 the flat ag/vr/vs/ak/ft
 //     keys on the lines that carry no x (schema_version 5);
 //   - the worldwide live snapshot + intent store (globalAircraft) for the
-//     live fix on top.
+//     live fix on top;
+//   - since 2026-11-17, for a TRACKED tail, its permanent per-plane log
+//     (trackedPlaneLog.ts) for the part of a window that is older than the
+//     oldest hour file on the local disk. Those points say origin tracked_log.
 //
 // HONESTY RULES this module holds (tests: aircraftTrackData.test.ts):
 //   - `t` is the FIX'S time. Most archive lines are stamped with OUR receive
@@ -43,7 +46,8 @@
 import fs from "fs";
 import path from "path";
 import type { Express } from "express";
-import { archiveBaseDir, RAW_RETENTION_DAYS, streamJsonlLines } from "./datacoreArchive";
+import { archiveBaseDir, oldestRawHour, RAW_RETENTION_DAYS, streamJsonlLines } from "./datacoreArchive";
+import { readTrackedLogRows, trackedLogSummary, EMPTY_LOG_SUMMARY, type PlaneLogSummary, type TrackedLogReadStats } from "./trackedPlaneLog";
 import { scanArchiveRows, splitTrips, type ArchivedFix, type ArchiveScanStats, type NearestAirportFn, type Trip } from "./aircraftTrips";
 import { IntentArchiveDecoder, type IntentValues } from "./aircraftIntent";
 import { aircraftLiveLookup, type AircraftLiveLookup, type AircraftLiveState } from "./globalAircraft";
@@ -127,6 +131,8 @@ export interface TrackFix {
   rg: string | null;
   pv: string | null;
   pt: string | null;
+  /** set on a fix read from the tracked tails' permanent log (trackedPlaneLog.ts) */
+  store?: "tracked_log";
 }
 
 const num = (x: unknown): number | null => (typeof x === "number" && Number.isFinite(x) ? x : null);
@@ -215,6 +221,42 @@ export interface HexRead {
   duplicates_dropped: number;
   /** oldest fixes dropped because the per-request cap was hit */
   dropped_over_cap: number;
+}
+
+/** What the tracked tails' permanent log added to one track read. */
+export interface TrackedLogPart {
+  /** was the log read for this window? Only when the window starts before the
+   *  oldest hour file on the local disk (or there is none) and a log exists */
+  read: boolean;
+  why: string;
+  /** fixes in the response that came from the log (after de-duplication) */
+  fixes_from_log: number;
+  months: TrackedLogReadStats | null;
+}
+
+/** Pure: the hour files' fixes plus the permanent log's, as one cleaned series.
+ *  The hour-file fixes go first, so where both hold the same second the
+ *  better-recorded one is kept and a tie stays with the hour file. */
+export function mergeTrackedLogFixes(hourFixes: TrackFix[], logFixes: TrackFix[], cap: number): HexRead {
+  const c = cleanFixes([...hourFixes, ...logFixes], fixScore);
+  const over = Math.max(0, c.fixes.length - cap);
+  return { fixes: over ? c.fixes.slice(-cap) : c.fixes, duplicates_dropped: c.duplicates_dropped, dropped_over_cap: over };
+}
+
+/** One aircraft's permanent-log fixes in a window (newest `cap` kept). */
+export async function readTrackedLogFixes(
+  baseDir: string, hex: string, o: { fromSec: number; toSec: number; cap: number },
+): Promise<{ fixes: TrackFix[]; dropped_over_cap: number; months: TrackedLogReadStats }> {
+  const fixes: TrackFix[] = [];
+  let over = 0;
+  const months = await readTrackedLogRows(baseDir, hex, { fromSec: o.fromSec, toSec: o.toSec, slackSec: RECEIVE_SKEW_MAX_S }, (row) => {
+    const f = fixFromLine(row, null);
+    if (!f || f.t < o.fromSec || f.t > o.toSec) return;
+    f.store = "tracked_log";
+    fixes.push(f);
+    if (fixes.length >= 2 * o.cap) { over += fixes.length - o.cap; fixes.splice(0, fixes.length - o.cap); } // months stream oldest first
+  });
+  return { fixes, dropped_over_cap: over, months };
 }
 
 /** ONE streamed pass over the local hour files for these hexes. Times are the
@@ -323,10 +365,10 @@ export async function readFleetHistories(
   for (const h of hexes) cols.set(h, { col: new FixColumns(perHex), regs: new Set() });
   const callsigns: string[] = [""]; // index 0 = none
   const callIdx = new Map<string, number>();
-  const scan = await scanArchiveRows("aircraft", hexes, baseDir, {}, (row) => {
+  const push = (row: Record<string, unknown>): boolean => {
     const f = fixFromLine(row, null);
     const a = cols.get(String(row.i));
-    if (!f || !a) return;
+    if (!f || !a) return false;
     let ci = 0;
     if (f.c) {
       ci = callIdx.get(f.c) ?? 0;
@@ -334,12 +376,28 @@ export async function readFleetHistories(
     }
     if (f.rg && a.regs.size < 5) a.regs.add(f.rg);
     a.col.push(f.t, f.la, f.lo, f.al, f.g, ci);
-  });
+    return true;
+  };
+  // FIRST the tracked tails' permanent log, and only its part OLDER than the
+  // oldest local hour file (all of it when there is none): the fixes reach
+  // the column buffers oldest first, which is what their cap assumes
+  const oldestMs = oldestRawHour("aircraft", baseDir);
+  const beforeSec = oldestMs == null ? undefined : oldestMs / 1000 - 1;
+  const fromLog = new Map<string, number>();
+  for (const h of hexes) {
+    let n = 0;
+    await readTrackedLogRows(baseDir, h, { toSec: beforeSec, slackSec: 0 }, (row) => { if (push(row)) n++; });
+    fromLog.set(h, n);
+  }
+  const scan = await scanArchiveRows("aircraft", hexes, baseDir, {}, (row) => { push(row); });
   const byHex = new Map<string, AircraftHistory>();
   for (const [h, a] of cols) {
     // one aircraft's fixes as objects at a time: sort, de-duplicate, split
     const c = cleanFixes(a.col.fixes(callsigns), lightScore);
-    byHex.set(h, historyFromFixes(c.fixes, { dropped_over_cap: a.col.dropped, duplicates_dropped: c.duplicates_dropped, regs: Array.from(a.regs) }, nearest));
+    byHex.set(h, historyFromFixes(c.fixes, {
+      dropped_over_cap: a.col.dropped, duplicates_dropped: c.duplicates_dropped, regs: Array.from(a.regs),
+      from_tracked_log: fromLog.get(h) ?? 0,
+    }, nearest));
   }
   return { byHex, scan };
 }
@@ -369,7 +427,7 @@ export const TRACK_UNITS: Record<(typeof TRACK_FIELDS)[number], string> = {
   t_src: "fix | receive_minus_age | unadjusted",
   src: "provider that served the fix: adsblol | adsbfi | airplaneslive | opensky | null (not recorded)",
   pos_type: "the feed's position source: adsb_icao, adsr_icao, mlat (ground-computed), tisb_* (ground-derived), mode_s ...; null = not recorded",
-  origin: "archive | live",
+  origin: "archive | tracked_log | live",
 };
 
 export const TRACK_ENUMS = {
@@ -388,7 +446,8 @@ export const TRACK_ENUMS = {
     unadjusted: "the line's stamp as written: no position age was recorded, so it may be later than the fix",
   },
   origin: {
-    archive: "a line of our position archive",
+    archive: "a line of our position archive (the shared hour files)",
+    tracked_log: "a line of the permanent per-plane log kept for tails on the server's tracked list; read only for the part of a window that is older than the oldest hour file on the local disk",
     live: "the newest fix in the worldwide live snapshot, newer than the last archived line",
   },
 } as const;
@@ -402,7 +461,7 @@ export const TRACK_ATTITUDE_NOTE = {
 export type TrackRow = [
   number, number, number, number | null, AltKind | null, number | null, number | null, number | null, number | null,
   number | null, "broadcast" | "derived" | null, RateKind | null, number | null, boolean, number | null, TimeSrc,
-  string | null, string | null, "archive" | "live",
+  string | null, string | null, "archive" | "tracked_log" | "live",
 ];
 
 export interface TrackGap { from_t: number; to_t: number; seconds: number }
@@ -479,7 +538,8 @@ export function buildTrack(
     if (f.roll != null) counts.roll_broadcast++;
     rows.push([
       f.t, f.la, f.lo, alt.alt_m, alt.alt_kind, f.alt_geom_m, f.alt_baro_m, f.gs, f.trk,
-      vr, vrSource, vrKind, vrDt, f.g, f.roll, f.t_src, f.pv, f.pt, o.liveIndex === i ? "live" : "archive",
+      vr, vrSource, vrKind, vrDt, f.g, f.roll, f.t_src, f.pv, f.pt,
+      o.liveIndex === i ? "live" : f.store === "tracked_log" ? "tracked_log" : "archive",
     ]);
   }
   const max = o.max;
@@ -573,8 +633,9 @@ export function archiveReach(baseDir: string, env: NodeJS.ProcessEnv = process.e
     cold_tier_configured: cold,
     note: `This endpoint reads the raw hour files on the server's local disk only. Raw fixes are kept ${days} days in total and then deleted everywhere`
       + (cold ? `; days older than about ${floor} days may already have been moved to the cold tier (R2), which this endpoint does NOT read (GET /api/data/aircraft/window reads it, by area and time)` : "")
-      + ". Nothing older is served here: past the raw window only one coarse line per aircraft per day survives (no altitude, no flights). "
-      + "A flight we never received (no receiver in range, or nobody was archiving that area) is not in the archive at all.",
+      + ". Nothing older is served from them: past the raw window only one coarse line per aircraft per day survives (no altitude, no flights). "
+      + "A flight we never received (no receiver in range, or nobody was archiving that area) is not in the archive at all. "
+      + "The one exception to the age limit: a tail on the server's tracked list has a permanent log of its own, read for what is older than the local hour files (see tracked_log).",
   };
 }
 
@@ -752,13 +813,16 @@ export interface AircraftHistory {
     /** registrations the archived fixes carried (at most 5) */
     registrations_seen: string[];
   };
+  /** lines read from the tracked tails' permanent log (its part older than
+   *  the local hour files; before de-duplication and the cap). 0 = none read */
+  tracked_log_lines: number;
 }
 
 /** Pure: one aircraft's cleaned, time-ordered fixes -> its flights (the trips
  *  route's splitter and airport check, unchanged) and what the archive holds. */
 export function historyFromFixes(
   fixes: ArchivedFix[],
-  meta: { dropped_over_cap: number; duplicates_dropped: number; regs: string[] },
+  meta: { dropped_over_cap: number; duplicates_dropped: number; regs: string[]; from_tracked_log?: number },
   nearest?: NearestAirportFn,
 ): AircraftHistory {
   const trips = splitTrips(fixes, undefined, undefined, undefined, nearest);
@@ -774,6 +838,7 @@ export function historyFromFixes(
       duplicates_dropped: meta.duplicates_dropped,
       registrations_seen: meta.regs,
     },
+    tracked_log_lines: meta.from_tracked_log ?? 0,
   };
 }
 
@@ -820,6 +885,17 @@ export const FLEET_HONESTY =
   + "whether a flight was seen from the ground up and back down; signal_lost_airborne means coverage ended in the air, nothing more. Community "
   + "ADS-B only: no FAA flight-plan or SWIM field is in this response.";
 
+export const TRACKED_LOG_TRACK_NOTE =
+  "A tail on the server's tracked list has a permanent log of its own: every fix received for it, not thinned, with no age limit, capped in "
+  + "bytes (oldest month deleted first). It is read here only for the part of a window that is older than the oldest hour file on the local disk; its "
+  + "points say origin tracked_log. first_fix_t / last_fix_t are the oldest and newest fix that log holds. An aircraft that was never "
+  + "tracked has none, and a tracked tail's log starts the day it was tracked (2026-11-17 at the earliest).";
+
+export const TRACKED_LOG_FLEET_NOTE =
+  "For a tail on the server's tracked list, flights older than the local hour files come from its permanent log (every fix received, "
+  + "no age limit, capped in bytes with the oldest month deleted first; tracked_log_lines on each aircraft says how many lines it gave). "
+  + "It starts the day the tail was tracked, 2026-11-17 at the earliest; removing a tail from the list keeps its log.";
+
 export interface TrackDataDeps {
   baseDir?: string;
   now?: () => number;
@@ -858,7 +934,7 @@ export function registerAircraftTrackDataRoutes(app: Express, deps: TrackDataDep
   };
 
   // ── track ────────────────────────────────────────────────────────────────
-  interface ArchivePart { read: HexRead; scan: ArchiveScanStats }
+  interface ArchivePart { read: HexRead; scan: ArchiveScanStats; tracked_log: TrackedLogPart }
   const trackCache = new Map<string, Cached<ArchivePart>>();
   const trackInflight = new Map<string, Promise<ArchivePart>>();
   const cachedTrackFixes = (): number => { let n = 0; for (const c of trackCache.values()) n += c.data.read.fixes.length; return n; };
@@ -876,8 +952,35 @@ export function registerAircraftTrackDataRoutes(app: Express, deps: TrackDataDep
     const pending = trackInflight.get(key);
     if (pending) return pending;
     const p = readHexFixes([hex], base(), { fromSec: from, toSec: to, decodeIntent: true, capPerHex: TRACK_SCAN_CAP })
-      .then((r): ArchivePart => {
-        const part = { read: r.byHex.get(hex) ?? { fixes: [], duplicates_dropped: 0, dropped_over_cap: 0 }, scan: r.scan };
+      .then(async (r): Promise<ArchivePart> => {
+        let read = r.byHex.get(hex) ?? { fixes: [], duplicates_dropped: 0, dropped_over_cap: 0 };
+        // the tracked tails' permanent log, for the part of the window the
+        // local hour files no longer (or never) hold
+        const oldestMs = oldestRawHour("aircraft", base());
+        let tracked_log: TrackedLogPart;
+        if (oldestMs != null && from >= oldestMs / 1000) {
+          tracked_log = { read: false, why: "not read: the window starts inside what the local hour files hold", fixes_from_log: 0, months: null };
+        } else {
+          // only the log's fixes from BEFORE the oldest hour file: inside the
+          // hour files' reach the answer is exactly what it was without the log
+          const logTo = oldestMs == null ? to : Math.min(to, oldestMs / 1000 - 1);
+          const lg = await readTrackedLogFixes(base(), hex, { fromSec: from, toSec: logTo, cap: TRACK_SCAN_CAP });
+          if (!lg.months.months_held) {
+            tracked_log = { read: false, why: "no permanent log is held for this aircraft (it is kept only for tails on the tracked list, from the day they are tracked)", fixes_from_log: 0, months: null };
+          } else {
+            const merged = mergeTrackedLogFixes(read.fixes, lg.fixes, TRACK_SCAN_CAP);
+            read = {
+              fixes: merged.fixes,
+              duplicates_dropped: read.duplicates_dropped + merged.duplicates_dropped,
+              dropped_over_cap: read.dropped_over_cap + lg.dropped_over_cap + merged.dropped_over_cap,
+            };
+            tracked_log = {
+              read: true, why: "the window starts before the oldest hour file on the local disk, so the permanent log was read for the part before it",
+              fixes_from_log: merged.fixes.reduce((n, f) => n + (f.store === "tracked_log" ? 1 : 0), 0), months: lg.months,
+            };
+          }
+        }
+        const part = { read, scan: r.scan, tracked_log };
         cacheSet(trackCache, key, { at: now(), data: part }, 16);
         while (trackCache.size > 1 && cachedTrackFixes() > TRACK_CACHE_MAX_FIXES) {
           const oldest = trackCache.keys().next().value;
@@ -922,6 +1025,10 @@ export function registerAircraftTrackDataRoutes(app: Express, deps: TrackDataDep
       }
       const built = buildTrack(fixes, { max, liveIndex });
       const listed = built.gaps.slice(0, 200);
+      const logHeld: PlaneLogSummary = await trackedLogSummary(base(), hex).catch((e: unknown) => {
+        console.error("[aircraft-track-data] tracked log summary:", e instanceof Error ? e.message : String(e));
+        return { ...EMPTY_LOG_SUMMARY };
+      });
       res.set("Cache-Control", "public, max-age=10");
       res.json({
         at: t, hex, kind: "raw",
@@ -947,6 +1054,14 @@ export function registerAircraftTrackDataRoutes(app: Express, deps: TrackDataDep
           scan_cap: TRACK_SCAN_CAP,
           hour_files: part.scan,
           archive: archiveReach(base(), env),
+          // the permanent per-plane log of tracked tails: what is held, and whether this window read it
+          tracked_log: {
+            held: logHeld.months > 0, ...logHeld,
+            read_for_this_window: part.tracked_log.read, why: part.tracked_log.why,
+            fixes_in_window_from_log: fixes.reduce((n, f) => n + (f.store === "tracked_log" ? 1 : 0), 0),
+            months_read: part.tracked_log.months,
+            note: TRACKED_LOG_TRACK_NOTE,
+          },
           note: fixes.length === 0
             ? "no fix for this aircraft in this window on the local archive: it was not received, not archived, or the window is older than the archive holds"
             : undefined,
@@ -1046,6 +1161,7 @@ export function registerAircraftTrackDataRoutes(app: Express, deps: TrackDataDep
           flights_listed: hist ? hist.data.flights_listed : 0,
           history_as_of: hist ? Math.round(hist.at / 1000) : null,
           archive: hist ? hist.data.archive : null,
+          tracked_log_lines: hist ? hist.data.tracked_log_lines : 0,
           live: lv.live,
           live_note: lv.live_note,
         };
@@ -1074,6 +1190,7 @@ export function registerAircraftTrackDataRoutes(app: Express, deps: TrackDataDep
           archive: archiveReach(base(), env),
           hour_files: scanStats,
           registration_scan: lastRegScan,
+          tracked_log: TRACKED_LOG_FLEET_NOTE,
           note: "times are the fixes' own (the same clock as GET /api/data/aircraft/track/:hex, so a flight's start_t/end_t can be passed to it as from/to); GET /api/data/aircraft/trips/:hex uses the archive's stamps and can differ by the feed's position age (under a minute).",
         },
         source: TRACK_SOURCE,

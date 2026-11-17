@@ -309,3 +309,40 @@ test("day files held only in the permanent R2 tier count in files/bytes, with a 
     setColdDayFileSource(null);
   }
 });
+
+test("a stream kept one directory per entity (layout per_entity_dirs: aircraft_tracked/<HEX>/YYYY-MM.jsonl) is counted, not read as no-data", async () => {
+  const mdir = tmp(); const base = tmp();
+  writeManifest(mdir, "pertail", "fixes as they occur");
+  const mf = path.join(mdir, "pertail.json");
+  fs.writeFileSync(mf, JSON.stringify({ ...JSON.parse(fs.readFileSync(mf, "utf8")), layout: "per_entity_dirs" }));
+  writeManifest(mdir, "flat", "fixes as they occur"); // the same directories WITHOUT the layout: still no-data
+  const NOW = Date.parse("2026-11-17T12:00:00Z");
+  for (const stream of ["pertail", "flat"]) {
+    const a = path.join(base, stream, "AB8C8E"), b = path.join(base, stream, "A42DEE");
+    fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });
+    const old = path.join(a, "2026-10.jsonl.gz");
+    fs.writeFileSync(old, zlib.gzipSync(JSON.stringify({ t: 1, i: "ab8c8e" }) + "\n"));
+    fs.utimesSync(old, new Date(NOW - 20 * 24 * 3.6e6), new Date(NOW - 20 * 24 * 3.6e6));
+    const mid = path.join(b, "2026-11.jsonl");
+    fs.writeFileSync(mid, JSON.stringify({ t: 2, i: "a42dee" }) + "\n");
+    fs.utimesSync(mid, new Date(NOW - 30 * 3.6e6), new Date(NOW - 30 * 3.6e6));
+    const newest = path.join(a, "2026-11.jsonl"); // listed BEFORE A42DEE's file by name, but written last
+    fs.writeFileSync(newest, JSON.stringify({ t: 3, i: "ab8c8e" }) + "\n" + JSON.stringify({ t: 4, i: "ab8c8e" }) + "\n");
+    fs.utimesSync(newest, new Date(NOW - 2 * 3.6e6), new Date(NOW - 2 * 3.6e6));
+  }
+  const inv = await buildStreamsInventory(base, mdir, NOW);
+  const by = Object.fromEntries(inv.streams.map((s) => [s.stream, s]));
+  assert.equal(by.pertail.files, 3);
+  assert.equal(by.pertail.bytes, ["AB8C8E/2026-10.jsonl.gz", "A42DEE/2026-11.jsonl", "AB8C8E/2026-11.jsonl"].reduce((n, f) => n + fs.statSync(path.join(base, "pertail", f)).size, 0));
+  assert.equal(by.pertail.newest_file, "AB8C8E/2026-11.jsonl", "newest by write time, across the entity directories");
+  assert.equal(by.pertail.age_hours, 2);
+  assert.equal(by.pertail.health, "live");
+  assert.equal(by.pertail.records_newest_file, 2);
+  assert.match(by.pertail.latest_peek || "", /"t":4/);
+  assert.equal(by.flat.files, 0, "without the layout nothing changes for any other stream");
+  assert.equal(by.flat.health, "no-data");
+  // the real manifest declares the layout, and a quiet tracked tail is not a stale stream
+  const real = JSON.parse(fs.readFileSync(path.join(MANIFEST_DIR_DEFAULT, "aircraft_tracked.json"), "utf8")) as { layout: string; cadence: string };
+  assert.equal(real.layout, "per_entity_dirs");
+  assert.match(real.cadence, /as they occur/);
+});

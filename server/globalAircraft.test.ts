@@ -12,8 +12,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import {
-  registerGlobalAircraftRoutes, parseBBoxQuery, sweepArchiveAllowed,
-  GLOBAL_HONESTY, SWEEP_ARCHIVE_MIN_FREE_BYTES,
+  registerGlobalAircraftRoutes, parseBBoxQuery, sweepArchiveAllowed, sweepArchiveEnabled,
+  GLOBAL_HONESTY, SWEEP_ARCHIVE_MIN_FREE_BYTES, SWEEP_ARCHIVE_DECISION,
 } from "./globalAircraft";
 import { MIN_FREE_BYTES } from "./globalScopes";
 import { publishFixes } from "./aircraftFixBus";
@@ -29,6 +29,7 @@ interface GlobalResp {
     sweep: { enabled: boolean }; opensky: { enabled: boolean };
     sources: { key: string; commercial_ok: boolean }[];
     archive: {
+      decision: string; turn_on: string; gate: string;
       enabled: boolean; paused: boolean; min_free_bytes: number; lines_archived_total: number;
       fixes_offered_total: number; fixes_skipped_low_disk_total: number; fixes_skipped_disabled_total: number;
     };
@@ -149,7 +150,10 @@ test("changed=<previous at>: exact server-clock delta — late-landing fixes are
   });
 });
 
-test("recording: sweep/OpenSky fixes archived (with provenance); viewport/scope fixes are NOT re-archived here", async () => {
+// CHANGED ASSERTION 2026-11-17 (owner's decision: the bulk world log is off unless set).
+// before: this test ran with GLOBAL_SWEEP_ARCHIVE unset and expected the sweep/OpenSky fixes written (unset meant on).
+// after:  the same assertions, with GLOBAL_SWEEP_ARCHIVE=1 passed explicitly (unset now means off — see the test below).
+test("recording (bulk log switched ON): sweep/OpenSky fixes archived (with provenance); viewport/scope fixes are NOT re-archived here", async () => {
   await withApp(async (_base, h, dir) => {
     const now = Date.now();
     h.onBatch({ provider: "adsblol", origin: "sweep-disc", aircraft: [ac("dd0001", 10, 10)], fetchedAt: now });
@@ -160,7 +164,57 @@ test("recording: sweep/OpenSky fixes archived (with provenance); viewport/scope 
     const lines = files.flatMap((f) => fs.readFileSync(path.join(dir, "aircraft", f), "utf8").split("\n").filter(Boolean)).map((l) => JSON.parse(l));
     assert.deepEqual(lines.map((l) => l.i).sort(), ["dd0001", "dd0002"]);
     assert.equal(lines.find((l) => l.i === "dd0002").pv, "opensky", "provenance persisted in the archive");
+  }, { env: { GLOBAL_SWEEP_ARCHIVE: "1" } });
+});
+
+test("the bulk world log is OFF unless GLOBAL_SWEEP_ARCHIVE is set (owner's decision 2026-11-17); the answer says so and how to turn it on", async () => {
+  assert.equal(sweepArchiveEnabled({} as NodeJS.ProcessEnv), false, "unset = off");
+  for (const v of ["", "0", "false", "off", "no", "2", "yes"]) assert.equal(sweepArchiveEnabled({ GLOBAL_SWEEP_ARCHIVE: v } as NodeJS.ProcessEnv), false, `"${v}" is not on`);
+  for (const v of ["1", "true", "on", " ON ", "True"]) assert.equal(sweepArchiveEnabled({ GLOBAL_SWEEP_ARCHIVE: v } as NodeJS.ProcessEnv), true, `"${v}" is on`);
+  // unset, with plenty of disk: served live, nothing written, every fix counted as offered and skipped
+  await withApp(async (base, h, dir) => {
+    const now = Date.now();
+    h.onBatch({ provider: "adsblol", origin: "sweep-type", aircraft: [ac("ab0001", 10, 10), ac("ab0002", 11, 11)], fetchedAt: now });
+    h.onBatch({ provider: "adsblol", origin: "sweep-disc", aircraft: [ac("ab0003", 12, 12)], fetchedAt: now });
+    h.onBatch({ provider: "adsbfi", origin: "sweep-failover", aircraft: [ac("ab0004", 13, 13)], fetchedAt: now });
+    h.onBatch({ provider: "opensky", origin: "opensky", aircraft: [ac("ab0005", 14, 14)], fetchedAt: now });
+    assert.equal(fs.existsSync(path.join(dir, "aircraft")), false, "50 GiB free and still nothing written: off is off");
+    const d = await getJson(`${base}/api/data/aircraft/global`);
+    assert.equal(d.count, 5, "the live snapshot is unaffected");
+    const a = d.coverage.archive;
+    assert.equal(a.enabled, false);
+    assert.equal(a.paused, false, "off by decision, not paused by the disk");
+    assert.equal(a.fixes_offered_total, 5);
+    assert.equal(a.fixes_skipped_disabled_total, 5);
+    assert.equal(a.fixes_skipped_low_disk_total, 0);
+    assert.equal(a.lines_archived_total, 0);
+    assert.equal(a.decision, SWEEP_ARCHIVE_DECISION);
+    assert.match(a.decision, /OFF by the owner's decision of 2026-11-17/);
+    assert.match(a.decision, /set GLOBAL_SWEEP_ARCHIVE=1/);
+    assert.match(a.decision, /2 GiB free-disk gate then still applies/);
+    assert.match(a.decision, /tracked list keep a full, permanent, capped flight log/);
+    assert.equal(a.turn_on, "GLOBAL_SWEEP_ARCHIVE=1");
   });
+  // switched on: written, and the answer says it is on
+  await withApp(async (base, h, dir) => {
+    h.onBatch({ provider: "adsblol", origin: "sweep-type", aircraft: [ac("ab0006", 10, 10)], fetchedAt: Date.now() });
+    assert.equal(fs.readdirSync(path.join(dir, "aircraft")).length, 1);
+    const a = (await getJson(`${base}/api/data/aircraft/global`)).coverage.archive;
+    assert.equal(a.enabled, true);
+    assert.equal(a.lines_archived_total, 1);
+    assert.equal(a.fixes_skipped_disabled_total, 0);
+    assert.match(a.decision, /is ON \(GLOBAL_SWEEP_ARCHIVE is set\)/);
+  }, { env: { GLOBAL_SWEEP_ARCHIVE: "on" } });
+  // switched on, under the 2 GiB gate: the gate still applies
+  await withApp(async (base, h, dir) => {
+    h.onBatch({ provider: "adsblol", origin: "sweep-type", aircraft: [ac("ab0007", 10, 10)], fetchedAt: Date.now() });
+    assert.equal(fs.existsSync(path.join(dir, "aircraft")), false);
+    const a = (await getJson(`${base}/api/data/aircraft/global`)).coverage.archive;
+    assert.equal(a.enabled, true);
+    assert.equal(a.paused, true);
+    assert.equal(a.fixes_skipped_low_disk_total, 1);
+    assert.equal(a.fixes_skipped_disabled_total, 0);
+  }, { env: { GLOBAL_SWEEP_ARCHIVE: "1" }, free: 1.9 * GiB });
 });
 
 test("stricter sweep gate: 2 GiB floor (2x the shared 1 GiB), fails CLOSED when unreadable", () => {
@@ -170,7 +224,10 @@ test("stricter sweep gate: 2 GiB floor (2x the shared 1 GiB), fails CLOSED when 
   assert.equal(sweepArchiveAllowed(null), false, "unreadable -> skip (the shared guard fails open; this one must not)");
 });
 
-test("low disk: sweep fixes still served LIVE but not archived; counters say so", async () => {
+// CHANGED ASSERTION 2026-11-17 (owner's decision: the bulk world log is off unless set).
+// before: both halves ran with GLOBAL_SWEEP_ARCHIVE unset (unset meant on) and expected the 2 GiB gate to be what stopped the writes.
+// after:  the same assertions, with GLOBAL_SWEEP_ARCHIVE=1 passed explicitly, so it is still the gate under test and not the off switch.
+test("low disk (bulk log switched ON): sweep fixes still served LIVE but not archived; counters say so", async () => {
   await withApp(async (base, h, dir) => {
     const now = Date.now();
     h.onBatch({ provider: "adsblol", origin: "sweep-type", aircraft: [ac("ee0001", 10, 10), ac("ee0002", 11, 11)], fetchedAt: now });
@@ -183,11 +240,11 @@ test("low disk: sweep fixes still served LIVE but not archived; counters say so"
     assert.equal(a.fixes_skipped_low_disk_total, 2);
     assert.equal(a.lines_archived_total, 0);
     assert.equal(a.min_free_bytes, 2 * GiB);
-  }, { free: 1.24 * GiB });
+  }, { free: 1.24 * GiB, env: { GLOBAL_SWEEP_ARCHIVE: "1" } });
   await withApp(async (_base, h, dir) => {
     h.onBatch({ provider: "adsblol", origin: "sweep-disc", aircraft: [ac("ee0003", 10, 10)], fetchedAt: Date.now() });
     assert.equal(fs.existsSync(path.join(dir, "aircraft")), false, "unreadable free space -> fail closed");
-  }, { free: null });
+  }, { free: null, env: { GLOBAL_SWEEP_ARCHIVE: "1" } });
 });
 
 test("GLOBAL_SWEEP_ARCHIVE=0: live snapshot on, archive writes off, counted as disabled", async () => {

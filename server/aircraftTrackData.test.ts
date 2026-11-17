@@ -32,10 +32,11 @@ import {
 import { MIN_FREE_BYTES } from "./globalScopes";
 import type { SnapRow } from "./globalSnapshot";
 import type { TrackedPlane } from "./trackedPlanes";
+import { TrackedPlaneLog } from "./trackedPlaneLog";
 import {
   registerAircraftTrackDataRoutes, fixFromLine, cleanFixes, buildTrack, bestAltitude, liveFix,
   parseTrackQuery, parseFleetQuery, resolveTail, faaHexForReg, scanArchiveForRegs, readHexFixes,
-  readFleetHistories, archiveReach, fleetLive,
+  readFleetHistories, archiveReach, fleetLive, mergeTrackedLogFixes, readTrackedLogFixes,
   TRACK_FIELDS, TRACK_UNITS, TRACK_GAP_S, TRACK_MAX_WINDOW_S, TRACK_MAX_POINTS, DERIVED_VR_MAX_DT_S,
   FLEET_MAX_AIRCRAFT, LIVE_MAX_AGE_S,
   type TrackFix, type TrackRow,
@@ -267,6 +268,9 @@ test("A3 no position age -> not written (its own time is unknown); a fix over 10
   assert.ok(FASTLANE_MAX_FIX_AGE_MS + 3_600_000 < 2 * 3_600_000);
 });
 
+// CHANGED ASSERTION 2026-11-17 (owner's decision: the bulk world log is off unless GLOBAL_SWEEP_ARCHIVE is set).
+// before: the first half ran with GLOBAL_SWEEP_ARCHIVE unset (unset meant on) and expected the sweep fix skipped by its 2 GiB gate.
+// after:  the same assertions, with GLOBAL_SWEEP_ARCHIVE=1 passed explicitly, so the sweep is still stopped by ITS gate (not by the off switch).
 test("A3 disk floor: written between 1 and 2 GiB free (where the sweep is paused); skipped under 1 GiB and when unreadable", async () => {
   assert.equal(fastlaneArchiveAllowed(MIN_FREE_BYTES), true);
   assert.equal(fastlaneArchiveAllowed(MIN_FREE_BYTES - 1), false);
@@ -282,7 +286,7 @@ test("A3 disk floor: written between 1 and 2 GiB free (where the sweep is paused
     assert.equal(a.fixes_skipped_low_disk_total, 1, "the sweep fix was skipped by ITS gate");
     assert.equal(a.fastlane.lines_archived_total, 1);
     assert.equal(a.fastlane.paused, false);
-  }, { free: Math.round(1.9 * GiB) });
+  }, { free: Math.round(1.9 * GiB), env: { GLOBAL_SWEEP_ARCHIVE: "1" } });
   for (const free of [Math.round(0.9 * GiB), null]) {
     await withGlobal(async ({ base, h, clock, fast }) => {
       h.onBatch(lane(mapped(readsb("a30003")), clock.t));
@@ -897,4 +901,156 @@ test("routes.ts wiring: exactly one registration line + import; the manifest nam
   const manifest = JSON.parse(fs.readFileSync(path.join(here, "..", "datacore", "manifests", "aircraft.json"), "utf8")) as { schema_version: number; field_map: Record<string, string> };
   assert.equal(manifest.schema_version, 5);
   for (const k of ["ag", "vr", "vs", "ak", "ft", "x"]) assert.ok(manifest.field_map[k], `field_map.${k}`);
+});
+
+// ── the tracked tails' permanent log, read back (owner's instruction 2026-11-17) ──
+/** the flight of writeFlight, written by the REAL permanent-log writer at `startMs` */
+function logFlight(base: string, startMs: number, hex: string): { first: number; last: number } {
+  const clock = { t: startMs };
+  const log = new TrackedPlaneLog({
+    baseDir: base, now: () => clock.t, env: {} as NodeJS.ProcessEnv, readFree: () => 50 * GiB,
+    tracked: () => [{ reg: "N843S", added_at: startMs - 1, hex }],
+  });
+  const prof: Array<[number, number | "ground", number]> = [
+    [0, "ground", 0], [2, 3000, 1500], [4, 6000, 1500], [6, 9000, 1500], [8, 9000, 0], [10, 9000, 0],
+    [12, 6000, -1500], [14, 3000, -1500], [16, "ground", 0],
+  ];
+  let first = 0, last = 0;
+  prof.forEach(([min, alt, rate], k) => {
+    clock.t = startMs + min * 60_000;
+    const ground = alt === "ground";
+    const row = readsb(hex, {
+      lat: 36 + k * 0.05, lon: -84 + k * 0.05, alt_baro: alt, alt_geom: ground ? undefined : (alt as number) + 250,
+      baro_rate: ground ? undefined : rate, gs: ground ? 10 : 300, seen_pos: 1.2,
+    });
+    assert.equal(log.ingest({ provider: "adsblol", origin: "tracked", aircraft: mapped(row), fetchedAt: clock.t, upstreamNowMs: clock.t }), 1);
+    const t = Math.floor(clock.t / 1000 - 1.2);
+    if (!first) first = t;
+    last = t;
+  });
+  return { first, last };
+}
+
+interface TrackedLogBlock {
+  held: boolean; months: number; bytes: number; first_fix_t: number | null; last_fix_t: number | null;
+  read_for_this_window: boolean; why: string; fixes_in_window_from_log: number; note: string;
+  months_read: { months_held: number; months_in_window: number; files_read: number } | null;
+}
+const logBlock = (d: TrackBody): TrackedLogBlock => (d.coverage as unknown as { tracked_log: TrackedLogBlock }).tracked_log;
+
+test("GET /track/:hex reads a tracked tail's permanent log for a window older than the local hour files, and labels those points", async () => {
+  await withTrackApp(async ({ url, base }) => {
+    const oldStart = T0 - 40 * 86_400_000; // 2026-10-07: past the 22-day local window and the 30-day raw window
+    const old = logFlight(base, oldStart, "ab8c90");
+    const recent = writeFlight(base, T0 - 40 * 60_000, "ab8c90"); // today's flight, in the shared hour files only
+    assert.ok(fs.existsSync(path.join(base, "aircraft_tracked", "AB8C90", "2026-10.jsonl")));
+
+    // the old flight: served from the permanent log, every point labelled
+    const d = (await (await fetch(`${url}/api/data/aircraft/track/ab8c90?from=${old.first - 60}&to=${old.last + 60}`)).json()) as TrackBody;
+    assert.equal(d.count, 9);
+    const rows = d.rows.map(byField);
+    assert.ok(rows.every((r) => r.origin === "tracked_log"), "the source of each older fix is stated");
+    assert.ok(rows.every((r) => r.t_src === "fix" && r.src === "adsblol"));
+    assert.equal(rows[0].t, old.first);
+    assert.equal(rows[8].t, old.last);
+    assert.equal(rows[0].on_ground, true);
+    assert.deepEqual(rows.slice(1, 4).map((r) => r.alt_baro_m), [914, 1829, 2743]);
+    assert.deepEqual(rows.slice(1, 4).map((r) => r.alt_geom_m), [991, 1905, 2819], "geometric altitude from the flat keys");
+    assert.equal(rows[1].vr_ms, 7.6);
+    assert.equal(rows[1].vr_source, "broadcast");
+    assert.match(d.units.origin, /tracked_log/);
+    const b = logBlock(d);
+    assert.equal(b.held, true);
+    assert.equal(b.months, 1);
+    assert.equal(b.bytes, fs.statSync(path.join(base, "aircraft_tracked", "AB8C90", "2026-10.jsonl")).size);
+    assert.equal(b.first_fix_t, old.first);
+    assert.equal(b.last_fix_t, old.last);
+    assert.equal(b.read_for_this_window, true);
+    assert.equal(b.fixes_in_window_from_log, 9);
+    assert.deepEqual(b.months_read, { months_held: 1, months_in_window: 1, files_read: 1, files_failed: 0, lines_unparsed: 0 });
+    assert.match(b.note, /capped in bytes \(oldest month deleted first\)/);
+    assert.match(d.coverage.archive.note, /tracked list has a permanent log of its own/);
+
+    // a window inside what the hour files hold: the log is not opened, nothing changes
+    const d2 = (await (await fetch(`${url}/api/data/aircraft/track/ab8c90?from=${recent.first}&to=${recent.last}`)).json()) as TrackBody;
+    assert.equal(d2.count, 9);
+    assert.ok(d2.rows.map(byField).every((r) => r.origin === "archive"));
+    assert.equal(logBlock(d2).read_for_this_window, false);
+    assert.match(logBlock(d2).why, /starts inside what the local hour files hold/);
+    assert.equal(logBlock(d2).held, true, "what the log holds is stated either way");
+    assert.equal(logBlock(d2).fixes_in_window_from_log, 0);
+
+    // a window that straddles the oldest hour file: the log gives ONLY what is older than it
+    const oldestHour = d.coverage.archive.local_oldest_hour_t as number;
+    const before = logFlight(base, oldestHour * 1000 - 30 * 60_000, "ab8c90"); // a flight that ended before the oldest hour file began
+    logFlight(base, T0 - 40 * 60_000 + 500, "ab8c90"); // and the log holds today's flight too (as it would live), half a second later
+    const d5 = (await (await fetch(`${url}/api/data/aircraft/track/ab8c90?from=${before.first}&to=${recent.last}`)).json()) as TrackBody;
+    const r5 = d5.rows.map(byField);
+    assert.deepEqual(r5.map((r) => r.origin), [...Array(9).fill("tracked_log"), ...Array(9).fill("archive")]);
+    assert.deepEqual(r5.slice(9).map((r) => r.t), d2.rows.map((row) => byField(row).t), "inside the hour files' reach the answer is what it was without the log");
+    assert.equal(logBlock(d5).fixes_in_window_from_log, 9);
+
+    // an aircraft that was never tracked: no log, said so, and an old window stays empty
+    const d3 = (await (await fetch(`${url}/api/data/aircraft/track/a00bad?from=${old.first - 60}&to=${old.last + 60}`)).json()) as TrackBody;
+    assert.equal(d3.count, 0);
+    assert.equal(logBlock(d3).held, false);
+    assert.equal(logBlock(d3).read_for_this_window, false);
+    assert.match(logBlock(d3).why, /no permanent log is held for this aircraft/);
+  });
+});
+
+test("merge: where the hour files and the permanent log hold the same fix it is served once; the cap keeps the newest", async () => {
+  const hour = [fix(100, { al: 1000 }), fix(160, { al: 1100 })];
+  const logged: TrackFix[] = [
+    { ...fix(40, { al: 900, t_src: "fix" }), store: "tracked_log" },   // only in the log
+    { ...fix(100, { al: 1000, t_src: "fix" }), store: "tracked_log" }, // the same second as an hour-file line
+    { ...fix(161, { al: 1100, t_src: "fix", la: hour[1].la }), store: "tracked_log" }, // the same fix stamped 1 s apart
+  ];
+  const m = mergeTrackedLogFixes(hour, logged, 100);
+  assert.deepEqual(m.fixes.map((f) => f.t), [40, 100, 160]);
+  assert.equal(m.duplicates_dropped, 2);
+  assert.equal(m.fixes[0].store, "tracked_log");
+  const built = buildTrack(m.fixes, { max: 100 });
+  assert.equal(byField(built.rows[0]).origin, "tracked_log");
+  assert.equal(byField(built.rows[2]).origin, "archive");
+  const capped = mergeTrackedLogFixes(hour, logged, 2);
+  assert.deepEqual(capped.fixes.map((f) => f.t), [100, 160], "the newest are kept");
+  assert.equal(capped.dropped_over_cap, 1);
+  // the log reader: window on the fix's own time, newest kept at the cap, every one labelled
+  const base = tmp("logread");
+  const fl = logFlight(base, T0 - 40 * 86_400_000, "ab8c8e");
+  const all = await readTrackedLogFixes(base, "ab8c8e", { fromSec: fl.first, toSec: fl.last, cap: 100 });
+  assert.equal(all.fixes.length, 9);
+  assert.ok(all.fixes.every((f) => f.store === "tracked_log" && f.t_src === "fix"));
+  const part = await readTrackedLogFixes(base, "ab8c8e", { fromSec: fl.first + 100, toSec: fl.first + 370, cap: 100 });
+  assert.deepEqual(part.fixes.map((f) => f.alt_baro_m), [914, 1829, 2743]);
+  const few = await readTrackedLogFixes(base, "ab8c8e", { fromSec: fl.first, toSec: fl.last, cap: 3 });
+  assert.equal(few.fixes[few.fixes.length - 1].t, fl.last, "the newest fix survives the cap");
+  assert.equal(few.fixes.length + few.dropped_over_cap, 9, "every dropped fix is counted");
+});
+
+test("GET /fleet lists a tracked tail's flights from before the local hour files, out of its permanent log", async () => {
+  await withTrackApp(async ({ url, base }) => {
+    const old = logFlight(base, T0 - 40 * 86_400_000, "ab8c91");
+    const recent = writeFlight(base, T0 - 40 * 60_000, "ab8c91");
+    // the log also holds today's flight (as it would live): only its part older than the hour files is read
+    logFlight(base, T0 - 40 * 60_000, "ab8c91");
+    const d = (await (await fetch(`${url}/api/data/aircraft/fleet`)).json()) as FleetBody;
+    const a = d.aircraft[0];
+    assert.equal(a.hex, "ab8c91");
+    assert.equal(a.flight_count, 2, "the flight of 40 days ago and today's");
+    assert.deepEqual(a.flights.map((f) => f.start_t).sort((x, y) => x - y), [old.first, recent.first]);
+    assert.equal(a.archive?.first_fix_t, old.first);
+    assert.equal(a.archive?.fixes, 18, "9 + 9: today's flight is not counted twice");
+    assert.equal((a as unknown as { tracked_log_lines: number }).tracked_log_lines, 9);
+    assert.match((d.coverage as unknown as { tracked_log: string }).tracked_log, /flights older than the local hour files come from its permanent log/);
+  }, { tracked: [{ reg: "N843S", added_at: T0 - 50 * 86_400_000, hex: "ab8c91" }] });
+  // with no hour files at all the whole log is read
+  const base = tmp("fleetlog");
+  const fl = logFlight(base, T0 - 3 * 86_400_000, "ab8c8e");
+  const r = await readFleetHistories(["ab8c8e", "a0dead"], base);
+  assert.equal(r.byHex.get("ab8c8e")?.archive.fixes, 9);
+  assert.equal(r.byHex.get("ab8c8e")?.archive.first_fix_t, fl.first);
+  assert.equal(r.byHex.get("ab8c8e")?.tracked_log_lines, 9);
+  assert.equal(r.byHex.get("a0dead")?.tracked_log_lines, 0);
 });
