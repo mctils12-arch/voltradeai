@@ -321,3 +321,49 @@ test("wiring: the ledger refresh writes the snapshot, Tier 3 keeps it fresh, Tie
   assert.ok(bot.indexOf("for (const row of taxHarvestAuditRows(result.tax_harvest)) audit(row.type, row.message);") > bot.indexOf('floorAuditRows(result.spy_floor, "scan")'));
   assert.ok(bot.includes("harvest: hv.review?.harvest ?? []"));
 });
+
+// ── 2026-11-12: the pre-registered csp prior re-measure (server/cspPriorCohort.ts) ──
+
+const shortPut = (strike: number, opened: string, closed: string, pnl: number) =>
+  ({ symbol: `AMD261218P${String(strike * 1000).padStart(8, "0")}`, t: ms(closed), pnl, openedAt: ms(opened), qty: 1, closeDir: 1 as const, basis: 100 });
+
+test("the body carries cspCohort: short-option lots opened from 2026-11-06 against the csp prior; additive, null without the ledger", () => {
+  const rows = parseTaxDecisions([row("A", true), row("BB", false)].join("\n"), 10).rows;
+  const edge = { options: { n: 383, winRate: 19.06, expectancyPct: -17.09, lastCloseAt: "2026-11-05T15:52:55.532Z" }, stocks: { n: 101, winRate: 31.68, expectancyPct: -0.36, lastCloseAt: null } } as unknown as EdgeLedger;
+  const events = [
+    shortPut(100, "2026-11-04T18:45:00Z", "2026-11-05T15:52:00Z", -120),   // opened before the cutoff: not in the cohort
+    shortPut(101, "2026-11-06T15:00:00Z", "2026-11-10T15:00:00Z", 50),
+    shortPut(102, "2026-11-09T15:00:00Z", "2026-11-11T15:00:00Z", -120),
+    shortPut(103, "2026-11-09T15:30:00Z", "2026-11-11T15:30:00Z", 50),
+    ev("AAPL", "2026-11-10T15:00:00Z", 900),                               // a stock lot
+  ];
+  const input = { rows, spyAssumption: 10, readError: null, edge };
+  const before = taxBody(input);
+  const after = taxBody({ ...input, lots: { events, fetchedAtMs: ms("2026-11-12T17:00:00Z") } });
+  assert.equal(before.cspCohort, null, "no ledger: no measurement, as liveExpectancy");
+  assert.equal(taxBody({ ...input, lots: null }).cspCohort, null);
+  assert.deepEqual(after.cspCohort, {
+    since: "2026-11-06T00:00:00.000Z", n: 3, wins: 2, winRatePct: 66.67, wilson95Pct: [20.77, 93.85], meanReturnPct: -6.67,
+    priorWinRatePct: 71.6, needed: 30, enough: false, priorExcluded: false, verdict: "3 of 30 needed lots closed; too few to judge",
+    undated: 0, lastCloseAt: "2026-11-11T15:30:00.000Z", fetchedAt: "2026-11-12T17:00:00.000Z",
+    basis: "closed short-option lots opened on or after the cutoff, per closed lot at the broker (server/edgeLedger.ts); a lot still open, or ended by expiry or assignment with no closing fill, is not counted; the prior is per backtest trade (position_sizing.py csp_options)",
+  });
+  // ADDITIVE: one new key; every other key, the all-lots liveExpectancy included, is byte for byte what it was
+  assert.deepEqual(Object.keys(after), ["rates", "decisions", "harvest", "ltApproaching", "summary", "spyAssumptionAnnualPct", "liveExpectancy", "cspCohort", "notes"]);
+  const others = (b: typeof after) => JSON.stringify(Object.fromEntries(Object.entries(b).filter(([k]) => k !== "cspCohort")));
+  assert.equal(others(after), others(before));
+  assert.deepEqual(after.liveExpectancy?.options, { n: 383, winRatePct: 19.06, expectancyPct: -17.09, lastCloseAt: "2026-11-05T15:52:55.532Z" });
+});
+
+test("wiring: the tax route hands the body the sleeve cache's closed lots, the list the lots probe serves, without waiting for it", () => {
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const fn = bot.slice(bot.indexOf("async function taxRouteBody("), bot.indexOf('app.get("/api/bot/tax"'));
+  assert.ok(fn.includes("lots: sleeveCache ? { events: sleeveCache.taxInputs.events, fetchedAtMs: sleeveCache.at } : null,"), "the cohort reads the cached closed-lot walk");
+  assert.ok(fn.includes("edge: sleeveCache?.edge ?? null,"), "beside the all-lots edge from the same cache");
+  assert.ok(!fn.includes("await sleevesBody("), "the tax route never waits for the ledger or refetches it");
+  const li = bot.indexOf('case "lots": {');
+  assert.ok(bot.slice(li, li + 1500).includes("sleeveCache?.taxInputs.events"), "the lots probe serves that same list");
+  // the tax probe spreads this one body, so a session reads cspCohort with the diag token
+  const probe = bot.slice(bot.indexOf('case "tax": {'), bot.indexOf('case "tax": {') + 400);
+  assert.ok(probe.includes('sanitizeDiag({ probe: "tax", ...(await taxRouteBody(req.query.limit)) })'));
+});
