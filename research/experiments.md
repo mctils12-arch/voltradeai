@@ -118544,3 +118544,29 @@ DOWNSTREAM: sessions stop planning "next" steps that already shipped; the open m
 ROLLBACK TRIGGER: any corrected line shown wrong by its charter's RESUME STATE: fix that line.
 TESTS: the tests that read CLAUDE.md (test_audit_critical, test_data_stream_registry_check, test_fills_slippage_stats, test_law_iv_context_modules, test_research_state_check, test_silent_except_ratchet) plus test_market_calendar_2027: 125 passed, 1 skipped.
 STARVED: no.
+
+## 2026-11-12 [REPAIR] — T-BOT (options_manager.py: _parse_occ_symbol and the earnings close's three report lookups; new test_options_earnings_close_adjusted_root.py) — Earnings close: a sold option on an adjusted OCC root is looked up under its underlying (residual of #1642)
+VERSION: v1.0.1438 (shipped 2026-11-17 by the parent session; main was v1.0.1437)
+WHY: filed with the rule (research/open_questions.md, 2026-11-05 follow-ups, "[EARNINGS CLOSE] Residuals": "Adjusted OCC roots (e.g. IONQ1) find no report"). After a corporate action a contract's OCC root carries a number.
+- OCC Information Memo #50867 (Root, Inc. reverse split, 2022-08-12): "Option Symbol: ROOT changes to ROOT1". The new contract still delivers ROOT shares.
+- The Options Industry Council's FAQ: "For any adjusted option there will be a numeral following the letters of the option symbol".
+- The repo has met one live: IONQ's chain failed to parse on a contract whose root was one character longer than IONQ (KNOWN BROKEN #31, fixed 2026-08-21; its diagnosis read the root as IONQ1). That is why the parser is anchored from the end.
+The earnings close filed each sold option under `parsed["ticker"]`, the raw root, and asked Finnhub's per-symbol calendar for it. "IONQ1" is not a company. The lookup found no report under it, so the sold option stayed open through IONQ's report. (That is the residual as filed. Finnhub's own reply to "IONQ1" was not re-read: this session has no FINNHUB_KEY. The tests answer it with an empty calendar.)
+CHANGE: one change, in the one OCC parser.
+- `options_manager._parse_occ_symbol` returns one more field, `underlying`: the letters of a root that is letters followed only by digits (IONQ1 gives IONQ, BB2 gives BB), and the root itself for every other root. `ticker` is still the root, as test_options_fixes.py pins. No second parser was written.
+- The earnings close uses `underlying` where it used `ticker` for the report: the per-leg filing in `_earnings_close_context`, and the due check and the reason in the group rule (Exit Rule 1b) and the single-leg rule (Check 1a). The lookup, its per-ET-day cache, the lookup-failed WARNING, the backfill row's `underlying` and the close reason now name the company.
+- Nothing else reads the new field. The contract symbol, the order, a close action's `ticker` (still the root), the exemption's coverage test (still by root) and every other exit rule are unchanged. A standard root resolves to itself, so its lookup key, cache key and rows are what they were.
+- A ticker is never cut: a standard series' root is letters only. A root with a leading digit, a digit in the middle, digits only, or lower case is left as it is.
+DOWNSTREAM:
+1. A sold option on an adjusted root is found when its underlying reports inside its life. On the close session it is bought back at the ask, or its group is closed whole, through the unchanged close paths. A contract that a corporate action renamed has no recorded state under its new symbol. The rule is judged before the hold gate, so that leg closes too (tested).
+2. The standard and the adjusted series of one company share one Finnhub request per ET day, one cache entry whose window reaches the later expiry, and one lookup-failed WARNING that lists both series' legs.
+3. Not verified: whether the broker accepts a closing order on an adjusted contract. An Alpaca staff reply on the Alpaca forum says adjusted options "typically" cannot be bought or sold (read through a page summary, not checked against the API). A rejected close keeps the leg's state and the rule fires again on the next tick, as for any rejected earnings close.
+ROLLBACK TRIGGER: revert if a standard-root sold option's lookup, close session or close ever differs from before this change, or if a digit-suffixed root resolves to a ticker that is not the stock its contract delivers.
+TESTS: new test_options_earnings_close_adjusted_root.py, 12 tests (25 subtests).
+- The parser: adjusted roots give their letters and keep every other field; a ticker is never cut; other shapes are left alone.
+- A sold IONQ1 put is looked up as IONQ and bought back at the ask, the contract symbol untouched; the same leg with no recorded state; nothing closes when IONQ has no report in the option's life.
+- A condor on IONQ1 is closed whole. IONQ and IONQ1 share one lookup and one cache entry. A failed lookup warns once under IONQ and lists both legs. The backfill row names IONQ.
+- The live IREN leg is asked, closed and reported as before.
+Fail-on-parent proof: the same file on origin/main (7d757eb7) fails 10 of its 12 tests (pytest, counting subtests: 28 failed, 6 passed). The lookup was sent ['IONQ1'], not ['IONQ']. The two that pass there are the unparseable-symbol pin and the standard-root pin.
+Gates on the commit: the earnings-close test files plus test_options_exit_market_hours.py and test_options_halt_exits_only.py, 77 passed; test_ts_code_only.py and test_collection_health.py, 12 passed; the 35 Python test files that touch options_manager or the parser, 635 passed. No existing assertion changed. tsc (6 errors, the pinned baseline) and the counter ratchet (OK) were run once, on the last commit of the three-commit stack.
+STARVED: no.
