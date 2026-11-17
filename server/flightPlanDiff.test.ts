@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  classifyPlanChange, positionAtTime, buildOffRouteEpisodes,
+  classifyPlanChange, positionAtTime, buildOffRouteEpisodes, isRouteRestatement, remainingRouteTokens,
   REROUTE_MIN_LATERAL_NM, POSITION_NEAREST_MAX_MS, POSITION_INTERP_MAX_GAP_MS, AMENDMENT_LINK_MS,
   type JudgedFix, type PlanShape, type TrackFix,
 } from "../shared/flightPlanDiff";
@@ -91,19 +91,135 @@ test("a fix added ON an unchanged leg is FIXES_ADDED, not a reroute", () => {
   assert.equal(c.geometry.changed, true, "the point list changed even though the line did not move");
 });
 
-test("DIRECT_TO: amended from present position; fixes dropped from the start are flagged, and only the new path is measured", () => {
-  const next = shape(["KSFO", "AVE", "FIM", "KLAX"], { amendedFromPresentPosition: true, routeText: "KSFO./.AVE..FIM..KLAX" });
-  next.fixes.shift(); // the amended route starts at the aircraft, not at the airport
-  next.path = densifyPlan(next.fixes.map((f) => ({ ...f, altM: null, altEstimated: true })), 10);
-  const c = classifyPlanChange(V1, next);
-  assert.ok(c.kinds.includes("DIRECT_TO"));
-  assert.deepEqual(c.directTo, { fix: "AVE" });
-  assert.deepEqual(c.fixesRemoved, ["SNS"]);
+// ── present-position routes ("./.") ─────────────────────────────────────────
+// Read live 2026-11-17 on 111 flights: of 307 recorded changes, 22% restated
+// the same remaining route and 33% dropped fixes from the start. Before that
+// reading the test here pinned every "./." route as a DIRECT_TO with the
+// dropped fixes "removed"; a fix dropped from the start is removed only when
+// the aircraft had not reached it.
+
+/** a present-position version: no leg out of the airport is filed, so the
+ *  drawn path starts at the airport and jumps to the first element */
+function fromPresent(kept: string[], routeText: string, positionToken?: { name: string } & LatLon): PlanShape {
+  const s = shape(["KSFO", ...kept, "KLAX"], { amendedFromPresentPosition: true, routeText });
+  if (positionToken) {
+    s.fixes.splice(1, 0, positionToken);
+    s.path = densifyPlan(s.fixes.map((f) => ({ ...f, altM: null, altEstimated: true })), 10);
+  }
+  return s;
+}
+const between = (a: string, b: string, f: number): LatLon => interpolateGC(FIX[a], FIX[b], f);
+
+test("present position: the same route restated is not an amendment", () => {
+  const c = classifyPlanChange(V1, fromPresent(["SNS", "AVE", "FIM"], "KSFO./.SNS..AVE..FIM..KLAX"));
+  assert.deepEqual(c.kinds, [], "before: ROUTE_TEXT_ONLY or DIRECT_TO on every restatement");
+  assert.equal(c.restatement, true);
+  assert.equal(c.geometry.changed, false);
+  assert.equal(c.directTo, null);
+  assert.deepEqual(c.fromPresentPosition, { judged: true, positionBasis: null, fixesFlown: [], fixesSkipped: [], offRouteNm: null });
+});
+
+test("present position: a fix dropped from the start that lay BEHIND the aircraft was flown, not removed", () => {
+  const next = fromPresent(["AVE", "FIM"], "KSFO./.AVE..FIM..KLAX");
+  const c = classifyPlanChange(V1, next, { at: between("SNS", "AVE", 0.5) });
+  assert.deepEqual(c.kinds, []);
+  assert.equal(c.restatement, true);
+  assert.deepEqual(c.fixesRemoved, []);
   assert.deepEqual(c.fixesRemovedFromStart, ["SNS"]);
+  assert.deepEqual(c.fromPresentPosition, { judged: true, positionBasis: "ADSB_FIX", fixesFlown: ["SNS"], fixesSkipped: [], offRouteNm: 0 });
+  assert.match(c.geometry.note!, /1 lay behind it \(flown\) and 0 ahead of it \(skipped\)/);
+});
+
+test("present position: a fix dropped from the start that lay AHEAD of the aircraft was skipped: a direct-to", () => {
+  // the aircraft is a third of the way from KSFO to SNS, off to the side; cleared direct AVE
+  const here = { lat: between("KSFO", "SNS", 0.33).lat, lon: between("KSFO", "SNS", 0.33).lon - 0.3 };
+  const c = classifyPlanChange(V1, fromPresent(["AVE", "FIM"], "KSFO./.AVE..FIM..KLAX"), { at: here });
+  assert.deepEqual(c.fixesRemoved, ["SNS"]);
+  assert.deepEqual(c.fromPresentPosition?.fixesSkipped, ["SNS"]);
+  assert.deepEqual(c.fromPresentPosition?.fixesFlown, []);
+  assert.equal(c.fromPresentPosition?.positionBasis, "ADSB_FIX");
+  assert.ok(c.kinds.includes("DIRECT_TO"));
+  assert.ok(c.kinds.includes("FIXES_REMOVED"));
+  assert.deepEqual(c.directTo, { fix: "AVE" });
+  assert.ok(c.kinds.includes("REROUTE"), "SNS is miles from the line now flown");
+  assert.ok(c.geometry.maxLateralNm! >= REROUTE_MIN_LATERAL_NM);
+  assert.ok(!c.kinds.includes("SHORTCUT"), "a fix skipped at the start is not an interior shortcut");
+  assert.equal(c.restatement, false);
+});
+
+test("present position: the FAA's own position token decides, and is never listed as a fix", () => {
+  // "SNS300020": the aircraft is 20 nm short of SNS; the route now goes direct AVE
+  const token = { name: "SNS300020", ...between("KSFO", "SNS", 0.7) };
+  const next = fromPresent(["AVE", "FIM"], "KSFO./.SNS300020..AVE..FIM..KLAX", token);
+  const c = classifyPlanChange(V1, next);
+  assert.equal(c.fromPresentPosition?.positionBasis, "FAA_ROUTE_TEXT");
+  assert.deepEqual(c.fromPresentPosition?.fixesSkipped, ["SNS"]);
+  assert.deepEqual(c.fixesAdded, [], "the position token is where the aircraft was, not a fix ATC added");
+  assert.ok(c.kinds.includes("DIRECT_TO"));
+  // the token moving along the same remaining route is nothing
+  const later = fromPresent(["AVE", "FIM"], "KSFO./.AVE310040..AVE..FIM..KLAX", { name: "AVE310040", ...between("SNS", "AVE", 0.5) });
+  const again = classifyPlanChange(next, later);
+  assert.deepEqual(again.kinds, []);
+  assert.equal(again.restatement, true);
+  assert.equal(again.geometry.maxLateralNm, 0, "before: the aircraft's own offset from the route read as a reroute");
+});
+
+test("present position: with no position known the dropped fixes are neither flagged nor called flown", () => {
+  // CHANGED ASSERTIONS (2026-11-17). This case used to assert kinds includes DIRECT_TO,
+  // directTo { fix: "AVE" } and fixesRemoved ["SNS"]. With no position there is no way to
+  // tell a flown fix from a skipped one, and live data showed most are flown.
+  const c = classifyPlanChange(V1, fromPresent(["AVE", "FIM"], "KSFO./.AVE..FIM..KLAX"));
+  assert.ok(!c.kinds.includes("DIRECT_TO"));
+  assert.equal(c.directTo, null);
+  assert.deepEqual(c.fixesRemoved, []);
+  assert.deepEqual(c.fixesRemovedFromStart, ["SNS"]);
+  assert.deepEqual(c.fromPresentPosition, { judged: false, positionBasis: null, fixesFlown: [], fixesSkipped: [], offRouteNm: null });
   assert.ok(!c.kinds.includes("SHORTCUT"), "a fix dropped from the start is not an interior shortcut");
-  assert.ok(!c.kinds.includes("REROUTE"), "the new path lies on the old one; the old path's flown part is not a change");
+  assert.ok(!c.kinds.includes("REROUTE"), "the route still ahead lies on the old one");
   assert.equal(c.geometry.maxLateralNm, 0);
-  assert.match(c.geometry.note!, /amended from the aircraft's position/);
+  assert.match(c.geometry.note!, /position is not known.*not determined/);
+});
+
+test("present position: a change further along the route is still an amendment", () => {
+  // from the aircraft's position, and FIM replaced by GMN
+  const c = classifyPlanChange(V1, fromPresent(["AVE", "GMN"], "KSFO./.AVE..GMN..KLAX"), { at: between("SNS", "AVE", 0.5) });
+  assert.deepEqual(c.fixesAdded, ["GMN"]);
+  assert.deepEqual(c.fixesRemoved, ["FIM"]);
+  assert.deepEqual(c.fromPresentPosition?.fixesFlown, ["SNS"]);
+  assert.ok(c.kinds.includes("REROUTE") && c.kinds.includes("DIRECT_TO"));
+});
+
+test("present position: the full text sent again after it names the flown part once more, and adds nothing", () => {
+  const truncated = fromPresent(["AVE", "FIM"], "KSFO./.AVE..FIM..KLAX");
+  const c = classifyPlanChange(truncated, V1);
+  assert.deepEqual(c.kinds, [], "before: REROUTE + FIXES_ADDED (SNS) on every return of the full text");
+  assert.deepEqual(c.fixesAdded, []);
+  assert.equal(c.restatement, true);
+  // an altitude change riding on a restatement is still an altitude change, and only that
+  const alt = classifyPlanChange(truncated, { ...V1, cruiseAltFt: 28000 });
+  assert.deepEqual(alt.kinds, ["ALTITUDE_CHANGE"]);
+});
+
+test("route text: what is still ahead, and when one text only restates another (live strings, 2026-11-17)", () => {
+  assert.deepEqual(remainingRouteTokens("KCVG./.APE227059..AHTIY..PSB..PONCT.JFUND2.KBOS/0314"),
+    { tokens: ["AHTIY", "PSB", "PONCT", "JFUND2", "KBOS"], fromPresentPosition: true, positionToken: "APE227059" });
+  assert.deepEqual(remainingRouteTokens("KORD..MOBLE..ADIME..GERBS.Q186.WEVEL..ETG.MIP4.KLGA/0258").tokens,
+    ["MOBLE", "ADIME", "GERBS", "Q186", "WEVEL", "ETG", "MIP4", "KLGA"]);
+  const R = isRouteRestatement;
+  // the position token moved
+  assert.equal(R("KCVG./.AIR254047..PONCT.JFUND2.KBOS/0314", "KCVG./.AIR051011..PONCT.JFUND2.KBOS/0314"), true);
+  // "./." put in front of a route held in full
+  assert.equal(R("CYUL..FAWNS..BUGSY..SYR..MGGT/0557", "CYUL./.FAWNS..BUGSY..SYR..MGGT/0557"), true);
+  // the older, fuller text after a present-position route
+  assert.equal(R("KORD./.ADIME..GERBS.Q186.WEVEL..ETG.MIP4.KLGA/0258", "KORD..MOBLE..ADIME..GERBS.Q186.WEVEL..ETG.MIP4.KLGA/0258"), true);
+  // fixes dropped: NOT a restatement (flown or skipped is for the position to decide)
+  assert.equal(R("KORD..MOBLE..ADIME..GERBS.Q186.WEVEL..ETG.MIP4.KLGA/0258", "KORD./.ADIME..GERBS.Q186.WEVEL..ETG.MIP4.KLGA/0258"), false);
+  assert.equal(R("KCVG./.APE227059..AHTIY..PSB..PONCT.JFUND2.KBOS/0314", "KCVG./.AIR254047..PONCT.JFUND2.KBOS/0314"), false);
+  // a different route ahead, two full texts, identical texts, missing text
+  assert.equal(R("KJFK./.EMI064061..SCHUL.OZZZI2.KATL/0333", "KJFK..RBV.Q430.BYRDD.J48.MOL..FLASK.OZZZI2.KATL/0333"), false);
+  assert.equal(R("KSFO..SNS..AVE..KLAX", "KSFO..PXN..AVE..KLAX"), false);
+  assert.equal(R("KSFO./.AVE..KLAX", "KSFO./.AVE..KLAX"), false);
+  assert.equal(R(null, "KSFO./.AVE..KLAX"), false);
 });
 
 test("ROUTE_TEXT_ONLY: the text changed, the geometry we placed did not", () => {

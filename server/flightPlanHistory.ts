@@ -105,6 +105,23 @@ export interface AmendmentOut {
   positionReason: string | null;
 }
 
+/** A version that changed nothing about the route ahead: the FAA restated
+ *  the route from where the aircraft was (or sent the full text again), or
+ *  only fixes already flown were dropped. Kept out of `amendments` so that
+ *  nothing is drawn or flagged for it. */
+export interface RestatementOut {
+  version: number;
+  fromVersion: number;
+  at: number;
+  messageType: string | null;
+  /** fixes dropped from the start that lay behind the aircraft */
+  fixesFlown: string[];
+  /** fixes dropped from the start with no position known for that moment:
+   *  flown or skipped is not determined, and nothing is flagged for them */
+  fixesNotJudged: string[];
+  note: string;
+}
+
 export interface PlanHistoryResponse {
   hex: string;
   callsign: string | null;
@@ -130,6 +147,8 @@ export interface PlanHistoryResponse {
   current: VersionOut | null;
   versions: VersionOut[];
   amendments: AmendmentOut[];
+  /** versions that are not amendments (see RestatementOut) */
+  restatements: RestatementOut[];
   offRoute: {
     assessed: boolean;
     reason: string | null;
@@ -337,7 +356,7 @@ function emptyResponse(q: PlanRequest, now: number, reason: string, extra: Parti
     hex: q.hex, callsign: q.callsign, kind: "raw", source: "NONE",
     label: `NONE — no flight plan versions${q.callsign ? ` for ${q.callsign}` : ""}`,
     honesty: `No plan versions are shown: ${reason}. ${PLAN_HISTORY_HONESTY_NONE}`,
-    provenance: PROVENANCE, plan: null, original: null, current: null, versions: [], amendments: [],
+    provenance: PROVENANCE, plan: null, original: null, current: null, versions: [], amendments: [], restatements: [],
     offRoute: {
       assessed: false, reason: "there is no filed route to judge the track against", thresholds: THRESHOLDS,
       fixesJudged: 0, fixesNotJudged: { beforeFirstVersion: 0, pathNotAssessable: 0 },
@@ -459,12 +478,33 @@ export async function resolvePlanHistory(qIn: PlanRequest, ctx: PlanContext, opt
 
   // ── amendments ──
   const amendments: AmendmentOut[] = [];
+  const restatements: RestatementOut[] = [];
   for (let i = 1; i < rendered.length; i++) {
     const r = rendered[i];
-    const change = classifyPlanChange(rendered[i - 1].shape, r.shape);
     const pos = trackError
       ? { position: null, reason: `the ADS-B track could not be read (${trackError})` }
       : positionAtTime(allFixes, r.atMs);
+    // the aircraft's own position decides whether fixes dropped from the
+    // start of a present-position route were flown or skipped
+    const change = classifyPlanChange(rendered[i - 1].shape, r.shape, {
+      at: pos.position ? { lat: pos.position.lat, lon: pos.position.lon } : null,
+    });
+    if (!change.kinds.length) {
+      const head = change.fromPresentPosition;
+      const notJudged = head && !head.judged ? change.fixesRemovedFromStart : [];
+      restatements.push({
+        version: i + 1, fromVersion: i, at: r.atMs, messageType: r.v.messageType,
+        fixesFlown: head?.fixesFlown ?? [], fixesNotJudged: notJudged,
+        note: notJudged.length
+          ? "the route was re-issued from the aircraft's position and no position is known for that moment: whether the fixes dropped from the start were flown or skipped is not determined"
+          : head?.fixesFlown.length
+            ? "the route was re-issued from the aircraft's position; the fixes dropped from the start lay behind it"
+            : change.routeTextChanged
+              ? "the same route ahead, stated again (from the aircraft's position, or the full text once more)"
+              : "nothing we compare changed in this version",
+      });
+      continue;
+    }
     amendments.push({
       version: i + 1, fromVersion: i, at: r.atMs, atBasis: r.atBasis, atNote: r.atNote,
       receivedAtMs: r.v.receivedAtMs, swimMessageMs: r.v.swimMessageMs, messageType: r.v.messageType,
@@ -507,7 +547,7 @@ export async function resolvePlanHistory(qIn: PlanRequest, ctx: PlanContext, opt
       ended: mem ? mem.endedAtMs != null : !live,
       archive,
     },
-    original, current, versions: outs, amendments,
+    original, current, versions: outs, amendments, restatements,
     offRoute: {
       assessed, reason: offReason, thresholds: THRESHOLDS, fixesJudged: judged.length,
       fixesNotJudged: { beforeFirstVersion, pathNotAssessable },

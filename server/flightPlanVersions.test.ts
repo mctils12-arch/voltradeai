@@ -125,6 +125,64 @@ test("each kind of change is a new version, in order, with what changed", () => 
   assert.equal(rec.recorded, 4);
 });
 
+// Read live 2026-11-17 (111 flights, 307 recorded changes): the FAA re-issues an
+// airborne route from the aircraft's position ("./."), moves that position, and
+// its centers alternate between their own texts for one flight. At least 22% of
+// the versions recorded were such restatements, each flagged as a reroute.
+const PP = (kept: string[], token = "") => `KSFO./.${token ? `${token}..` : ""}${kept.join("..")}..KLAX`;
+const routeMsg = (routeText: string, fixes: string[], extra: Partial<SwimFlightMessage> = {}) =>
+  msg({ messageType: "AH", isAmendment: true, routeText, fixes, ...extra });
+
+test("a route restated from the aircraft's position is not a version: './.' added, the position moved, the full text again", () => {
+  const { store, swim } = wired();
+  swim.upsert(FH1(), T0);
+  swim.upsert(routeMsg(PP(ROUTE1), ROUTE1), T0 + 1 * MIN);                  // "./." in front of the same route
+  swim.upsert(routeMsg(PP(ROUTE1, "SFO120015"), ROUTE1), T0 + 2 * MIN);     // with the aircraft's position
+  swim.upsert(routeMsg(PP(ROUTE1, "SNS300020"), ROUTE1), T0 + 3 * MIN);     // the position moved
+  swim.upsert(routeMsg(text(ROUTE1), ROUTE1), T0 + 4 * MIN);                // the full text again
+  const rec = store.forCallsign("SKW5000")!;
+  assert.equal(rec.versions.length, 1, "before: 4 more versions, each a 'reroute'");
+  assert.equal(rec.versions[0].routeText, text(ROUTE1));
+  assert.equal(store.counters.routeRestatements, 3);
+  assert.equal(store.counters.changeVersions, 0);
+});
+
+test("fixes dropped from the start ARE a version (flown or skipped is judged when it is served); its restatements are not", () => {
+  const { store, swim } = wired();
+  swim.upsert(FH1(), T0);
+  swim.upsert(routeMsg(PP(["AVE", "FIM"], "SNS300020"), ["AVE", "FIM"]), T0 + 5 * MIN);  // SNS gone
+  swim.upsert(routeMsg(PP(["AVE", "FIM"], "AVE310040"), ["AVE", "FIM"]), T0 + 6 * MIN);  // only the position moved
+  swim.upsert(routeMsg(text(ROUTE1), ROUTE1), T0 + 7 * MIN);                             // another center's full text
+  swim.upsert(routeMsg(PP(["AVE", "FIM"]), ["AVE", "FIM"]), T0 + 8 * MIN);               // and back
+  const rec = store.forCallsign("SKW5000")!;
+  assert.deepEqual(rec.versions.map((v) => v.routeText), [text(ROUTE1), PP(["AVE", "FIM"], "SNS300020")]);
+  assert.equal(store.counters.changeVersions, 1);
+  assert.equal(store.counters.routeRestatements, 3);
+});
+
+test("a text the flight already had in an earlier version is another center's view, not a new version", () => {
+  const { store, swim } = wired();
+  swim.upsert(FH1(), T0);
+  swim.upsert(AH_REROUTE(T0 + 10 * MIN), T0 + 10 * MIN);            // a real amendment: version 2
+  swim.upsert(routeMsg(text(ROUTE1), ROUTE1), T0 + 11 * MIN);       // the original text, from a center that still holds it
+  swim.upsert(routeMsg(text(ROUTE2), ROUTE2), T0 + 12 * MIN);       // the current one again: no change
+  const rec = store.forCallsign("SKW5000")!;
+  assert.deepEqual(rec.versions.map((v) => v.routeText), [text(ROUTE1), text(ROUTE2)], "before: 1,2,1,2 — a reroute on every alternation");
+  assert.equal(store.counters.earlierTextAgain, 1);
+  assert.equal(store.counters.changeVersions, 1);
+});
+
+test("a restatement that also carries a new altitude or destination is still a version", () => {
+  const { store, swim } = wired();
+  swim.upsert(FH1(), T0);
+  swim.upsert(routeMsg(PP(ROUTE1, "SFO120015"), ROUTE1, { cruiseAltFt: 28000 }), T0 + 1 * MIN);
+  swim.upsert(routeMsg(text(ROUTE1), ROUTE1, { cruiseAltFt: 30000 }), T0 + 2 * MIN);
+  const rec = store.forCallsign("SKW5000")!;
+  assert.deepEqual(rec.versions.map((v) => v.cruiseAltFt), [24000, 28000, 30000]);
+  assert.equal(store.counters.routeRestatements, 0);
+  assert.equal(store.counters.earlierTextAgain, 0);
+});
+
 test("first sight that is NOT a filing is flagged: track first, an AH first, or an amendment already counted", () => {
   const late = wired();
   late.swim.upsert(TRACK_MSG(), T0 - 5 * MIN);  // we joined the flight in the air
@@ -398,7 +456,9 @@ test("disk: the daily byte cap, a full buffer and a failed append are each count
   a.swim.upsert(FH1(), T0);
   a.swim.upsert(AH_REROUTE(null), T0 + MIN);  // about 600 B for the two lines: fits
   a.swim.upsert(AH_CRUISE(null), T0 + 2 * MIN);
-  a.swim.upsert(msg({ messageType: "AH", isAmendment: true, routeText: text(ROUTE1), fixes: ROUTE1 }), T0 + 3 * MIN);
+  // FIXTURE CHANGED 2026-11-17: this fourth message used to go back to ROUTE1's text. A text the
+  // flight already had is no longer a version (another center's view), so a third route is used.
+  a.swim.upsert(msg({ messageType: "AH", isAmendment: true, routeText: text(["SNS", "PXN", "HEC"]), fixes: ["SNS", "PXN", "HEC"] }), T0 + 3 * MIN);
   assert.equal(cap.counters.skipped.day_cap, 1, "the line that would cross the cap is skipped");
   assert.ok(cap.status().dayBytes <= 800 && cap.status().dayBytes > 600);
   assert.equal(FPV_DAY_CAP_BYTES, 72 * 1024 * 1024);
@@ -587,6 +647,47 @@ test("plan-history: original, current, every version, and each amendment classif
   // ?geometry=all puts the path on every version
   const all = await resolvePlanHistory(q(), ctxFor(w, { recent: fixes, now: amendAt + 20 * MIN }), { allGeometry: true });
   assert.ok(all.versions.every((v) => Array.isArray(v.points) && v.points.length > 10));
+});
+
+test("plan-history: fixes dropped behind the aircraft are a restatement, fixes dropped ahead of it are a direct-to", async () => {
+  // FLOWN: the aircraft has passed SNS when the route is re-issued from its position without SNS
+  const flown = wired();
+  flown.swim.upsert(FH1(T0 - 30 * MIN), T0 - 30 * MIN);
+  const track = fly([[KSFO, FIX.SNS], [FIX.SNS, FIX.AVE]], T0, 7);
+  const pastSns = track.findIndex((f, i) => i > 0 && haversineNm({ lat: f.la, lon: f.lo }, FIX.SNS) > 20 && haversineNm({ lat: f.la, lon: f.lo }, KSFO) > haversineNm(KSFO, FIX.SNS));
+  const t1 = track[pastSns].t * 1000;
+  flown.swim.upsert(routeMsg(PP(["AVE", "FIM"]), ["AVE", "FIM"], { timestamp: t1 }), t1 + 2000);
+  const a = await resolvePlanHistory(q(), ctxFor(flown, { recent: track, now: t1 + 10 * MIN }));
+  assert.equal(a.versions.length, 2);
+  assert.deepEqual(a.amendments, [], "nothing was amended: no marker, no flag");
+  assert.equal(a.restatements.length, 1);
+  assert.deepEqual([a.restatements[0].version, a.restatements[0].fromVersion], [2, 1]);
+  assert.deepEqual(a.restatements[0].fixesFlown, ["SNS"]);
+  assert.deepEqual(a.restatements[0].fixesNotJudged, []);
+  assert.match(a.restatements[0].note, /lay behind it/);
+
+  // SKIPPED: the same message while the aircraft is still 30 nm short of SNS
+  const skipped = wired();
+  skipped.swim.upsert(FH1(T0 - 30 * MIN), T0 - 30 * MIN);
+  const short = track.findIndex((f) => haversineNm({ lat: f.la, lon: f.lo }, FIX.SNS) < 35);
+  const t2 = track[short].t * 1000;
+  skipped.swim.upsert(routeMsg(PP(["AVE", "FIM"]), ["AVE", "FIM"], { timestamp: t2 }), t2 + 2000);
+  const b = await resolvePlanHistory(q(), ctxFor(skipped, { recent: track.slice(0, short + 1), now: t2 + 10 * MIN }));
+  assert.deepEqual(b.restatements, []);
+  assert.equal(b.amendments.length, 1);
+  assert.ok(b.amendments[0].kinds.includes("DIRECT_TO") && b.amendments[0].kinds.includes("FIXES_REMOVED"));
+  assert.deepEqual(b.amendments[0].change.fromPresentPosition?.fixesSkipped, ["SNS"]);
+  assert.equal(b.amendments[0].change.fromPresentPosition?.positionBasis, "ADSB_FIX");
+  assert.ok(b.amendments[0].position, "the marker is where the aircraft was");
+
+  // NO POSITION: nothing is claimed either way
+  const blind = wired();
+  blind.swim.upsert(FH1(T0 - 30 * MIN), T0 - 30 * MIN);
+  blind.swim.upsert(routeMsg(PP(["AVE", "FIM"]), ["AVE", "FIM"], { timestamp: t1 }), t1 + 2000);
+  const c = await resolvePlanHistory(q(), ctxFor(blind, { recent: [], now: t1 + 10 * MIN }));
+  assert.deepEqual(c.amendments, []);
+  assert.deepEqual(c.restatements[0].fixesNotJudged, ["SNS"]);
+  assert.match(c.restatements[0].note, /not determined/);
 });
 
 test("plan-history: amendment position is interpolated-and-flagged between sparse fixes, and null with a reason when nothing is near", async () => {
@@ -801,7 +902,7 @@ test("route + status: GET /api/data/aircraft/plan-history/:hex answers, bad hex 
     const body = await ok.json() as PlanHistoryResponse;
     assert.deepEqual(Object.keys(body).sort(), [
       "amendments", "callsign", "current", "flownTrack", "generatedAt", "hex", "honesty", "kind", "label", "offRoute",
-      "original", "plan", "provenance", "source", "versions",
+      "original", "plan", "provenance", "restatements", "source", "versions",
     ]);
     assert.equal(body.versions.length, 2);
     assert.equal((await fetch(`${base}/api/data/aircraft/plan-history/nothex`)).status, 400);
