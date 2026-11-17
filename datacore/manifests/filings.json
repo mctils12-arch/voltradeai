@@ -15,13 +15,13 @@
   "owners[]": "cik (person entity key), name, roles",
   "transactions[]": "table, kind, shares, pricePerShare, transactionDate",
   "form": "only on recovered rows: EDGAR daily form index type, \"4\" or \"4/A\"",
-  "backfilledAt": "only on recovered rows: ISO time the nightly completeness pass (server/edgarForm4Completeness.ts) fetched a filing the live poll had not archived; the row sits in the day file of that night, filedAt is the index's filing date"
+  "backfilledAt": "only on recovered rows: ISO time the nightly completeness pass (server/edgarForm4Completeness.ts) fetched a filing the live poll had not archived; the row sits in the day file of that night (for an older day that can be months after filedAt), filedAt is the index's filing date"
  },
  "confidence_model": "as-filed regulatory records (high; filing errors possible, never corrected in-archive)",
  "geo_fields": [],
  "entity_key": "issuerTradingSymbol (company) + owners[].cik (person)",
  "sentiment": null,
  "started": "2026-07-04",
- "cadence": "15-min poll; day-file dedup by accession; nightly completeness pass against EDGAR's daily form index (02:00-06:00 ET, last 7 days)",
+ "cadence": "15-min poll; day-file dedup by accession; nightly completeness pass against EDGAR's daily form index (02:00-06:00 ET, last 7 days), then the older weekdays back to 2026-07-04, newest first, up to 3,000 filings a night until every day is settled (a per-day ledger records index count vs held)",
  "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
 }

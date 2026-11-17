@@ -300,7 +300,9 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     // edgarForm4Completeness.ts bootForm4Completeness: 30-min tick, one pass per
     // ET night inside 02:00-06:00 — EDGAR's daily form index (types 4, 4/A)
     // minus what the Form 4 archive holds is fetched and appended. Up to 2,500
-    // filings at 400 ms spacing (about 35 min); a quiet night is seconds.
+    // filings at 400 ms spacing (about 35 min); a quiet night is seconds. The
+    // same run then refills older weekdays back to the archive's first day,
+    // up to 3,000 filings (about 31 min more) until every day is settled.
     id: "form4_completeness_nightly", label: "Form 4 archive completeness pass (EDGAR daily form index, 02:00-06:00 ET)",
     source: "server/edgarForm4Completeness.ts", kind: "daily", tz: "America/New_York", dueMin: 2 * 60,
     graceMs: 90 * MIN, maxRunMs: 2 * HOUR, tradingDaysOnly: false,
