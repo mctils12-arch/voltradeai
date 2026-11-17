@@ -30,9 +30,13 @@
  * mirror, so the math has one home.
  *
  * MODES (env VOLTRADE_<STREAM>_FOLD): "full" = today's behavior exactly;
- * "shadow" (DEFAULT) = run both, deep-compare, log `FOLD-MISMATCH <stream>`
- * on any difference, SERVE THE FULL RESULT; "incremental" = serve the
- * incremental result (switch after 24h of zero mismatches in shadow mode).
+ * "shadow" = run both, deep-compare, log `FOLD-MISMATCH <stream>` on any
+ * difference, SERVE THE FULL RESULT; "incremental" = serve the incremental
+ * result (switch after 24h of zero mismatches in shadow mode). An UNSET
+ * variable is the stream's own default: `shadow` (DEFAULT_FOLD_MODE) until
+ * the stream's module promotes it through readFoldMode's unsetDefault, as
+ * foldShadow.ts's header allows (shadow-fleet: SHADOWFLEET_FOLD_DEFAULT,
+ * 2026-11-17). An unrecognised value is always `shadow`.
  *
  * Pure module: fs reads only, baseDir-injectable, no trading imports.
  */
@@ -48,12 +52,17 @@ export const DEFAULT_FOLD_MODE: FoldMode = "shadow";
 
 const warnedUnknownMode = new Set<string>();
 
-/** Reads the fold mode for one stream from the environment; an unset or
- *  unrecognized value is the DEFAULT (shadow), with a one-time warning for
- *  an unrecognized one so a typo in a deploy variable is visible. */
-export function readFoldMode(envVar: string, env: NodeJS.ProcessEnv = process.env): FoldMode {
+/** Reads the fold mode for one stream from the environment. An UNSET (or
+ *  empty) value is `unsetDefault`: shadow, unless the stream's module has
+ *  promoted its own default after a mismatch-free run in shadow (the same
+ *  rule as foldShadow.ts's parseFoldMode). An UNRECOGNIZED value is always
+ *  shadow, never the promoted default: a typo in a deploy variable must not
+ *  choose a path nobody chose, nor switch the comparison off. It warns once
+ *  so the typo is visible. */
+export function readFoldMode(envVar: string, env: NodeJS.ProcessEnv = process.env,
+                             unsetDefault: FoldMode = DEFAULT_FOLD_MODE): FoldMode {
   const raw = (env[envVar] || "").trim().toLowerCase();
-  if (!raw) return DEFAULT_FOLD_MODE;
+  if (!raw) return unsetDefault;
   if ((FOLD_MODES as readonly string[]).includes(raw)) return raw as FoldMode;
   if (!warnedUnknownMode.has(envVar)) {
     warnedUnknownMode.add(envVar);
@@ -462,23 +471,27 @@ export interface FoldStats {
 }
 
 export class FoldStatsTracker {
-  private s: FoldStats = {
-    mode: DEFAULT_FOLD_MODE, partialsCached: 0, partialBytesEstimate: 0, uncacheableFiles: 0,
-    lastFullMs: null, lastIncrementalMs: null, mismatches: 0, lastMismatchAt: null, matches: 0,
-    compareSkipped: 0, fallbacks: 0, compactDrops: 0, filesStreamedLastRun: 0, filesCachedLastRun: 0, lastRunAt: null,
-  };
+  private s: FoldStats;
+  /** `modeBeforeFirstRun` is what `mode` reports until a cycle has run (each
+   *  cycle then records the mode it ran in): shadow by default; a stream
+   *  with a promoted default passes its own reader, so /api/health never
+   *  shows `shadow` for a fold that is about to run incremental. */
+  constructor(private modeBeforeFirstRun: () => FoldMode = () => DEFAULT_FOLD_MODE) {
+    this.s = this.fresh();
+  }
+  private fresh(): FoldStats {
+    return {
+      mode: this.modeBeforeFirstRun(), partialsCached: 0, partialBytesEstimate: 0, uncacheableFiles: 0,
+      lastFullMs: null, lastIncrementalMs: null, mismatches: 0, lastMismatchAt: null, matches: 0,
+      compareSkipped: 0, fallbacks: 0, compactDrops: 0, filesStreamedLastRun: 0, filesCachedLastRun: 0, lastRunAt: null,
+    };
+  }
   snapshot(): FoldStats { return { ...this.s }; }
   /** Mutates the live record — only runIncrementalFold and the module's
    *  own full-mode path call this. */
   update(patch: Partial<FoldStats>): void { Object.assign(this.s, patch); }
   bump(field: "mismatches" | "matches" | "compareSkipped" | "fallbacks"): void { this.s[field]++; }
-  reset(): void {
-    this.s = {
-      mode: DEFAULT_FOLD_MODE, partialsCached: 0, partialBytesEstimate: 0, uncacheableFiles: 0,
-      lastFullMs: null, lastIncrementalMs: null, mismatches: 0, lastMismatchAt: null, matches: 0,
-      compareSkipped: 0, fallbacks: 0, compactDrops: 0, filesStreamedLastRun: 0, filesCachedLastRun: 0, lastRunAt: null,
-    };
-  }
+  reset(): void { this.s = this.fresh(); }
 }
 
 /** Optional sink for mismatches beyond console.error (e.g. the audit log,

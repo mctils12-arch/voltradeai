@@ -46,6 +46,24 @@ test("readFoldMode: unset -> shadow (the default), explicit values honored (case
   assert.match(warnings[0], /X_FOLD_TYPO/);
 });
 
+test("readFoldMode unsetDefault (a stream's promoted default): applies ONLY to an unset or empty variable; an unrecognized value is still shadow; explicit values win", () => {
+  assert.equal(readFoldMode("P_FOLD", {}, "incremental"), "incremental");
+  assert.equal(readFoldMode("P_FOLD", { P_FOLD: "" }, "incremental"), "incremental");
+  assert.equal(readFoldMode("P_FOLD", { P_FOLD: "  " }, "incremental"), "incremental");
+  assert.equal(readFoldMode("P_FOLD", { P_FOLD: "shadow" }, "incremental"), "shadow");
+  assert.equal(readFoldMode("P_FOLD", { P_FOLD: "full" }, "incremental"), "full");
+  assert.equal(readFoldMode("P_FOLD", { P_FOLD: "INCREMENTAL" }, "shadow"), "incremental");
+  const warnings: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(" ")); };
+  try {
+    assert.equal(readFoldMode("P_FOLD_TYPO", { P_FOLD_TYPO: "incrmental" }, "incremental"), "shadow",
+      "a typo is shadow even when the stream's unset default is incremental");
+  } finally { console.warn = orig; }
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /using shadow/);
+});
+
 test("listVesselWindowFiles: same file set + order as the original fold filter; only closed, fully-inside hours are cacheable", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-fold-list-"));
   const h = (hoursAgo: number) => NOW_SEC - Math.round(hoursAgo * 3600);
@@ -199,6 +217,17 @@ test("foldDiffSummary: [] on identical; arrays compared in order; object/Map key
   const big = foldDiffSummary(Array.from({ length: 50 }, (_, i) => i), Array.from({ length: 50 }, (_, i) => -i), 3);
   assert.equal(big.length, 3, "capped");
   assert.deepEqual(foldDiffSummary({ name: undefined }, {}), [], "an undefined property equals a missing one — JSON.stringify drops both");
+});
+
+test("FoldStatsTracker modeBeforeFirstRun: the mode reported before any cycle comes from the stream's own reader, at construction and again at reset", () => {
+  let current: "shadow" | "incremental" = "incremental";
+  const t = new FoldStatsTracker(() => current);
+  assert.equal(t.snapshot().mode, "incremental");
+  t.update({ mode: "full" });
+  assert.equal(t.snapshot().mode, "full", "a cycle's own mode replaces it");
+  current = "shadow";
+  t.reset();
+  assert.equal(t.snapshot().mode, "shadow", "reset reads it again");
 });
 
 test("FoldStatsTracker: snapshot is a copy, bump/update mutate, reset returns to defaults", () => {

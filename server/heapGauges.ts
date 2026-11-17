@@ -65,6 +65,9 @@ export function registerBuiltinHeapGauges(): void {
   // `shadow` mode (both folds run, the FULL result is served); the switch to
   // `incremental` is allowed only after 24 h of mismatches === 0, and this is
   // where that is read (FOLD-MISMATCH rows also land in the audit log).
+  // A fold promoted to `incremental` (gnss 2026-11-05, shadowfleet
+  // 2026-11-17) compares nothing: its matches/mismatches then stay 0 and
+  // `mode` says why.
   // entries = cached partials; the counters are copied as the module reports them.
   registerHeapGauge("fold.shadowfleet", () => {
     const f = shadowFleetFoldStats();
