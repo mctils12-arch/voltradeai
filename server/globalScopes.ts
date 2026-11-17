@@ -16,12 +16,19 @@
 // ADSB.LOL'S DAILY QUOTA (2026-11-17, adsbGovernor.ts). adsb.lol counts
 // requests per day (500 without a key); these three scopes every 120 s are
 // 2,160 a day. Each request carries the API key when one is configured and
-// reports the response's quota headers to the governor. While the quota is
-// spent, or kept for the watched planes ("watched_only"), a scope is NOT
-// asked: the cycle says skipped_quota and per_scope has no entry for it.
-// Consequence, stated: the LADD registry (laddRegistry.ts) learns its
-// members from the ladd scope, so it learns no NEW member while the scopes
-// are not asked; members it already holds stay listed for 90 days.
+// reports the response's quota headers to the governor, and the poller
+// paces itself by the quota mode (createScopesPacer):
+//   - no limit read yet: all three every 120 s, as before;
+//   - "full": all three, the cycle spaced so a day of it uses at most
+//     SCOPES_QUOTA_SHARE of the limit (7,200/day -> every 360 s);
+//   - "watched_only": mil and pia are NOT asked. The LADD scope still is,
+//     once per LADD_SCOPE_WATCHED_GAP_MS (15 min = 96 requests a day): the
+//     LADD registry (laddRegistry.ts) decides whether FAA-sourced flight
+//     data may be shown for an aircraft, and it must keep learning;
+//   - quota spent: nothing is asked until the reset. The registry then
+//     learns only from the LADD bit on other providers' rows (laddRegistry.ts).
+// A scope that was not asked has no per_scope entry; the cycle says
+// skipped_quota (held by the quota) or paced_wait (not due yet).
 
 import fs from "fs";
 import { archiveAircraft, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
@@ -29,6 +36,49 @@ import { mapPointAircraft } from "./aircraftTiling";
 import { publishFixes } from "./aircraftFixBus";
 import { laddRegistry } from "./laddRegistry";
 import { adsbLolGovernor, adsbLolKeyHeader, type UpstreamGovernor } from "./adsbGovernor";
+
+/** "watched_only": the LADD scope alone is asked, once per this long
+ *  (96 requests a day, counted against adsb.lol's daily quota) */
+export const LADD_SCOPE_WATCHED_GAP_MS = 15 * 60_000;
+
+/** What the daily quota allows the scopes poller, tick by tick. */
+export interface ScopesPacer {
+  /** start of a tick: false = "full" mode and the last cycle's share of the
+   *  day has not passed yet (nothing is asked this tick) */
+  cycleDue(now: number): boolean;
+  /** one scope: "ask"; "quota" = held by the quota (spent, or kept for the
+   *  watched planes); "wait" = the LADD scope's 15 minutes have not passed */
+  decide(scope: GlobalScope, now: number): "ask" | "quota" | "wait";
+  /** a request for `scope` is being sent */
+  asked(scope: GlobalScope, now: number): void;
+}
+
+export function createScopesPacer(governor: UpstreamGovernor): ScopesPacer {
+  let lastLaddAt: number | null = null;
+  /** the cycle in progress or last run: when its first request went, and how many */
+  let cycleAt: number | null = null;
+  let cycleRequests = 0;
+  let cycleOpen = false;
+  return {
+    cycleDue(now) {
+      cycleOpen = false;
+      const gap = governor.scopesMinGapMs(now);
+      // 1 s of slack: the 120 s timer never has to wait a whole extra tick for a few ms
+      return !(gap > 0 && cycleAt != null && now - cycleAt < gap * Math.max(1, cycleRequests) - 1_000);
+    },
+    decide(scope, now) {
+      if (scope !== "ladd") return governor.admit("scopes", now) ? "ask" : "quota";
+      if (!governor.admit("ladd", now)) return "quota";
+      if (governor.quotaMode(now) !== "watched_only") return "ask";
+      return lastLaddAt == null || now - lastLaddAt >= LADD_SCOPE_WATCHED_GAP_MS ? "ask" : "wait";
+    },
+    asked(scope, now) {
+      if (!cycleOpen) { cycleOpen = true; cycleAt = now; cycleRequests = 0; }
+      cycleRequests++;
+      if (scope === "ladd") lastLaddAt = now;
+    },
+  };
+}
 
 export const GLOBAL_SCOPES = ["mil", "ladd", "pia"] as const;
 export type GlobalScope = (typeof GLOBAL_SCOPES)[number];
@@ -68,6 +118,11 @@ export interface GlobalCycleStatus {
   /** true when at least one scope was NOT asked because adsb.lol's daily
    *  quota is spent or kept for the watched planes (no per_scope entry) */
   skipped_quota: boolean;
+  /** true when a scope was not asked because its paced turn has not come
+   *  (the LADD scope's 15 minutes, or the "full" mode share) */
+  paced_wait: boolean;
+  /** requests this cycle sent */
+  asked: number;
 }
 
 /** One cycle, pure-injectable: fetch each scope, map through the SAME
@@ -84,18 +139,28 @@ export async function pollGlobalScopesOnce(
   // the shared adsb.lol governor: reads each response's daily-quota headers
   // and says whether a scope may be asked at all (null = no quota handling)
   governor: UpstreamGovernor | null = null,
+  // the poller's pacing state across ticks (default: a fresh one, so a
+  // single call asks whatever the quota mode allows)
+  pacer: ScopesPacer | null = governor ? createScopesPacer(governor) : null,
 ): Promise<GlobalCycleStatus> {
   const base = baseDir || archiveBaseDir();
   const free = readFreeBytes(base);
   const status: GlobalCycleStatus = {
     at: Date.now(), per_scope: {}, archived: 0,
-    skipped_low_disk: !volumeAllowsWrite(free), free_bytes: free, skipped_quota: false,
+    skipped_low_disk: !volumeAllowsWrite(free), free_bytes: free, skipped_quota: false, paced_wait: false, asked: 0,
   };
+  // "full" mode: this cycle's share of the day has not come round yet
+  if (pacer && !pacer.cycleDue(Date.now())) { status.paced_wait = true; return status; }
   const all: AircraftPoint[] = [];
   const seen = new Set<string>();
   for (const scope of GLOBAL_SCOPES) {
-    // daily quota spent, or kept for the watched planes: not asked
-    if (governor && !governor.admit("scopes", Date.now())) { status.skipped_quota = true; continue; }
+    // the daily quota: spent, or kept for the watched planes (mil/pia), or
+    // the LADD scope's 15 minutes have not passed -> not asked
+    const turn = pacer ? pacer.decide(scope, Date.now()) : "ask";
+    if (turn === "quota") { status.skipped_quota = true; continue; }
+    if (turn === "wait") { status.paced_wait = true; continue; }
+    pacer?.asked(scope, Date.now());
+    status.asked++;
     try {
       const res = await fetchImpl(scopeUrl(scope), { headers });
       governor?.noteQuota(res.headers, Date.now(), res.status);
@@ -142,24 +207,28 @@ export function startGlobalScopes(deps: {
   let lowDiskWarned = false;
   let quotaSkipLogged = false;
   const governor = deps.governor === undefined ? adsbLolGovernor : deps.governor;
+  const pacer = governor ? createScopesPacer(governor) : null;
   // all three scopes are api.adsb.lol: the key rides on them
   const headers = { ...deps.headers, ...adsbLolKeyHeader(deps.env) };
   const tick = async () => {
     if (stopped) return;
     try {
-      last = await pollGlobalScopesOnce(deps.fetchImpl, headers, deps.sites, deps.baseDir, undefined, governor);
+      const st = await pollGlobalScopesOnce(deps.fetchImpl, headers, deps.sites, deps.baseDir, undefined, governor, pacer);
+      // the status shown is the newest cycle that ASKED something; a tick
+      // that only waited updates its quota flag
+      last = st.asked > 0 || !last || last.asked === 0 ? st : { ...last, skipped_quota: st.skipped_quota, paced_wait: st.paced_wait };
       // said once per stretch, never every 120 s
-      if (last.skipped_quota && !quotaSkipLogged) {
+      if (st.skipped_quota && !quotaSkipLogged) {
         quotaSkipLogged = true;
-        console.error("[global-scopes] not asking adsb.lol for mil/ladd/pia: its daily quota is spent or kept for the watched planes (the LADD registry learns no new member meanwhile)");
-      } else if (!last.skipped_quota && quotaSkipLogged) {
+        console.error("[global-scopes] adsb.lol's daily quota: mil and pia are not asked; the LADD scope is asked once per 15 min while the quota is kept for the watched planes, and not at all while it is spent");
+      } else if (!st.skipped_quota && !st.paced_wait && quotaSkipLogged) {
         quotaSkipLogged = false;
         console.error("[global-scopes] asking adsb.lol for mil/ladd/pia again");
       }
-      if (last.skipped_low_disk && !lowDiskWarned) {
+      if (st.skipped_low_disk && !lowDiskWarned) {
         lowDiskWarned = true;
-        console.error(`[global-scopes] LOW DISK (${last.free_bytes} free) — global archiving paused; bot state writes take priority`);
-      } else if (!last.skipped_low_disk && lowDiskWarned) {
+        console.error(`[global-scopes] LOW DISK (${st.free_bytes} free) — global archiving paused; bot state writes take priority`);
+      } else if (!st.skipped_low_disk && lowDiskWarned) {
         lowDiskWarned = false;
         console.error("[global-scopes] disk headroom recovered — global archiving resumed");
       }

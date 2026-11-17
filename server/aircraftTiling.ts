@@ -47,6 +47,7 @@
 import { adsbLolGovernor, adsbLolKeyHeader, GOVERNED_PROVIDER_KEY, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 import { providerClockMs, publishFixes } from "./aircraftFixBus";
 import { attachIntent, parseReadsbIntent } from "./aircraftIntent";
+import { markLaddRow, rawRowIsLadd } from "./laddRegistry";
 
 /** adsb.lol / airplanes.live / adsb.fi point-query hard radius cap (nm). */
 export const DISC_RADIUS_MAX_NM = 250;
@@ -272,6 +273,9 @@ export function mapPointAircraft(raw: any, arrKey: string, provider?: string): a
     // here, and ride on the row under a symbol key (aircraftIntent) — the row's
     // JSON shape, and so every serialized aircraft payload, is unchanged.
     attachIntent(row, parseReadsbIntent(a));
+    // FAA LADD bit of the community aircraft database (dbFlags & 8), from any
+    // provider: remembered under a symbol key too, for laddRegistry.ts
+    if (rawRowIsLadd(a)) markLaddRow(row);
     return row;
   }).filter((a: any) => a.lat != null && a.lon != null);
 }

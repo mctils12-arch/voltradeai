@@ -56,15 +56,23 @@
 //   - EXHAUSTED (remaining 0, or the quota 429): nobody asks until the reset.
 //     A quota 429 is not an outage: it grows no failure backoff, cuts no
 //     AIMD rate and does not count as a sweep failure.
+//     Only remaining 0 or the quota's own 429 (x-envoy-ratelimited) says so:
+//     a 429 with no quota information is an ordinary rate limit and goes
+//     through the failure backoff as before (a stray 429 must not silence
+//     adsb.lol until midnight).
 //   - WATCHED_ONLY (limit under QUOTA_FULL_MIN_DAILY): only the tracked-planes
-//     poller and a Find lookup ask adsb.lol; the tracked poller paces itself
-//     to TRACKED_QUOTA_SHARE of the limit. The world sweep, the scopes, the
-//     viewport discs and the selected-plane lane do not ask at all (the other
+//     poller, a Find lookup and the LADD scope ask adsb.lol. The tracked
+//     poller paces itself to TRACKED_QUOTA_SHARE of the limit; the LADD scope
+//     is asked once per 15 minutes (globalScopes.ts: the privacy registry
+//     must keep learning). The world sweep, the mil/pia scopes, the viewport
+//     discs and the selected-plane lane do not ask at all (the other
 //     providers carry them: sweepFailover.ts, the viewport chain, the fast
 //     lane's second provider).
-//   - FULL (limit at or over QUOTA_FULL_MIN_DAILY): as before, with the world
-//     sweep spaced so it uses at most SWEEP_QUOTA_SHARE of the limit, and the
-//     disc lane only from DISC_LANE_MIN_DAILY.
+//   - FULL (limit at or over QUOTA_FULL_MIN_DAILY): the paced lanes share the
+//     limit — world sweep SWEEP_QUOTA_SHARE (0.60), tracked poller
+//     TRACKED_QUOTA_SHARE_FULL (0.25), scopes SCOPES_QUOTA_SHARE (0.10) — and
+//     the rest is left for viewers, the selected plane and Find. The disc
+//     lane asks only from DISC_LANE_MIN_DAILY.
 //   - UNKNOWN (no quota header seen yet): as before.
 //
 // Pure + clock-injectable (every method takes `now`), so tests never sleep.
@@ -75,6 +83,10 @@ export const QUOTA_FULL_MIN_DAILY = 5000;
 export const SWEEP_QUOTA_SHARE = 0.6;
 /** share of the daily limit the tracked-planes poller may spend ("watched_only" mode) */
 export const TRACKED_QUOTA_SHARE = 0.4;
+/** ... and in "full" mode, where the sweep and the scopes share the limit with it */
+export const TRACKED_QUOTA_SHARE_FULL = 0.25;
+/** share of the daily limit the mil/ladd/pia scopes may spend ("full" mode) */
+export const SCOPES_QUOTA_SHARE = 0.1;
 /** the sweep's disc lane asks adsb.lol only from this daily limit */
 export const DISC_LANE_MIN_DAILY = 20000;
 /** how long the suspended sweep sleeps between looks at the quota mode */
@@ -83,7 +95,7 @@ const DAY_MS = 86_400_000;
 
 export type QuotaMode = "unknown" | "watched_only" | "full";
 /** who is asking adsb.lol (see laneAllowed) */
-export type QuotaLane = "sweep" | "scopes" | "viewport" | "selected" | "tracked" | "find";
+export type QuotaLane = "sweep" | "scopes" | "ladd" | "viewport" | "selected" | "tracked" | "find";
 /** anything with a Headers-like get (a fetch Response's headers) */
 export interface HeaderSource { get(name: string): string | null }
 
@@ -258,10 +270,11 @@ export class UpstreamGovernor {
    *  was. Returns true when this response says the quota is spent:
    *    - x-ratelimit-remaining <= 0 (on any status), or
    *    - a 429 with x-envoy-ratelimited: true, or
-   *    - a 429 with neither a Retry-After nor a positive remaining (this
-   *      response's, else the last one read).
+   *    - a 429 while the last remaining figure read (in its window) was 0.
    *  Then nobody asks until the reset: now + x-ratelimit-reset, or the next
-   *  00:00 UTC when the response gave none. */
+   *  00:00 UTC when the response gave none. A 429 with NO quota information
+   *  is not the quota: it returns false and the caller's noteResult treats it
+   *  as an ordinary failure. */
   noteQuota(headers: HeaderSource | null | undefined, now: number, status?: number): boolean {
     if (!headers || typeof headers.get !== "function") return false;
     const q = parseQuotaHeaders((name) => headers.get(name));
@@ -270,13 +283,8 @@ export class UpstreamGovernor {
     if (q.resetSec != null) this.quotaResetAt = now + q.resetSec * 1000;
     let spent = q.remaining != null && q.remaining <= 0;
     if (!spent && status === 429) {
-      if (q.ratelimited) spent = true;
-      else {
-        let retryAfter: string | null = null;
-        try { retryAfter = headers.get("retry-after"); } catch { retryAfter = null; }
-        const known = q.remaining ?? this.currentRemaining(now);
-        spent = (retryAfter == null || retryAfter === "") && !(known != null && known > 0);
-      }
+      const lastRead = q.remaining ?? this.currentRemaining(now);
+      spent = q.ratelimited || (lastRead != null && lastRead <= 0);
     }
     if (!spent) return false;
     const nextUtcMidnight = (Math.floor(now / DAY_MS) + 1) * DAY_MS;
@@ -325,11 +333,12 @@ export class UpstreamGovernor {
   }
 
   /** Pure: may `lane` send a request to adsb.lol now, as far as the daily
-   *  quota goes? Spent: nobody. "watched_only": the tracked poller and a Find
-   *  lookup. Otherwise everyone. */
+   *  quota goes? Spent: nobody. "watched_only": the tracked poller, a Find
+   *  lookup and the LADD scope (which paces itself, globalScopes.ts).
+   *  Otherwise everyone. */
   laneAllowed(lane: QuotaLane, now: number): boolean {
     if (this.quotaBlocked(now)) return false;
-    if (this.quotaMode(now) === "watched_only") return lane === "tracked" || lane === "find";
+    if (this.quotaMode(now) === "watched_only") return lane === "tracked" || lane === "find" || lane === "ladd";
     return true;
   }
 
@@ -353,12 +362,23 @@ export class UpstreamGovernor {
     return this.quotaLimit == null || this.quotaLimit >= DISC_LANE_MIN_DAILY;
   }
 
-  /** "watched_only": the tracked poller's smallest gap between two requests
-   *  (ms) so a day of it uses at most TRACKED_QUOTA_SHARE of the limit
-   *  (500/day -> one request per 432 s). 0 = not paced by the quota. */
+  /** The tracked poller's smallest gap between two requests (ms) so a day of
+   *  it uses at most its share of the limit: TRACKED_QUOTA_SHARE in
+   *  "watched_only" (500/day -> one request per 432 s), TRACKED_QUOTA_SHARE_FULL
+   *  in "full" (7,200/day -> 48 s). 0 while the limit is unknown. */
   trackedMinGapMs(now: number): number {
-    if (this.quotaLimit == null || this.quotaMode(now) !== "watched_only") return 0;
-    return Math.ceil(DAY_MS / (this.quotaLimit * TRACKED_QUOTA_SHARE));
+    const mode = this.quotaMode(now);
+    if (this.quotaLimit == null || mode === "unknown") return 0;
+    return Math.ceil(DAY_MS / (this.quotaLimit * (mode === "watched_only" ? TRACKED_QUOTA_SHARE : TRACKED_QUOTA_SHARE_FULL)));
+  }
+
+  /** "full": the scopes poller's smallest gap between two requests (ms) so a
+   *  day of it uses at most SCOPES_QUOTA_SHARE of the limit (7,200/day -> one
+   *  request per 120 s, a three-scope cycle every 360 s). 0 = not paced by a
+   *  share (unknown limit; "watched_only" has its own rule, globalScopes.ts). */
+  scopesMinGapMs(now: number): number {
+    if (this.quotaLimit == null || this.quotaMode(now) !== "full") return 0;
+    return Math.ceil(DAY_MS / (this.quotaLimit * SCOPES_QUOTA_SHARE));
   }
 
   /** The quota block of stats(). `key_configured` is a boolean: the key

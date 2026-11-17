@@ -21,24 +21,34 @@ import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import {
-  ADSB_LOL_UA, DISC_LANE_MIN_DAILY, QUOTA_FULL_MIN_DAILY, QUOTA_RECHECK_MS, SWEEP_QUOTA_SHARE, TRACKED_QUOTA_SHARE,
+  ADSB_LOL_UA, DISC_LANE_MIN_DAILY, QUOTA_FULL_MIN_DAILY, QUOTA_RECHECK_MS, SCOPES_QUOTA_SHARE, SWEEP_QUOTA_SHARE,
+  TRACKED_QUOTA_SHARE, TRACKED_QUOTA_SHARE_FULL,
   UpstreamGovernor, adsbLolKeyHeader, adsbLolRequestHeaders, governorFromEnv, parseQuotaHeaders, quotaModeOverrideFromEnv,
   type QuotaLane,
 } from "./adsbGovernor";
-import { fetchDiscs, planDiscs, type DiscProvider } from "./aircraftTiling";
+import { fetchDiscs, mapPointAircraft, planDiscs, type DiscProvider } from "./aircraftTiling";
 import { createFastLane, fastLaneUrl } from "./aircraftFastLane";
 import { createAircraftFinder, parseFindQuery } from "./aircraftFind";
 import { GlobalSnapshot } from "./globalSnapshot";
 import { SweepScheduler, runSweepJob, startGlobalSweep } from "./globalSweep";
-import { pollGlobalScopesOnce, startGlobalScopes } from "./globalScopes";
 import {
-  FAILOVER_REASON_FAILING, FAILOVER_REASON_WATCHED_ONLY, createSweepFailover, failoverReason,
+  GLOBAL_POLL_MS, GLOBAL_SCOPES, LADD_SCOPE_WATCHED_GAP_MS, createScopesPacer, pollGlobalScopesOnce, startGlobalScopes,
+} from "./globalScopes";
+import {
+  FAILOVER_DEMAND_WINDOW_MS, FAILOVER_REASON_FAILING, FAILOVER_REASON_WATCHED_ONLY, createSweepFailover, failoverReason,
 } from "./sweepFailover";
+import {
+  DB_FLAG_LADD, LADD_FLAG_SAVE_MIN_MS, LaddRegistry, learnLaddFromRows, rawRowIsLadd, rowIsLadd,
+} from "./laddRegistry";
+import { FEED_DEAD_AIR_HOURS, observeFeedDeadAir } from "./feedDeadAir";
+import { publishFixes } from "./aircraftFixBus";
+import { fileURLToPath } from "node:url";
 import { TRACKED_POLL_MS, createTrackedCycle, type TrackedRegistry } from "./trackedPlanes";
 import { registerGlobalAircraftRoutes } from "./globalAircraft";
 import type { PlanDisc } from "./globalDiscPlan";
 import type { FixBatch } from "./aircraftFixBus";
 
+const here = path.dirname(fileURLToPath(import.meta.url));
 /** 2026-11-17 20:00:00Z: four hours before the quota's reset at 00:00 UTC */
 const T0 = Date.UTC(2026, 10, 17, 20, 0, 0);
 const MIDNIGHT = Date.UTC(2026, 10, 18, 0, 0, 0);
@@ -58,7 +68,7 @@ const govWithLimit = (limit: number, at = T0) => {
   g.noteQuota(quotaHdr(limit, Math.floor(limit / 2), (MIDNIGHT - at) / 1000), at, 200);
   return g;
 };
-const ALL_LANES: QuotaLane[] = ["sweep", "scopes", "viewport", "selected", "tracked", "find"];
+const ALL_LANES: QuotaLane[] = ["sweep", "scopes", "ladd", "viewport", "selected", "tracked", "find"];
 const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
   const orig = console.error;
   console.error = () => {};
@@ -126,22 +136,37 @@ test("spent: the measured 429 (x-envoy-ratelimited, no Retry-After) stops every 
   const bare = gov();
   assert.equal(bare.noteQuota(hdr({ "x-envoy-ratelimited": "true" }), T0, 429), true);
   assert.equal(bare.quotaExhaustedUntil(T0), MIDNIGHT);
-  // a 429 with nothing at all (no Retry-After, no remaining): treated as the quota's
-  const blank = gov();
-  assert.equal(blank.noteQuota(hdr({}), T0, 429), true);
-  assert.equal(blank.quotaExhaustedUntil(T0), MIDNIGHT);
+  // a 429 with no headers of its own, after an answer that said 0 left... is already held:
+  // remaining 0 stopped it, and the 429 changes nothing
+  const zero = gov();
+  assert.equal(zero.noteQuota(quotaHdr(500, 0), T0, 200), true);
+  assert.equal(zero.noteQuota(hdr({}), T0 + 1_000, 429), true, "the last figure read was 0");
+  assert.equal(zero.stats(T0 + 1_000).quota.quota_exhausted_total, 1, "one stretch, counted once");
 });
 
-test("not the quota: a 429 with a Retry-After, or with requests still left, is an ordinary rate limit", () => {
-  const g = gov();
+test("a bare 429 is NOT the quota: with no quota information it is an ordinary rate limit and backs off as before", () => {
+  // nothing read yet, a 429 with no headers worth the name: not the quota
+  const g = new UpstreamGovernor({ bgRps: 0.4, ceilingRps: 100 });
+  assert.equal(g.noteQuota(hdr({}), T0, 429), false);
+  assert.equal(g.quotaBlocked(T0), false, "a stray 429 must not silence adsb.lol until midnight");
+  g.noteResult("bg", 429, T0);
+  const st = g.stats(T0);
+  assert.equal(st.sweep_consecutive_failures, 1, "the ordinary failure path");
+  assert.equal(st.sweep_backoff_s, 30);
+  assert.equal(st.effective_bg_rps, 0.2, "and the ordinary AIMD cut");
+  assert.equal(st.quota.quota_exhausted_total, 0);
+  assert.equal(g.laneAllowed("tracked", T0), true);
+  // with a Retry-After, or with requests still left: the same
   assert.equal(g.noteQuota(hdr({ "retry-after": "90" }), T0, 429), false);
   assert.equal(g.noteQuota(quotaHdr(7200, 6000), T0, 429), false, "6,000 left: not the daily quota");
-  // no remaining on THIS response, but the last one read said 6,000 left
-  assert.equal(g.noteQuota(hdr({}), T0 + 1_000, 429), false);
-  assert.equal(g.quotaBlocked(T0 + 1_000), false);
+  assert.equal(g.noteQuota(hdr({}), T0 + 1_000, 429), false, "no figure on this response; the last one read said 6,000 left");
+  // once the window of a remembered 0 has passed, a bare 429 is ordinary again
+  const old = gov();
+  old.noteQuota(quotaHdr(500, 0, 60), T0, 200);
+  assert.equal(old.noteQuota(hdr({}), T0 + 61_000, 429), false, "that figure belonged to yesterday's window");
   // and a 5xx or a 200 with nothing readable never is
   assert.equal(g.noteQuota(hdr({}), T0, 503), false);
-  assert.equal(g.stats(T0 + 1_000).quota.quota_exhausted_total, 0);
+  assert.equal(g.quotaBlocked(T0 + 1_000), false);
 });
 
 test("while spent NO lane asks adsb.lol, the sweep waits exactly to the reset, and everything resumes there", () => {
@@ -202,10 +227,10 @@ test("mode: unknown until a header is read; under 5,000 a day = watched_only; fr
   assert.equal(govWithLimit(7200).quotaMode(T0), "full", "a feeder key");
 });
 
-test("mode: who may ask adsb.lol — watched_only keeps it for the tracked planes and Find; full and unknown let everyone", () => {
+test("mode: who may ask adsb.lol — watched_only keeps it for the tracked planes, Find and the LADD scope; full and unknown let everyone", () => {
   const w = govWithLimit(500);
   const allowed = (g: UpstreamGovernor) => ALL_LANES.filter((l) => g.laneAllowed(l, T0));
-  assert.deepEqual(allowed(w), ["tracked", "find"]);
+  assert.deepEqual(allowed(w), ["ladd", "tracked", "find"], "the LADD scope keeps teaching the privacy registry (paced in globalScopes.ts)");
   assert.deepEqual(allowed(govWithLimit(7200)), ALL_LANES);
   assert.deepEqual(allowed(gov()), ALL_LANES, "no header yet: as before");
   // the sweep's lane is held, and looked at again every QUOTA_RECHECK_MS
@@ -364,25 +389,68 @@ test("the sweep loop under a 7,200/day limit: the type lane only, one request pe
 
 // ── the scopes ───────────────────────────────────────────────────────────
 
-test("scopes: nothing is asked in watched_only mode or while spent; the cycle says skipped_quota", async () => {
+test("scopes in watched_only mode: mil and pia are not asked; the LADD scope alone is, at most once per 15 minutes (96 a day)", async () => {
+  assert.equal(LADD_SCOPE_WATCHED_GAP_MS, 15 * 60_000);
+  // the pacer, on a fake clock, one poller tick every 120 s for a day
+  const g = govWithLimit(500);
+  const pacer = createScopesPacer(g);
+  const asked: Array<{ t: number; scope: string }> = [];
+  for (let t = T0; t < T0 + DAY_MS; t += GLOBAL_POLL_MS) {
+    assert.equal(pacer.cycleDue(t), true);
+    for (const scope of GLOBAL_SCOPES) {
+      const turn = pacer.decide(scope, t);
+      if (scope !== "ladd") assert.equal(turn, "quota");
+      if (turn === "ask") { pacer.asked(scope, t); asked.push({ t, scope }); }
+    }
+  }
+  assert.ok(asked.every((a) => a.scope === "ladd"));
+  assert.equal(asked.length, 90, "at most one per 15 minutes; on the poller's 120 s tick that is every 16 minutes");
+  assert.ok(asked.length <= DAY_MS / LADD_SCOPE_WATCHED_GAP_MS, "never more than 96 a day");
+  const gaps = asked.slice(1).map((a, i) => a.t - asked[i].t);
+  assert.ok(gaps.every((d) => d >= LADD_SCOPE_WATCHED_GAP_MS), "never sooner");
+  assert.ok(DAY_MS / LADD_SCOPE_WATCHED_GAP_MS + 500 * TRACKED_QUOTA_SHARE <= 500, "LADD (at most 96) + the tracked planes (200) fit 500 a day");
+
+  // the real cycle: one request, to /v2/ladd, and its rows reach the registry
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quota-scopes-"));
   try {
-    // the scopes poller reads the wall clock, so these governors are set at it
     const now = Date.now();
-    const spent = gov();
-    spent.noteQuota(SPENT_429(500, 3600), now, 429);
-    for (const g of [govWithLimit(500, now), spent]) {
-      let calls = 0;
-      const st = await pollGlobalScopesOnce((async () => { calls++; return { ok: true, json: async () => ({ ac: [] }) }; }) as never, {}, [], dir, () => {}, g);
-      assert.equal(calls, 0);
-      assert.equal(st.skipped_quota, true);
-      assert.deepEqual(st.per_scope, {}, "a scope that was not asked has no entry (-1 stays 'the fetch failed')");
-      assert.equal(g.stats(now).quota.requests_skipped_quota, 3, "three requests not sent");
-    }
+    const live = govWithLimit(500, now);
+    const urls: string[] = [];
+    const taught: string[] = [];
+    const cyclePacer = createScopesPacer(live);
+    const fetchImpl = (async (u: unknown) => {
+      urls.push(String(u));
+      return { ok: true, status: 200, headers: quotaHdr(500, 400, 3600), json: async () => ({ ac: [{ hex: "ab8c8e", flight: "N843S", lat: 41, lon: -87 }] }) };
+    }) as never;
+    const st = await pollGlobalScopesOnce(fetchImpl, {}, [], dir, (rows) => { for (const r of rows) taught.push(r.icao24); }, live, cyclePacer);
+    assert.deepEqual(urls, ["https://api.adsb.lol/v2/ladd"]);
+    assert.deepEqual(taught, ["ab8c8e"], "the LADD registry is taught");
+    assert.deepEqual(st.per_scope, { ladd: 1 }, "a scope that was not asked has no entry (-1 stays 'the fetch failed')");
+    assert.deepEqual({ skipped_quota: st.skipped_quota, paced_wait: st.paced_wait, asked: st.asked }, { skipped_quota: true, paced_wait: false, asked: 1 });
+    assert.equal(live.stats(now).quota.requests_skipped_quota, 2, "mil and pia: two requests not sent");
+    // the next tick, two minutes later in the poller, is inside the 15 minutes: nothing at all
+    const again = await pollGlobalScopesOnce(fetchImpl, {}, [], dir, () => {}, live, cyclePacer);
+    assert.equal(urls.length, 1);
+    assert.deepEqual({ skipped_quota: again.skipped_quota, paced_wait: again.paced_wait, asked: again.asked }, { skipped_quota: true, paced_wait: true, asked: 0 });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("scopes: the first answer states 500 a day, so the other two scopes of that cycle are not asked", async () => {
+test("scopes while the quota is spent: nothing is asked, not even LADD; the cycle says skipped_quota", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quota-scopes-"));
+  try {
+    const now = Date.now(); // the scopes poller reads the wall clock
+    const spent = gov();
+    spent.noteQuota(SPENT_429(500, 3600), now, 429);
+    let calls = 0;
+    const st = await pollGlobalScopesOnce((async () => { calls++; return { ok: true, json: async () => ({ ac: [] }) }; }) as never, {}, [], dir, () => {}, spent);
+    assert.equal(calls, 0);
+    assert.equal(st.skipped_quota, true);
+    assert.deepEqual(st.per_scope, {});
+    assert.equal(spent.stats(now).quota.requests_skipped_quota, 3, "three requests not sent");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("scopes: the first answer states 500 a day, so pia is not asked in that cycle — LADD still is", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quota-scopes-"));
   try {
     const g = gov();
@@ -391,13 +459,13 @@ test("scopes: the first answer states 500 a day, so the other two scopes of that
       urls.push(String(u));
       return { ok: true, status: 200, headers: quotaHdr(500, 480, 3600), json: async () => ({ ac: [] }) };
     }) as never, {}, [], dir, () => {}, g);
-    assert.deepEqual(urls, ["https://api.adsb.lol/v2/mil"]);
-    assert.deepEqual(st.per_scope, { mil: 0 });
+    assert.deepEqual(urls, ["https://api.adsb.lol/v2/mil", "https://api.adsb.lol/v2/ladd"]);
+    assert.deepEqual(st.per_scope, { mil: 0, ladd: 0 });
     assert.equal(st.skipped_quota, true);
     // without a governor the cycle is exactly what it was
     const plain = await pollGlobalScopesOnce((async () => ({ ok: true, json: async () => ({ ac: [] }) })) as never, {}, [], dir, () => {});
     assert.deepEqual(plain.per_scope, { mil: 0, ladd: 0, pia: 0 });
-    assert.equal(plain.skipped_quota, false);
+    assert.deepEqual({ skipped_quota: plain.skipped_quota, paced_wait: plain.paced_wait, asked: plain.asked }, { skipped_quota: false, paced_wait: false, asked: 3 });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -595,7 +663,7 @@ test("tracked planes at 500 a day: one request per 432 s (40% of the limit), no 
   assert.equal(TRACKED_QUOTA_SHARE, 0.4);
   assert.equal(govWithLimit(500).trackedMinGapMs(T0), 432_000);
   assert.equal(govWithLimit(1000).trackedMinGapMs(T0), 216_000, "the free adhoc key");
-  assert.equal(govWithLimit(7200).trackedMinGapMs(T0), 0, "full mode: not paced by the quota");
+  assert.equal(govWithLimit(7200).trackedMinGapMs(T0), 48_000, "full mode: its 25% share (see the full-mode test)");
   assert.equal(gov().trackedMinGapMs(T0), 0, "unknown: as before");
 
   const g = gov();
@@ -647,8 +715,9 @@ test("tracked planes: a cycle that needs two requests (registration batch + hex 
   assert.match(pace.reason, /adsb\.lol daily quota 500\/day: the tracked planes get 40% of it, one request per 432 s/);
 });
 
-test("tracked planes: the key rides on both request kinds; with no limit read, or a large one, the cadence is the old one", async () => {
-  for (const g of [gov(), govWithLimit(50_000)]) {
+test("tracked planes: the key rides on both request kinds; with no limit read, or one large enough for the standard cadence, nothing is paced", async () => {
+  // 500,000/day: 25% of it is a request every 0.69 s, more than the poller ever sends (16 a minute)
+  for (const g of [gov(), govWithLimit(500_000)]) {
     let t = T0;
     const reg: TrackedRegistry = { planes: [{ reg: "N843S", added_at: 1, hex: "ab8c8e", last_heard: T0 - 1000 }] };
     const p = trackedProvider({ clock: () => t, headers: () => hdr({}) });
@@ -755,6 +824,301 @@ test("failover: the reason names what holds — failing sweep, watched planes on
   assert.match(String(failoverReason(both, T0)), /^adsb\.lol daily quota spent until 2026-11-18T00:00:00\.000Z$/);
 });
 
+// ── the failover runs on demand ──────────────────────────────────────────
+
+function demandRig(g: UpstreamGovernor) {
+  let clock = T0;
+  let lastAsked: number | null = null;
+  const calls: string[] = [];
+  const f = createSweepFailover({
+    env: {} as NodeJS.ProcessEnv, governor: g, plan: FPLAN, start: false, now: () => clock, publish: () => {}, airportPoints: () => [],
+    demand: () => lastAsked != null && clock - lastAsked <= FAILOVER_DEMAND_WINDOW_MS, lastDemandAt: () => lastAsked,
+    fetchImpl: (async (u: unknown) => {
+      calls.push(String(u));
+      return { ok: true, status: 200, headers: hdr({}), json: async () => ({ now: clock / 1000, aircraft: [{ hex: "a00001", lat: 40, lon: -74, seen_pos: 1 }], ac: [] }) };
+    }) as never,
+  });
+  return { f, calls, at: (ms: number) => { clock = T0 + ms; return clock; }, ask: () => { lastAsked = clock; } };
+}
+
+test("failover on demand: a reason but nobody asking -> no request to any provider, and the status says why it is idle", async () => {
+  await quiet(async () => {
+    assert.equal(FAILOVER_DEMAND_WINDOW_MS, 10 * 60_000);
+    const r = demandRig(govWithLimit(500)); // watched planes only: a standing reason to run
+    for (let ms = 0; ms <= 3_600_000; ms += 60_000) assert.equal(await r.f.tick(r.at(ms)), null);
+    assert.deepEqual(r.calls, [], "an hour with a reason and no viewer: not one request");
+    const st = r.f.status(r.at(3_600_000));
+    assert.equal(st.active, false);
+    assert.equal(st.demand, false);
+    assert.equal(st.last_demand_at, null);
+    assert.equal(st.reason, "adsb.lol daily quota: watched planes only; idle: nobody has asked for the worldwide feed in the last 10 min");
+    assert.equal(st.requests_total, 0);
+    assert.equal(st.activations_total, 0);
+  });
+});
+
+test("failover on demand: the first request starts it, it runs while requests keep coming, and stops 10 minutes after the last", async () => {
+  await quiet(async () => {
+    const r = demandRig(govWithLimit(500));
+    assert.equal(await r.f.tick(r.at(0)), null);
+    r.at(60_000);
+    r.ask(); // GET /api/data/aircraft/global
+    assert.equal(r.f.status(r.at(60_000)).reason, FAILOVER_REASON_WATCHED_ONLY, "the answer to the request that IS the demand never says 'nobody has asked'");
+    assert.ok(await r.f.tick(r.at(60_000)), "runs at once");
+    assert.equal(r.f.status(r.at(60_000)).active, true);
+    assert.equal(r.f.status(r.at(60_000)).last_demand_at, T0 + 60_000);
+    // nine minutes later, nobody has asked again: still inside the window
+    assert.ok(await r.f.tick(r.at(60_000 + 9 * 60_000)));
+    // 10 min + 1 ms after the last request: it stops
+    const n = r.calls.length;
+    assert.equal(await r.f.tick(r.at(60_000 + FAILOVER_DEMAND_WINDOW_MS + 1)), null);
+    assert.equal(await r.f.tick(r.at(60_000 + 30 * 60_000)), null);
+    assert.equal(r.calls.length, n, "nothing after the demand lapsed");
+    const st = r.f.status(r.at(60_000 + 30 * 60_000));
+    assert.deepEqual({ active: st.active, demand: st.demand, activations_total: st.activations_total }, { active: false, demand: false, activations_total: 1 });
+    assert.match(String(st.reason), /; idle: nobody has asked for the worldwide feed in the last 10 min$/);
+    // a new request starts a second stretch
+    r.ask();
+    assert.ok(await r.f.tick(r.at(60_000 + 30 * 60_000)));
+    assert.equal(r.f.status(r.at(60_000 + 30 * 60_000)).activations_total, 2);
+  });
+});
+
+test("failover on demand: demand without a reason sends nothing (the adsb.lol sweep is doing its job)", async () => {
+  const r = demandRig(govWithLimit(7200));
+  r.ask();
+  assert.equal(await r.f.tick(r.at(0)), null);
+  assert.deepEqual(r.calls, []);
+  assert.deepEqual({ reason: r.f.status(T0).reason, demand: r.f.status(T0).demand, active: r.f.status(T0).active }, { reason: null, demand: true, active: false });
+});
+
+test("failover on demand, wired: only GET /api/data/aircraft/global counts as demand, for 10 minutes", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quota-demand-"));
+  let clock = Date.now();
+  const app = express();
+  const h = registerGlobalAircraftRoutes(app, {
+    env: { GLOBAL_SWEEP_ENABLED: "0", AIRCRAFT_FAST_LANE: "0" } as NodeJS.ProcessEnv, now: () => clock,
+    fetchImpl: (async () => { throw new Error("no network in tests"); }) as unknown as typeof fetch,
+    sites: [], baseDir: dir, readFree: () => 50 * 1_073_741_824, ladd: new LaddRegistry({ file: null }),
+  });
+  const srv = app.listen(0);
+  try {
+    const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+    assert.deepEqual({ demand: h.sweepFailover.status().demand, last: h.sweepFailover.status().last_demand_at }, { demand: false, last: null }, "nobody has asked since boot");
+    await fetch(`${base}/api/data/aircraft/live/ab8c8e`);
+    assert.equal(h.sweepFailover.status().demand, false, "one selected plane is not a request for the worldwide feed");
+    const asked = clock;
+    const d = await (await fetch(`${base}/api/data/aircraft/global`)).json() as { honesty: string; coverage: { sweep_failover: { demand: boolean; last_demand_at: number | null } } };
+    assert.deepEqual(d.coverage.sweep_failover, { ...d.coverage.sweep_failover, demand: true, last_demand_at: asked });
+    assert.match(d.honesty, /ON DEMAND: only while this endpoint has been requested in the last 10 min/);
+    assert.match(d.honesty, /takes a minute or two to populate after the first request/);
+    clock += FAILOVER_DEMAND_WINDOW_MS;
+    assert.equal(h.sweepFailover.status().demand, true, "still wanted at exactly 10 minutes");
+    clock += 1;
+    assert.deepEqual({ demand: h.sweepFailover.status().demand, last: h.sweepFailover.status().last_demand_at }, { demand: false, last: asked });
+  } finally {
+    h.stop();
+    srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── full mode fits the limit ─────────────────────────────────────────────
+
+test("full mode at 7,200 a day: sweep 60% + tracked planes 25% + scopes 10% = 6,840 requests, 95% of the limit, the rest left for viewers", async () => {
+  assert.equal(TRACKED_QUOTA_SHARE_FULL, 0.25);
+  assert.equal(SCOPES_QUOTA_SHARE, 0.1);
+  assert.ok(SWEEP_QUOTA_SHARE + TRACKED_QUOTA_SHARE_FULL + SCOPES_QUOTA_SHARE <= 0.95 + 1e-9);
+  const LIMIT = 7200;
+  const g = govWithLimit(LIMIT);
+  assert.equal(g.sweepMinGapMs(T0), 20_000);
+  assert.equal(g.trackedMinGapMs(T0), 48_000);
+  assert.equal(g.scopesMinGapMs(T0), 120_000);
+  assert.equal(gov().scopesMinGapMs(T0), 0, "no limit read: not paced");
+  assert.equal(govWithLimit(500).scopesMinGapMs(T0), 0, "watched_only has its own rule (LADD alone)");
+
+  // 1. the sweep, asked for a token every 500 ms for a day
+  let sweep = 0;
+  for (let t = T0; t < T0 + DAY_MS; t += 500) if (g.tryAcquireBackground(t)) sweep++;
+
+  // 2. the tracked poller: one airborne (so "active") plane, ticked every 5 s for a day
+  let t = T0;
+  let reg: TrackedRegistry = { planes: [{ reg: "N843S", added_at: 1, hex: "ab8c8e" }] };
+  const p = trackedProvider({ clock: () => t, headers: () => quotaHdr(LIMIT, 5000, 40_000), reg: positioned });
+  const cycle = createTrackedCycle({ fetchImpl: p.fetchImpl, headers: {}, governor: g, env: {} as NodeJS.ProcessEnv });
+  for (t = T0; t < T0 + DAY_MS; t += 5_000) reg = (await cycle.run(reg, t)).registry;
+  const tracked = p.calls.length;
+  assert.equal(cycle.pacing(reg, T0 + DAY_MS).request_gap_s, 48);
+  assert.match(cycle.pacing(reg, T0 + DAY_MS).reason, /7200\/day: the tracked planes get 25% of it, one request per 48 s/);
+
+  // 3. the scopes poller, on its 120 s tick for a day
+  const pacer = createScopesPacer(g);
+  let scopes = 0;
+  const cycleTimes: number[] = [];
+  for (let u = T0; u < T0 + DAY_MS; u += GLOBAL_POLL_MS) {
+    if (!pacer.cycleDue(u)) continue;
+    cycleTimes.push(u);
+    for (const scope of GLOBAL_SCOPES) if (pacer.decide(scope, u) === "ask") { pacer.asked(scope, u); scopes++; }
+  }
+  assert.ok(cycleTimes.slice(1).every((c, i) => c - cycleTimes[i] === 360_000), "all three scopes every 360 s");
+
+  assert.ok(sweep <= LIMIT * SWEEP_QUOTA_SHARE, `sweep ${sweep} <= 4,320`);
+  assert.ok(tracked <= LIMIT * TRACKED_QUOTA_SHARE_FULL, `tracked ${tracked} <= 1,800`);
+  assert.ok(scopes <= LIMIT * SCOPES_QUOTA_SHARE, `scopes ${scopes} <= 720`);
+  assert.ok(sweep + tracked + scopes <= 0.95 * LIMIT, `${sweep} + ${tracked} + ${scopes} = ${sweep + tracked + scopes} <= 6,840`);
+  assert.ok(sweep + tracked + scopes >= 0.93 * LIMIT, `and the shares are used, not wasted (${sweep + tracked + scopes})`);
+});
+
+test("full mode, a limit between the shares: hex ticks still run between base cycles, each paid for by its gap", async () => {
+  // 50,000/day: 25% = 12,500 requests, one per 6.912 s
+  const g = govWithLimit(50_000);
+  assert.equal(g.trackedMinGapMs(T0), 6_912);
+  let t = T0;
+  let reg: TrackedRegistry = { planes: [{ reg: "N843S", added_at: 1, hex: "ab8c8e" }] };
+  const p = trackedProvider({ clock: () => t, headers: () => quotaHdr(50_000, 40_000, 40_000), reg: positioned, hex: positioned });
+  const cycle = createTrackedCycle({ fetchImpl: p.fetchImpl, headers: {}, governor: g, env: {} as NodeJS.ProcessEnv });
+  const kinds: string[] = [];
+  for (t = T0; t <= T0 + 60_000; t += 1_000) { const out = await cycle.run(reg, t); reg = out.registry; if (out.requests) kinds.push(out.kind); }
+  // requests at 0, 7, 14, 21, 28, 35 (the base cycle is due again), 42, 49, 56 s
+  assert.deepEqual(kinds, ["base", "fast", "fast", "fast", "fast", "base", "fast", "fast", "fast"]);
+  const gaps = p.calls.slice(1).map((c, i) => c.t - p.calls[i].t);
+  assert.ok(gaps.every((d) => d >= 6_912), `every request waits its gap (smallest ${Math.min(...gaps)} ms)`);
+});
+
+// ── the LADD privacy registry keeps learning ─────────────────────────────
+
+test("LADD bit: read off the raw row (dbFlags & 8), kept on the mapped row without changing its JSON", () => {
+  assert.equal(DB_FLAG_LADD, 8);
+  assert.equal(rawRowIsLadd({ dbFlags: 8 }), true);
+  assert.equal(rawRowIsLadd({ dbFlags: 9 }), true, "military + LADD");
+  assert.equal(rawRowIsLadd({ dbFlags: 1 }), false, "military only");
+  assert.equal(rawRowIsLadd({ dbFlags: 4 }), false, "PIA only");
+  for (const junk of [{}, { dbFlags: "8" }, { dbFlags: 8.5 }, { dbFlags: null }, null, undefined, "x"]) assert.equal(rawRowIsLadd(junk), false);
+  // the adsb.fi answer shape (measured 2026-11-17: 38 of 513 rows in one disc carried the bit)
+  const fi = mapPointAircraft({ aircraft: [
+    { hex: "a5ed66", r: "N481MC", t: "B744", flight: "CMB522  ", lat: 39.1, lon: -94.6, dbFlags: 8 },
+    { hex: "ae1234", r: "02-1111", t: "C17", lat: 39.2, lon: -94.7, dbFlags: 1 },
+    { hex: "a00001", lat: 39.3, lon: -94.8 },
+  ] }, "aircraft", "adsbfi");
+  assert.deepEqual(fi.map(rowIsLadd), [true, false, false]);
+  const plain = mapPointAircraft({ ac: [{ hex: "a5ed66", r: "N481MC", t: "B744", flight: "CMB522  ", lat: 39.1, lon: -94.6 }] }, "ac", "adsbfi");
+  assert.equal(JSON.stringify(fi[0]), JSON.stringify(plain[0]), "the serialized row is the same with or without the bit");
+  assert.equal(rowIsLadd({ ...fi[0] }), true, "a copied row keeps it");
+});
+
+test("LADD registry learns from flagged rows of any provider, and only from them; an unflagged row proves nothing", () => {
+  let clock = T0;
+  const reg = new LaddRegistry({ file: null, now: () => clock });
+  for (const [i, provider] of ["adsblol", "airplaneslive", "adsbfi"].entries()) {
+    const rows = mapPointAircraft({ ac: [
+      { hex: `aa000${i}`, flight: `LADD${i}   `, lat: 1, lon: 1, dbFlags: 8 },
+      { hex: `bb000${i}`, flight: `OPEN${i}   `, lat: 1, lon: 1, dbFlags: 2 },
+    ] }, "ac", provider);
+    assert.equal(learnLaddFromRows(rows, reg), 1, `${provider}: one flagged row`);
+    assert.equal(reg.isLadd(`aa000${i}`), true);
+    assert.equal(reg.isLadd(null, `LADD${i}`), true, "by callsign too, as for the scope");
+    assert.equal(reg.isLadd(`bb000${i}`, `OPEN${i}`), false);
+  }
+  assert.deepEqual(reg.size, { hexes: 3, callsigns: 3 });
+  // a member already known stays known when a later row of it carries no bit
+  clock += 3_600_000;
+  assert.equal(learnLaddFromRows(mapPointAircraft({ ac: [{ hex: "aa0000", flight: "LADD0", lat: 1, lon: 1 }] }, "ac", "adsblol"), reg), 0);
+  assert.equal(reg.isLadd("aa0000"), true);
+});
+
+test("LADD registry: a member learned from the bit is written to disk within 30 s, not once per fix batch; a scope sighting still saves at once", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quota-ladd-"));
+  try {
+    const file = path.join(dir, "ladd_registry.json");
+    let clock = T0;
+    const reg = new LaddRegistry({ file, now: () => clock });
+    const saved = () => (fs.existsSync(file) ? Object.keys((JSON.parse(fs.readFileSync(file, "utf8")) as { hexes: Record<string, number> }).hexes).sort() : null);
+    const flagged = (hex: string) => mapPointAircraft({ ac: [{ hex, lat: 1, lon: 1, dbFlags: 8 }] }, "ac", "adsbfi");
+    learnLaddFromRows(flagged("aa0001"), reg);
+    assert.deepEqual(saved(), ["aa0001"], "the first write is immediate (nothing saved in the last 30 s)");
+    clock += 1_000;
+    learnLaddFromRows(flagged("aa0002"), reg);
+    clock += 1_000;
+    learnLaddFromRows(flagged("aa0003"), reg);
+    assert.deepEqual(saved(), ["aa0001"], "two batches a second apart: no rewrite each time");
+    assert.equal(reg.isLadd("aa0003"), true, "but known in memory at once: FAA data is withheld from the first row");
+    clock += LADD_FLAG_SAVE_MIN_MS;
+    learnLaddFromRows(flagged("aa0001"), reg); // any later batch, even of a known member
+    assert.deepEqual(saved(), ["aa0001", "aa0002", "aa0003"]);
+    // the scope's own sighting of a new member: saved at once, as before
+    clock += 1_000;
+    reg.note([{ icao24: "aa0004" }]);
+    assert.deepEqual(saved(), ["aa0001", "aa0002", "aa0003", "aa0004"]);
+    assert.equal(new LaddRegistry({ file, now: () => clock }).isLadd("aa0002"), true, "survives a restart");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("LADD registry is taught through the fix bus: a failover disc from adsb.fi, a viewport disc, the selected plane", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quota-laddbus-"));
+  const ladd = new LaddRegistry({ file: null });
+  const app = express();
+  const h = registerGlobalAircraftRoutes(app, {
+    env: { GLOBAL_SWEEP_ENABLED: "0", GLOBAL_SWEEP_ARCHIVE: "0", AIRCRAFT_FASTLANE_ARCHIVE: "0" } as NodeJS.ProcessEnv,
+    fetchImpl: (async () => { throw new Error("no network in tests"); }) as unknown as typeof fetch,
+    sites: [], baseDir: dir, readFree: () => 50 * 1_073_741_824, ladd,
+  });
+  const srv = app.listen(0);
+  try {
+    const now = Date.now();
+    publishFixes({ provider: "adsbfi", origin: "sweep-failover", fetchedAt: now,
+      aircraft: mapPointAircraft({ aircraft: [{ hex: "a5ed66", flight: "CMB522  ", lat: 39.1, lon: -94.6, dbFlags: 8 }, { hex: "a00001", lat: 39.3, lon: -94.8 }] }, "aircraft", "adsbfi") });
+    publishFixes({ provider: "airplaneslive", origin: "viewport", fetchedAt: now, disc: { lat: 39, lon: -94, radiusNm: 250 },
+      aircraft: mapPointAircraft({ ac: [{ hex: "ab8c8e", flight: "N843S   ", lat: 41.7, lon: -87.8, dbFlags: 8 }] }, "ac", "airplaneslive") });
+    publishFixes({ provider: "adsblol", origin: "fastlane", fetchedAt: now,
+      aircraft: mapPointAircraft({ ac: [{ hex: "a42dee", flight: "N369CA  ", lat: 41.7, lon: -87.8, dbFlags: 12, seen_pos: 0.5 }] }, "ac", "adsblol") });
+    assert.equal(ladd.isLadd("a5ed66"), true, "adsb.fi, sweep failover");
+    assert.equal(ladd.isLadd("ab8c8e"), true, "airplanes.live, a viewer's disc");
+    assert.equal(ladd.isLadd("a42dee"), true, "adsb.lol, the selected plane's own row");
+    assert.equal(ladd.isLadd("a00001"), false);
+    const d = await (await fetch(`http://127.0.0.1:${(srv.address() as AddressInfo).port}/api/data/aircraft/global`)).json() as {
+      coverage: { ladd: { hexes: number; callsigns: number; flagged_rows_total: number; learns_from: string } };
+    };
+    assert.deepEqual({ hexes: d.coverage.ladd.hexes, flagged_rows_total: d.coverage.ladd.flagged_rows_total }, { hexes: 3, flagged_rows_total: 3 });
+    assert.match(d.coverage.ladd.learns_from, /\/v2\/ladd .* LADD bit \(dbFlags 8\) on any provider's rows/);
+  } finally {
+    h.stop();
+    srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── health: the aircraft feed check does not depend on viewers ───────────
+
+test("health: checks.feeds.feeds.aircraft reads the archive's newest hour file, which the 10-minute archive tick keeps writing with no viewer and no adsb.lol", async () => {
+  // 1. what the check keys on: the newest hour file under <archive>/aircraft, dead past 3 h
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-quota-health-"));
+  try {
+    fs.mkdirSync(path.join(dir, "aircraft"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "aircraft", "2026-11-17-19.jsonl"), "");
+    assert.deepEqual(observeFeedDeadAir(T0, dir).feeds.aircraft, { silent_hours: 1, dead: false });
+    assert.equal(observeFeedDeadAir(T0 + FEED_DEAD_AIR_HOURS * 3_600_000, dir).feeds.aircraft.dead, true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  // 2. what keeps writing it on a day nobody looks: routes.ts's eager archive tick — every 10 minutes one
+  //    region through the viewport provider chain, archived by fetchAircraft itself (not by the world sweep,
+  //    its failover or the tracked poller)
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.match(routes, /const archiveTick = \(\) => \{\s+const r = ARCHIVE_TICK_REGIONS\[archiveTickIdx\+\+ % ARCHIVE_TICK_REGIONS\.length\];\s+fetchAircraft\(r\.lamin, r\.lamax, r\.lomin, r\.lomax\)/);
+  assert.match(routes, /archiveTick\(\);\s+setInterval\(archiveTick, 10 \* 60_000\)/);
+  const fetchAircraftSrc = routes.slice(routes.indexOf("async function fetchAircraft("), routes.indexOf("function getOrStartAircraftFetch("));
+  assert.match(fetchAircraftSrc, /await fetchDiscs\(plan, \{\s+providers: PROVIDERS/);
+  for (const key of ["adsblol", "airplaneslive", "adsbfi"]) assert.ok(fetchAircraftSrc.includes(`key: "${key}"`), `${key} is in the tick's chain`);
+  assert.match(fetchAircraftSrc, /archiveAircraft\(aircraft, ARCHIVE_SITES\)/);
+  // 3. and that chain answers while adsb.lol is kept for the watched planes (no request to it)
+  const now = Date.now();
+  const urls: string[] = [];
+  const out = await fetchDiscs(planDiscs(33, 39, -100, -93, 1), {
+    providers: CHAIN, governor: govWithLimit(500, now), sleep: async () => {},
+    fetchImpl: (async (u: unknown) => { urls.push(String(u)); return { ok: true, status: 200, json: async () => ({ ac: [{ hex: "abc123", lat: 36, lon: -96 }] }) }; }) as never,
+  });
+  assert.equal(out.aircraft.length, 1);
+  assert.ok(urls.length === 1 && urls[0].includes("airplanes.live"));
+});
+
 // ── the endpoint ─────────────────────────────────────────────────────────
 
 test("GET /api/data/aircraft/global: coverage.sweep.governor.quota states the quota; the honesty text says what a small quota changes", async () => {
@@ -777,7 +1141,7 @@ test("GET /api/data/aircraft/global: coverage.sweep.governor.quota states the qu
     assert.equal(typeof q.key_configured, "boolean");
     assert.ok("reason" in d.coverage.sweep_failover, "the failover's status carries its reason");
     assert.match(d.honesty, /daily request quota is spent or too small for a world sweep/);
-    assert.match(d.honesty, /asked only for the tracked tails and Find lookups/);
+    assert.match(d.honesty, /asked only for the tracked tails, Find lookups and its LADD scope/);
   } finally {
     h.stop();
     srv.close();

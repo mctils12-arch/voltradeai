@@ -348,7 +348,10 @@ test("licensing: both failover providers are on the monetization tripwire's list
 test("wiring: the worldwide service builds it, archives its fixes under the sweep's disk gate, reports it and stops it", () => {
   assert.ok(ARCHIVED_ORIGINS.has(FAILOVER_ORIGIN));
   const src = fs.readFileSync(path.join(here, "globalAircraft.ts"), "utf8");
-  assert.match(src, /createSweepFailover\(\{\s+env, fetchImpl: deps\.fetchImpl, now, livePositions: \(\) => snapshot\.rows\(\{\}\),\s+\}\)/);
+  // CHANGED ASSERTION 2026-11-17: before the worldwide service built the failover with env, fetchImpl, now and
+  // livePositions only / after it also hands it the worldwide feed's demand (the failover runs on demand: only
+  // while GET /api/data/aircraft/global was requested in the last 10 min). The four earlier arguments stay pinned.
+  assert.match(src, /createSweepFailover\(\{\s+env, fetchImpl: deps\.fetchImpl, now, livePositions: \(\) => snapshot\.rows\(\{\}\),\s+demand: worldFeedDemand, lastDemandAt: \(\) => lastGlobalRequestAt,\s+\}\)/);
   assert.match(src, /sweep_failover: sweepFailover\.status\(t\)/);
   assert.match(src, /sweepFailover\.stop\(\)/);
   assert.match(src, /sweepFailover\.scheduler\.noteInterest\(bbox, t\)/);

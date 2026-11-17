@@ -1024,7 +1024,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       max_requests_per_min: TRACKED_MAX_REQ_PER_MIN,
       // 2026-11-17: adsb.lol's daily quota may set the interval (a small
       // quota is spent on these planes: one request per 86,400 s / (limit x
-      // 0.4)), or stop the poller until the quota resets — pacing.reason says which
+      // 0.4); a larger one is shared with the sweep and the scopes: limit x
+      // 0.25), or stop the poller until the quota resets — pacing.reason says which
       effective_poll_s: trackedPacing.effective_poll_s,
       pacing: trackedPacing,
       cycles: trackedPoller.cycleStats(),
@@ -1062,7 +1063,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({
       status: st, scopes: GLOBAL_SCOPES, poll_s: GLOBAL_POLL_MS / 1000,
       source: "adsb.lol global scope endpoints (ODbL) — military / LADD / PIA",
-      note: "the free tier's worldwide coverage: these scopes are served globally in one request each; all-civil global live is a paid product (see wishlist) — per_scope -1 = that scope's fetch failed this cycle; skipped_quota true = a scope was not asked because adsb.lol's daily request quota is spent or kept for the tracked planes (no per_scope entry for it); skipped_low_disk true = archiving paused to protect bot state writes",
+      note: "the free tier's worldwide coverage: these scopes are served globally in one request each; all-civil global live is a paid product (see wishlist) — per_scope -1 = that scope's fetch failed this cycle; skipped_quota true = a scope was not asked because adsb.lol's daily request quota is spent or kept for the tracked planes (mil and pia then; the LADD scope is still asked once per 15 min so the LADD privacy registry keeps learning); paced_wait true = a scope's paced turn had not come; a scope that was not asked has no per_scope entry; skipped_low_disk true = archiving paused to protect bot state writes",
     });
   });
   const globalAircraft = registerGlobalAircraftRoutes(app); // FLIGHT PROGRAM B1: GET /api/data/aircraft/global (sweep + snapshot, server/globalAircraft.ts)
