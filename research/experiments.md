@@ -118528,3 +118528,19 @@ DOWNSTREAM:
 ROLLBACK TRIGGER: revert if a live EDGAR feed (Form 4, 8-K, 13F) logs 403/429 during an event-study attempt on two Saturdays, or if the job runs more than three times in one ISO week. VOLTRADE_EVENT_STUDY=0 still turns the job off.
 TESTS: test_event_reaction_panel.py +4 (24 total): a quarter that fails its first pass with 403 is served on the second, a 503-exhausted quarter is tried three times and listed with its reason, a 404 quarter is asked for once per URL and never again, pauses happen once per extra pass and never on a clean or 404-only stage, an unreadable zip is retried, and the insufficient reason names the count, the first six quarters with their cause and "and 1 more" (the prefix is pinned to the TS constant). server/eventStudy.test.ts +3 (12 total): the retry record, the wait, the window, the busy reader, three attempts then the week is spent, a stale record from another week; every other outcome spends the week; the tick's wiring. On main's code the four Python tests fail and the TS file cannot load (the exports do not exist). test_event_reaction_study.py 46 unchanged and green. tsc 6, the same as main. Counter ratchet OK.
 STARVED: no.
+
+## 2026-11-12 [RULE-REVIEW] — shared docs (CLAUDE.md KNOWN STATE, factual update only) — five KNOWN STATE lines that described shipped work as not started are corrected
+VERSION: v1.0.1437 (shipped 2026-11-17 by the parent session; main was v1.0.1436)
+WHY: the human asked for a sweep of problems and half-finished projects. A read of the program charters against CLAUDE.md found five KNOWN STATE lines that every session reads at start and that are no longer true. Each one sends a session to rebuild or re-plan something that shipped months ago.
+CHANGE: CLAUDE.md KNOWN STATE only (a factual update, which FROZEN PATHS allows for this section). No rule, threshold or behaviour changes. Each new line points at its charter's RESUME STATE as the authority.
+- market_calendar.py: "2026 dates only" becomes 2026 and 2027 (added today, #1747); the next year-add is December 2027.
+- SCALE: "NOTHING BUILT YET; S1 step (a) is next" becomes the shipped work (v1.0.324-328 off-thread and off-event-loop; the Legend memo boundary, #505, v1.0.373) and what is open (S1(d) LayersPanel + DetailCard memo boundaries, S2 server aggregation).
+- ORBITAL: "NEXT = O2 datamap.tsx wiring" becomes O2 shipped (#369) and O3 picking shipped (v1.0.235).
+- ANALYST CONSOLE: "Remaining: W2 client sat layer, W3 time scrubber, W5 dossier v2" becomes W3 shipped (v1.0.250), W5 shipped (v1.0.258), W2's client layer shipped as ORBITAL O2.
+- EARTH TWIN: "NOTHING NEW BUILT at install; E0 gates the build" becomes the LOD director (client/src/lib/lod.ts, v1.0.318), E1 slice 1 (v1.0.329), Time Machine T-2 (#818, v1.0.700) and T-4 (v1.0.721).
+VERIFIED BEFORE EDITING (each against the charter's own RESUME STATE and the files): console_charter.md lines 192 and 212; orbital_program.md lines 179 and 185; scale_program.md lines 86-130; earth_twin_program.md lines 1002, 1095, 1327 and 1343; client/src/lib/lod.ts and client/src/components/TimeScrubber.tsx exist; market_calendar.py's header and test_market_calendar_2027.py.
+NOT CHANGED (found, left for their own PRs): three code comments still say the calendar is 2026-only (forecast.py:25, calendar_effects.py:14, options_manager.py:1959). The GRID VISION and RUNPOD lines were not checked.
+DOWNSTREAM: sessions stop planning "next" steps that already shipped; the open map-side items (S1(d), S2) are named where a session will see them.
+ROLLBACK TRIGGER: any corrected line shown wrong by its charter's RESUME STATE: fix that line.
+TESTS: the tests that read CLAUDE.md (test_audit_critical, test_data_stream_registry_check, test_fills_slippage_stats, test_law_iv_context_modules, test_research_state_check, test_silent_except_ratchet) plus test_market_calendar_2027: 125 passed, 1 skipped.
+STARVED: no.
