@@ -197,18 +197,37 @@ export function bloomCacheSize(): number { return bloomCache.size; }
 export function _resetBloomCache(): void { bloomCache.clear(); }
 const ID_RE = /"i":"([^"]+)"/;
 
-/** Stream a hex's fixes across the WHOLE raw window (all retained days,
- *  not recentTrackAsync's 48h), optionally time-bounded. Keeps callsign,
- *  altitude and ground flag — the trip splitter needs them. */
-export async function fullTrackAsync(
-  kind: "aircraft" | "vessels" | "trains", id: string, baseDir: string,
-  opts: { fromSec?: number; toSec?: number; maxPoints?: number } = {},
-): Promise<ArchivedFix[]> {
+/** What one archive scan touched (aircraftTrackData.ts reports it). */
+export interface ArchiveScanStats {
+  /** hour files inside the requested window */
+  files_in_window: number;
+  /** of those, skipped because their id filter says none of the ids is there */
+  files_skipped_by_filter: number;
+  /** streamed to the end */
+  files_read: number;
+  /** stream bailed partway (corrupt/truncated/vanished): rows may be missing */
+  files_failed: number;
+}
+
+/** ONE streamed pass over a kind's local hour files for one OR MORE ids
+ *  (2026-11-16: the fleet endpoint asks for up to 10 tails — one pass, not
+ *  ten). `onRow` gets every parsed line whose `i` is one of `ids`, in file
+ *  order, with the file's name — NOT time-filtered (the window only picks
+ *  which hour files are read), because a reader that decodes the v4 `x`
+ *  block needs each file's earlier lines too. Shares the per-file id filter
+ *  with fullTrackAsync (which is this function with one id). */
+export async function scanArchiveRows(
+  kind: "aircraft" | "vessels" | "trains", ids: readonly string[], baseDir: string,
+  opts: { fromSec?: number; toSec?: number },
+  onRow: (row: Record<string, unknown>, file: string) => void,
+): Promise<ArchiveScanStats> {
+  const stats: ArchiveScanStats = { files_in_window: 0, files_skipped_by_filter: 0, files_read: 0, files_failed: 0 };
   const dir = path.join(baseDir, kind);
-  if (!fs.existsSync(dir)) return [];
+  if (!ids.length || !fs.existsSync(dir)) return stats;
   let files: string[] = [];
-  try { files = fs.readdirSync(dir).sort(); } catch { return []; }
-  const pts: ArchivedFix[] = [];
+  try { files = fs.readdirSync(dir).sort(); } catch { return stats; }
+  const one = ids.length === 1 ? ids[0] : null;
+  const idSet = new Set(ids);
   for (const f of files) {
     if (!/^\d{4}-\d{2}-\d{2}-\d{2}\.jsonl(\.gz)?$/.test(f)) continue;
     // hour-file prefilter by the requested window (file hour in UTC)
@@ -220,6 +239,7 @@ export async function fullTrackAsync(
         if (opts.fromSec && h1 < opts.fromSec) continue;
       }
     }
+    stats.files_in_window++;
     const fp = path.join(dir, f);
     let key = "";
     let bloom: Uint8Array | undefined;
@@ -234,18 +254,23 @@ export async function fullTrackAsync(
         if (Number.isFinite(hourMs) && hourMs + 2 * 3600_000 <= Date.now()) building = new Uint8Array(BLOOM_BITS >> 3);
       }
     } catch { continue; }
-    if (bloom && !bloomMayHave(bloom, id)) continue;
+    if (bloom) {
+      const b = bloom;
+      if (!ids.some((id) => bloomMayHave(b, id))) { stats.files_skipped_by_filter++; continue; }
+    }
     const ok = await streamJsonlLines(fp, f.endsWith(".gz"), (line) => {
-      if (building) { const m = ID_RE.exec(line); if (m) bloomAdd(building, m[1]); }
-      if (!line.includes(id)) return; // substring prefilter, then verify
+      let lineId: string | null = null;
+      if (building || !one) { const m = ID_RE.exec(line); if (m) lineId = m[1]; }
+      if (building && lineId) bloomAdd(building, lineId);
+      // substring prefilter (one id) or the line's own id (several), then verify
+      if (one ? !line.includes(one) : !(lineId && idSet.has(lineId))) return;
       try {
-        const r = JSON.parse(line);
-        if (r.i !== id) return;
-        if (opts.fromSec && r.t < opts.fromSec) return;
-        if (opts.toSec && r.t > opts.toSec) return;
-        pts.push({ t: r.t, la: r.la, lo: r.lo, al: r.al ?? null, c: r.c ?? null, g: !!r.g });
+        const r = JSON.parse(line) as Record<string, unknown>;
+        if (typeof r.i !== "string" || !idSet.has(r.i)) return;
+        onRow(r, f);
       } catch {}
     });
+    if (ok) stats.files_read++; else stats.files_failed++;
     if (building && ok) {
       if (bloomCache.size >= BLOOM_MAX_FILES) {
         const first = bloomCache.keys().next().value;
@@ -254,6 +279,23 @@ export async function fullTrackAsync(
       bloomCache.set(key, building);
     }
   }
+  return stats;
+}
+
+/** Stream a hex's fixes across the WHOLE raw window (all retained days,
+ *  not recentTrackAsync's 48h), optionally time-bounded. Keeps callsign,
+ *  altitude and ground flag — the trip splitter needs them. */
+export async function fullTrackAsync(
+  kind: "aircraft" | "vessels" | "trains", id: string, baseDir: string,
+  opts: { fromSec?: number; toSec?: number; maxPoints?: number } = {},
+): Promise<ArchivedFix[]> {
+  const pts: ArchivedFix[] = [];
+  await scanArchiveRows(kind, [id], baseDir, opts, (row) => {
+    const r = row as { t: number; la: number; lo: number; al?: number | null; c?: string | null; g?: unknown };
+    if (opts.fromSec && r.t < opts.fromSec) return;
+    if (opts.toSec && r.t > opts.toSec) return;
+    pts.push({ t: r.t, la: r.la, lo: r.lo, al: r.al ?? null, c: r.c ?? null, g: !!r.g });
+  });
   pts.sort((a, b) => a.t - b.t);
   // t-dedupe (backfill 2026-08-08): the 30s poller and the day-trace
   // backfill both write this hex — a same-second duplicate is the same

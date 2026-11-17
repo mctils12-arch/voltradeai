@@ -78,6 +78,10 @@ test("archive line carries rg (schema v2) and the manifest documents it", async 
   const arch = readFileSync(new URL("../../../../server/datacoreArchive.ts", import.meta.url), "utf-8");
   assert.match(arch, /rg: p\.registration \|\| undefined/, "registration dropped from the archive line");
   const manifest = JSON.parse(readFileSync(new URL("../../../../datacore/manifests/aircraft.json", import.meta.url), "utf-8"));
-  assert.equal(manifest.schema_version, 2);
+  // The pin follows the manifest's version. It read 2 until 2026-11-16, while the archive writer had already
+  // moved to v3 (integrity block, 2026-08-11) and v4 (intent block, 2026-10-14) without the manifest being
+  // updated; the track-data change documents v3, v4 and its own v5 keys there and sets the version to 5.
+  assert.equal(manifest.schema_version, 5);
   assert.ok(manifest.field_map.rg, "manifest field_map must document rg");
+  assert.match(manifest.field_map.rg, /schema v2/, "rg is still documented as the v2 addition");
 });
