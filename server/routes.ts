@@ -1012,6 +1012,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.get("/api/data/aircraft/tracked", (_req, res) => {
     const r = trackedPoller.getRegistry();
+    const trackedPacing = trackedPoller.pacing();
     res.json({
       planes: r.planes, count: r.planes.length, cap: TRACKED_CAP,
       poll_s: TRACKED_POLL_MS / 1000,
@@ -1021,6 +1022,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       fast_poll_s: TRACKED_FAST_POLL_MS / 1000,
       active_window_s: TRACKED_ACTIVE_WINDOW_MS / 1000,
       max_requests_per_min: TRACKED_MAX_REQ_PER_MIN,
+      // 2026-11-17: adsb.lol's daily quota may set the interval (a small
+      // quota is spent on these planes: one request per 86,400 s / (limit x
+      // 0.4)), or stop the poller until the quota resets — pacing.reason says which
+      effective_poll_s: trackedPacing.effective_poll_s,
+      pacing: trackedPacing,
       cycles: trackedPoller.cycleStats(),
       source: "adsb.lol registration query (ODbL), one batched request per cycle, plus one batched hex query for tracked planes it returned no position for",
       note: "tracked tails are archived continuously whenever they broadcast — no viewer required; last_seen null = never seen since tracking began. last_seen / last_pos are a real position fix; heard / last_heard say the provider heard the transponder (heard.has_position false = altitude and ground speed only, no position yet)",
@@ -1056,7 +1062,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({
       status: st, scopes: GLOBAL_SCOPES, poll_s: GLOBAL_POLL_MS / 1000,
       source: "adsb.lol global scope endpoints (ODbL) — military / LADD / PIA",
-      note: "the free tier's worldwide coverage: these scopes are served globally in one request each; all-civil global live is a paid product (see wishlist) — per_scope -1 = that scope's fetch failed this cycle; skipped_low_disk true = archiving paused to protect bot state writes",
+      note: "the free tier's worldwide coverage: these scopes are served globally in one request each; all-civil global live is a paid product (see wishlist) — per_scope -1 = that scope's fetch failed this cycle; skipped_quota true = a scope was not asked because adsb.lol's daily request quota is spent or kept for the tracked planes (no per_scope entry for it); skipped_low_disk true = archiving paused to protect bot state writes",
     });
   });
   const globalAircraft = registerGlobalAircraftRoutes(app); // FLIGHT PROGRAM B1: GET /api/data/aircraft/global (sweep + snapshot, server/globalAircraft.ts)

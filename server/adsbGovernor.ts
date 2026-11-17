@@ -36,7 +36,104 @@
 //          for 24+ minutes and the worldwide snapshot aged out (1 row of
 //          ~1,100 under 2 minutes old; rows are evicted at 10 minutes).
 //
+// THE DAILY QUOTA (2026-11-17). api.adsb.lol counts requests per day and per
+// IP: without a key 500 a day. Every response says so:
+//   x-ratelimit-limit: 500, 500;w=86400
+//   x-ratelimit-remaining: <n>
+//   x-ratelimit-reset: <seconds until 00:00 UTC>
+// Over the quota it answers 429 with `x-envoy-ratelimited: true`, an empty
+// body and NO Retry-After. Measured that day: this server sent about 29,500
+// requests a day (type lane 11,520, disc lane 12,960, tracked poller 2,880,
+// mil/ladd/pia 2,160, plus viewers), so the quota was gone about 25 minutes
+// after midnight UTC and every lane then drew 429 until the next midnight,
+// with the backoff above re-probing every 15 minutes for a Retry-After that
+// never comes. A key (header x-api-key, env ADSBLOL_API_KEY) raises the
+// limit: 1,000/day for the free "adhoc" key, 7,200/day for a feeder key,
+// more for paid tiers.
+//
+// So the governor now READS the quota (noteQuota, on every response) and
+// decides who may ask (laneAllowed / admit):
+//   - EXHAUSTED (remaining 0, or the quota 429): nobody asks until the reset.
+//     A quota 429 is not an outage: it grows no failure backoff, cuts no
+//     AIMD rate and does not count as a sweep failure.
+//   - WATCHED_ONLY (limit under QUOTA_FULL_MIN_DAILY): only the tracked-planes
+//     poller and a Find lookup ask adsb.lol; the tracked poller paces itself
+//     to TRACKED_QUOTA_SHARE of the limit. The world sweep, the scopes, the
+//     viewport discs and the selected-plane lane do not ask at all (the other
+//     providers carry them: sweepFailover.ts, the viewport chain, the fast
+//     lane's second provider).
+//   - FULL (limit at or over QUOTA_FULL_MIN_DAILY): as before, with the world
+//     sweep spaced so it uses at most SWEEP_QUOTA_SHARE of the limit, and the
+//     disc lane only from DISC_LANE_MIN_DAILY.
+//   - UNKNOWN (no quota header seen yet): as before.
+//
 // Pure + clock-injectable (every method takes `now`), so tests never sleep.
+
+/** adsb.lol's daily limit at or over which the world sweep may use it */
+export const QUOTA_FULL_MIN_DAILY = 5000;
+/** share of the daily limit the world sweep may spend ("full" mode) */
+export const SWEEP_QUOTA_SHARE = 0.6;
+/** share of the daily limit the tracked-planes poller may spend ("watched_only" mode) */
+export const TRACKED_QUOTA_SHARE = 0.4;
+/** the sweep's disc lane asks adsb.lol only from this daily limit */
+export const DISC_LANE_MIN_DAILY = 20000;
+/** how long the suspended sweep sleeps between looks at the quota mode */
+export const QUOTA_RECHECK_MS = 60_000;
+const DAY_MS = 86_400_000;
+
+export type QuotaMode = "unknown" | "watched_only" | "full";
+/** who is asking adsb.lol (see laneAllowed) */
+export type QuotaLane = "sweep" | "scopes" | "viewport" | "selected" | "tracked" | "find";
+/** anything with a Headers-like get (a fetch Response's headers) */
+export interface HeaderSource { get(name: string): string | null }
+
+export interface QuotaHeaders {
+  /** requests per day (the first integer of x-ratelimit-limit) */
+  limit: number | null;
+  remaining: number | null;
+  /** seconds until the quota resets (00:00 UTC) */
+  resetSec: number | null;
+  /** x-envoy-ratelimited: true — the 429 is the quota's */
+  ratelimited: boolean;
+}
+
+/** Pure: read adsb.lol's quota headers. A header that is absent or not a
+ *  number reads null; nothing is guessed. */
+export function parseQuotaHeaders(get: (name: string) => string | null): QuotaHeaders {
+  const read = (name: string): string => {
+    try { return String(get(name) ?? "").trim(); } catch { return ""; }
+  };
+  const lim = /^(\d{1,9})(?!\d)/.exec(read("x-ratelimit-limit"));
+  const limit = lim && Number(lim[1]) > 0 ? Number(lim[1]) : null;
+  const rem = /^-?\d{1,9}$/.exec(read("x-ratelimit-remaining"));
+  const remaining = rem ? Number(rem[0]) : null;
+  const rs = /^\d{1,6}(\.\d+)?$/.exec(read("x-ratelimit-reset"));
+  // the window is one day: a figure past two days is not a reset time
+  const resetSec = rs && Number(rs[0]) <= 2 * 86_400 ? Number(rs[0]) : null;
+  return { limit, remaining, resetSec, ratelimited: read("x-envoy-ratelimited").toLowerCase() === "true" };
+}
+
+/** The User-Agent every request to adsb.lol carries. */
+export const ADSB_LOL_UA = "voltradeai-datacore/1.0 (+https://voltradeai.com)";
+
+/** `{ "x-api-key": <key> }` when ADSBLOL_API_KEY is set, else `{}`. For
+ *  api.adsb.lol ONLY: never merge this into a request to another host. The
+ *  key is never logged and never put in a status. */
+export function adsbLolKeyHeader(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const key = String(env.ADSBLOL_API_KEY ?? "").trim();
+  return key ? { "x-api-key": key } : {};
+}
+
+/** The headers of a request to api.adsb.lol. */
+export function adsbLolRequestHeaders(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  return { "User-Agent": ADSB_LOL_UA, ...adsbLolKeyHeader(env) };
+}
+
+/** ADSBLOL_QUOTA_MODE=full|watched_only (tests / ops); anything else = read the header. */
+export function quotaModeOverrideFromEnv(env: NodeJS.ProcessEnv = process.env): "full" | "watched_only" | null {
+  const v = String(env.ADSBLOL_QUOTA_MODE ?? "").trim().toLowerCase();
+  return v === "full" || v === "watched_only" ? v : null;
+}
 
 export interface GovernorOptions {
   /** background token refill rate (requests / second) */
@@ -49,13 +146,20 @@ export interface GovernorOptions {
   baseBackoffMs?: number;
   /** backoff ceiling (ms) */
   maxBackoffMs?: number;
+  /** fixes the quota mode whatever the limit header says (env ADSBLOL_QUOTA_MODE) */
+  quotaModeOverride?: "full" | "watched_only" | null;
+  /** is an API key sent with each request? (a boolean for the status; the key itself never comes here) */
+  keyConfigured?: boolean;
+  /** where state changes are said (the process singleton logs; tests stay quiet) */
+  log?: (msg: string) => void;
 }
 
 export type Lane = "fg" | "bg";
 
 /** How an outcome is counted for the ops check (429 = adsb.lol rate-limited
  *  us; 5xx = it struggled; net = timeout / no response; other = any other
- *  non-2xx/3xx such as 403/404). */
+ *  non-2xx/3xx such as 403/404). The DAILY QUOTA's 429 is counted as a 429
+ *  here too; what sets it apart is in noteResult. */
 export type OutcomeKind = "ok" | "429" | "5xx" | "net" | "other";
 export function outcomeKind(status: number): OutcomeKind {
   if (status === 0) return "net";
@@ -123,6 +227,18 @@ export class UpstreamGovernor {
   /** outcomes of the last OUTCOME_WINDOW_MS, oldest first (ops check: the
    *  429 rate and the viewport failover rate) */
   private outcomes: { t: number; lane: Lane; kind: OutcomeKind }[] = [];
+  // ── the daily quota, as adsb.lol's own response headers state it ──
+  private quotaLimit: number | null = null;
+  private quotaRemaining: number | null = null;
+  /** when the quota resets (ms), from the newest x-ratelimit-reset */
+  private quotaResetAt: number | null = null;
+  /** nobody asks adsb.lol before this (0 = not exhausted) */
+  private quotaExhaustedUntilMs = 0;
+  private quotaExhaustedTotal = 0;
+  private requestsSkippedQuota = 0;
+  private readonly quotaModeOverride: "full" | "watched_only" | null;
+  private readonly keyConfigured: boolean;
+  private readonly log: ((msg: string) => void) | null;
 
   constructor(o: GovernorOptions) {
     this.bgRps = Math.max(0, o.bgRps);
@@ -130,6 +246,141 @@ export class UpstreamGovernor {
     this.windowMs = o.windowMs ?? 60_000;
     this.baseBackoffMs = o.baseBackoffMs ?? 30_000;
     this.maxBackoffMs = o.maxBackoffMs ?? 15 * 60_000;
+    this.quotaModeOverride = o.quotaModeOverride ?? null;
+    this.keyConfigured = !!o.keyConfigured;
+    this.log = o.log ?? null;
+  }
+
+  // ── daily quota ────────────────────────────────────────────────────────
+
+  /** Read one adsb.lol response's quota headers (call it for EVERY response,
+   *  BEFORE noteResult). Absent or unreadable headers leave the state as it
+   *  was. Returns true when this response says the quota is spent:
+   *    - x-ratelimit-remaining <= 0 (on any status), or
+   *    - a 429 with x-envoy-ratelimited: true, or
+   *    - a 429 with neither a Retry-After nor a positive remaining (this
+   *      response's, else the last one read).
+   *  Then nobody asks until the reset: now + x-ratelimit-reset, or the next
+   *  00:00 UTC when the response gave none. */
+  noteQuota(headers: HeaderSource | null | undefined, now: number, status?: number): boolean {
+    if (!headers || typeof headers.get !== "function") return false;
+    const q = parseQuotaHeaders((name) => headers.get(name));
+    if (q.limit != null) this.quotaLimit = q.limit;
+    if (q.remaining != null) this.quotaRemaining = q.remaining;
+    if (q.resetSec != null) this.quotaResetAt = now + q.resetSec * 1000;
+    let spent = q.remaining != null && q.remaining <= 0;
+    if (!spent && status === 429) {
+      if (q.ratelimited) spent = true;
+      else {
+        let retryAfter: string | null = null;
+        try { retryAfter = headers.get("retry-after"); } catch { retryAfter = null; }
+        const known = q.remaining ?? this.currentRemaining(now);
+        spent = (retryAfter == null || retryAfter === "") && !(known != null && known > 0);
+      }
+    }
+    if (!spent) return false;
+    const nextUtcMidnight = (Math.floor(now / DAY_MS) + 1) * DAY_MS;
+    // a reset "0 s away" still means this request was refused: hold one second
+    const until = q.resetSec != null ? now + Math.max(1_000, q.resetSec * 1000) : nextUtcMidnight;
+    const was = this.quotaBlocked(now);
+    this.quotaExhaustedUntilMs = Math.max(this.quotaExhaustedUntilMs, until);
+    this.quotaRemaining = 0;
+    if (q.resetSec == null) this.quotaResetAt = this.quotaExhaustedUntilMs;
+    if (!was) {
+      this.quotaExhaustedTotal++;
+      this.log?.(`[adsb-governor] adsb.lol daily quota spent (limit ${this.quotaLimit ?? "unknown"}/day) — no request to adsb.lol until ${new Date(this.quotaExhaustedUntilMs).toISOString()}`);
+    }
+    return true;
+  }
+
+  /** the last remaining figure read, while its window still runs */
+  private currentRemaining(now: number): number | null {
+    if (this.quotaResetAt != null && now >= this.quotaResetAt) return null;
+    return this.quotaRemaining;
+  }
+
+  /** Is the daily quota spent? While it is, NO lane asks adsb.lol. */
+  quotaBlocked(now: number): boolean {
+    return now < this.quotaExhaustedUntilMs;
+  }
+
+  /** when the spent quota resets (ms), null while it is not spent */
+  quotaExhaustedUntil(now: number): number | null {
+    return this.quotaBlocked(now) ? this.quotaExhaustedUntilMs : null;
+  }
+
+  /** "unknown" until a response has stated the limit; then by the limit
+   *  (under QUOTA_FULL_MIN_DAILY = "watched_only"). ADSBLOL_QUOTA_MODE fixes it. */
+  quotaMode(_now: number): QuotaMode {
+    if (this.quotaModeOverride) return this.quotaModeOverride;
+    if (this.quotaLimit == null) return "unknown";
+    return this.quotaLimit >= QUOTA_FULL_MIN_DAILY ? "full" : "watched_only";
+  }
+
+  /** Why the world sweep (the background lane) is kept off adsb.lol by the
+   *  quota, or null when the quota does not stop it. */
+  sweepSuspendedByQuota(now: number): "exhausted" | "watched_only" | null {
+    if (this.quotaBlocked(now)) return "exhausted";
+    return this.quotaMode(now) === "watched_only" ? "watched_only" : null;
+  }
+
+  /** Pure: may `lane` send a request to adsb.lol now, as far as the daily
+   *  quota goes? Spent: nobody. "watched_only": the tracked poller and a Find
+   *  lookup. Otherwise everyone. */
+  laneAllowed(lane: QuotaLane, now: number): boolean {
+    if (this.quotaBlocked(now)) return false;
+    if (this.quotaMode(now) === "watched_only") return lane === "tracked" || lane === "find";
+    return true;
+  }
+
+  /** laneAllowed, and a refusal is counted as `requests` requests NOT sent
+   *  (requests_skipped_quota). Call it where a request would otherwise go out. */
+  admit(lane: QuotaLane, now: number, requests = 1): boolean {
+    if (this.laneAllowed(lane, now)) return true;
+    this.requestsSkippedQuota += Math.max(0, requests);
+    return false;
+  }
+
+  /** The world sweep's smallest gap between two requests (ms) so a day of it
+   *  uses at most SWEEP_QUOTA_SHARE of the limit; 0 while the limit is unknown. */
+  sweepMinGapMs(_now: number): number {
+    return this.quotaLimit == null ? 0 : DAY_MS / (this.quotaLimit * SWEEP_QUOTA_SHARE);
+  }
+
+  /** May the sweep's disc lane ask adsb.lol? Unknown limit: yes, as before. */
+  discLaneAllowed(now: number): boolean {
+    if (this.sweepSuspendedByQuota(now)) return false;
+    return this.quotaLimit == null || this.quotaLimit >= DISC_LANE_MIN_DAILY;
+  }
+
+  /** "watched_only": the tracked poller's smallest gap between two requests
+   *  (ms) so a day of it uses at most TRACKED_QUOTA_SHARE of the limit
+   *  (500/day -> one request per 432 s). 0 = not paced by the quota. */
+  trackedMinGapMs(now: number): number {
+    if (this.quotaLimit == null || this.quotaMode(now) !== "watched_only") return 0;
+    return Math.ceil(DAY_MS / (this.quotaLimit * TRACKED_QUOTA_SHARE));
+  }
+
+  /** The quota block of stats(). `key_configured` is a boolean: the key
+   *  itself is never held here. */
+  quotaStats(now: number) {
+    const exhausted = this.quotaBlocked(now);
+    return {
+      limit: this.quotaLimit,
+      remaining: exhausted ? 0 : this.currentRemaining(now),
+      reset_at: this.quotaResetAt != null && now < this.quotaResetAt ? this.quotaResetAt : null,
+      exhausted,
+      exhausted_until: exhausted ? this.quotaExhaustedUntilMs : null,
+      mode: this.quotaMode(now),
+      key_configured: this.keyConfigured,
+      sweep_min_gap_ms: Math.round(this.sweepMinGapMs(now)),
+      // times the quota was found spent since boot
+      quota_exhausted_total: this.quotaExhaustedTotal,
+      // requests a lane did NOT send because of the quota (viewport discs,
+      // selected-plane lookups, Find lookups, tracked cycles, scope requests;
+      // the suspended sweep has no fixed request count and is not counted)
+      requests_skipped_quota: this.requestsSkippedQuota,
+    };
   }
 
   private prune(now: number) {
@@ -161,6 +412,17 @@ export class UpstreamGovernor {
    *  Retry-After header (when present) floors the backoff. */
   noteResult(lane: Lane, status: number, now: number, retryAfterSec?: number | null): void {
     this.lastStatus = { lane, status, at: now };
+    if (status === 429 && this.quotaBlocked(now)) {
+      // the DAILY QUOTA's 429 (noteQuota read it just before): a failed
+      // request, counted, but not an outage — no backoff grows, the AIMD rate
+      // is not cut and the sweep's failure run does not move. The hold is the
+      // quota's own, until its reset. (In the last-hour window it is one more
+      // rate_limited result.)
+      this.outcomes.push({ t: now, lane, kind: "429" });
+      this.pruneOutcomes(now);
+      if (lane === "fg") this.counts.fgFail++; else this.counts.bgFail++;
+      return;
+    }
     this.outcomes.push({ t: now, lane, kind: outcomeKind(status) });
     this.pruneOutcomes(now);
     if (lane === "bg" && status === 429) this.rateFrac = Math.max(AIMD_MIN_FRACTION, this.rateFrac / 2);
@@ -221,9 +483,10 @@ export class UpstreamGovernor {
    *  caller that records on the foreground lane but can afford to wait (the
    *  tracked planes' hex poll) holds its request for the same time, so its
    *  own 429 pauses it for FG_FAILURE_PAUSE_MS and it never outruns the sweep
-   *  while adsb.lol is struggling. */
+   *  while adsb.lol is struggling. A spent daily quota holds it too, until
+   *  the reset. */
   backoffMs(now: number): number {
-    return Math.max(0, this.backoffUntil - now, this.fgPauseUntil - now);
+    return Math.max(0, this.backoffUntil - now, this.fgPauseUntil - now, this.quotaExhaustedUntilMs - now);
   }
 
   /** Requests (both lanes) inside the sliding window. */
@@ -238,6 +501,14 @@ export class UpstreamGovernor {
     this.refill(now);
     this.prune(now);
     let wait = Math.max(0, this.backoffUntil - now, this.fgPauseUntil - now);
+    // the daily quota: spent -> until its reset; "watched_only" -> the sweep
+    // does not ask at all (looked at again every QUOTA_RECHECK_MS)
+    const held = this.sweepSuspendedByQuota(now);
+    if (held === "exhausted") wait = Math.max(wait, this.quotaExhaustedUntilMs - now);
+    else if (held === "watched_only") wait = Math.max(wait, QUOTA_RECHECK_MS);
+    // ... and its share of the limit: one request per sweepMinGapMs
+    const gap = this.sweepMinGapMs(now);
+    if (gap > 0 && this.lastBgRequestAt != null) wait = Math.max(wait, this.lastBgRequestAt + gap - now);
     if (this.tokens < 1) wait = Math.max(wait, ((1 - this.tokens) / this.effectiveBgRps()) * 1000);
     const cap = this.ceilingRps * (this.windowMs / 1000);
     if (this.recent.length >= cap && this.recent.length > 0) {
@@ -278,6 +549,7 @@ export class UpstreamGovernor {
       totals: { ...this.counts },
       last_hour: this.lastHour(now),
       last_status: this.lastStatus,
+      quota: this.quotaStats(now),
     };
   }
 }
@@ -293,15 +565,19 @@ export const DEFAULT_GLOBAL_SWEEP_RPS = 0.4;
 /** Default total ceiling across lanes (req/s). Env ADSB_TOTAL_RPS_CEILING. */
 export const DEFAULT_ADSB_TOTAL_RPS_CEILING = 1.0;
 
-export function governorFromEnv(env: NodeJS.ProcessEnv = process.env): UpstreamGovernor {
+export function governorFromEnv(env: NodeJS.ProcessEnv = process.env, log?: (msg: string) => void): UpstreamGovernor {
   return new UpstreamGovernor({
     bgRps: envNum(env.GLOBAL_SWEEP_RPS, DEFAULT_GLOBAL_SWEEP_RPS, 0, 2),
     ceilingRps: envNum(env.ADSB_TOTAL_RPS_CEILING, DEFAULT_ADSB_TOTAL_RPS_CEILING, 0.05, 5),
+    quotaModeOverride: quotaModeOverrideFromEnv(env),
+    keyConfigured: Object.keys(adsbLolKeyHeader(env)).length > 0,
+    log,
   });
 }
 
-/** THE process-wide adsb.lol governor (viewport chain + global sweep). */
-export const adsbLolGovernor: UpstreamGovernor = governorFromEnv();
+/** THE process-wide adsb.lol governor (viewport chain + global sweep). It is
+ *  the one that says quota changes in the log. */
+export const adsbLolGovernor: UpstreamGovernor = governorFromEnv(process.env, (msg) => console.error(msg));
 
 /** Provider key the governor accounts for (the other chain members are
  *  separate upstreams with their own limits). */

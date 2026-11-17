@@ -32,13 +32,18 @@
 // upstream request is accounted to the shared adsb.lol governor on the
 // viewer lane, like the selected-aircraft fast lane. The process-wide per-IP
 // limiter (rateLimit.ts) covers the route like every other.
+// DAILY QUOTA (2026-11-17, adsbGovernor.ts): the lookup carries the adsb.lol
+// API key when one is configured and reports the response's quota headers.
+// A Find lookup may spend the quota even when it is kept for the watched
+// planes ("watched_only": someone is asking for one aircraft by name); once
+// the quota is SPENT no lookup leaves and the answer comes from what the
+// server holds, with upstream "limited".
 // PRIVACY: community ADS-B only (adsb.lol, ODbL) — nothing FAA/SWIM-sourced.
 // IDENTITY: exact matches only; a row is never attributed to a tail it does
 // not itself name.
 
 import type { Express } from "express";
-import { adsbLolGovernor, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
-import { FAST_UA } from "./aircraftFastLane";
+import { adsbLolGovernor, adsbLolRequestHeaders, parseRetryAfter, type UpstreamGovernor } from "./adsbGovernor";
 import type { FixBatch } from "./aircraftFixBus";
 import { mapPointAircraft } from "./aircraftTiling";
 import { ROW_FIELDS, encodeRow, toSnapRow, type SnapRow } from "./globalSnapshot";
@@ -154,6 +159,8 @@ export interface FindDeps {
   governor?: UpstreamGovernor;
   now?: () => number;
   headers?: Record<string, string>;
+  /** where ADSBLOL_API_KEY is read when `headers` is not given (default process.env) */
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   /** time allowed for lastArchived inside one answer (default FIND_ARCHIVE_BUDGET_MS) */
   archiveBudgetMs?: number;
@@ -171,12 +178,12 @@ export function createAircraftFinder(deps: FindDeps): AircraftFinder {
   const now = deps.now ?? Date.now;
   const fetchImpl = deps.fetchImpl ?? fetch;
   const gov = deps.governor ?? adsbLolGovernor;
-  const headers = deps.headers ?? { "User-Agent": FAST_UA };
+  const headers = deps.headers ?? adsbLolRequestHeaders(deps.env);
   const timeoutMs = deps.timeoutMs ?? FIND_TIMEOUT_MS;
   const cache = new Map<string, { at: number; res: FindResult }>();
   const inflight = new Map<string, Promise<FindResult>>();
   const upstreamSent: number[] = [];
-  const counts = { requests: 0, cache_hits: 0, coalesced: 0, upstream_requests: 0, upstream_limited: 0, upstream_errors: 0, archive_reads: 0, archive_timeouts: 0 };
+  const counts = { requests: 0, cache_hits: 0, coalesced: 0, upstream_requests: 0, upstream_limited: 0, upstream_quota_skips: 0, upstream_errors: 0, archive_reads: 0, archive_timeouts: 0 };
   let lastError: string | null = null;
 
   const allowUpstream = (t: number): boolean => {
@@ -196,6 +203,7 @@ export function createAircraftFinder(deps: FindDeps): AircraftFinder {
       const url = q.hex ? hexBatchUrl([q.hex]) : batchUrl([q.ident]);
       const r = await fetchImpl(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
       status = r.status;
+      gov.noteQuota(r.headers, now(), r.status);
       if (!r.ok) {
         gov.noteResult("fg", r.status, now(), parseRetryAfter(r.headers?.get?.("retry-after") ?? null));
         throw new Error(`adsb.lol find ${r.status}`);
@@ -263,7 +271,9 @@ export function createAircraftFinder(deps: FindDeps): AircraftFinder {
     // 3. ONE upstream lookup
     let upstream: FindUpstream = "limited";
     let heard: HeardReading | null = null;
-    if (!allowUpstream(t)) counts.upstream_limited++;
+    // adsb.lol's daily quota is spent: nothing leaves until its reset
+    if (!gov.admit("find", t)) counts.upstream_quota_skips++;
+    else if (!allowUpstream(t)) counts.upstream_limited++;
     else {
       const up = await askUpstream({ hex, ident: q.ident });
       if (up === "error") upstream = "error";

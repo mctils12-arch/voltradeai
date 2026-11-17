@@ -12,12 +12,23 @@
 // viewport recording. The bot's state writes on the same volume outrank
 // archive growth (GOAL priority 1) — under MIN_FREE_BYTES of headroom the
 // archiver SKIPS writes and says so, rather than filling the disk.
+//
+// ADSB.LOL'S DAILY QUOTA (2026-11-17, adsbGovernor.ts). adsb.lol counts
+// requests per day (500 without a key); these three scopes every 120 s are
+// 2,160 a day. Each request carries the API key when one is configured and
+// reports the response's quota headers to the governor. While the quota is
+// spent, or kept for the watched planes ("watched_only"), a scope is NOT
+// asked: the cycle says skipped_quota and per_scope has no entry for it.
+// Consequence, stated: the LADD registry (laddRegistry.ts) learns its
+// members from the ladd scope, so it learns no NEW member while the scopes
+// are not asked; members it already holds stay listed for 90 days.
 
 import fs from "fs";
 import { archiveAircraft, archiveBaseDir, type AircraftPoint, type SitePoint } from "./datacoreArchive";
 import { mapPointAircraft } from "./aircraftTiling";
 import { publishFixes } from "./aircraftFixBus";
 import { laddRegistry } from "./laddRegistry";
+import { adsbLolGovernor, adsbLolKeyHeader, type UpstreamGovernor } from "./adsbGovernor";
 
 export const GLOBAL_SCOPES = ["mil", "ladd", "pia"] as const;
 export type GlobalScope = (typeof GLOBAL_SCOPES)[number];
@@ -54,6 +65,9 @@ export interface GlobalCycleStatus {
   archived: number;                  // lines actually written (post-thinning)
   skipped_low_disk: boolean;
   free_bytes: number | null;
+  /** true when at least one scope was NOT asked because adsb.lol's daily
+   *  quota is spent or kept for the watched planes (no per_scope entry) */
+  skipped_quota: boolean;
 }
 
 /** One cycle, pure-injectable: fetch each scope, map through the SAME
@@ -67,18 +81,24 @@ export async function pollGlobalScopesOnce(
   // LADD membership feeds server/laddRegistry.ts so FAA-sourced data
   // (filed plans) is withheld for these aircraft
   noteLadd: (rows: AircraftPoint[]) => void = (rows) => laddRegistry().note(rows),
+  // the shared adsb.lol governor: reads each response's daily-quota headers
+  // and says whether a scope may be asked at all (null = no quota handling)
+  governor: UpstreamGovernor | null = null,
 ): Promise<GlobalCycleStatus> {
   const base = baseDir || archiveBaseDir();
   const free = readFreeBytes(base);
   const status: GlobalCycleStatus = {
     at: Date.now(), per_scope: {}, archived: 0,
-    skipped_low_disk: !volumeAllowsWrite(free), free_bytes: free,
+    skipped_low_disk: !volumeAllowsWrite(free), free_bytes: free, skipped_quota: false,
   };
   const all: AircraftPoint[] = [];
   const seen = new Set<string>();
   for (const scope of GLOBAL_SCOPES) {
+    // daily quota spent, or kept for the watched planes: not asked
+    if (governor && !governor.admit("scopes", Date.now())) { status.skipped_quota = true; continue; }
     try {
       const res = await fetchImpl(scopeUrl(scope), { headers });
+      governor?.noteQuota(res.headers, Date.now(), res.status);
       if (!res.ok) { status.per_scope[scope] = -1; continue; } // -1 = fetch failed this cycle
       // scopes are always adsb.lol (scopeUrl → api.adsb.lol) — tag provenance
       const pts = mapPointAircraft(await res.json(), "ac", "adsblol") as AircraftPoint[];
@@ -112,14 +132,30 @@ export function startGlobalScopes(deps: {
   headers: Record<string, string>;
   sites: SitePoint[];
   baseDir?: string;
+  /** the shared adsb.lol governor (default the process singleton; null = no quota handling) */
+  governor?: UpstreamGovernor | null;
+  /** where ADSBLOL_API_KEY is read (default process.env) */
+  env?: NodeJS.ProcessEnv;
 }): { getStatus: () => GlobalCycleStatus | null; stop: () => void } {
   let last: GlobalCycleStatus | null = null;
   let stopped = false;
   let lowDiskWarned = false;
+  let quotaSkipLogged = false;
+  const governor = deps.governor === undefined ? adsbLolGovernor : deps.governor;
+  // all three scopes are api.adsb.lol: the key rides on them
+  const headers = { ...deps.headers, ...adsbLolKeyHeader(deps.env) };
   const tick = async () => {
     if (stopped) return;
     try {
-      last = await pollGlobalScopesOnce(deps.fetchImpl, deps.headers, deps.sites, deps.baseDir);
+      last = await pollGlobalScopesOnce(deps.fetchImpl, headers, deps.sites, deps.baseDir, undefined, governor);
+      // said once per stretch, never every 120 s
+      if (last.skipped_quota && !quotaSkipLogged) {
+        quotaSkipLogged = true;
+        console.error("[global-scopes] not asking adsb.lol for mil/ladd/pia: its daily quota is spent or kept for the watched planes (the LADD registry learns no new member meanwhile)");
+      } else if (!last.skipped_quota && quotaSkipLogged) {
+        quotaSkipLogged = false;
+        console.error("[global-scopes] asking adsb.lol for mil/ladd/pia again");
+      }
       if (last.skipped_low_disk && !lowDiskWarned) {
         lowDiskWarned = true;
         console.error(`[global-scopes] LOW DISK (${last.free_bytes} free) — global archiving paused; bot state writes take priority`);

@@ -13,7 +13,11 @@
 // WHAT. One sequential loop that is idle unless the governor reports the
 // sweep failing (stats().sweep_consecutive_failures > 0 — raised only by a
 // failed sweep request, cleared only by a successful one, so it stays up
-// across the sweep's own retry probes). While it is, the loop takes
+// across the sweep's own retry probes) OR kept off adsb.lol by its DAILY
+// QUOTA (2026-11-17, adsbGovernor.ts: the quota is spent, or the limit is too
+// small for a world sweep and is kept for the watched planes — then the
+// sweep sends nothing, so it has no failure to report, and without this the
+// world feed would simply age). While either holds, the loop takes
 // the plan's discs in value order (the sweep's own scheduler with no type
 // lane: age x sqrt(aircraft last seen there), viewer interest boosted,
 // nothing older than 45 min) and asks the fallback providers for each disc.
@@ -168,8 +172,13 @@ export interface FailoverStatus {
   enabled: boolean;
   /** why it is off (null when enabled) */
   off_reason: string | null;
-  /** true while the adsb.lol sweep is failing and the failover is sweeping */
+  /** true while the adsb.lol sweep is failing, or held off adsb.lol by its
+   *  daily quota, and the failover is sweeping */
   active: boolean;
+  /** why it is active: "adsb.lol sweep failing", "adsb.lol daily quota:
+   *  watched planes only", "adsb.lol daily quota spent until <ISO time>";
+   *  null while idle */
+  reason: string | null;
   active_since: number | null;
   activations_total: number;
   /** seconds spent active since boot (the current stretch included) */
@@ -202,10 +211,26 @@ export interface FailoverStatus {
 
 export const FAILOVER_RULE =
   "Runs only while the adsb.lol world sweep is failing (a sweep request failed and no later one has " +
-  "succeeded). It then asks adsb.fi and airplanes.live (both non-commercial) for the sweep plan's 250 nm " +
+  "succeeded) or is kept off adsb.lol by its daily request quota (spent, or too small for a world sweep " +
+  "and kept for the watched planes; see reason). It then asks adsb.fi and airplanes.live (both non-commercial) for the sweep plan's 250 nm " +
   "discs, busiest and most-watched first, one request at a time, at most the stated rate per provider. Neither " +
   "has a worldwide by-type query, so this covers part of the plan (see discs_refreshed_last_cycle), not all of " +
   "it. Each row keeps the provider that served it (src). Off while billing is active.";
+
+export const FAILOVER_REASON_FAILING = "adsb.lol sweep failing";
+export const FAILOVER_REASON_WATCHED_ONLY = "adsb.lol daily quota: watched planes only";
+
+/** Why the failover should be sweeping now, or null when the adsb.lol sweep
+ *  is doing its job. The quota comes first: while it holds the sweep off,
+ *  that is the reason whatever the last failure count was. */
+export function failoverReason(governor: UpstreamGovernor, now: number): string | null {
+  const held = governor.sweepSuspendedByQuota(now);
+  if (held === "exhausted") {
+    return `adsb.lol daily quota spent until ${new Date(governor.quotaExhaustedUntil(now) ?? now).toISOString()}`;
+  }
+  if (held === "watched_only") return FAILOVER_REASON_WATCHED_ONLY;
+  return governor.stats(now).sweep_consecutive_failures > 0 ? FAILOVER_REASON_FAILING : null;
+}
 
 export interface SweepFailover {
   scheduler: SweepScheduler;
@@ -249,6 +274,7 @@ export function createSweepFailover(deps: {
     last_ok_at: null, last_status: null, last_error: null,
   }));
   let active = false;
+  let reason: string | null = null;
   let activeSince: number | null = null;
   let activations = 0;
   let activeMsDone = 0;
@@ -302,7 +328,9 @@ export function createSweepFailover(deps: {
     }
   };
 
-  const setActive = (on: boolean, t: number) => {
+  const setActive = (why: string | null, t: number) => {
+    const on = why != null;
+    reason = why; // the reason can change while it stays active (spent -> watched planes only)
     if (on === active) return;
     active = on;
     if (on) {
@@ -316,8 +344,8 @@ export function createSweepFailover(deps: {
     if (t - lastStateLog >= FAILOVER_LOG_EVERY_MS) {
       lastStateLog = t;
       console.error(on
-        ? `[sweep-failover] adsb.lol sweep failing (${governor.stats(t).sweep_consecutive_failures} in a row) — sweeping the disc plan through ${provs.map((s) => s.p.key).join(", ")} (activation ${activations})`
-        : "[sweep-failover] adsb.lol sweep answered again — failover idle");
+        ? `[sweep-failover] ${why}${why === FAILOVER_REASON_FAILING ? ` (${governor.stats(t).sweep_consecutive_failures} in a row)` : ""} — sweeping the disc plan through ${provs.map((s) => s.p.key).join(", ")} (activation ${activations})`
+        : "[sweep-failover] the adsb.lol sweep is running again — failover idle");
     }
   };
 
@@ -357,7 +385,7 @@ export function createSweepFailover(deps: {
 
   const tick = async (t: number): Promise<FailoverStepResult | null> => {
     if (offReason) return null;
-    setActive(governor.stats(t).sweep_consecutive_failures > 0, t);
+    setActive(failoverReason(governor, t), t);
     if (!active) return null;
     const s = pickProvider(t);
     if (!s) return null;
@@ -455,6 +483,7 @@ export function createSweepFailover(deps: {
         enabled: !offReason,
         off_reason: offReason,
         active,
+        reason: active ? reason : null,
         active_since: activeSince,
         activations_total: activations,
         active_s_total: Math.round((activeMsDone + (activeSince != null ? t - activeSince : 0)) / 1000),

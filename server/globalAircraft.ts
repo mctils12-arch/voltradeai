@@ -123,8 +123,10 @@ export const GLOBAL_HONESTY =
   "Worldwide live aircraft assembled from community ADS-B ground receivers: adsb.lol (ODbL) via a " +
   "type-list lane (all aircraft of each listed ICAO type, worldwide) and a 250nm disc lane over a " +
   "hand-authored traffic mask, plus the discs viewers' maps already fetched and adsb.lol's military/" +
-  "LADD/PIA scopes; while adsb.lol is not answering the sweep, the same discs are asked of adsb.fi and " +
-  "airplanes.live (non-commercial) instead, a part of the plan at a time" +
+  "LADD/PIA scopes; while adsb.lol is not answering the sweep, or its daily request quota is spent or too " +
+  "small for a world sweep (coverage.sweep.governor.quota — adsb.lol is then asked only for the tracked " +
+  "tails and Find lookups, and its type lane and scopes are not running), the same discs are asked of " +
+  "adsb.fi and airplanes.live (non-commercial) instead, a part of the plan at a time" +
   " — and OpenSky Network (non-commercial) only when credentials are configured. One row per aircraft: " +
   "its FRESHEST fix; seenAt is that fix's time, so a row older than ~2 min is a stale position, not a " +
   "live one. Not every plane on Earth: remote oceans and polar regions beyond receiver range, and " +
@@ -208,7 +210,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
   const sweep = startGlobalSweep({
     env, fetchImpl: deps.fetchImpl, typeCounts: () => snapshot.typeCounts(),
   });
-  // while that sweep is failing, the plan's discs are asked of the other
+  // while that sweep is failing, or held off adsb.lol by its daily quota, the plan's discs are asked of the other
   // community providers (sweepFailover.ts; idle otherwise)
   const sweepFailover = createSweepFailover({
     env, fetchImpl: deps.fetchImpl, now, livePositions: () => snapshot.rows({}),
@@ -379,7 +381,9 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     const sources = Object.entries(SOURCE_META).map(([k, m]) => ({
       key: k, ...m,
       active: k === "opensky" ? !!osStatus.enabled
-        : k === "adsblol" ? (!!sweepStatus.enabled || (summary.rows_by_source[k] || 0) > 0)
+        // the sweep counts only while the daily quota lets it ask adsb.lol
+        : k === "adsblol" ? ((!!sweepStatus.enabled && !sweepStatus.governor.quota.exhausted && sweepStatus.governor.quota.mode !== "watched_only")
+          || (summary.rows_by_source[k] || 0) > 0)
         : (summary.rows_by_source[k] || 0) > 0,
       rows: summary.rows_by_source[k] || 0,
       last_ingest_at: summary.source_last_ingest_at[k] ?? null,
@@ -468,6 +472,7 @@ export function registerGlobalAircraftRoutes(app: Express, deps: {
     publish: (b) => publishFixes(b),
     fetchImpl: deps.fetchImpl,
     now,
+    env, // ADSBLOL_API_KEY rides on the adsb.lol lookup
     fallbackHex: (hex) => filler.fetchHex(hex),
   });
   app.get("/api/data/aircraft/live/:hex", async (req, res) => {
