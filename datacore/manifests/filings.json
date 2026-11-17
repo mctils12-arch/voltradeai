@@ -15,7 +15,7 @@
   "owners[]": "cik (person entity key), name, roles",
   "transactions[]": "table, kind, shares, pricePerShare, transactionDate",
   "form": "only on recovered rows: EDGAR daily form index type, \"4\" or \"4/A\"",
-  "backfilledAt": "only on recovered rows: ISO time the nightly completeness pass (server/edgarForm4Completeness.ts) fetched a filing the live poll had not archived; the row sits in the day file of that night (for an older day that can be months after filedAt), filedAt is the index's filing date"
+  "backfilledAt": "only on recovered rows: ISO time the nightly completeness pass (server/edgarForm4Completeness.ts) fetched a filing the live poll had not archived; the row sits in the day file of that night (for an older day that can be months after filedAt), filedAt is the index's filing date; read by filed day with ?filed_from=&filed_to= on the history routes (server/filedDayHistory.ts)"
  },
  "confidence_model": "as-filed regulatory records (high; filing errors possible, never corrected in-archive)",
  "geo_fields": [],

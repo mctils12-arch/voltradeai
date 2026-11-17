@@ -92,7 +92,8 @@ import {
   GRID_TTL_MS, UPSTREAM_PER_MIN_GUARD, WeatherSample,
 } from "./weatherGrid";
 import shadowZones from "../datacore/shadow_zones.json";
-import { bootForm4Poll, latestForm4Filings, form4HistoryPage } from "./edgarForm4";
+import { bootForm4Poll, latestForm4Filings } from "./edgarForm4";
+import { form4History } from "./edgarForm4FiledHistory";
 import { archivedAircraftCached, entityForHex, loadEntitySpine } from "./aircraftEntities";
 import { bootAlertsPoll, latestAlerts } from "./nwsAlerts";
 import { bootSpaceWeatherPoll, latestSpaceWeather } from "./spaceWeather";
@@ -1695,12 +1696,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // exactly what was read and how to continue. Before this the route
   // returned the newest 2,000 filings and echoed `days` back unmodified —
   // live on 2026-11-11 that was five archive days presented as 90.
-  app.get("/api/data/insider/history", (req, res) => {
+  // FILED-DAY WINDOW (2026-11-17): `?filed_from=YYYY-MM-DD&filed_to=YYYY-MM-DD`
+  // reads by the day a filing was FILED (server/filedDayHistory.ts). The
+  // nightly completeness pass stores a recovered filing under the night it
+  // was recovered, so an archive-day window no longer means "filed then".
+  app.get("/api/data/insider/history", async (req, res) => {
     try {
       res.json({
         kind: "raw",
         source: "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04)",
-        ...form4HistoryPage(req.query as Record<string, unknown>),
+        ...(await form4History(req.query as Record<string, unknown>)),
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
@@ -5464,20 +5469,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // companion to /api/v1/data/insider above (that endpoint mirrors only the
   // latest poll cache; this one mirrors /api/data/insider/history's
   // accumulated archive, windowed by from/to and paged by whole archive
-  // days since 2026-11-12). Reuses the same form4HistoryPage() reader as the
+  // days since 2026-11-12). Reuses the same form4History() reader as the
   // preview route — no new fetch, no new computation. Same
   // underlying pipeline and license as data/insider (GATE 1 PASSED, GATE 2
   // KILLED in both directions on the buy-clustering hypothesis), so this
   // reuses the "data/insider" LICENSE_MARKS entry rather than adding a new,
   // duplicate one for the same filings under a different window.
-  app.get("/api/v1/data/insider-history", (req, res) => {
+  app.get("/api/v1/data/insider-history", async (req, res) => {
     const auth = requireApiKey(req, res);
     if (!auth) return;
     try {
-      // Same windowed/paged reader as the RAW preview route (from/to/limit,
-      // truncated + next cursor) — a keyed customer must never again receive
-      // five archive days labelled 90.
-      res.json(v1Envelope("data/insider", form4HistoryPage(req.query as Record<string, unknown>)));
+      // Same windowed/paged reader as the RAW preview route (from/to/limit or
+      // filed_from/filed_to, truncated + next cursor) — a keyed customer must
+      // never again receive five archive days labelled 90.
+      res.json(v1Envelope("data/insider", await form4History(req.query as Record<string, unknown>)));
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/insider-history", status: 200, tier: auth.tier });
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error)?.message });
