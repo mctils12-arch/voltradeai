@@ -774,6 +774,68 @@ def _sanitize_earnings_history(eh) -> dict | None:
     return out
 
 
+# TIER-GATE COUNTERFACTUALS ([RULE-REVIEW] 2026-11-12, tiered_strategy's gate
+# shadow; read by gate_counterfactuals_probe.py): which tier a blocked or cut
+# tier action belonged to, whether the gate dropped it or scaled it, the
+# dollars cut and the share of that cut no other gate would have stopped.
+# LOGGING ONLY. Same contract as the blocks above: the key is ABSENT on every
+# other record and on older ones, and every field is whitelisted and capped
+# (a block is ~300 bytes: the log is rewritten per record).
+#   tier        1..4, the tier engine's tier of the action
+#   action      "dropped" (not proposed at all) | "scaled" (proposed smaller)
+#   order       the tier action's own verb: SELL_CSP / BUY / BUY_PUT
+#   regime      the system_config regime whose thresholds applied (the cap's
+#               "regime=" in a master-kill reason; the cash reserve's label)
+#   equity      account equity at the decision
+#   size_pct    what the tier asked for, as a fraction of equity
+#   kept_pct    what was left after the gate (0 for a dropped action)
+#   cut_dollars (size_pct - kept_pct) x equity
+#   net_frac    0..1: the share of the cut the OTHER gates would have let
+#               through at that moment (the other master conditions, the
+#               exposure cap's room, the cash reserve's room)
+#   net_dollars cut_dollars x net_frac
+#   cap_room / reserve_room   the two rooms the allocator applies, as
+#               fractions of equity (reserve_room absent: reserve off)
+#   also        the other gates that would also have cut it
+#   t2 / t3     master-kill rows: what Tier 2 / Tier 3 would have done
+#   aside       1 on a record log_gate_rows wrote (never taken from a caller):
+#               it is a tier-engine row about a name, not a scanner
+#               candidate's own record, so a gate relabel walks past it
+#               (_freshest_taken_index)
+GATE_DECISIONS = ("rejected_masterkill", "rejected_cash_reserve")
+GATE_ACTIONS = ("dropped", "scaled")
+GATE_FLOAT_KEYS = (("equity", 2), ("size_pct", 6), ("kept_pct", 6), ("cut_dollars", 2),
+                   ("net_dollars", 2), ("net_frac", 4), ("cap_room", 4), ("reserve_room", 4))
+GATE_STR_KEYS = ("order", "regime", "t2", "t3")
+GATE_STR_MAX = 24
+GATE_ALSO_MAX = 4
+
+
+def _sanitize_gate(g) -> dict | None:
+    """The persisted `gate` block, or None (missing, not a dict, no usable tier
+    or action). Unknown keys are dropped; a missing number is left out, never
+    stored as zero."""
+    if not isinstance(g, dict) or not g:
+        return None
+    tier = _finite(g.get("tier"))
+    action = str(g.get("action") or "")
+    if tier is None or tier not in (1.0, 2.0, 3.0, 4.0) or action not in GATE_ACTIONS:
+        return None
+    out: dict = {"v": 1, "tier": int(tier), "action": action}
+    for k, digits in GATE_FLOAT_KEYS:
+        v = _finite(g.get(k))
+        if v is not None:
+            out[k] = round(v, digits)
+    for k in GATE_STR_KEYS:
+        v = g.get(k)
+        if v not in (None, ""):
+            out[k] = str(v)[:GATE_STR_MAX]
+    also = g.get("also")
+    if isinstance(also, (list, tuple)) and also:
+        out["also"] = [str(x)[:GATE_STR_MAX] for x in also[:GATE_ALSO_MAX]]
+    return out
+
+
 def log_candidate(
     ticker: str,
     features: dict,
@@ -792,6 +854,7 @@ def log_candidate(
     shadow_entry: dict = None,
     serve_fix: dict = None,
     earnings_history: dict = None,
+    gate: dict = None,
 ) -> None:
     """
     Log a scored candidate to the shadow portfolio.
@@ -834,6 +897,11 @@ def log_candidate(
                          quarters_seen, latest_period, cache_age_h, reason,
                          source}); logging only; ABSENT when the feature is
                          off and on older records.
+        gate:            TIER-GATE COUNTERFACTUALS (2026-11-12): the tier, the
+                         gate's action (dropped / scaled) and the dollars cut
+                         for a tier action a master gate or the allocator
+                         stopped (see _sanitize_gate); logging only; ABSENT on
+                         every other record.
 
     Rate cost: ZERO API calls. Pure file I/O.
     """
@@ -843,7 +911,7 @@ def log_candidate(
         record = _build_record(ticker, features, score, decision, decision_reason, entry_price,
                                vxx_ratio, regime_label, side, action_label, trade_type, ml,
                                score_breakdown, regime_snapshot, shadow_entry, serve_fix,
-                               earnings_history)
+                               earnings_history, gate)
 
         # Load, append, rotate, save
         records = _load_shadow_log()
@@ -860,7 +928,7 @@ def log_candidate(
 def _build_record(ticker, features, score, decision, decision_reason="", entry_price=0.0,
                   vxx_ratio=1.0, regime_label="neutral", side="", action_label="", trade_type="",
                   ml=None, score_breakdown=None, regime_snapshot=None, shadow_entry=None,
-                  serve_fix=None, earnings_history=None) -> dict:
+                  serve_fix=None, earnings_history=None, gate=None) -> dict:
     """One shadow record (log_candidate's shape; raises on bad input — callers catch)."""
     record = {
         "ticker":          str(ticker).upper(),
@@ -906,6 +974,11 @@ def _build_record(ticker, features, score, decision, decision_reason="", entry_p
     _eh = _sanitize_earnings_history(earnings_history)
     if _eh is not None:
         record["earnings_history"] = _eh
+    # TIER-GATE COUNTERFACTUALS (2026-11-12): key ABSENT on every record that
+    # is not a blocked or cut tier action, so their shape is untouched.
+    _gt = _sanitize_gate(gate)
+    if _gt is not None:
+        record["gate"] = _gt
     return record
 
 
@@ -957,6 +1030,12 @@ def _freshest_taken_index(records: List[dict], ticker: str, now: datetime,
     for i in range(len(records) - 1, -1, -1):
         record = records[i]
         if record.get("ticker") != ticker_u:
+            continue
+        _gt = record.get("gate")
+        if isinstance(_gt, dict) and _gt.get("aside"):
+            # 2026-11-12: a row log_gate_rows wrote later in the same scan (the allocator cut
+            # a tier action on this name). It is not the scanner candidate's record and did
+            # not exist before that date, so it must not hide that record from this relabel.
             continue
         if record.get("decision") != "taken":
             return None  # most recent record already resolved elsewhere
@@ -1140,6 +1219,136 @@ def log_shadow_entries(entries: list, max_age_seconds: float = NODE_GATE_RELABEL
         logger.warning(f"log_shadow_entries failed: {ex}")
         out["error"] = str(ex)[:200]
         return out
+
+
+def gate_reason(rec: dict) -> Optional[str]:
+    """Which tier-engine gate a record belongs to, or None when it is not a
+    gate record: the master kill's own reason category for a
+    "rejected_masterkill" record (_masterkill_reason_category over its
+    decision_reason: exposure_ceiling / daily_loss / drawdown / unknown),
+    "cash_reserve" for a "rejected_cash_reserve" one."""
+    decision = rec.get("decision")
+    if decision == "rejected_masterkill":
+        return _masterkill_reason_category(rec.get("decision_reason", ""))
+    if decision == "rejected_cash_reserve":
+        return "cash_reserve"
+    return None
+
+
+def _gate_row_key(rec: dict) -> Optional[tuple]:
+    """(ticker, decision, gate, tier, action, ET day) of a record that carries
+    a `gate` block; None for every other record."""
+    g = rec.get("gate")
+    if not isinstance(g, dict) or rec.get("decision") not in GATE_DECISIONS:
+        return None
+    return (str(rec.get("ticker") or ""), str(rec.get("decision")), gate_reason(rec),
+            g.get("tier"), g.get("action"), _xa_entry_date_et(rec.get("timestamp", "")))
+
+
+GATE_ROW_DEDUPE_HOURS = 40.0   # as _shadow_entered_today: records are appended in time order; an ET day is < 40h back
+_GATE_ROWS_SEEN: Dict[str, object] = {"day": None, "keys": set()}
+
+
+def log_gate_rows(rows: list) -> dict:
+    """
+    [RULE-REVIEW] 2026-11-12 (tier-gate counterfactuals): record the tier
+    actions a master gate or the allocator dropped or scaled, in ONE load/save
+    however many rows the scan produced.
+
+    rows: [{"ticker", "decision" (one of GATE_DECISIONS), "reason",
+            "entry_price", "vxx_ratio", "regime_label", "side",
+            "action_label", "trade_type", "gate": {...}}, ...]
+
+    ONE record per (ticker, decision, gate, tier, action) per ET day, the
+    first: a scan repeats every few minutes and re-proposes the same names,
+    and a copy per scan would push other records out of the 20,000-record log
+    before their +20d outcome can be read. The day's keys are remembered in
+    this process, so a scan whose rows are all repeats does not load the log.
+    A row without a usable price, decision or gate block is counted as
+    skipped (backfill_outcomes cannot label a record with no entry price).
+    features {} and score 0.0: the records never enter load_shadow_data's ML
+    blend. Never raises (logging must not break the tier engine).
+    """
+    out = {"received": 0, "logged": 0, "duplicates": 0, "skipped": 0, "saved": False}
+    try:
+        if not isinstance(rows, list) or not rows:
+            return out
+        out["received"] = len(rows)
+        now = datetime.now(timezone.utc)
+        today = _xa_entry_date_et(now.isoformat())
+        seen = _GATE_ROWS_SEEN
+        if seen["day"] != today:
+            seen["day"], seen["keys"] = today, set()
+        fresh: Dict[tuple, dict] = {}
+        for r in rows:
+            rec = _gate_record(r)
+            if rec is None:
+                out["skipped"] += 1
+                continue
+            key = _gate_row_key(rec)
+            if key in seen["keys"] or key in fresh:
+                out["duplicates"] += 1
+                continue
+            fresh[key] = rec
+        if not fresh:
+            return out
+        records = _load_shadow_log()
+        cutoff = now - timedelta(hours=GATE_ROW_DEDUPE_HOURS)
+        on_file = set()
+        for rec in reversed(records):
+            at = _record_time(rec)
+            if at is None:
+                continue  # an unreadable timestamp says nothing about the ones before it
+            if at < cutoff:
+                break
+            key = _gate_row_key(rec)
+            if key is not None and key[-1] == today:
+                on_file.add(key)
+        seen["keys"] |= on_file
+        new = [rec for key, rec in fresh.items() if key not in on_file]
+        out["duplicates"] += len(fresh) - len(new)
+        if not new:
+            _shadow_log_cache_release(records)  # nothing was modified
+            return out
+        records.extend(new)
+        if len(records) > MAX_SHADOW_RECORDS:
+            del records[:len(records) - MAX_SHADOW_RECORDS]  # keep newest, in place
+        out["saved"] = bool(_save_shadow_log(records))
+        if out["saved"]:
+            out["logged"] = len(new)
+            seen["keys"] |= {_gate_row_key(rec) for rec in new}
+        return out
+    except Exception as e:
+        logger.warning(f"log_gate_rows failed: {e}")
+        out["error"] = str(e)[:200]
+        return out
+
+
+def _gate_record(r) -> Optional[dict]:
+    """One shadow record from a log_gate_rows row, or None when the row cannot
+    be recorded (not a dict, no ticker, a decision outside GATE_DECISIONS, no
+    usable gate block, or no positive finite entry price)."""
+    if not isinstance(r, dict) or not r.get("ticker") or r.get("decision") not in GATE_DECISIONS:
+        return None
+    price = _finite(r.get("entry_price"))
+    if _sanitize_gate(r.get("gate")) is None or price is None or price <= 0:
+        return None
+    vxx = _finite(r.get("vxx_ratio"))
+    rec = _build_record(r["ticker"], {}, 0.0, r["decision"], str(r.get("reason") or ""), price,
+                        vxx if vxx is not None else 1.0, str(r.get("regime_label") or "unknown"),
+                        str(r.get("side") or ""), str(r.get("action_label") or ""),
+                        str(r.get("trade_type") or ""), gate=r.get("gate"))
+    rec["gate"]["aside"] = 1   # set after the whitelist: only this writer can
+    return rec
+
+
+def _record_time(rec: dict) -> Optional[datetime]:
+    """A record's timestamp as an aware datetime; None for an unreadable one."""
+    try:
+        dt = datetime.fromisoformat(str(rec.get("timestamp", "")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def _fetch_historical_bars_batch(
