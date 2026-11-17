@@ -47,7 +47,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
-import { FORM4_ARCHIVE_START, archiveFilings, parseForm4Xml, pickOwnershipXmlName, type Form4Filing } from "./edgarForm4";
+import { FORM4_ARCHIVE_START, archiveFilings, form4PollStats, parseForm4Xml, pickOwnershipXmlName, type Form4Filing } from "./edgarForm4";
 import { beat, heartbeatDir, zonedParts } from "./jobHeartbeat";
 
 const ET = "America/New_York";
@@ -702,6 +702,9 @@ export function form4CompletenessStatus(env: Record<string, string | undefined> 
     rule: `Nightly ${FORM4_COMPLETENESS_WINDOW_START_MIN / 60}:00-${FORM4_COMPLETENESS_WINDOW_END_MIN / 60}:00 ET: for each weekday of the last ${FORM4_COMPLETENESS_LOOKBACK_DAYS} days, EDGAR's daily form index (types 4 and 4/A, exact) minus the accessions the archive holds as parsed rows is fetched and appended with form + backfilledAt. At most ${FORM4_COMPLETENESS_MAX_PER_RUN} filings a night.`,
     truth_source: "https://www.sec.gov/Archives/edgar/daily-index/ form.<yyyymmdd>.idx",
     latest: readCompletenessState(statePath(env)),
+    // The 15-minute poll's latest feed page: how many filings on it were
+    // Form 4 by exact type and how many were other forms the prefix let in.
+    poll: form4PollStats(),
     refill: {
       enabled: form4RefillEnabled(env),
       rule: `After the recent days, each night: the weekdays from ${FORM4_ARCHIVE_START} to the edge of the 7-day reach that the ledger has not settled, newest first, at most ${FORM4_REFILL_MAX_PER_RUN} filings a night. A day is settled when every missing filing was tried and none is left failed, or after ${FORM4_REFILL_MAX_ATTEMPTS} nights.`,
