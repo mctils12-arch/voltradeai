@@ -26,7 +26,7 @@ import { archiveBaseDir } from "./datacoreArchive";
 import {
   listVesselWindowFiles, streamVesselFile, readFoldMode, runIncrementalFold,
   PartialCacheRegistry, FoldStatsTracker, StringInterner, histAdd, histMergeInto, histMedian,
-  type CachedPartial, type FoldStats, type SpeedHist,
+  type CachedPartial, type FoldMode, type FoldStats, type SpeedHist,
 } from "./vesselArchiveFold";
 
 export interface ShadowZone { id: string; name: string; lat: number; lon: number; radius_km: number }
@@ -731,13 +731,38 @@ export class ShadowAggregator {
 
 // ── [A2 2026-11-03] incremental fold wiring ─────────────────────────────────
 //
-// VOLTRADE_SHADOWFLEET_FOLD = full | shadow (default) | incremental — see
-// vesselArchiveFold.ts's header for the contract. Rollback = set `full`.
-// Switch to `incremental` only after 24h of zero `FOLD-MISMATCH shadowfleet`
-// lines (shadowFleetFoldStats().mismatches stays 0 on /api/health).
+// VOLTRADE_SHADOWFLEET_FOLD = full | shadow | incremental (the unset default
+// since 2026-11-17, SHADOWFLEET_FOLD_DEFAULT below) — see
+// vesselArchiveFold.ts's header for the contract. Rollback = set `shadow`
+// (compare again, serve the full fold) or `full` (the original path only).
+// The switch to `incremental` waited for 24h of zero `FOLD-MISMATCH
+// shadowfleet` lines (shadowFleetFoldStats().mismatches on /api/health).
 export const SHADOWFLEET_FOLD_ENV = "VOLTRADE_SHADOWFLEET_FOLD";
+
+/** PROMOTED 2026-11-17: `incremental` when VOLTRADE_SHADOWFLEET_FOLD is
+ *  unset. Evidence, read live 2026-11-17 21:05Z (/api/health
+ *  checks.memory.detail.caches `fold.shadowfleet`, and /api/diag/audit type
+ *  FOLD-MISMATCH over its whole retained history): in shadow since #1598
+ *  (2026-11-04), two weeks, its mismatch lines written to the audit log
+ *  since the same day; ZERO `FOLD-MISMATCH shadowfleet` rows ever in that
+ *  log; 43 matches / 0 mismatches in the current container;
+ *  lastFullMs 68,107 vs lastIncrementalMs 5,218 per ~10-minute cycle, with a
+ *  164 MB partial cache. Shadow mode re-read and re-parsed the 72h vessel
+ *  archive every cycle only to compare (about 68 s of CPU in every 600 s,
+ *  and the allocation churn that goes with it).
+ *  What is given up: in `incremental` nothing is compared, so `matches` and
+ *  `mismatches` stay 0 and a wrong partial would reach the served stats
+ *  unseen. Rollback: VOLTRADE_SHADOWFLEET_FOLD=shadow (compare again, serve
+ *  the full fold) or =full. An unrecognised value is still `shadow`. */
+export const SHADOWFLEET_FOLD_DEFAULT: FoldMode = "incremental";
+
+/** The mode the next shadow-fleet fold cycle runs in. */
+export function shadowFleetFoldMode(env: NodeJS.ProcessEnv = process.env): FoldMode {
+  return readFoldMode(SHADOWFLEET_FOLD_ENV, env, SHADOWFLEET_FOLD_DEFAULT);
+}
+
 const shadowFoldRegistry = new PartialCacheRegistry<ShadowPartial>();
-const shadowFoldStats = new FoldStatsTracker();
+const shadowFoldStats = new FoldStatsTracker(() => shadowFleetFoldMode());
 
 /** Cheap snapshot for the /api/health diagnostic. */
 export function shadowFleetFoldStats(): FoldStats { return shadowFoldStats.snapshot(); }
@@ -756,13 +781,14 @@ export function _shadowFoldCacheForTests(baseDir: string | undefined, zones: Sha
 
 /** Async stats — the only variant routes may use. Online fold, bounded
  *  memory; output pinned identical to the materializing sync path by the
- *  ratchet test. In shadow/incremental mode the closed hours come from
- *  cached per-hour partials (ShadowAggregator.exportPartial/absorbPartial)
- *  and only the open hour (plus the cutoff-straddling oldest hour) is
- *  streamed each cycle. */
+ *  ratchet test. In incremental mode (the unset default) the closed hours
+ *  come from cached per-hour partials (ShadowAggregator.exportPartial/
+ *  absorbPartial) and only the open hour (plus the cutoff-straddling oldest
+ *  hour) is streamed each cycle; shadow mode also streams every hour for
+ *  the full fold it serves and compares against. */
 export async function computeShadowStatsAsync(zones: ShadowZone[], windowHours = 72,
                                               baseDir?: string, nowMs?: number): Promise<ShadowStats> {
-  const mode = readFoldMode(SHADOWFLEET_FOLD_ENV);
+  const mode = shadowFleetFoldMode();
   if (mode === "full") {
     const t0 = performance.now();
     const agg = new ShadowAggregator(zones);

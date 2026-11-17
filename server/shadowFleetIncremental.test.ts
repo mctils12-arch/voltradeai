@@ -19,7 +19,8 @@ import path from "node:path";
 import zlib from "node:zlib";
 import {
   computeShadowStats, computeShadowStatsAsync, shadowFleetFoldStats, _resetShadowFoldForTests,
-  _shadowFoldCacheForTests, SHADOWFLEET_FOLD_ENV, ShadowAggregator, foldVesselArchiveAsync,
+  _shadowFoldCacheForTests, SHADOWFLEET_FOLD_ENV, SHADOWFLEET_FOLD_DEFAULT, shadowFleetFoldMode,
+  ShadowAggregator, foldVesselArchiveAsync,
   SHADOW_STRIDE, type ShadowZone, type ShadowStats,
 } from "./shadowFleet";
 import { StringInterner, listVesselWindowFiles } from "./vesselArchiveFold";
@@ -206,7 +207,7 @@ test("EXACT across a sliding window: as `now` advances hour by hour the cache is
   assert.ok(shadowFleetFoldStats().mode === "incremental");
 });
 
-test("SHADOW MODE (the default): serves the full fold, compares it against the incremental one every cycle, counts matches; a poisoned partial is caught as FOLD-MISMATCH and the full result is still served", async () => {
+test("SHADOW MODE (VOLTRADE_SHADOWFLEET_FOLD=shadow; the unset default until 2026-11-17): serves the full fold, compares it against the incremental one every cycle, counts matches; a poisoned partial is caught as FOLD-MISMATCH and the full result is still served", async () => {
   _resetShadowFoldForTests();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-inc-shadow-"));
   writeArchive(base, adversarialFixture(), 2);
@@ -216,7 +217,13 @@ test("SHADOW MODE (the default): serves the full fold, compares it against the i
   console.error = (...a: unknown[]) => { errors.push(a.map(String).join(" ")); };
   try {
     const prev = process.env[SHADOWFLEET_FOLD_ENV];
-    delete process.env[SHADOWFLEET_FOLD_ENV]; // unset == shadow, the default for this PR
+    // CHANGED ASSERTION 2026-11-17: before, this block ran with the variable
+    // UNSET ("unset == shadow, the default for this PR") and so pinned shadow
+    // as the unset default / after, it sets `shadow` explicitly, because the
+    // unset default is now `incremental` (SHADOWFLEET_FOLD_DEFAULT, promoted
+    // after two weeks without a mismatch). Every assertion below is unchanged;
+    // the unset default is pinned by the "PROMOTED DEFAULT" tests that follow.
+    process.env[SHADOWFLEET_FOLD_ENV] = "shadow";
     try {
       const r1 = await computeShadowStatsAsync(ZONES, 72, base, NOW);
       const r2 = await computeShadowStatsAsync(ZONES, 72, base, NOW);
@@ -250,6 +257,107 @@ test("SHADOW MODE (the default): serves the full fold, compares it against the i
     const r4 = await withMode("incremental", () => computeShadowStatsAsync(ZONES, 72, base, NOW));
     assert.equal(r4.points_read, full.points_read + 1);
   } finally { console.error = origErr; }
+});
+
+test("PROMOTED DEFAULT (2026-11-17), the flag: unset is incremental; an unrecognised value is shadow; shadow/incremental/full are honoured", () => {
+  const prior = process.env[SHADOWFLEET_FOLD_ENV];
+  const origWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (...a: unknown[]) => { warnings.push(a.map(String).join(" ")); };
+  try {
+    delete process.env[SHADOWFLEET_FOLD_ENV];
+    assert.equal(SHADOWFLEET_FOLD_DEFAULT, "incremental");
+    assert.equal(shadowFleetFoldMode(), "incremental", "unset: the promoted default");
+    process.env[SHADOWFLEET_FOLD_ENV] = "  ";
+    assert.equal(shadowFleetFoldMode(), "incremental", "empty counts as unset");
+    process.env[SHADOWFLEET_FOLD_ENV] = "incremntal";
+    assert.equal(shadowFleetFoldMode(), "shadow", "a typo never lands on a path nobody chose, and never switches the comparison off");
+    assert.ok(warnings.some((w) => w.includes(SHADOWFLEET_FOLD_ENV)), "and the typo is warned about");
+    process.env[SHADOWFLEET_FOLD_ENV] = "shadow";
+    assert.equal(shadowFleetFoldMode(), "shadow", "spelled out, shadow is the rollback that restores the comparison");
+    process.env[SHADOWFLEET_FOLD_ENV] = "Incremental";
+    assert.equal(shadowFleetFoldMode(), "incremental");
+    process.env[SHADOWFLEET_FOLD_ENV] = "FULL";
+    assert.equal(shadowFleetFoldMode(), "full");
+    // the reader takes an env of its own, so a caller can ask without touching process.env
+    assert.equal(shadowFleetFoldMode({}), "incremental");
+    assert.equal(shadowFleetFoldMode({ [SHADOWFLEET_FOLD_ENV]: "shadow" }), "shadow");
+  } finally {
+    console.warn = origWarn;
+    if (prior === undefined) delete process.env[SHADOWFLEET_FOLD_ENV]; else process.env[SHADOWFLEET_FOLD_ENV] = prior;
+  }
+});
+
+test("PROMOTED DEFAULT (2026-11-17), the behaviour: with the variable unset the INCREMENTAL result is served and nothing is compared; =shadow compares again and serves full; an unrecognised value is shadow; =full is the original path", async () => {
+  const prior = process.env[SHADOWFLEET_FOLD_ENV];
+  const errors: string[] = [];
+  const origErr = console.error, origWarn = console.warn;
+  console.error = (...a: unknown[]) => { errors.push(a.map(String).join(" ")); };
+  console.warn = () => {};
+  try {
+    delete process.env[SHADOWFLEET_FOLD_ENV];
+    _resetShadowFoldForTests();
+    assert.equal(shadowFleetFoldStats().mode, "incremental", "before any cycle the health gauge reports the mode the next cycle will run in");
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-shadow-inc-default-"));
+    writeArchive(base, adversarialFixture(), 2);
+    const full = await withMode("full", () => computeShadowStatsAsync(ZONES, 72, base, NOW));
+    _resetShadowFoldForTests();
+
+    // UNSET: two cycles (cold, then warm cache), both exact, neither compared.
+    const cold = await computeShadowStatsAsync(ZONES, 72, base, NOW);
+    const warm = await computeShadowStatsAsync(ZONES, 72, base, NOW);
+    assert.deepEqual(cold, full); assert.deepEqual(warm, full);
+    let s = shadowFleetFoldStats();
+    assert.equal(s.mode, "incremental");
+    assert.equal(s.matches, 0, "incremental mode runs no comparison");
+    assert.equal(s.mismatches, 0);
+    assert.equal(s.fallbacks, 0);
+    const listing = listVesselWindowFiles(72, base, NOW);
+    const cacheable = listing.files.filter((f) => f.cacheable).length;
+    assert.equal(s.filesCachedLastRun, cacheable, "the warm cycle took every closed hour from the cache");
+    assert.equal(s.filesStreamedLastRun, listing.files.length - cacheable, "and streamed only the open and the cutoff-straddling hour: the full fold did not run");
+
+    // Poison one cached partial. Unset serves the INCREMENTAL result, so the
+    // poison reaches the answer and nothing is logged: proof of which path is
+    // served, and of what the promotion gives up.
+    const cache = _shadowFoldCacheForTests(base, ZONES);
+    const victim = listing.files.find((f) => f.cacheable)!;
+    cache.peek(victim.name)!.points += 1;
+    const poisoned = await computeShadowStatsAsync(ZONES, 72, base, NOW);
+    assert.equal(poisoned.points_read, full.points_read + 1, "unset serves the incremental fold's result");
+    assert.equal(errors.length, 0, "and compares nothing");
+    assert.equal(shadowFleetFoldStats().mismatches, 0);
+
+    // =shadow on the same cache: the comparison is back, the full fold is served.
+    const viaShadow = await withMode("shadow", () => computeShadowStatsAsync(ZONES, 72, base, NOW));
+    assert.deepEqual(viaShadow, full, "shadow serves the full fold");
+    s = shadowFleetFoldStats();
+    assert.equal(s.mode, "shadow");
+    assert.equal(s.mismatches, 1);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /^FOLD-MISMATCH shadowfleet /);
+
+    // An unrecognised value is shadow as well: full served, compared again.
+    const viaTypo = await withMode("incrmental", () => computeShadowStatsAsync(ZONES, 72, base, NOW));
+    assert.deepEqual(viaTypo, full, "a typo serves the full fold, never the promoted path");
+    s = shadowFleetFoldStats();
+    assert.equal(s.mode, "shadow");
+    assert.equal(s.mismatches, 2, "and still compares");
+
+    // =full: the original path.
+    const viaFull = await withMode("full", () => computeShadowStatsAsync(ZONES, 72, base, NOW));
+    assert.deepEqual(viaFull, full);
+    assert.equal(shadowFleetFoldStats().mode, "full");
+
+    // The gauge before any cycle follows the variable, not the constant.
+    process.env[SHADOWFLEET_FOLD_ENV] = "shadow";
+    _resetShadowFoldForTests();
+    assert.equal(shadowFleetFoldStats().mode, "shadow");
+  } finally {
+    console.error = origErr; console.warn = origWarn;
+    if (prior === undefined) delete process.env[SHADOWFLEET_FOLD_ENV]; else process.env[SHADOWFLEET_FOLD_ENV] = prior;
+    _resetShadowFoldForTests();
+  }
 });
 
 test("FULL MODE: the original path, untouched — equals the sync reference and never builds a partial", async () => {
