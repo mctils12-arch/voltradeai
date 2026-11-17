@@ -118940,3 +118940,9 @@ CHANGED ASSERTION (marked in the test): portDwellIncremental.test.ts's shadow-mo
 ROLLBACK TRIGGER: set =shadow at the first report of a wrong dwell number or a calls_at edge that cannot be reproduced from the archive.
 TESTS: +3 (fail on the parent). Full server suite 4,000 pass; tsc 6; counter ratchet OK.
 STARVED: no.
+
+## 2026-11-17 [REPAIR] — re-land of PR #1809 (server/edgarForm4.ts, server/edgarForm4Completeness.ts, server/edgarForm4PollForm.test.ts, datacore/manifests/filings.json) — Form 4 poll: only entries whose form type is exactly 4 or 4/A are fetched and archived; a document with no issuer is never written
+VERSION: v1.0.1457 (shipped 2026-11-17 by the parent session; main was v1.0.1456)
+This is the same change as the entry above it from the session that wrote it (its code, its tests and its research text are carried over unchanged). It is re-landed by a second session (the one running the 11-17 evening ship queue) because #1809 was opened at 16:45Z, during market hours, with v1.0.1449; the after-close merges #1810 and #1811 took that version and the next first, and #1809 could no longer merge. It was the only open PR holding that queue. Rebased over #1810 and #1811, which touch other files of the same Form 4 pipeline; server/edgarForm4PollForm.test.ts, server/edgarForm4Completeness.test.ts and server/filingSeen.test.ts pass on the combined tree. #1809 is closed with a pointer to this PR. Nothing was added or removed.
+TESTS: the three test files above pass on the rebased tree. tsc 6, the same as main. Counter ratchet OK.
+STARVED: no.
