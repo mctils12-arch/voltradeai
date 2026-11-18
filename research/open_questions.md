@@ -24335,3 +24335,7 @@ OPEN, the human's call:
 - The serve-time ML feature fix is still shadow-only (serve_features.py DEFAULT_MODE "shadow"). Composite v2 holds the ML input neutral, so flipping it changes nothing live today.
 - Event trades that exit after the report: no replay and no rule.
 - Rebuilding the csp prior from live lots, once the cohort above reaches n >= 30 and excludes 71.6%.
+
+## 2026-11-18 — found while reading the first in-hours scans after #1812 (cash reserve repair)
+- [OPEN, read after the next in-hours scan] Did room of about $6,600 turn into orders? Read CASH-RESERVE, TIERS and order rows; then whether the floor's cash rule sold BOXX to cover the collateral (FLOOR-CASH rows) and account cash stayed positive (rollback trigger 2).
+- [OPEN, designed rule, no action] Stock buys are refused in the current regime by "stock slots full (0/0, adaptive MAX_POSITIONS 0)" (2026-04-22: no new stock longs outside BULL). The rejections are shadow-logged as rejected_stock_slots; judge it from gate_counterfactuals once labels mature, not before.
