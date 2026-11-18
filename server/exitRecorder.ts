@@ -1,7 +1,8 @@
 /**
  * exitRecorder.ts — a process that is KILLED must leave something behind.
- * Pure (node:test safe): the clock, the file system, the audit sink and the
- * memory sample are injected.
+ * The recorder itself is pure (node:test safe): the clock, the file system,
+ * the audit sink and the memory sample are injected; only exitRecorderFile()
+ * looks at the real disk, to find the volume.
  *
  * WHY (2026-11-18, 09:51 ET, market hours): the server booted eight times in
  * 56 seconds (14:51:17Z -> 14:52:13Z, v1.0.1463) and then stayed up. Nothing
@@ -34,7 +35,20 @@
  * worse than the silence it replaces.
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 export const EXIT_RECORDER_FILE = "voltrade_exit_recorder.json";
+
+/** Where the record lives: the VOLUME (DATA_DIR, else /data/voltrade on
+ *  Railway). It has to outlive the container that was killed — a file in the
+ *  container's own tmp dies with it, which is the failure this module exists
+ *  to end. Local runs without a volume fall back to the OS tmp dir. */
+export function exitRecorderFile(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = fs.existsSync): string {
+  const dir = env.DATA_DIR || (exists("/data") ? "/data/voltrade" : os.tmpdir());
+  return path.join(dir, EXIT_RECORDER_FILE);
+}
 export const UNCLEAN_EXIT = "UNCLEAN-EXIT";
 export const RESTART_BURST = "RESTART-BURST";
 /** how often the live process says "still here" — the resolution of "last

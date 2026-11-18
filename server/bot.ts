@@ -143,7 +143,7 @@ import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { heapDiagnostic, trackSet } from "./heapDiag"; // memory audit 2026-11-03 A0
 import { registerBuiltinHeapGauges } from "./heapGauges";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
-import { createExitRecorder, EXIT_RECORDER_FILE, ALIVE_INTERVAL_MS } from "./exitRecorder";
+import { createExitRecorder, exitRecorderFile, ALIVE_INTERVAL_MS } from "./exitRecorder";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
 import { followReplacements, hasOpenMlegOpeningOn, mlegOpeningLegs, openMlegUnderlyings } from "./mlegOpenOrders";
@@ -1423,7 +1423,7 @@ async function sendEmailAlert(subject: string, body: string) {
 // small file, so the NEXT boot can report when it was last alive and what it
 // looked like (server/exitRecorder.ts; begun in registerBotRoutes).
 const exitRecorder = createExitRecorder({
-  file: path.join(regimeDataDir(process.env), EXIT_RECORDER_FILE),
+  file: exitRecorderFile(process.env),
   fs,
   now: () => Date.now(),
   audit: (action, detail) => audit(action, detail),
@@ -1435,6 +1435,12 @@ const exitRecorder = createExitRecorder({
   pid: process.pid,
 });
 let exitRecorderServing = false;
+/** A boot milestone for the exit recorder (server/index.ts: "routes_registered",
+ *  "listening"). On 2026-11-18 seven boots died ~3 s after their "Server boot"
+ *  row and nothing says how far they got. */
+export function markBootStage(name: string): void {
+  exitRecorder.stage(name);
+}
 
 // ─── Graceful Shutdown ───────────────────────────────────────────────────────
 async function gracefulShutdown(signal: string) {

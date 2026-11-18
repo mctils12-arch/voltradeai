@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  createExitRecorder, parseState, describeUnclean, EXIT_RECORDER_FILE, UNCLEAN_EXIT, RESTART_BURST,
+  createExitRecorder, exitRecorderFile, parseState, describeUnclean, EXIT_RECORDER_FILE, UNCLEAN_EXIT, RESTART_BURST,
   ALIVE_INTERVAL_MS, BURST_BOOTS, BURST_WINDOW_MS, KEEP_MS, UNCLEAN_MAX, RAILWAY_MAX_RETRIES,
   type RecorderFs, type MemorySample,
 } from "./exitRecorder";
@@ -177,6 +177,12 @@ test("the row never guesses a cause", () => {
   assert.doesNotMatch(txt, /out of memory|OOM|crash loop/i);
 });
 
+test("the record lives on the volume, so it outlives the container that was killed", () => {
+  assert.equal(exitRecorderFile({ DATA_DIR: "/data/voltrade" }, () => false), "/data/voltrade/" + EXIT_RECORDER_FILE);
+  assert.equal(exitRecorderFile({}, (p) => p === "/data"), "/data/voltrade/" + EXIT_RECORDER_FILE);
+  assert.ok(exitRecorderFile({}, () => false).endsWith(path.sep + EXIT_RECORDER_FILE));   // local run: the OS tmp dir
+});
+
 test("wiring: the orchestrator begins the recorder at boot, marks a requested stop first, and shows it on /api/health without gating", () => {
   const bot = fs.readFileSync(path.join(HERE, "bot.ts"), "utf8");
   assert.match(bot, /installCrashHandlers\(process, \{ audit \}\);[\s\S]{0,500}exitRecorder\.begin\(\);/);
@@ -184,6 +190,10 @@ test("wiring: the orchestrator begins the recorder at boot, marks a requested st
   assert.match(bot, /setInterval\(\(\) => exitRecorder\.tick\(\), ALIVE_INTERVAL_MS\)\.unref\(\);/);
   assert.match(bot, /async function gracefulShutdown\(signal: string\) \{\s*exitRecorder\.end\(signal\);/);
   assert.match(bot, /checks\.checks\.restarts = exitRecorder\.status\(\);/);
+  assert.match(bot, /file: exitRecorderFile\(process\.env\),/);
+  const index = fs.readFileSync(path.join(HERE, "index.ts"), "utf8");
+  assert.match(index, /await registerRoutes\(httpServer, app\);\s*markBootStage\("routes_registered"\);/);
+  assert.match(index, /markBootStage\("listening"\);/);
   const gate = fs.readFileSync(path.join(HERE, "healthGate.ts"), "utf8");
   assert.doesNotMatch(gate, /restarts/);                      // never a serving gate
 });

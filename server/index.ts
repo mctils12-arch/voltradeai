@@ -16,6 +16,7 @@ import { registerRobots } from "./robots";
 import { registerAdminStats } from "./adminStats";
 import { registerTerms } from "./terms";
 import { preloadLazyAssets, describePreload } from "./lazyAssets";
+import { markBootStage } from "./bot";
 
 const app = express();
 app.set("trust proxy", true); // Bug 36: Railway runs behind a reverse proxy
@@ -117,6 +118,7 @@ app.use((req, res, next) => {
   log(describePreload(assets), "lazyAssets");
 
   await registerRoutes(httpServer, app);
+  markBootStage("routes_registered");
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -153,6 +155,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      markBootStage("listening");
     },
   );
 })();
