@@ -223,6 +223,39 @@ def check_process_faults(health):
     return finding(OK, "process_faults", "no unhandled rejections/exceptions this container's uptime")
 
 
+def check_restarts(health):
+    """2026-11-18 (server/exitRecorder.ts): at 09:51 ET the server booted eight
+    times in 56 seconds and no row said why — a kill signal or a native crash
+    runs no code, so check_process_faults above stays at zero. `checks.restarts`
+    counts boots and the processes that ended with no shutdown signal. A burst
+    (3+ boots in 10 minutes) is an ALARM: Railway stops restarting after 10
+    failures in a row and the trading loop then stays down. A single killed
+    process in the last 24 h is a WARN with what it looked like when last seen."""
+    if not isinstance(health, dict):
+        return finding(WARN, "restarts", "no /api/health response — cannot read the restart record")
+    r = (health.get("checks") or {}).get("restarts")
+    if not isinstance(r, dict):
+        return finding(WARN, "restarts", "no checks.restarts block — build predates the exit recorder")
+    last = r.get("last_unclean") or {}
+    seen = ""
+    if last:
+        s = last.get("sample") or {}
+        seen = (f"; last killed process: v{last.get('version')}, seen alive {last.get('lastAliveAt')}, "
+                f"{last.get('livedS')}s after its boot, stage {last.get('stage')!r}, "
+                f"heap {s.get('heapUsedMB')} MB / rss {s.get('rssMB')} MB / container {s.get('cgroupUsageMB')} MB")
+    if r.get("burst"):
+        return finding(ALARM, "restarts", f"RESTART BURST: {r.get('boots_10m')} boots in the last 10 minutes "
+                       f"(Railway stops after 10 failures in a row){seen}. The cause is only in Railway's deploy log.")
+    n = r.get("unclean_24h") or 0
+    if n > 0:
+        return finding(WARN, "restarts", f"{n} process(es) killed without a shutdown signal in the last 24h "
+                       f"({r.get('boots_24h')} boots in all){seen}. The cause is only in Railway's deploy log.")
+    faults = r.get("recorder_faults") or 0
+    if faults > 0:
+        return finding(WARN, "restarts", f"the exit recorder could not write its file {faults} time(s) — a kill now would leave no record")
+    return finding(OK, "restarts", f"{r.get('boots_24h')} boot(s) in 24h, each after a requested stop")
+
+
 def check_alt_data_enrichment(diagnostic_entries, min_entries_for_verdict=3):
     """KNOWN BROKEN #21: deep_score's 5-fetcher enrichment block (wikipedia/
     gdelt/fred are the 3 with a cache-freshness alarm) going permanently
@@ -902,6 +935,7 @@ def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
         check_engine_kill(health),
         check_health_subsystems(health),
         check_process_faults(health),
+        check_restarts(health),
         check_alt_data_enrichment(diagnostic_entries),
         check_daemon_memory(daemon),
         check_tier2_daemon_timeouts(tier2_error_entries),
