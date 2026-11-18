@@ -397,6 +397,65 @@ def get_deep_guard_stats() -> dict:
             "last": dict(st["last"])}
 
 
+# 2026-11-18 [REPAIR] (KNOWN BROKEN #55, the first reading taken 5.4 h after
+# a deploy with scans running): daemon RSS 647 MB, of which glibc held
+# 216.9 MB as freed-but-retained heap (malloc.free_retained_mb) against
+# 80.3 MB in use. glibc returns only the TOP of an arena to the OS by
+# itself; pages freed in the middle of the heap (a scan's option chains and
+# snapshot JSON, allocated on the daemon's worker threads) stay resident, so
+# the guard below read memory nothing was using and skipped deep scoring on
+# 24 scans and trimmed it on 27 of 53. malloc_trim(0) hands every wholly
+# free page back. This releases memory; it changes no threshold and holds
+# no object. Off switch: VOLTRADE_MALLOC_TRIM=0. Rollback trigger: the
+# quick_scan phase in /api/diag/timings (this call is timed inside it)
+# rising by more than 0.5 s, or `ms` below above 250.
+_MEMORY_RELEASE_STATS = {"calls": 0, "released_mb_total": 0, "unavailable": 0, "last": None}
+
+
+def _release_freed_memory(libc=None, env=None, rss_fn=None, now=None):
+    """Collect garbage, then ask glibc to return freed heap pages to the OS.
+    Returns {"before_mb", "after_mb", "released_mb", "ms", "at"}, or None
+    when switched off or when the C library has no malloc_trim (macOS,
+    musl). Never raises: a scan must not fail on a memory courtesy."""
+    env = os.environ if env is None else env
+    if str(env.get("VOLTRADE_MALLOC_TRIM", "1")).strip().lower() in ("0", "false", "no", "off"):
+        return None
+    rss_fn = rss_fn or _mem_rss_mb
+    st = _MEMORY_RELEASE_STATS
+    try:
+        import gc
+        import ctypes
+        t0 = time.time()
+        before = rss_fn()
+        gc.collect()
+        trim = (libc or ctypes.CDLL(None)).malloc_trim
+        trim.argtypes = [ctypes.c_size_t]
+        trim.restype = ctypes.c_int
+        trim(0)
+        after = rss_fn()
+    except Exception:
+        st["unavailable"] += 1
+        return None
+    row = {"before_mb": before, "after_mb": after,
+           "released_mb": max(0, (before or 0) - (after or 0)),
+           "ms": round((time.time() - t0) * 1000, 1),
+           "at": time.time() if now is None else now}
+    st["calls"] += 1
+    st["released_mb_total"] += row["released_mb"]
+    st["last"] = row
+    return dict(row)
+
+
+def get_memory_release_stats() -> dict:
+    """A copy of the per-process release counts ({} before the first call)."""
+    st = _MEMORY_RELEASE_STATS
+    if st["last"] is None and not st["unavailable"]:
+        return {}
+    return {"calls": st["calls"], "released_mb_total": st["released_mb_total"],
+            "unavailable": st["unavailable"],
+            "last": dict(st["last"]) if st["last"] else None}
+
+
 def _inline_train_allowed(mode: str, env) -> bool:
     """Pure gate for whether bot_engine.py's __main__ may run the inline
     ML training block (imports lightgbm + sklearn, ~150MB RSS).
@@ -3598,6 +3657,9 @@ def _scan_market_inner():
     # SERIAL since the MEM FIX 2026-04-21 below (ThreadPool caused SIGKILLs);
     # total cap (35s) prevents yfinance hangs.
     _gc_checkpoint("after_quick_scan")  # MEM: release quick-scan dicts before deep work
+    # KNOWN BROKEN #55: return freed heap to the OS BEFORE the two memory
+    # guards below read RSS, so they judge memory that is held, not retained.
+    _release_freed_memory()
     _timing_log("quick_scan")
 
     # ── SURVIVAL MODE 2026-04-22 ───────────────────────────────────────────

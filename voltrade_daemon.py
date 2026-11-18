@@ -255,6 +255,11 @@ def _deep_guard_snapshot():
     last = stats.get("last") if stats else None
     if last and last.get("at"):
         last["age_sec"] = round(time.time() - last["at"], 1)
+    # 2026-11-18 (#55): what the pre-guard malloc_trim returned to the OS.
+    if stats and hasattr(bot_engine, "get_memory_release_stats"):
+        release = bot_engine.get_memory_release_stats()
+        if release:
+            stats["release"] = release
     return stats
 
 
