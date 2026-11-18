@@ -44,7 +44,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 DEFAULT_BASE_URL = "https://voltradeai-production.up.railway.app"
 DEFAULT_TIMEOUT_S = 20
@@ -723,6 +724,124 @@ def check_adsb_upstream(governor, min_results=30, max_429_share=0.25, max_failov
     return finding(OK, label, detail)
 
 
+# ── EDGAR archives (Form 4, 13F, 8-K earnings) ───────────────────────────
+# 2026-11-17 [PIPELINE] (open_questions.md 2026-11-16, item (2) THE SILENCE):
+# on Monday 2026-11-16 every Form 4 poll threw from about 07:40 ET, the
+# archive took no row for 11.6 hours, and four sessions ran this script
+# without a line about it. The server now serves each poller's counters and
+# its archive's last write (diag probe `edgar_poll`,
+# server/edgarPollHealth.ts); this is the verdict.
+EDGAR_ET = ZoneInfo("America/New_York")
+EDGAR_WINDOW_START_H = 8      # ET; Form 4s arrive all day inside this window
+EDGAR_WINDOW_END_H = 20
+EDGAR_SILENT_ALARM_H = 3.0    # hours inside the window with no Form 4 row
+EDGAR_FAILS_WARN = 2          # consecutive failed polls (15 min apart)
+EDGAR_FAILS_ALARM = 12        # three hours of failed polls in one container
+_EDGAR_STREAM_NAMES = {"filings": "Form 4", "filings13f": "13F", "earnings8k": "8-K earnings"}
+
+
+def _edgar_closed_nyse_open(d):
+    """Federal holidays on which EDGAR takes no filings while the NYSE trades:
+    Columbus Day (second Monday of October) and Veterans Day (November 11,
+    observed Friday when it falls on Saturday, Monday when on Sunday)."""
+    if d.month == 10 and d.weekday() == 0 and 8 <= d.day <= 14:
+        return True
+    vd = date(d.year, 11, 11)
+    observed = vd - timedelta(days=1) if vd.weekday() == 5 else vd + timedelta(days=1) if vd.weekday() == 6 else vd
+    return d == observed
+
+
+def edgar_filing_day(d):
+    """True when Form 4s are expected on calendar day `d`: an NYSE session day
+    (the proxy for EDGAR's own calendar) that is not one of the two federal
+    holidays above. Without market_calendar (the script run outside the
+    repo) every weekday counts."""
+    if d.weekday() >= 5 or _edgar_closed_nyse_open(d):
+        return False
+    try:
+        repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        import market_calendar
+        return not market_calendar.is_market_holiday(d)
+    except ImportError:
+        return True
+
+
+def _parse_iso(value):
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        out = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return out if out.tzinfo else out.replace(tzinfo=timezone.utc)
+
+
+def edgar_quiet_hours(last_write, now, filing_day=edgar_filing_day):
+    """Hours with no Form 4 archive write inside the latest filing day's
+    08:00-20:00 ET window that has begun: (day, hours). A write after the
+    window closed clears it. (None, 0.0) when no window is found in 10 days."""
+    now_et = now.astimezone(EDGAR_ET)
+    for back in range(0, 10):
+        d = (now_et - timedelta(days=back)).date()
+        start = datetime.combine(d, dtime(EDGAR_WINDOW_START_H), tzinfo=EDGAR_ET)
+        if not filing_day(d) or now_et < start:
+            continue
+        end = min(now_et, datetime.combine(d, dtime(EDGAR_WINDOW_END_H), tzinfo=EDGAR_ET))
+        quiet_from = max(last_write.astimezone(EDGAR_ET), start) if last_write else start
+        return d, max(0.0, (end - quiet_from).total_seconds() / 3600)
+    return None, 0.0
+
+
+def check_edgar_archives(probe, now=None, filing_day=edgar_filing_day):
+    label = "EDGAR archives"
+    if not isinstance(probe, dict) or not isinstance(probe.get("streams"), list):
+        return finding(WARN, label, "edgar_poll probe unreadable (site down, or a server older than the probe)",
+                       "read /api/diag/edgar_poll with the diag token")
+    now = now or datetime.now(timezone.utc)
+    rows = {r.get("stream"): r for r in probe["streams"] if isinstance(r, dict)}
+    severity, problems, parts = OK, [], []
+
+    def raise_to(level):
+        nonlocal severity
+        if _SEVERITY_RANK[level] > _SEVERITY_RANK[severity]:
+            severity = level
+
+    for stream, name in _EDGAR_STREAM_NAMES.items():
+        r = rows.get(stream)
+        if r is None:
+            problems.append(f"{name}: not in the probe")
+            raise_to(WARN)
+            continue
+        fails = r.get("consecutive_failures") or 0
+        ok_polls, bad_polls = r.get("polls_ok") or 0, r.get("polls_failed") or 0
+        last_write = _parse_iso(r.get("last_archive_write_at"))
+        age = f"{(now - last_write).total_seconds() / 3600:.1f} h ago" if last_write else "none in the day files"
+        parts.append(f"{name} last row {age}, polls {ok_polls} ok / {bad_polls} failed")
+        if stream == "filings":
+            day, quiet = edgar_quiet_hours(last_write, now, filing_day)
+            if day is not None and quiet >= EDGAR_SILENT_ALARM_H:
+                if fails or not ok_polls:
+                    why = (f"{fails} consecutive failed polls, last error: {r.get('last_error') or 'none recorded'}"
+                           if fails else "no poll has succeeded since boot")
+                else:
+                    why = "polls succeed but archive nothing: a feed format change, or the archive cannot be written"
+                problems.append(f"Form 4: no row archived for {quiet:.1f} h of {day.isoformat()}'s "
+                                f"{EDGAR_WINDOW_START_H:02d}:00-{EDGAR_WINDOW_END_H}:00 ET window ({why})")
+                raise_to(ALARM)
+                continue
+        if fails >= EDGAR_FAILS_WARN:
+            problems.append(f"{name}: {fails} consecutive failed polls, last error: {r.get('last_error') or 'none recorded'}")
+            raise_to(ALARM if fails >= EDGAR_FAILS_ALARM else WARN)
+
+    if severity == OK:
+        return finding(OK, label, "; ".join(parts))
+    return finding(severity, label, "; ".join(problems) + " — " + "; ".join(parts),
+                   "read last_error on /api/diag/edgar_poll and request that URL by hand; an archive gap is refilled "
+                   "by the nightly Form 4 completeness pass only (13F and 8-K have none)")
+
+
 def p95(samples):
     xs = sorted(x for x in samples if isinstance(x, (int, float)))
     if not xs:
@@ -873,6 +992,10 @@ def gather(base_url, diag_token):
     return health, daemon, diagnostic_entries, tier2_error_entries, ml, server_version
 
 
+def gather_edgar(base_url, diag_token):
+    return _fetch_json(f"{base_url}/api/diag/edgar_poll?token={diag_token}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     ap.add_argument("--base-url", default=os.environ.get("VOLTRADE_BASE_URL", DEFAULT_BASE_URL))
@@ -905,6 +1028,9 @@ def main():
     if notify_state != prior_notify_state:
         save_outage_state(notify_state, path=DEFAULT_LIVENESS_NOTIFY_STATE_PATH)
     findings.append(check_liveness_notification(prior_notify_state, notify_state, wall_hours))
+
+    if diag_token:
+        findings.append(check_edgar_archives(gather_edgar(args.base_url, diag_token)))
 
     if not args.no_ops:
         plan_status, intent_cov, offload, governor, latency, uptime_s = gather_ops(args.base_url, health)

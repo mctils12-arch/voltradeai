@@ -42,6 +42,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
+import { notePollOk, notePollFailed } from "./edgarPollHealth";
 import { trackSet } from "./heapDiag";
 import { edgarCurrentFeedUrl } from "./edgarForm4";
 import { createFilingSeen } from "./filingSeen";
@@ -680,10 +681,13 @@ export async function refreshEarnings8kCache(limit = 15): Promise<void> {
     const filings = await fetchLatestEarnings8Ks(limit);
     const next = resolveCacheItems(cache !== null, filings, () => backfillEarnings8kFromArchive());
     if (next) cache = { at: Date.now(), filings: next };
-    try { archiveEarnings8Ks(filings); } catch {}
+    let archived = 0;
+    try { archived = archiveEarnings8Ks(filings); } catch {}
+    notePollOk("earnings8k", archived);
     try { gzipOldEarnings8kDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] earnings8k refresh:", e?.message || e);
+    notePollFailed("earnings8k", e);
     const next = resolveCacheItems(cache !== null, [], () => backfillEarnings8kFromArchive());
     if (next) cache = { at: Date.now(), filings: next };
   }

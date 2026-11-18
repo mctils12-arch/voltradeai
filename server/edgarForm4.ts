@@ -375,6 +375,7 @@ import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryRe
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
+import { notePollOk, notePollFailed } from "./edgarPollHealth";
 
 // [REPAIR 2026-11-16] "already archived?" is answered from the day files
 // themselves (filingSeen.ts), from the filing's own filed date forward —
@@ -524,10 +525,15 @@ export async function refreshForm4Cache(limit = 25, fetchImpl: FetchFn = fetch a
     const filings = await fetchLatestForm4Filings(limit, fetchImpl);
     const next = resolveCacheItems(cache !== null, filings, () => backfillForm4FromArchive());
     if (next) cache = { at: Date.now(), filings: next };
-    try { archiveFilings(filings); } catch {}
+    let archived = 0;
+    try { archived = archiveFilings(filings); } catch {}
+    notePollOk("filings", archived);
     try { gzipOldFilingDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgarForm4 refresh:", e?.message || e);
+    // [PIPELINE 2026-11-17] counted and served (edgarPollHealth.ts): on
+    // 2026-11-16 this branch ran on every poll for 11.6 h and nothing said so.
+    notePollFailed("filings", e);
     const next = resolveCacheItems(cache !== null, [], () => backfillForm4FromArchive());
     if (next) cache = { at: Date.now(), filings: next };
   }

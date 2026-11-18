@@ -436,6 +436,13 @@ export const DIAG_PROBES = [
   // accessions, held, backfilled, unparsed, failed, deferred. Counts only: no
   // ticker, name, CIK, accession or filing URL; no network; no query parameters.
   "form4_completeness",
+  // ADDED 2026-11-17 ([PIPELINE]): read-only health of the three EDGAR
+  // pollers (server/edgarPollHealth.ts edgarPollHealthStatus) — polls ok /
+  // failed since boot, consecutive failures, the last error (the poller's own
+  // message: an sec.gov URL and a status), and the archive's last write read
+  // from its day files. No ticker, name, CIK or accession; no network; no
+  // query parameters. Read by scripts/session_health_check.py.
+  "edgar_poll",
   // ADDED 2026-11-06 ([RESEARCH], human "fix all of this"): read-only status of
   // the weekly re-run of the pre-registered event-reaction study on the
   // delisting-inclusive panel (server/eventStudy.ts eventStudyStatus) — flag,

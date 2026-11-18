@@ -931,3 +931,129 @@ def test_adsb_upstream_full_quota_is_judged_as_before_including_starved():
     old = _gov(bg_n=1, r429=1, fg_n=3, fg_ok=0)
     old["effective_bg_rps"] = 0.19
     assert "STARVED" in hc.check_adsb_upstream(old, uptime_s=3 * 3600)["detail"]
+
+
+# ── EDGAR archives (2026-11-17, open_questions.md 2026-11-16 item (2)) ────
+from datetime import date as _date, datetime as _dt, timezone as _tz  # noqa: E402
+
+
+def _edgar_probe(form4=None, f13=None, e8k=None):
+    def row(stream, over):
+        base = {"stream": stream, "polls_ok": 6, "polls_failed": 0, "consecutive_failures": 0,
+                "last_ok_at": None, "last_failure_at": None, "last_error": None, "rows_archived": 40,
+                "last_archive_write_at": None}
+        base.update(over or {})
+        return base
+    return {"probe": "edgar_poll", "streams": [
+        row("filings", form4), row("filings13f", f13), row("earnings8k", e8k)]}
+
+
+def _utc(s):
+    return _dt.fromisoformat(s).replace(tzinfo=_tz.utc)
+
+
+_MON_1116_FAILING = {
+    "last_archive_write_at": "2026-11-16T12:40:00.000Z",  # 07:40 ET, the last row of that Monday
+    "polls_ok": 0, "polls_failed": 9, "consecutive_failures": 9,
+    "last_error": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&count=75&output=atom -> 400",
+}
+
+
+def test_edgar_monday_1116_alarms_at_each_session_that_ran_after_11_et():
+    # The sessions of 2026-11-16 ran at 13:05Z, 16:11Z, 18:07Z, 20:16Z and 00:10Z.
+    probe = _edgar_probe(form4=_MON_1116_FAILING)
+    early = hc.check_edgar_archives(probe, now=_utc("2026-11-16T13:05:00"))
+    assert early["severity"] == hc.WARN  # 08:05 ET: 5 minutes of window, but 9 failed polls are named
+    assert "9 consecutive failed polls" in early["detail"] and "-> 400" in early["detail"]
+    for at in ("2026-11-16T16:11:00", "2026-11-16T18:07:00", "2026-11-16T20:16:00", "2026-11-17T00:10:00"):
+        f = hc.check_edgar_archives(probe, now=_utc(at))
+        assert f["severity"] == hc.ALARM, at
+        assert "Form 4: no row archived for" in f["detail"] and "2026-11-16" in f["detail"]
+        assert "-> 400" in f["detail"]
+    # 00:19Z on 11-17 = 19:19 ET: "11.6 h without a file write" was the registry's reading; in-window it is 11.3 h
+    f = hc.check_edgar_archives(probe, now=_utc("2026-11-17T00:19:00"))
+    assert "no row archived for 11.3 h" in f["detail"]
+
+
+def test_edgar_quiet_hours_are_counted_inside_the_window_only():
+    day = _date(2026, 11, 16)
+    # written at 07:40 ET, read at 11:11 ET: quiet since 08:00, not since 07:40
+    d, q = hc.edgar_quiet_hours(_utc("2026-11-16T12:40:00"), _utc("2026-11-16T16:11:00"))
+    assert d == day and abs(q - (3 + 11 / 60)) < 0.01
+    # read at 23:00 ET: the window closed at 20:00
+    d, q = hc.edgar_quiet_hours(_utc("2026-11-16T12:40:00"), _utc("2026-11-17T04:00:00"))
+    assert d == day and abs(q - 12.0) < 0.01
+    # a write after the window closed clears it (the fix deployed that evening)
+    d, q = hc.edgar_quiet_hours(_utc("2026-11-17T01:30:00"), _utc("2026-11-17T04:00:00"))
+    assert d == day and q == 0.0
+    # before 08:00 ET on Tuesday the verdict is still about Monday
+    d, q = hc.edgar_quiet_hours(_utc("2026-11-16T12:40:00"), _utc("2026-11-17T12:00:00"))
+    assert d == day and abs(q - 12.0) < 0.01
+    # no plain day file at all: the whole window so far is quiet
+    d, q = hc.edgar_quiet_hours(None, _utc("2026-11-16T18:00:00"))
+    assert d == day and abs(q - 5.0) < 0.01
+
+
+def test_edgar_healthy_day_weekend_and_overnight_are_ok():
+    ok = _edgar_probe(form4={"last_archive_write_at": "2026-11-17T18:55:00.000Z"})
+    f = hc.check_edgar_archives(ok, now=_utc("2026-11-17T19:05:00"))
+    assert f["severity"] == hc.OK and "Form 4 last row 0.2 h ago" in f["detail"]
+    # Saturday afternoon, last row Friday 19:50 ET: Friday's window ended 10 minutes quiet
+    wk = _edgar_probe(form4={"last_archive_write_at": "2026-11-14T00:50:00.000Z"})
+    assert hc.check_edgar_archives(wk, now=_utc("2026-11-14T19:00:00"))["severity"] == hc.OK
+    # 02:00 ET Tuesday after a normal Monday
+    assert hc.check_edgar_archives(
+        _edgar_probe(form4={"last_archive_write_at": "2026-11-17T00:45:00.000Z"}),
+        now=_utc("2026-11-17T07:00:00"))["severity"] == hc.OK
+    # 2.9 h quiet inside the window is below the line
+    f = hc.check_edgar_archives(
+        _edgar_probe(form4={"last_archive_write_at": "2026-11-17T15:00:00.000Z"}), now=_utc("2026-11-17T17:54:00"))
+    assert f["severity"] == hc.OK
+
+
+def test_edgar_days_with_no_filings_expected_are_skipped():
+    assert hc.edgar_filing_day(_date(2026, 11, 16)) is True
+    assert hc.edgar_filing_day(_date(2026, 11, 14)) is False          # Saturday
+    assert hc.edgar_filing_day(_date(2026, 11, 26)) is False          # Thanksgiving (NYSE calendar)
+    assert hc.edgar_filing_day(_date(2026, 11, 11)) is False          # Veterans Day: EDGAR closed, NYSE open
+    assert hc.edgar_filing_day(_date(2026, 10, 12)) is False          # Columbus Day
+    assert hc._edgar_closed_nyse_open(_date(2028, 11, 10)) is True    # 11-11-2028 is a Saturday: observed Friday
+    assert hc._edgar_closed_nyse_open(_date(2028, 11, 11)) is False
+    assert hc._edgar_closed_nyse_open(_date(2029, 11, 12)) is True    # 11-11-2029 is a Sunday: observed Monday
+    assert hc._edgar_closed_nyse_open(_date(2026, 10, 5)) is False    # first Monday of October
+    # Veterans Day itself: nothing written all day, polls fine, read at 15:00 ET -> judged on Tuesday 11-10
+    f = hc.check_edgar_archives(
+        _edgar_probe(form4={"last_archive_write_at": "2026-11-11T00:40:00.000Z"}), now=_utc("2026-11-11T20:00:00"))
+    assert f["severity"] == hc.OK
+
+
+def test_edgar_silent_with_healthy_polls_still_alarms_and_says_so():
+    probe = _edgar_probe(form4={"last_archive_write_at": "2026-11-17T13:10:00.000Z", "polls_ok": 20})
+    f = hc.check_edgar_archives(probe, now=_utc("2026-11-17T19:00:00"))
+    assert f["severity"] == hc.ALARM and "polls succeed but archive nothing" in f["detail"]
+    # a container that has not completed one good poll
+    probe = _edgar_probe(form4={"last_archive_write_at": "2026-11-17T13:10:00.000Z", "polls_ok": 0})
+    f = hc.check_edgar_archives(probe, now=_utc("2026-11-17T19:00:00"))
+    assert f["severity"] == hc.ALARM and "no poll has succeeded since boot" in f["detail"]
+
+
+def test_edgar_13f_and_8k_failures_warn_then_alarm_and_one_failure_is_noise():
+    fresh = {"last_archive_write_at": "2026-11-17T18:55:00.000Z"}
+    now = _utc("2026-11-17T19:05:00")
+    one = hc.check_edgar_archives(_edgar_probe(form4=fresh, f13={"consecutive_failures": 1, "last_error": "x -> 503"}), now=now)
+    assert one["severity"] == hc.OK
+    two = hc.check_edgar_archives(_edgar_probe(form4=fresh, f13={"consecutive_failures": 2, "last_error": "x -> 503"}), now=now)
+    assert two["severity"] == hc.WARN and "13F: 2 consecutive failed polls, last error: x -> 503" in two["detail"]
+    many = hc.check_edgar_archives(_edgar_probe(form4=fresh, e8k={"consecutive_failures": 12, "last_error": "y -> 400"}), now=now)
+    assert many["severity"] == hc.ALARM and "8-K earnings: 12 consecutive failed polls" in many["detail"]
+    assert many.get("fix")
+
+
+def test_edgar_probe_missing_or_misshapen_is_a_warning_not_a_crash():
+    for bad in (None, {}, {"streams": "no"}, []):
+        assert hc.check_edgar_archives(bad, now=_utc("2026-11-17T19:05:00"))["severity"] == hc.WARN
+    part = {"streams": [{"stream": "filings", "last_archive_write_at": "not a date", "polls_ok": 3}]}
+    f = hc.check_edgar_archives(part, now=_utc("2026-11-17T13:30:00"))  # 08:30 ET: half an hour of window
+    assert f["severity"] == hc.WARN and "13F: not in the probe" in f["detail"]
+    # an unreadable write time counts as no write: by 11:30 ET that is an alarm
+    assert hc.check_edgar_archives(part, now=_utc("2026-11-17T16:30:00"))["severity"] == hc.ALARM

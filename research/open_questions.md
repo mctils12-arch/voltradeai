@@ -7818,6 +7818,22 @@
     test, and `deep_guard.counts.skip` stays 0 across a full session day.
     Until then every deploy restarts the daemon near 280 MB and deep
     scoring runs again for some hours: the skip returns the same day.
+    READING 2026-11-18 02:35Z (EDGE session; uptime 2.06 h, 2 scans, market
+    closed, so NOT the reading this item asks for): RSS 340 MB (75 at
+    start; scan peak 451), python_blocks 1,449,052 (294,374 at start),
+    malloc heap 105.8 MB of which in use 57.0 and free-retained 51.8,
+    threads 4, guard normal 2 / skip 0. Per phase for the one timed scan:
+    301 MB before deep_score, 416 after it, 449 after tier 1. So of the
+    265 MB gained since start, the C heap accounts for 88 and the rest sits
+    outside it (the interpreter's own arenas, where python_blocks live).
+    After two scans that leans to (i) live objects over (ii), weakly.
+    `largest_containers` names one module-level container, bot_engine.
+    _SCAN_CHANGES (2,847 entries): too small to be it, so if it is (i) the
+    holder is an instance, a closure or a library cache.
+    INSTRUMENT CHECKED: glibc's man page says mallinfo reads the main arena
+    only. Tested (glibc 2.39, 180 MB allocated and half freed on a worker
+    thread): mallinfo2 reported arena 172 / in use 86 / free 86 MB. It sums
+    every arena; `malloc.free_retained_mb` does cover the scan threads.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
@@ -24111,6 +24127,14 @@ STILL OPEN, each its own PR:
 (h) DOES `filedAt` ON POLL ROWS ALWAYS EQUAL THE INDEX'S FILING DATE? The poll takes the feed's "Filed:" date; recovered rows take the daily index's date. On 2026-11-13 the two agree in count (411 + 262 = 673 = the ledger's held). One day is not proof. PRIOR: ~85% they always agree. TESTABLE FORM: once the ledger has 20 complete days, for each compare `filed_days[].filings` with `edgar_index`; any complete day where they differ names a filing whose two dates disagree.
 (i) 13F AND 8-K HISTORY BY FILED DAY. `server/filedDayHistory.ts` is generic over the day-file archives; only Form 4 is wired. The 8-K earnings-language archive holds 24 releases filed in 2020-2021 under archive day 2026-11-15 (entry of 2026-11-16), which is the same question. Wire each when (e) (index vs held for 13F and 8-K) has been measured.
 Ladder: gate 1 (DATA) for a RAW archive, API boundary. No signal claim.
+## 2026-11-17 — RESULT on "the Form 4 archive recorded nothing…" item (2) THE SILENCE: the EDGAR pollers' failures are counted and served, and the session health check alarms on a silent filing day (v1.0.1462)
+BUILT (experiments.md 2026-11-17 [PIPELINE], EDGE session 21:33 ET): `server/edgarPollHealth.ts` (per poller: polls ok / failed since boot, consecutive failures, last error, and the archive's last write read from its plain day files), diag probe `edgar_poll`, and `check_edgar_archives` in `scripts/session_health_check.py`: ALARM when the latest filing day's 08:00-20:00 ET window has 3 h or more with no Form 4 row; WARN at 2 consecutive failed polls on any of the three streams, ALARM at 12. Regression pinned: Monday 11-16 alarms at the 11:11, 13:07, 15:16 and 19:10 ET sessions.
+CHECK AFTER DEPLOY: (1) `/api/diag/edgar_poll` answers 200 with three streams and `last_archive_write_at` set on `filings`; (2) the health check prints an "EDGAR archives" line, OK on Wednesday 11-18 after 11:00 ET; (3) on the next EDGAR-closed, NYSE-open day (Columbus Day 2027-10-11) the line stays OK.
+STILL OPEN, filed by this build:
+(j) THE REGISTRY STILL SAYS "LIVE". `server/streamsInventory.ts` `deriveHealth` calls any hourly stream live up to 26 h after its last file write; on 11-16 that read "live, newest file 11.6h old". TESTABLE FORM: a per-stream filing-hours rule (the health check's own window) feeding the registry's note for `filings`, so /data's own freshness line cannot say live while the health check alarms. One rule, two readers: move the window arithmetic server-side and let the Python check read the verdict.
+(k) 13F AND 8-K HAVE NO REFILL AND NO ARCHIVE-WRITE RULE. A day of failed polls there is a permanent gap unless a session sees the WARN. EDGAR's daily form index lists 13F-HR and 8-K accessions the same way it lists Form 4s; the completeness pass (`server/edgarForm4Completeness.ts`) is written for one form. TESTABLE FORM: for five recent business days, the archive's distinct 13F-HR accessions against the index's count (the 8-K archive keeps Item 2.02 only, so its truth needs the item, which the index does not carry). PRIOR: 60% the 13F archive is short on deadline days (40 filings a poll against a 14 November burst).
+Ladder: gate 1 (DATA) for RAW archives. No signal claim.
+
 ## 2026-11-16 — status of the follow-ups filed 2026-11-04..11-06 (each checked against the code at 7d757eb7 on 2026-11-12, not against prose; the session stalled 11-12 to 11-16, so this is filed four days late)
 
 The six sections above this one (options-bleed diagnosis 11-04; the volatility-managed floor; opening-window exits; option exits; the 15-change night's follow-ups; the refocus night's findings) list follow-ups whose text was never updated as they shipped. This is their state. An item not listed here was not checked.

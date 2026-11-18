@@ -33,6 +33,7 @@ import { archiveBaseDir } from "./datacoreArchive";
 import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryResponse } from "./filingHistoryPage";
 import { parseFilingFeed, edgarCurrentFeedUrl } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
+import { notePollOk, notePollFailed } from "./edgarPollHealth";
 import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
 
@@ -390,10 +391,13 @@ export async function refresh13FCache(limit = 40): Promise<void> {
     const filings = await fetchLatest13FFilings(limit);
     const next = resolveCacheItems(cache !== null, filings, () => backfill13FFromArchive());
     if (next) cache = { at: Date.now(), filings: next };
-    try { archive13FFilings(filings); } catch {}
+    let archived = 0;
+    try { archived = archive13FFilings(filings); } catch {}
+    notePollOk("filings13f", archived);
     try { gzipOld13FDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgar13f refresh:", e?.message || e);
+    notePollFailed("filings13f", e);
     const next = resolveCacheItems(cache !== null, [], () => backfill13FFromArchive());
     if (next) cache = { at: Date.now(), filings: next };
   }
