@@ -16,9 +16,18 @@
 // EDGAR's daily index ("complete"), some of them ("partial"), or the poll's
 // unchecked sample. A server that answers by archive day (an older build) is
 // labelled as that and gets no day groups.
-import { Fragment, useMemo, useState } from "react";
-import { ArrowLeft, ExternalLink, FileText } from "lucide-react";
-import { coverageWords, filedDayFirstQuery, filedDayState, filedDayWords, filedDaysSummary, loadOlderLabel, type FiledDayStatus } from "@/lib/filingCoverage";
+//
+// DAYS OPEN AND CLOSE (2026-11-18, lib/filingDayGroups.ts). A filed day holds
+// up to ~2,800 transaction rows; the page used to show the first 500 rows of
+// everything loaded, which ended partway through the second day. Every loaded
+// filed day is now a line that opens and closes (the newest day with rows
+// starts open) and an open day shows its rows a page at a time, so no loaded
+// day is out of reach and a phone is not handed 500 cards. An archive-day
+// page (an older server) has no days to open and keeps the flat 500-row list.
+import { Fragment, useCallback, useMemo, useState } from "react";
+import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink, FileText } from "lucide-react";
+import { dayRowsWords, defaultOpenDay, groupByFiledDay, isDayOpen, rowsShown, showMoreLabel } from "@/lib/filingDayGroups";
+import { coverageWords, filedDayFirstQuery, filedDayState, filedDayWords, filedDaysSummary, loadOlderLabel } from "@/lib/filingCoverage";
 import { useFilingHistory } from "@/lib/useFilingHistory";
 
 interface FilingRow {
@@ -50,20 +59,9 @@ const KIND_COLOR: Record<string, string> = {
 type Filter = "all" | "open_market" | "buys" | "sells";
 
 const WINDOW_DAYS = 30;
+/** archive-day pages only (no day groups to open): the flat list's cap */
 const MAX_ROWS = 500;
 const filedDayOf = (r: FilingRow): string => (typeof r.filedAt === "string" ? r.filedAt.slice(0, 10) : "");
-
-/** Consecutive rows filed on the same day, in the order given (the server
- *  returns whole filed days, newest first). */
-function groupByFiledDay(rows: FilingRow[]): { day: string; rows: FilingRow[] }[] {
-  const out: { day: string; rows: FilingRow[] }[] = [];
-  for (const r of rows) {
-    const day = filedDayOf(r);
-    const last = out[out.length - 1];
-    if (last && last.day === day) last.rows.push(r); else out.push({ day, rows: [r] });
-  }
-  return out;
-}
 
 function roleOf(o: any): string {
   if (!o) return "—";
@@ -105,7 +103,6 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
   const archiveStart = first?.archive_start || "2026-07-04";
   const byFiledDay = coverage?.by === "filed_day";
   const daysSummary = byFiledDay ? filedDaysSummary(filedDays) : "";
-  const dayStatus = useMemo(() => new Map<string, FiledDayStatus>(filedDays.map((d) => [d.day, d])), [filedDays]);
 
   const visible = useMemo(() => {
     if (!rows) return [];
@@ -116,8 +113,19 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
       default: return rows;
     }
   }, [rows, filter]);
-  const shown = useMemo(() => visible.slice(0, MAX_ROWS), [visible]);
-  const groups = useMemo(() => (byFiledDay ? groupByFiledDay(shown) : [{ day: "", rows: shown }]), [byFiledDay, shown]);
+  // filed-day page: every loaded day is a group; archive-day page: one flat capped list
+  const groups = useMemo(
+    () => (byFiledDay ? groupByFiledDay(visible, filedDayOf, filedDays) : [{ day: "", rows: visible.slice(0, MAX_ROWS), status: null }]),
+    [byFiledDay, visible, filedDays],
+  );
+  const defaultDay = useMemo(() => (byFiledDay ? defaultOpenDay(groups) : null), [byFiledDay, groups]);
+  // the visitor's own open/closed choices, and how many times "show more" was used per day
+  const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const [moreSteps, setMoreSteps] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const toggleDay = useCallback((day: string, open: boolean) => setChosen((m) => new Map(m).set(day, open)), []);
+  const showMore = useCallback((day: string) => setMoreSteps((m) => new Map(m).set(day, (m.get(day) || 0) + 1)), []);
+  // on a filed-day page a filter that matches nothing still leaves the day lines on screen
+  const showTable = visible.length > 0 || (byFiledDay && rows !== null && !error && groups.length > 0);
 
   return (
     <div className="vt-filings-page" role="region" aria-label="Insider transactions (Form 4)">
@@ -147,14 +155,14 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
       </div>
       {error && <div className="vt-filings-state">Feed error — the archive may still answer on refresh.</div>}
       {!error && rows === null && <div className="vt-filings-state">Loading filings…</div>}
-      {!error && rows !== null && visible.length === 0 && (
+      {!error && rows !== null && visible.length === 0 && !showTable && (
         <div className="vt-filings-state">
           {filter === "all"
             ? "No filings archived yet — the poll runs every ~15 minutes and history accumulates from 2026-07-04."
             : "No rows match this filter in the loaded days."}
         </div>
       )}
-      {visible.length > 0 && (
+      {showTable && (
         <div className="vt-filings-tablewrap om-sb">
           <table className="vt-filings-table">
             <thead>
@@ -166,19 +174,29 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
             </thead>
             <tbody>
               {groups.map((g, gi) => {
-                const st = dayStatus.get(g.day);
+                const st = g.status;
+                const open = !byFiledDay || isDayOpen(chosen, g.day, defaultDay);
+                const shownN = byFiledDay ? rowsShown(g.rows.length, moreSteps.get(g.day) || 0) : g.rows.length;
+                const more = byFiledDay && open ? showMoreLabel(shownN, g.rows.length) : null;
                 return (
                   <Fragment key={g.day || `group-${gi}`}>
                     {byFiledDay && (
-                      <tr className="vt-filings-dayrow" data-vt-filed-day={g.day} data-state={st ? filedDayState(st) : "sample"}>
+                      <tr className="vt-filings-dayrow" data-vt-filed-day={g.day} data-state={st ? filedDayState(st) : "sample"} data-open={open ? "1" : "0"}>
                         <th colSpan={8} scope="colgroup">
-                          <span className="vt-filings-dayrow-day">Filed {g.day || "on an unstated day"}</span>
-                          {st && <span> · {st.filings.toLocaleString()} {st.filings === 1 ? "filing" : "filings"}</span>}
-                          <span className="vt-filings-dayrow-state"> · {st ? filedDayWords(st) : "sample · not yet checked against EDGAR's index"}</span>
+                          <button type="button" className="vt-filings-daybtn" aria-expanded={open} disabled={g.rows.length === 0}
+                                  onClick={() => toggleDay(g.day, !open)}>
+                            {g.rows.length > 0 && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
+                            <span>
+                              <span className="vt-filings-dayrow-day">Filed {g.day || "on an unstated day"}</span>
+                              {st && <span> · {st.filings.toLocaleString()} {st.filings === 1 ? "filing" : "filings"}</span>}
+                              <span className="vt-filings-dayrow-state"> · {st ? filedDayWords(st) : "sample · not yet checked against EDGAR's index"}</span>
+                              <span className="vt-filings-dayrow-rows" data-vt-day-rows> · {dayRowsWords(g.rows.length, filter !== "all")}</span>
+                            </span>
+                          </button>
                         </th>
                       </tr>
                     )}
-                    {g.rows.map((r, i) => (
+                    {open && g.rows.slice(0, shownN).map((r, i) => (
                       <tr key={`${r.accession}-${i}`}>
                         <td data-l="Ticker"><span className="vt-filings-ticker">{r.symbol || "—"}</span>
                           <span className="vt-filings-issuername">{r.issuer}</span></td>
@@ -196,12 +214,19 @@ export default function FilingsView({ onBack }: { onBack: () => void }) {
                         )}</td>
                       </tr>
                     ))}
+                    {more && (
+                      <tr className="vt-filings-morerow">
+                        <td colSpan={8} data-l="">
+                          <button type="button" className="vt-filings-filter" data-vt-day-more={g.day} onClick={() => showMore(g.day)}>{more}</button>
+                        </td>
+                      </tr>
+                    )}
                   </Fragment>
                 );
               })}
             </tbody>
           </table>
-          {visible.length > MAX_ROWS && <div className="vt-filings-state">showing first {MAX_ROWS} of {visible.length.toLocaleString()} rows — narrow with a filter to see the rest</div>}
+          {!byFiledDay && visible.length > MAX_ROWS && <div className="vt-filings-state">showing first {MAX_ROWS} of {visible.length.toLocaleString()} rows — narrow with a filter to see the rest</div>}
         </div>
       )}
       {!error && olderLabel && (

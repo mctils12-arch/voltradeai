@@ -2927,6 +2927,22 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   border-top: 1px solid rgba(77, 159, 255, 0.22);
 }
 .vt-filings-dayrow-day { color: var(--text-primary); font-weight: 600; }
+/* Days open and close (2026-11-18): the day line is a button across the
+   table; an open day lists its rows a page at a time (.vt-filings-morerow). */
+.vt-filings-table .vt-filings-dayrow th:has(.vt-filings-daybtn) { padding: 0; }
+.vt-filings-daybtn {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px;
+  padding: 8px 8px 6px; background: transparent; border: 0; cursor: pointer;
+  font: inherit; color: inherit; text-align: left; line-height: 1.45;
+}
+.vt-filings-daybtn:hover:not(:disabled) { background: var(--bg-card-hover); }
+.vt-filings-daybtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vt-filings-daybtn:disabled { cursor: default; padding-left: 27px; }
+.vt-filings-daybtn svg { flex-shrink: 0; color: var(--text-tertiary); }
+.vt-filings-dayrow-rows { color: var(--text-tertiary); }
+.vt-filings-table .vt-filings-morerow td { padding: 8px; border-top: 0; }
+.vt-filings-morerow .vt-filings-filter { padding: 6px 14px; font-family: var(--font-mono); font-size: 11.5px; text-align: left; }
+@media (pointer: coarse) { .vt-filings-daybtn { min-height: 44px; } }
 .vt-filings-dayrow[data-state="complete"] .vt-filings-dayrow-state { color: var(--accent-green); }
 .vt-filings-dayrow[data-state="partial"] .vt-filings-dayrow-state { color: var(--accent-orange); }
 .vt-filings-dayrow[data-state="sample"] .vt-filings-dayrow-state { color: var(--text-tertiary); }
@@ -2958,6 +2974,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   /* (a row is a block here, so the row sticks, not its cell) */
   .vt-filings-table tr.vt-filings-dayrow { padding: 0; position: sticky; top: 0; z-index: 1; }
   .vt-filings-table .vt-filings-dayrow th { display: block; position: static; padding: 10px 12px 8px; line-height: 1.45; }
+  .vt-filings-daybtn { min-height: 44px; padding: 10px 12px 8px; }
+  .vt-filings-daybtn:disabled { padding-left: 31px; }
+  .vt-filings-table tr.vt-filings-morerow { padding: 6px 8px 10px; border-top: 0; }
+  .vt-filings-table .vt-filings-morerow td { display: block; padding: 0; }
 }
 
 /* Detail-card external link-outs (profiles/photos — links only, no embeds) */
