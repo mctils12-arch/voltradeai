@@ -4,13 +4,15 @@
 // The rules (what counts as loaded, when the walk stops) live in
 // filingCoverage.ts; this file only fetches and holds state.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { appendOlderFilings, extendCoverage, readCoverage, type FilingCoverage, type FilingHistoryMeta } from "./filingCoverage";
+import { appendFiledDays, appendOlderFilings, extendCoverage, readCoverage, readFiledDays, type FiledDayStatus, type FilingCoverage, type FilingHistoryMeta } from "./filingCoverage";
 
 export interface FilingHistoryState<T, M> {
   /** the first page's body (source, warming_up, archive_start, …); null until it lands */
   first: M | null;
   filings: T[];
   coverage: FilingCoverage | null;
+  /** filed-day pages only: the loaded filed days, newest first, each against EDGAR's count; [] otherwise */
+  filedDays: FiledDayStatus[];
   error: boolean;
   loadingOlder: boolean;
   /** the last "load older" request failed; the loaded rows are unchanged and the control stays */
@@ -27,6 +29,7 @@ export function useFilingHistory<T extends { accession: string }, M extends Fili
   const [first, setFirst] = useState<M | null>(null);
   const [filings, setFilings] = useState<T[]>([]);
   const [coverage, setCoverage] = useState<FilingCoverage | null>(null);
+  const [filedDays, setFiledDays] = useState<FiledDayStatus[]>([]);
   const [error, setError] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderError, setOlderError] = useState(false);
@@ -44,6 +47,7 @@ export function useFilingHistory<T extends { accession: string }, M extends Fili
         setFirst(d);
         setFilings(Array.isArray(d?.filings) ? d.filings : []);
         setCoverage(readCoverage(d));
+        setFiledDays(readFiledDays(d));
       } catch {
         if (alive.current) setError(true);
       }
@@ -65,7 +69,10 @@ export function useFilingHistory<T extends { accession: string }, M extends Fili
         if (!alive.current) return;
         const next = extendCoverage(from, d);
         // rows are appended only when the older page continues the loaded run of days
-        if (next.covered.from !== from.covered.from) setFilings((have) => appendOlderFilings(have, d?.filings));
+        if (next.covered.from !== from.covered.from) {
+          setFilings((have) => appendOlderFilings(have, d?.filings));
+          setFiledDays((have) => appendFiledDays(have, readFiledDays(d)));
+        }
         setCoverage(next);
       } catch {
         if (alive.current) setOlderError(true);
@@ -76,5 +83,5 @@ export function useFilingHistory<T extends { accession: string }, M extends Fili
     })();
   }, [coverage, route]);
 
-  return { first, filings, coverage, error, loadingOlder, olderError, loadOlder };
+  return { first, filings, coverage, filedDays, error, loadingOlder, olderError, loadOlder };
 }

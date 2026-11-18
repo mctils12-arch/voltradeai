@@ -799,6 +799,30 @@ const TRADE_LOADED = { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json"), "/
 // A truncated filing-history page and its older continuation, in the shape
 // server/filingHistoryPage.ts serves (window / covered / truncated / next).
 // First request (no `to=`): 2 of 30 days. `?from=…&to=2026-11-13`: the rest.
+// The Form 4 page asks by FILED day (2026-11-18): the first page covers
+// Mon 11-16 → Wed 11-18 and continues at the Friday before (the live shape,
+// read from production 2026-11-18), with one day complete against EDGAR's
+// index, one partial and one not yet checked on each page.
+function filedDayForm4History(req, form4) {
+  const older = /[?&]filed_to=2026-11-13/.test(req.url || "");
+  const filings = older
+    ? [form4(3, "2026-11-13"), form4(4, "2026-11-06"), form4(5, "2026-10-20")]
+    : [form4(0, "2026-11-18"), form4(1, "2026-11-17"), form4(2, "2026-11-16")];
+  const day = (d, n, index, complete) => ({ day: d, filings: n, omitted: 0, edgar_index: index, complete, checked_at: index == null ? null : "2026-11-18T07:15:41.235Z" });
+  return {
+    kind: "raw", source: "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04) (fixture)",
+    window_by: "filed_day", days: null,
+    window: older ? { from: "2026-10-20", to: "2026-11-13" } : { from: "2026-10-20", to: "2026-11-18" },
+    covered: older ? { from: "2026-10-20", to: "2026-11-13" } : { from: "2026-11-16", to: "2026-11-18" },
+    truncated: !older, next: older ? null : "?filed_from=2026-10-20&filed_to=2026-11-13",
+    max_filings: 2000, days_scanned: 3, archive_start: "2026-07-04", malformed_lines: 0, archive_days_read: 3, omitted: 0,
+    filed_days: older
+      ? [day("2026-11-13", 1, 1, true), day("2026-11-06", 1, 515, false), day("2026-10-20", 1, null, null)]
+      : [day("2026-11-18", 1, null, null), day("2026-11-17", 1, 1, true), day("2026-11-16", 1, 624, false)],
+    complete_days: 1, count: filings.length, filings,
+  };
+}
+
 function pagedFilingHistory(req, kind) {
   const older = /[?&]to=2026-11-13/.test(req.url || "");
   const window = older ? { from: "2026-10-17", to: "2026-11-13" } : { from: "2026-10-17", to: "2026-11-15" };
@@ -823,6 +847,7 @@ function pagedFilingHistory(req, kind) {
     indexUrl: `https://www.sec.gov/Archives/edgar/data/${3000 + i}/`, exhibitUrl: `https://www.sec.gov/Archives/edgar/data/${3000 + i}/ex99.htm`,
     text: `Fixture Results ${i} Inc today reported quarterly results and updated its full-year guidance.`, textLength: 92, truncated: false,
   });
+  if (kind === "form4" && /[?&]filed_(from|to)=/.test(req.url || "")) return filedDayForm4History(req, form4);
   const make = kind === "form4" ? form4 : kind === "earnings" ? e8k : f13;
   const filings = older
     ? [make(3, "2026-11-13"), make(4, "2026-11-06"), make(5, "2026-10-20")]
@@ -3668,12 +3693,41 @@ async function main() {
         // the earnings page lists release cards, the two filing pages table rows
         const rowCount = () => name === "earningspaged"
           ? page.locator(".vt-earnings-list > li").count()
-          : page.locator(".vt-filings-table").first().locator("tbody tr").count();
+          : page.locator(".vt-filings-table").first().locator("tbody tr:not(.vt-filings-dayrow)").count();
         const countWord = name === "earningspaged" ? /\b3 releases\b/ : /\b3 filings\b/;
         const fail = (m) => checks.failures.push("filing-coverage: " + m);
+        // the Form 4 page reads by filed day (2026-11-18); the other two by archive day
+        const byFiled = name === "filingspaged";
+        const want = byFiled
+          ? { before: /2026-11-16 → 2026-11-18 · 3 of the 30 days asked for/, after: /2026-10-20 → 2026-11-18 · all 30 days/, next: /history\?filed_from=2026-10-20&filed_to=2026-11-13$/ }
+          : { before: /2026-11-14 → 2026-11-15 · 2 of the 30 days asked for/, after: /2026-10-17 → 2026-11-15 · all 30 days/, next: /history\?from=2026-10-17&to=2026-11-13$/ };
         const cov = page.locator("[data-vt-coverage]");
         const before = (await cov.count()) ? await cov.first().innerText() : "";
-        if (!/2026-11-14 → 2026-11-15 · 2 of the 30 days asked for/.test(before)) fail(`header does not state the loaded days ("${before}")`);
+        if (!want.before.test(before)) fail(`header does not state the loaded days ("${before}")`);
+        // FILED DAYS (2026-11-18): each filed day is a line above its rows saying how it compares with EDGAR's index
+        const dayLines = async () => page.locator(".vt-filings-dayrow").evaluateAll((els) => els.map((el) => ({
+          day: el.getAttribute("data-vt-filed-day"), state: el.getAttribute("data-state"), text: (el.textContent || "").replace(/\s+/g, " ").trim(),
+          left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right,
+        })));
+        if (byFiled) {
+          if (!apiLog.some((u) => /insider\/history\?filed_from=\d{4}-\d{2}-\d{2}$/.test(u))) fail(`the first page was not asked for by filed day (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
+          if (!/\(days filed\)/.test(await page.locator(".vt-filings-sub").first().innerText())) fail("header does not say its days are filed days");
+          const sum = page.locator("[data-vt-filed-summary]");
+          const sumText = (await sum.count()) ? await sum.first().innerText() : "";
+          if (sumText !== "1 of 3 filed days complete against EDGAR's index · 1 partial · 1 not yet checked") fail(`filed-day summary reads "${sumText}"`);
+          const lines = await dayLines();
+          const expect = [
+            ["2026-11-18", "sample", "Filed 2026-11-18 · 1 filing · sample · not yet checked against EDGAR's index"],
+            ["2026-11-17", "complete", "Filed 2026-11-17 · 1 filing · complete · all 1 on EDGAR's index"],
+            ["2026-11-16", "partial", "Filed 2026-11-16 · 1 filing · partial · 1 of the 624 on EDGAR's index"],
+          ];
+          if (lines.length !== 3) fail(`expected 3 filed-day lines, found ${lines.length}`);
+          expect.forEach(([day, state, text], i) => {
+            const l = lines[i];
+            if (!l || l.day !== day || l.state !== state || l.text !== text) fail(`filed-day line ${i} is ${JSON.stringify(l)}, expected ${day} / ${state} / "${text}"`);
+            else if (l.left < -0.5 || l.right > vp.w + 0.5) fail(`filed-day line ${day} overflows the viewport (${Math.round(l.left)}..${Math.round(l.right)} of ${vp.w})`);
+          });
+        } else if (await page.locator(".vt-filings-dayrow").count()) fail("an archive-day page shows filed-day lines");
         const head = await page.locator(".vt-filings-sub").first().innerText();
         if (/last \d+ days/.test(head)) fail(`header still claims "last N days": ${head}`);
         if (!countWord.test(head)) fail(`header filing count is not the loaded count: ${head}`);
@@ -3687,11 +3741,18 @@ async function main() {
           await btn.first().click();
           await page.waitForTimeout(600);
           const after = (await cov.count()) ? await cov.first().innerText() : "";
-          if (!/2026-10-17 → 2026-11-15 · all 30 days/.test(after)) fail(`after loading older days the header reads "${after}"`);
+          if (!want.after.test(after)) fail(`after loading older days the header reads "${after}"`);
           if (await page.locator("[data-vt-load-older]").count()) fail("load-older control still shown after the window is whole");
           const rows1 = await rowCount();
           if (rows1 !== rows0 + 3) fail(`older rows not appended (${rows0} -> ${rows1}, expected +3)`);
-          if (!apiLog.some((u) => /history\?from=2026-10-17&to=2026-11-13$/.test(u))) fail(`the older page was not fetched through the server's next query (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
+          if (byFiled) {
+            const got = (await dayLines()).map((l) => `${l.day}:${l.state}`).join(" ");
+            const all = "2026-11-18:sample 2026-11-17:complete 2026-11-16:partial 2026-11-13:complete 2026-11-06:partial 2026-10-20:sample";
+            if (got !== all) fail(`after loading older days the filed-day lines are "${got}"`);
+            const sumAfter = await page.locator("[data-vt-filed-summary]").first().innerText().catch(() => "");
+            if (sumAfter !== "2 of 6 filed days complete against EDGAR's index · 2 partial · 2 not yet checked") fail(`after loading older days the summary reads "${sumAfter}"`);
+          }
+          if (!apiLog.some((u) => want.next.test(u))) fail(`the older page was not fetched through the server's next query (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
           await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-older.png`) });
         }
       }
