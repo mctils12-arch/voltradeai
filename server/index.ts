@@ -16,7 +16,7 @@ import { registerRobots } from "./robots";
 import { registerAdminStats } from "./adminStats";
 import { registerTerms } from "./terms";
 import { preloadLazyAssets, describePreload } from "./lazyAssets";
-import { markBootStage } from "./bot";
+import { markBootStage } from "./exitRecorder";
 
 const app = express();
 app.set("trust proxy", true); // Bug 36: Railway runs behind a reverse proxy

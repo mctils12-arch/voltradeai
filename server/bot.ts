@@ -143,7 +143,7 @@ import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { heapDiagnostic, trackSet } from "./heapDiag"; // memory audit 2026-11-03 A0
 import { registerBuiltinHeapGauges } from "./heapGauges";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
-import { createExitRecorder, exitRecorderFile, ALIVE_INTERVAL_MS } from "./exitRecorder";
+import { createExitRecorder, exitRecorderFile, setActiveRecorder, ALIVE_INTERVAL_MS } from "./exitRecorder";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
 import { followReplacements, hasOpenMlegOpeningOn, mlegOpeningLegs, openMlegUnderlyings } from "./mlegOpenOrders";
@@ -1435,12 +1435,10 @@ const exitRecorder = createExitRecorder({
   pid: process.pid,
 });
 let exitRecorderServing = false;
-/** A boot milestone for the exit recorder (server/index.ts: "routes_registered",
- *  "listening"). On 2026-11-18 seven boots died ~3 s after their "Server boot"
- *  row and nothing says how far they got. */
-export function markBootStage(name: string): void {
-  exitRecorder.stage(name);
-}
+// server/index.ts marks "routes_registered" and "listening" through
+// exitRecorder.ts markBootStage(): on 2026-11-18 seven boots died ~3 s after
+// their "Server boot" row and nothing says how far they got.
+setActiveRecorder(exitRecorder);
 
 // ─── Graceful Shutdown ───────────────────────────────────────────────────────
 async function gracefulShutdown(signal: string) {

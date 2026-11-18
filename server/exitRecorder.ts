@@ -194,6 +194,20 @@ export interface ExitRecorder {
   status(): RestartStatus;
 }
 
+/** The process's one recorder, set by the orchestrator when it creates it.
+ *  server/index.ts marks its boot milestones through markBootStage() here and
+ *  never imports the orchestrator (test_spinout_boundary.py: only the reviewed
+ *  HTTP-wiring files may import server/bot.ts). */
+let active: ExitRecorder | null = null;
+export function setActiveRecorder(r: ExitRecorder | null): void {
+  active = r;
+}
+/** A boot milestone ("routes_registered", "listening"). A no-op until the
+ *  orchestrator has set the recorder; never throws. */
+export function markBootStage(name: string): void {
+  if (active) active.stage(name);
+}
+
 export function createExitRecorder(opts: RecorderOpts): ExitRecorder {
   let state: RecorderState = emptyState();
   let faults = 0;
