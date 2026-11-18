@@ -119180,3 +119180,15 @@ DOWNSTREAM: six nights of seven the slice now makes no www.sec.gov request at al
 LADDER: gate-2 work in progress (the pre-registered Lazy Prices replication); this repair touches only the data-gathering step.
 TESTS: test_lazy_prices_backfill_ciks.py, new, 6: a fresh plan never asks for the list; the 11-17 case (stale plan + 429) relists from the plan on file; a working fetch is saved and the saved list is the first fallback; an empty map falls back and, with nothing to fall back on, the slice is skipped with the reason; main() reports a skip (exit 0), not an error; ensure_pairs_cache survives a failed listing. test_lazy_prices_backfill.py / _run.py / _cover_spotcheck.py unchanged and passing. Full pytest and the counter ratchet pass.
 STARVED: no.
+
+## 2026-11-18 [REPAIR] — T-BOT (bot_engine.py, test_covered_call_cash_park.py) — Covered-call sweep: never write a call against the floor's cash park (BOXX)
+VERSION: v1.0.1469 (shipped 2026-11-18 by the parent session; main was v1.0.1468)
+FOUND: reading the open for the cash-reserve repair. Audit MORNING-OPTIONS-SKIP, 14:30:36Z on 2026-11-17 and again on 2026-11-18: "BOXX: options-intended entry (covered_call, side='sell') dropped — the morning queue has no options path". The pre-market scan had queued "SELL COVERED CALL BOXX".
+ROOT CAUSE: scan_market step 6c offers a covered call on every stock position of 100+ shares (so the passive floor's shares can carry calls). The floor's idle cash is parked in BOXX; the park reached 110 shares. The sweep skips BEAR and PANIC, which is the only reason no in-hours scan has offered it yet: the pre-market scans did, and the first in-hours scan outside BEAR/PANIC would send it to options execution.
+WHY IT IS A DEFECT AND NOT A STRATEGY: the floor's cash rule (bot_engine._manage_floor_cash) sells the park whenever account cash must cover the satellites' sleeve or a short put's collateral. Shares sold from under a written call leave the call naked. A 1-3 month box-spread fund also has no premium worth selling.
+VERIFIED NOT TO HAVE HAPPENED: /api/diag/orders (200 orders back to 2026-10-13) holds one BOXX order, the stock buy; no BOXX option order exists.
+CHANGE: bot_engine.py: is_floor_cash_park(ticker) (next to floor_cash_ticker); the sweep skips the park before it can append a trade. The floor's equity holdings (SPY, QQQ) stay eligible, as the sweep intends. No parameter, no threshold.
+DOWNSTREAM: the pre-market queue no longer carries the BOXX row, so MORNING-OPTIONS-SKIP stops firing for it each morning; nothing else reads that trade.
+BACKTEST: not applicable (no strategy or parameter change; an order that must never be sent).
+TESTS: test_covered_call_cash_park.py, new, 4: the park is recognised and nothing else is; no park configured = nothing skipped; the sweep skips the park before the append; the floor's equity holdings stay eligible. Full pytest and the counter ratchet pass.
+STARVED: no.
