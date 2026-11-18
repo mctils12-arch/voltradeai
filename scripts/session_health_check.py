@@ -333,10 +333,12 @@ def _deep_guard_verdict(guard, label):
             ALARM, "daemon_memory",
             f"deep scoring is being SKIPPED for memory ({run} scan(s) in a row) — {detail}. "
             "Candidates reach the trade loop on quick_score alone. Read /api/diag/timings "
-            "(rss_mb per phase) and `memory.largest_containers` before touching any threshold",
+            "(rss_mb per phase) and `memory.largest_containers` before touching any threshold; "
+            "`/api/diag/daemon?census=1` names what holds the memory",
         )
     if last == "trim":
-        return finding(WARN, "daemon_memory", f"deep scoring trimmed for memory ({run} scan(s) in a row) — {detail}")
+        return finding(WARN, "daemon_memory", f"deep scoring trimmed for memory ({run} scan(s) in a row) — {detail}"
+                       + ("; `/api/diag/daemon?census=1` names what holds the memory" if run >= 3 else ""))
     skipped = counts.get("skip", 0) + counts.get("survival", 0)
     if skipped:
         return finding(WARN, "daemon_memory", f"last scan normal, but {skipped} earlier scan(s) skipped deep scoring — {detail}")

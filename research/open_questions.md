@@ -7834,6 +7834,57 @@
     only. Tested (glibc 2.39, 180 MB allocated and half freed on a worker
     thread): mallinfo2 reported arena 172 / in use 86 / free 86 MB. It sums
     every arena; `malloc.free_retained_mb` does cover the scan threads.
+    READING 2026-11-18 16:12Z and 16:28Z (DAILY midday session, market
+    open; the daemon was 1.34 h and then 1.60 h old, so still short of the
+    3 h this item asked for, but with 20 and then 23 scans behind it):
+    - 16:12Z: RSS 520.3 MB (75.6 at start, peak 619.3), python_blocks
+      3,818,710 (294,338 at start: 13x), C heap 170 MB of which in use 80.3
+      and free-retained 92.8, threads 5. Guard: normal 2, trim 18, skip 0.
+    - 16:28Z: RSS 504.8 MB, python_blocks 3,918,688 then 3,864,747 22 s
+      later, C heap 153 MB (in use 85, free-retained 71), threads 11 (a
+      scan was running). Guard: normal 2, trim 21, skip 0.
+    - Per phase (the scan that started 16:09Z): 494 MB through quick_scan,
+      519 after deep_score, 520 at the end. The next scan started at 501.
+    WHAT IT SAYS: (i) live Python objects. The C heap is 150-170 MB of a
+    505-520 MB process and its free-retained part is 70-93 MB, so
+    fragmentation (ii) cannot be most of the 430 MB gained; threads (iii)
+    are 5 at rest. The prior put 35% on (i) and 50% on (ii): wrong way
+    round. THE GROWTH FLATTENS: 1.45 M blocks after 2 scans (02:35Z
+    reading), 3.82 M after 20, 3.86-3.92 M after 23, and RSS went 520 ->
+    505 across those last three. That is the shape of caches filling to a
+    cap, not of a leak that adds a fixed amount per scan. A scan's
+    deep_score phase adds about 25 MB and most of it is given back before
+    the next one. NOT KNOWN from this: whether it keeps flattening to the
+    6.4 h figure of 11-17 (640 MB) or steps up again.
+    WHAT IT CANNOT SAY: who holds them. `largest_containers` ranks
+    module-level containers of this repo by LENGTH; the longest is
+    bot_engine._SCAN_CHANGES at 1,050-1,193 entries. Caches that are short
+    and deep are invisible to it, and several exist with caps, none
+    measured: options_scanner._chain_cache (50 keys, each a full option
+    chain of up to several thousand 16-field dicts, kept past its 3-minute
+    life until 50 newer keys push it out), vol_surface._surface_cache (200
+    tickers) and _sabr_cache (2,000), bot_engine._yf_cache (50). No cap was
+    changed: which of them is large is a guess until it is read.
+    INSTRUMENT 2 (v1.0.1464, read-only, on demand): `memory_census.py` and
+    `GET /api/diag/daemon?census=1`. For every module-level name in every
+    loaded module (libraries too), every class attribute, every function
+    closure and every thread's frame locals: objects reachable and their
+    bytes, largest first, each object counted under one name;
+    `&root=module.attr` gives the same per key or attribute one level
+    down; the longest containers nothing reached get their chain of
+    referrers up to an owner. Names, types and counts only. The daemon
+    refuses it while a scan runs (`&force=1` overrides) and runs one at a
+    time. Measured in a session on a 4.4 M-block heap with the daemon's
+    modules loaded: about 3 s, +61 MB at the peak, back to +3 MB after.
+    NEXT (first session after this deploys, 2+ hours into a market day):
+    `curl -H "x-diag-token: $DIAG_TOKEN" .../api/diag/daemon?census=1`,
+    then `&root=<the top holder>`. The fix is whatever that names: a cap
+    in entries on a cache whose entries are large is the wrong unit (bound
+    it by what it holds, or drop entries past their life); a library cache
+    is a setting. Its own PR, with the census reading before and after and
+    `deep_guard.counts.trim` and `skip` at 0 across a session day as the
+    close. ROLLBACK TRIGGER for the fix, stated now: any rise in scan time
+    (`/api/diag/timings` total_sec) of more than 10% over three scans.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.

@@ -682,6 +682,17 @@ export function sanitizeDiag<T>(v: T, depth = 0): T {
   return v;
 }
 
+/** Arguments for the daemon's `memory_census` RPC from the `daemon` probe's
+ *  query (?census=1&root=module.attr&force=1), or null when `root` is not a
+ *  plain dotted name. 2026-11-18, KNOWN BROKEN #55: the root is read by the
+ *  daemon as module and attribute names only, never evaluated. */
+export function daemonCensusArgs(root: unknown, force: unknown): { root: string | null; force: boolean } | null {
+  const f = String(force ?? "") === "1";
+  if (root === undefined || root === null || root === "") return { root: null, force: f };
+  if (typeof root !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*){1,7}$/.test(root)) return null;
+  return { root, force: f };
+}
+
 // ── 2026-11-02: `lots` and `option_bars` helpers (see the DIAG_PROBES comment) ──
 
 const OCC_RE = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/;
