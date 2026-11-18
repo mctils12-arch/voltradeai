@@ -289,6 +289,11 @@ def _malloc_snapshot(libc=None):
     }
 
 
+# The census holds the GIL while it walks; these dispatches are the ones a
+# few seconds of that could push past their own deadline.
+_CENSUS_WAITS_FOR = ("run_full_scan", "scan_market", "manage_positions", "floor_reduce_only")
+_CENSUS_LOCK = threading.Lock()
+
 _CONTAINER_TYPES = (dict, list, set, frozenset, collections.deque)
 _REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -371,6 +376,13 @@ class RPCDispatcher:
             # Health / daemon control
             "health": (None, "_health"),
             "ping": (None, "_ping"),
+            # MEMORY CENSUS (2026-11-18, KNOWN BROKEN #55, memory_census.py):
+            # which names hold this process's Python objects. Read-only and
+            # on demand: it holds the GIL for up to its time budget, so it is
+            # refused while a scan is running unless args.force. args
+            # {"root": "module.attr"|None, "force": bool}. No subprocess
+            # fallback: a fresh process has none of this one's memory.
+            "memory_census": (None, "_memory_census"),
 
             # ML control
             "ml_status": ("ml_status_impl", None),
@@ -723,6 +735,26 @@ class RPCDispatcher:
             "memory": _memory_snapshot(),
             "pid": os.getpid(),
         }
+
+    def _memory_census(self, args):
+        """Who holds this process's Python objects (memory_census.census).
+        One at a time, and not while a scan runs unless forced."""
+        args = args if isinstance(args, dict) else {}
+        scanning = [d["method"] for d in _active_dispatch_snapshot()
+                    if d["method"] in _CENSUS_WAITS_FOR]
+        if scanning and not args.get("force"):
+            return {"refused": "a scan is running; ask again when it has finished, or pass force",
+                    "active": scanning}
+        if not _CENSUS_LOCK.acquire(blocking=False):
+            return {"refused": "a census is already running"}
+        try:
+            import memory_census
+            root = args.get("root")
+            out = memory_census.census(root=str(root) if root else None)
+            out["rss_current_mb"] = _current_rss_mb()
+            return out
+        finally:
+            _CENSUS_LOCK.release()
 
     def _ping(self, args):
         """Simplest possible call — for latency testing."""

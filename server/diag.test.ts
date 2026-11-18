@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES, orderRow, positionRow, accountRow, lotRow, optionBarsQuery, optionBarsUrl } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, DIAG_PROBES, orderRow, positionRow, accountRow, lotRow, optionBarsQuery, optionBarsUrl, daemonCensusArgs } from "./diag";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Dummy token for tests only — NEVER the real DIAG_TOKEN value (that
@@ -668,4 +668,21 @@ test("optionBarsQuery: OCC-only symbols (≤ 10), a YYYY-MM-DD window of at most
   const url = optionBarsUrl(["QQQ261127P00600000"], "2026-10-01", "2026-11-02", "tok/en");
   assert.ok(url.startsWith("https://data.alpaca.markets/v1beta1/options/bars?symbols=QQQ261127P00600000&timeframe=1Day&start=2026-10-01&end=2026-11-02&limit=10000&sort=asc&page_token=tok%2Fen"));
   assert.ok(!/key|secret/i.test(url));
+});
+
+test("daemonCensusArgs: the census root is a plain dotted name or nothing; anything else is refused before it reaches the daemon", () => {
+  assert.deepEqual(daemonCensusArgs(undefined, undefined), { root: null, force: false });
+  assert.deepEqual(daemonCensusArgs("", "1"), { root: null, force: true });
+  assert.deepEqual(daemonCensusArgs("options_scanner._chain_cache", "0"), { root: "options_scanner._chain_cache", force: false });
+  assert.deepEqual(daemonCensusArgs("pandas.core.frame.DataFrame._cache", "1"), { root: "pandas.core.frame.DataFrame._cache", force: true });
+  const refused: unknown[] = ["bot_engine", "a..b", "os.system('x')", "a.b;c", "__import__('os').x", "a.b c", ".a.b", "a.b.", "1a.b", ["a.b"], { a: 1 }, "a." + "b.".repeat(9) + "c"];
+  for (const bad of refused) {
+    assert.equal(daemonCensusArgs(bad, "1"), null, `refused: ${JSON.stringify(bad)}`);
+  }
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const i = bot.indexOf('case "daemon": {');
+  const c = bot.slice(i, i + 1800);
+  assert.ok(c.includes('String(req.query.census || "") === "1"'), "the census runs only when asked for");
+  assert.ok(c.includes('pythonRpc("memory_census", args, 30000)'), "daemon RPC only: a subprocess would measure its own memory");
+  assert.ok(c.indexOf("memory_census") < c.indexOf('pythonRpc("health"'), "the plain probe is unchanged after the census branch");
 });

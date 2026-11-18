@@ -7866,6 +7866,66 @@
     the skip persists. Not built here: product sessions do not preempt
     the DAILY repair duty, and a threshold must not move before the
     holder is named.
+    ADDED AT MERGE (21:15Z): the DAILY midday session built that census
+    the same day (#1824, v1.0.1464; its 16:12Z and 16:28Z readings follow
+    this one in the file but were taken earlier). Read together: live
+    blocks were 3.82 M at 1.34 h and 3.79 M at 3.27 h, so the live
+    objects stopped growing after the first hour, as #1824 says, while
+    freed-but-retained C heap went 92.8 -> 185.9 MB and RSS 520 -> 617.
+    The rise from trim to skip between hour 1.3 and hour 3.3 is therefore
+    (ii) fragmentation on top of a flat (i). The NEXT STEP above is done
+    by #1824; what is left is its census read at 3+ hours.
+    READING 2026-11-18 16:12Z and 16:28Z (DAILY midday session, market
+    open; the daemon was 1.34 h and then 1.60 h old, so still short of the
+    3 h this item asked for, but with 20 and then 23 scans behind it):
+    - 16:12Z: RSS 520.3 MB (75.6 at start, peak 619.3), python_blocks
+      3,818,710 (294,338 at start: 13x), C heap 170 MB of which in use 80.3
+      and free-retained 92.8, threads 5. Guard: normal 2, trim 18, skip 0.
+    - 16:28Z: RSS 504.8 MB, python_blocks 3,918,688 then 3,864,747 22 s
+      later, C heap 153 MB (in use 85, free-retained 71), threads 11 (a
+      scan was running). Guard: normal 2, trim 21, skip 0.
+    - Per phase (the scan that started 16:09Z): 494 MB through quick_scan,
+      519 after deep_score, 520 at the end. The next scan started at 501.
+    WHAT IT SAYS: (i) live Python objects. The C heap is 150-170 MB of a
+    505-520 MB process and its free-retained part is 70-93 MB, so
+    fragmentation (ii) cannot be most of the 430 MB gained; threads (iii)
+    are 5 at rest. The prior put 35% on (i) and 50% on (ii): wrong way
+    round. THE GROWTH FLATTENS: 1.45 M blocks after 2 scans (02:35Z
+    reading), 3.82 M after 20, 3.86-3.92 M after 23, and RSS went 520 ->
+    505 across those last three. That is the shape of caches filling to a
+    cap, not of a leak that adds a fixed amount per scan. A scan's
+    deep_score phase adds about 25 MB and most of it is given back before
+    the next one. NOT KNOWN from this: whether it keeps flattening to the
+    6.4 h figure of 11-17 (640 MB) or steps up again.
+    WHAT IT CANNOT SAY: who holds them. `largest_containers` ranks
+    module-level containers of this repo by LENGTH; the longest is
+    bot_engine._SCAN_CHANGES at 1,050-1,193 entries. Caches that are short
+    and deep are invisible to it, and several exist with caps, none
+    measured: options_scanner._chain_cache (50 keys, each a full option
+    chain of up to several thousand 16-field dicts, kept past its 3-minute
+    life until 50 newer keys push it out), vol_surface._surface_cache (200
+    tickers) and _sabr_cache (2,000), bot_engine._yf_cache (50). No cap was
+    changed: which of them is large is a guess until it is read.
+    INSTRUMENT 2 (v1.0.1464, read-only, on demand): `memory_census.py` and
+    `GET /api/diag/daemon?census=1`. For every module-level name in every
+    loaded module (libraries too), every class attribute, every function
+    closure and every thread's frame locals: objects reachable and their
+    bytes, largest first, each object counted under one name;
+    `&root=module.attr` gives the same per key or attribute one level
+    down; the longest containers nothing reached get their chain of
+    referrers up to an owner. Names, types and counts only. The daemon
+    refuses it while a scan runs (`&force=1` overrides) and runs one at a
+    time. Measured in a session on a 4.4 M-block heap with the daemon's
+    modules loaded: about 3 s, +61 MB at the peak, back to +3 MB after.
+    NEXT (first session after this deploys, 2+ hours into a market day):
+    `curl -H "x-diag-token: $DIAG_TOKEN" .../api/diag/daemon?census=1`,
+    then `&root=<the top holder>`. The fix is whatever that names: a cap
+    in entries on a cache whose entries are large is the wrong unit (bound
+    it by what it holds, or drop entries past their life); a library cache
+    is a setting. Its own PR, with the census reading before and after and
+    `deep_guard.counts.trim` and `skip` at 0 across a session day as the
+    close. ROLLBACK TRIGGER for the fix, stated now: any rise in scan time
+    (`/api/diag/timings` total_sec) of more than 10% over three scans.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
@@ -24167,7 +24227,7 @@ STILL OPEN, filed by this build:
 (k) 13F AND 8-K HAVE NO REFILL AND NO ARCHIVE-WRITE RULE. A day of failed polls there is a permanent gap unless a session sees the WARN. EDGAR's daily form index lists 13F-HR and 8-K accessions the same way it lists Form 4s; the completeness pass (`server/edgarForm4Completeness.ts`) is written for one form. TESTABLE FORM: for five recent business days, the archive's distinct 13F-HR accessions against the index's count (the 8-K archive keeps Item 2.02 only, so its truth needs the item, which the index does not carry). PRIOR: 60% the 13F archive is short on deadline days (40 filings a poll against a 14 November burst).
 Ladder: gate 1 (DATA) for RAW archives. No signal claim.
 
-## 2026-11-18 — RESULT on "(l) THE ROW CAP HIDES MOST OF A DAY": every loaded filed day is a line that opens (v1.0.1464)
+## 2026-11-18 — RESULT on "(l) THE ROW CAP HIDES MOST OF A DAY": every loaded filed day is a line that opens (v1.0.1465)
 
 (l) BUILT (experiments.md 2026-11-18 13:07 ET [PRODUCT], T-CLIENT). READ ON PRODUCTION FIRST (18:20Z, v1.0.1463, headless browser on #/data/filings): header "(days filed) · 2 of 3 filed days complete"; day lines for 2026-11-18 and 2026-11-17 only; 502 table rows. The third loaded day, 2026-11-16 (624 filings, 1,333 transaction rows, complete), had no line and no row: the 500-row cap ended 236 rows into 11-17. This also closes #1823's CHECK AFTER DEPLOY (the header and the first group read as filed).
 NOW: `client/src/lib/filingDayGroups.ts` builds one group per loaded filed day from EVERY loaded row (and from the server's day list, so a day whose rows a filter removed keeps its line). The day line is a button (aria-expanded) that also states the day's rows ("2,800 rows", "281 matching rows", "no rows match the filter"). The newest day with rows starts open; an open day shows 25 rows, then "Show 200 more · 25 of 2,800 rows shown". Days loaded by "Load older days" arrive closed. An archive-day page (an older server) keeps the flat 500-row list and its cap message.
