@@ -143,6 +143,7 @@ import { memoryCeiling, memoryPressure } from "./memoryCeiling";
 import { heapDiagnostic, trackSet } from "./heapDiag"; // memory audit 2026-11-03 A0
 import { registerBuiltinHeapGauges } from "./heapGauges";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
+import { createExitRecorder, EXIT_RECORDER_FILE, ALIVE_INTERVAL_MS } from "./exitRecorder";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
 import { followReplacements, hasOpenMlegOpeningOn, mlegOpeningLegs, openMlegUnderlyings } from "./mlegOpenOrders";
@@ -1417,8 +1418,27 @@ async function sendEmailAlert(subject: string, body: string) {
   }
 }
 
+// ─── Exit recorder (2026-11-18) ──────────────────────────────────────────────
+// A killed process writes nothing. This one says "still here" every 10 s to a
+// small file, so the NEXT boot can report when it was last alive and what it
+// looked like (server/exitRecorder.ts; begun in registerBotRoutes).
+const exitRecorder = createExitRecorder({
+  file: path.join(regimeDataDir(process.env), EXIT_RECORDER_FILE),
+  fs,
+  now: () => Date.now(),
+  audit: (action, detail) => audit(action, detail),
+  sample: () => {
+    const m = process.memoryUsage();
+    return { heapUsedMB: Math.round(m.heapUsed / 1048576), rssMB: Math.round(m.rss / 1048576), cgroupUsageMB: memoryCeiling().cgroupUsageMB };
+  },
+  version: pkgVersion,
+  pid: process.pid,
+});
+let exitRecorderServing = false;
+
 // ─── Graceful Shutdown ───────────────────────────────────────────────────────
 async function gracefulShutdown(signal: string) {
+  exitRecorder.end(signal);   // first: a shutdown cut short by SIGKILL is still a requested stop
   try {
     const resolved = resolveInflightRefreshes();
     if (resolved.length) audit("SHUTDOWN", `Resolved in-flight refresh markers (clean stop, not a crash): ${resolved.join(", ")}`);
@@ -1816,6 +1836,12 @@ export function registerBotRoutes(app: Express) {
   // exceptions are audited (FATAL-EXCEPTION) and then exit(1). See
   // server/crashVisibility.ts; counts surface on /api/health `checks.process`.
   installCrashHandlers(process, { audit });
+  // 2026-11-18: was the previous process killed? (UNCLEAN-EXIT / RESTART-BURST
+  // rows; `checks.restarts` on /api/health.) An uncaught exception is already
+  // recorded by the handler above, so it is marked as an end, not as a kill.
+  exitRecorder.begin();
+  process.on("uncaughtException", () => exitRecorder.end("uncaught exception"));
+  setInterval(() => exitRecorder.tick(), ALIVE_INTERVAL_MS).unref();
 
   // SSE for live bot audit log updates
   app.get("/api/bot/stream", requireOwner, (req, res) => {
@@ -2317,6 +2343,11 @@ print(json.dumps(data))
     // died silently before crashVisibility.ts, and the last reason — a
     // restart loop with a non-zero count here names its own cause.
     checks.checks.process = crashStats();
+    // 2026-11-18: boots in the last 10 min / 24 h and processes that were
+    // killed without a signal (exitRecorder.ts). Status only: never a serving
+    // gate and never the top-level status.
+    if (!exitRecorderServing) { exitRecorderServing = true; exitRecorder.stage("serving"); }
+    checks.checks.restarts = exitRecorder.status();
 
     // OOM fix: expose memory usage in health check for monitoring.
     // KNOWN BROKEN #41 (2026-09-16): ALSO expose the two walls — V8's heap
@@ -11487,6 +11518,7 @@ if os.path.exists(TRADE_FEEDBACK_PATH):
     } catch (_) {}
 
     audit("SYSTEM", "=== VolTradeAI Bot v2.0 Initialized ===");
+    exitRecorder.stage("bot_initialized");
     audit("SYSTEM", `Mode: PAPER TRADING (Alpaca)`);
     audit("RULES", `Scan interval: 45 seconds during trading hours`);
     audit("RULES", `Max positions: ${MAX_POSITIONS} ceiling (dynamic sizing uses portfolio heat)`);

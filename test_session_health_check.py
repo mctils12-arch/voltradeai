@@ -31,6 +31,54 @@ def _health(dark=False, status="ok", detail="", bad_subsystem=None, process=None
     return {"status": status, "checks": checks}
 
 
+# ── check_restarts (2026-11-18: eight boots in 56 s and no row saying why) ──
+
+def _restarts(**kw):
+    base = {"status": "ok", "detail": None, "boots_10m": 1, "boots_24h": 14, "burst": False,
+            "last_boot_at": "2026-11-18T13:48:35.000Z", "unclean_24h": 0, "last_unclean": None,
+            "recorder_faults": 0, "gates_top_level_status": False}
+    base.update(kw)
+    h = _health()
+    h["checks"]["restarts"] = base
+    return h
+
+
+_KILLED = {"bootAt": "2026-11-18T13:48:35.000Z", "version": "1.0.1463", "lastAliveAt": "2026-11-18T14:51:10.000Z",
+           "livedS": 3755, "goneS": 7, "stage": "serving",
+           "sample": {"heapUsedMB": 1500, "rssMB": 2100, "cgroupUsageMB": 2700}, "detectedAt": "2026-11-18T14:51:17.000Z"}
+
+
+def test_restarts_ok_when_every_boot_followed_a_requested_stop():
+    f = hc.check_restarts(_restarts())
+    assert f["severity"] == hc.OK and "14 boot(s) in 24h" in f["detail"]
+
+
+def test_restarts_alarm_on_a_burst_with_what_the_killed_process_looked_like():
+    f = hc.check_restarts(_restarts(status="warning", burst=True, boots_10m=8, unclean_24h=8, last_unclean=_KILLED))
+    assert f["severity"] == hc.ALARM
+    assert "RESTART BURST: 8 boots in the last 10 minutes" in f["detail"]
+    assert "3755s after its boot, stage 'serving'" in f["detail"]
+    assert "heap 1500 MB / rss 2100 MB / container 2700 MB" in f["detail"]
+    assert "only in Railway's deploy log" in f["detail"]
+
+
+def test_restarts_warn_on_one_killed_process_after_the_burst_is_over():
+    f = hc.check_restarts(_restarts(status="warning", unclean_24h=1, last_unclean=_KILLED))
+    assert f["severity"] == hc.WARN and "1 process(es) killed without a shutdown signal" in f["detail"]
+
+
+def test_restarts_warn_when_the_recorder_cannot_write_or_the_block_is_missing():
+    assert hc.check_restarts(_restarts(recorder_faults=4))["severity"] == hc.WARN
+    f = hc.check_restarts(_health())
+    assert f["severity"] == hc.WARN and "predates the exit recorder" in f["detail"]
+    assert hc.check_restarts(None)["severity"] == hc.WARN
+
+
+def test_restarts_is_one_of_the_checks_main_runs():
+    import inspect
+    assert "check_restarts(health)," in inspect.getsource(hc)
+
+
 def _diag_entry(msg):
     return {"time": "2026-07-14T19:57:31.571Z", "type": "DIAGNOSTIC", "message": msg}
 
@@ -552,11 +600,12 @@ def test_overall_exit_code_empty_is_ok():
 def test_run_all_checks_returns_ten_findings():
     # 7 -> 8 on 2026-09-16 (check_deploy_gate, KNOWN BROKEN #41); 8 -> 9 same
     # day (check_process_faults, that fix's own queued NEXT step); 9 -> 10 on
-    # 2026-11-10 (check_engine_kill, KNOWN BROKEN #49).
+    # 2026-11-10 (check_engine_kill, KNOWN BROKEN #49); 10 -> 11 on 2026-11-18
+    # (check_restarts, the exit recorder; the test keeps its name).
     findings = hc.run_all_checks(_health(), {"alive": True, "rss_mb": 100}, [], [], {})
-    assert len(findings) == 10
+    assert len(findings) == 11
     assert all("severity" in f and "label" in f and "detail" in f for f in findings)
-    assert {f["label"] for f in findings} >= {"deploy_freshness", "deploy_gate", "process_faults"}
+    assert {f["label"] for f in findings} >= {"deploy_freshness", "deploy_gate", "process_faults", "restarts"}
     assert findings[0]["label"] == "deploy_gate", "the deploy gate is the first line — a 503 there explains every other finding"
 
 
