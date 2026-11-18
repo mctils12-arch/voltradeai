@@ -103,7 +103,16 @@ def ensure_pairs_cache(d: str, first: str = "2014q1", sleep_s: float = 0.3) -> T
     """Resumable download of each closed quarter's pairs. Network trouble on one
     quarter never aborts the rest. -> (cached quarters, failed quarters)."""
     import sec_form4_bulk as sb
-    avail = sb.list_available_quarters()
+    try:
+        avail = sb.list_available_quarters()
+    except Exception as e:  # noqa: BLE001 — surfaced via the failed list, like a quarter's failure below
+        # REPAIR 2026-11-18: a 429 on the SEC index page raised out of here and
+        # ended the caller's whole run. The listing only discovers NEW quarters;
+        # what is already cached is still usable.
+        print(f"[sec_issuer_pairs] quarter listing failed: {e}", file=sys.stderr)
+        cached = sorted(fn[:-len(".pairs.jsonl.gz")] for fn in (os.listdir(d) if os.path.isdir(d) else [])
+                        if fn.endswith(".pairs.jsonl.gz"))
+        return [q for q in cached if q >= first], [f"listing: {type(e).__name__}: {str(e)[:120]}"]
     wanted = [q for q in sorted(avail) if q >= first]
     failed = []
     for q in wanted:

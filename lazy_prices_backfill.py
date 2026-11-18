@@ -678,6 +678,53 @@ class Backfill:
 
 # ── the one-shot entry point for the nightly job ─────────────────────────────
 
+CIK_LIST_FILE = "cik_list.json"
+
+
+def _ciks_from_pairs(pairs_dir: str) -> Tuple[list, int]:
+    """(CIKs of the dated CIK->ticker map, pairs quarters that failed). Network:
+    the SEC insider data sets (www.sec.gov), only for quarters not cached."""
+    import sec_cik_symbol_map as cmap
+    import sec_issuer_pairs as sip
+    _ok, failed_q = sip.ensure_pairs_cache(pairs_dir)
+    return sorted(cmap.build_map(sip.rows_from_pairs_cache(pairs_dir)).keys(), key=lambda c: (len(c), c)), len(failed_q)
+
+
+def resolve_ciks(root: str, pairs_dir: str, meta: Optional[dict],
+                 fetch: Optional[Callable[[str], Tuple[list, int]]] = None) -> Tuple[list, Optional[str], Optional[str]]:
+    """The CIK list a plan listing needs -> (ciks, source, problem).
+
+    1. the pairs cache (the live list); saved to CIK_LIST_FILE on the volume;
+    2. when that fetch fails or comes back empty: the last list saved there;
+    3. else the CIKs of the complete plan on file (its done_ciks);
+    4. else ([], None, why): the caller skips the slice and says why.
+
+    A fallback list is OLDER than tonight's: an issuer that first appeared in
+    the insider data since then is missing until a later fetch works. `source`
+    carries the list's date so the run's status line says which one was used."""
+    problem = None
+    try:
+        ciks, failed_n = (fetch or _ciks_from_pairs)(pairs_dir)
+        if not ciks:
+            problem = f"CIK map empty ({failed_n} pairs quarters failed)"
+    except Exception as e:  # noqa: BLE001 — a prerequisite's network trouble never ends the slice; reported in `problem`
+        ciks, problem = [], f"{type(e).__name__}: {str(e)[:200]}"
+        print(f"[lazy_prices_backfill] CIK list fetch failed: {problem}", file=sys.stderr)
+    if ciks:
+        try:
+            _write_json(os.path.join(root, CIK_LIST_FILE), {"saved_at": _now_iso(), "ciks": list(ciks)})
+        except OSError as e:
+            print(f"[lazy_prices_backfill] could not save {CIK_LIST_FILE}: {e}", file=sys.stderr)
+        return list(ciks), "pairs cache", None
+    saved = _read_json(os.path.join(root, CIK_LIST_FILE), {}) or {}
+    if isinstance(saved.get("ciks"), list) and saved["ciks"]:
+        return [str(c) for c in saved["ciks"]], f"saved list of {str(saved.get('saved_at'))[:10]} (tonight's fetch failed: {problem})", problem
+    if meta and meta.get("complete") and meta.get("done_ciks"):
+        return ([str(c) for c in meta["done_ciks"]],
+                f"the plan of {str(meta.get('completed_at'))[:10]} (tonight's fetch failed: {problem})", problem)
+    return [], None, problem
+
+
 def run_once(root: str, pairs_dir: str, tmp_archive: str, since: str, budget_s: float, max_rss_mb: float,
              code_version: str, max_filings: Optional[int] = None, ciks: Optional[Iterable[str]] = None,
              client=None, list_filings: Optional[Callable[[str, str], list]] = None,
@@ -690,25 +737,31 @@ def run_once(root: str, pairs_dir: str, tmp_archive: str, since: str, budget_s: 
     if fb is not None and fb < MIN_FREE_BYTES:
         return {"status": "skipped", "reason": f"only {fb // 1_000_000} MB free on the volume (< {MIN_FREE_BYTES // 1_000_000} MB)"}
     os.makedirs(root, exist_ok=True)
-    if ciks is None:
-        import sec_cik_symbol_map as cmap
-        import sec_issuer_pairs as sip
-        _ok, failed_q = sip.ensure_pairs_cache(pairs_dir)
-        ciks = sorted(cmap.build_map(sip.rows_from_pairs_cache(pairs_dir)).keys(), key=lambda c: (len(c), c))
+    meta = _read_json(_plan_paths(root)[1], {}) or {}
+    needs_plan = meta.get("since") != since or plan_is_stale(meta, now)
+    cik_source = "given" if ciks is not None else None
+    if ciks is None and needs_plan:
+        # REPAIR 2026-11-18: the CIK list is only an input of the PLAN. It was
+        # fetched on every slice (a fresh container re-downloads ~50 quarter
+        # files from www.sec.gov for it), and one 429 on the SEC index page
+        # raised out of here: the night of 11-17 ended one second in ("HTTPError:
+        # 429 ... insider-transactions-data-sets", 03:13:36Z, two minutes after
+        # a deploy). Now it is fetched only when the plan must be (re)listed,
+        # and a failed fetch falls back to the last list that worked.
+        ciks, cik_source, problem = resolve_ciks(root, pairs_dir, meta)
         if not ciks:
-            return {"status": "skipped", "reason": f"CIK map empty ({len(failed_q)} pairs quarters failed)"}
-    ciks = list(ciks)
+            return {"status": "skipped", "reason": f"no CIK list for the plan: {problem}"}
     client = client or sft.EdgarClient()
     lf = list_filings or (lambda cik, s: sft.list_filings(cik, forms=FORMS, since=s, client=client))
-    meta = _read_json(_plan_paths(root)[1], {}) or {}
     plan_built = False
-    if meta.get("since") != since or plan_is_stale(meta, now):
+    if needs_plan:
+        ciks = list(ciks)
         meta = build_plan(root, ciks, since, lf, deadline=deadline, reset=bool(meta.get("complete")))
         plan_built = True
         if not meta.get("complete"):
             out = {"status": "ok", "phase": "plan", "plan_complete": False, "plan_ciks_listed": len(meta.get("done_ciks") or []),
                    "plan_ciks_total": len(ciks), "plan_filings": meta.get("filings"), "elapsed_s": round(time.time() - t0, 1),
-                   "code_version": code_version}
+                   "code_version": code_version, "cik_source": cik_source}
             _write_json(os.path.join(root, "status.json"), {**out, "finished_at": _now_iso()})
             return out
     plan = load_plan(root)
@@ -718,7 +771,7 @@ def run_once(root: str, pairs_dir: str, tmp_archive: str, since: str, budget_s: 
     res = bf.run(plan, deadline=deadline, max_filings=max_filings)
     out = {"status": "ok", "phase": "score", "plan_built": plan_built, "plan_filings": len(plan),
            "plan_ciks": len(meta.get("done_ciks") or []), **res, "code_version": code_version,
-           "http": dict(getattr(client, "stats", None) or {})}
+           "http": dict(getattr(client, "stats", None) or {}), "cik_source": cik_source}
     _write_json(os.path.join(root, "status.json"), {**out, "finished_at": _now_iso()})
     return out
 
