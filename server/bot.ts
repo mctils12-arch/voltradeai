@@ -46,7 +46,7 @@ import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isReg
 import { haltStateFrom, haltAllows, haltMode, KILL_BLOCKED_ORDER_STATUS, type HaltState } from "./haltScope";
 import { engineKillSnapshot, engineKillHealth, shouldAuditEngineKill, engineKillAuditLine, type EngineKillSnapshot } from "./engineKill";
 import { KILL_ON_AUDIT, KILL_ON_NOTIFY, KILL_ON_EMAIL, DRAWDOWN_KILL_SUFFIX, DRAWDOWN_KILL_EMAIL_SUBJECT, KILL_PRETRADE_REASON } from "../shared/haltWords";
-import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES } from "./diag";
+import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES, daemonCensusArgs } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
 import { regimeCounterfactualBody } from "./regimeCounterfactual";
 let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
@@ -3967,6 +3967,21 @@ print(json.dumps(s))
         }
         case "daemon": {
           if (!DAEMON_ENABLED) return res.json({ probe: "daemon", alive: false, reason: "disabled via env" });
+          // 2026-11-18 (KNOWN BROKEN #55): ?census=1 asks the daemon which
+          // names hold its Python objects (memory_census.py); &root=module.attr
+          // descends one level. Names, types and counts only. The daemon
+          // refuses it during a scan unless &force=1. Daemon only: a
+          // subprocess would measure its own empty memory.
+          if (String(req.query.census || "") === "1") {
+            const args = daemonCensusArgs(req.query.root, req.query.force);
+            if (!args) return res.status(400).json({ probe: "daemon", error: "root must be a dotted name" });
+            try {
+              const r = await pythonRpc("memory_census", args, 30000);
+              return res.json(sanitizeDiag({ probe: "daemon", census: r.status === "ok" ? r.result : { error: String(r.error_message || "census failed").slice(0, 300) } }));
+            } catch (e) {
+              return res.json({ probe: "daemon", census: { error: sanitizeDiag(String((e as Error)?.message || e)) } });
+            }
+          }
           try {
             const r = await pythonRpc("health", {});
             return res.json(sanitizeDiag({ probe: "daemon", alive: r.status === "ok", ...(r.status === "ok" ? r.result : { reason: r.error_message }) }));
