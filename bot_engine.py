@@ -4682,6 +4682,16 @@ def _scan_market_inner():
             if _cc_class == "us_option" or len(_cc_ticker) > 8 or _cc_qty < 100:
                 continue
 
+            # REPAIR 2026-11-18: never the floor's cash park. BOXX passed 100
+            # shares (110) and this sweep offered "SELL COVERED CALL BOXX" on
+            # the pre-market scans of 11-17 and 11-18 (dropped only because the
+            # morning queue has no options path). The floor's cash rule sells
+            # those shares at will, which would leave the call naked, and a
+            # T-bill fund has no premium to sell. The floor's equity holdings
+            # (SPY, QQQ) stay eligible, as this sweep intends.
+            if is_floor_cash_park(_cc_ticker):
+                continue
+
             # Skip if we already have a short call on this ticker
             _has_cc = False
             for _ex_pos in (current_positions if isinstance(current_positions, list) else []):
@@ -6875,6 +6885,15 @@ def floor_cash_ticker(cfg: dict = None):
     if not t or t in set(_floor_vm_tickers(cfg)) or t in _floor_vm_legacy_tickers(cfg):
         return None
     return t
+
+
+def is_floor_cash_park(ticker, cfg: dict = None) -> bool:
+    """True for the fund that holds the floor's idle cash (BOXX). The floor's
+    cash rule (_manage_floor_cash) sells those shares whenever account cash
+    must cover the satellites' sleeve or a short put's collateral, so nothing
+    may be written against them."""
+    park = floor_cash_ticker(cfg)
+    return bool(park) and str(ticker or "").strip().upper() == park
 
 
 def without_floor_cash(positions, cfg: dict = None):
