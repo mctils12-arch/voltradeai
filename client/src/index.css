@@ -2915,6 +2915,21 @@ a, button, [role="button"], input { transition: all 150ms ease; }
   padding: 8px; border-top: 1px solid rgba(77, 159, 255, 0.08);
   color: var(--text-secondary); vertical-align: top;
 }
+/* Form 4 by filed day (2026-11-18): one line per filed day above its rows,
+   saying how the archive's count for that day compares with EDGAR's daily
+   index. It sticks under the column header while its day scrolls. */
+.vt-filings-table .vt-filings-dayrow th {
+  /* z-index 0: above the rows, under the column header (z-index 1), so a
+     pixel or two of difference in the header's height never shows */
+  top: 30px; z-index: 0; padding: 9px 8px 7px;
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  font-size: 11.5px; font-family: var(--font-mono); color: var(--text-secondary);
+  border-top: 1px solid rgba(77, 159, 255, 0.22);
+}
+.vt-filings-dayrow-day { color: var(--text-primary); font-weight: 600; }
+.vt-filings-dayrow[data-state="complete"] .vt-filings-dayrow-state { color: var(--accent-green); }
+.vt-filings-dayrow[data-state="partial"] .vt-filings-dayrow-state { color: var(--accent-orange); }
+.vt-filings-dayrow[data-state="sample"] .vt-filings-dayrow-state { color: var(--text-tertiary); }
 .vt-filings-ticker { display: block; color: var(--text-primary); font-weight: 600; font-family: var(--font-mono); }
 .vt-filings-issuername, .vt-filings-role { display: block; font-size: 10.5px; color: var(--text-tertiary); }
 .vt-filings-kindtag { font-weight: 700; font-size: 11px; letter-spacing: 0.04em; }
@@ -2939,6 +2954,10 @@ a, button, [role="button"], input { transition: all 150ms ease; }
     flex-shrink: 0; white-space: nowrap;
   }
   .vt-filings-table td[data-l=""]::before, .vt-filings-table td:last-child::before { content: none; }
+  /* the column header is hidden on a phone, so the day line sticks at the top */
+  /* (a row is a block here, so the row sticks, not its cell) */
+  .vt-filings-table tr.vt-filings-dayrow { padding: 0; position: sticky; top: 0; z-index: 1; }
+  .vt-filings-table .vt-filings-dayrow th { display: block; position: static; padding: 10px 12px 8px; line-height: 1.45; }
 }
 
 /* Detail-card external link-outs (profiles/photos — links only, no embeds) */
