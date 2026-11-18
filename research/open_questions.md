@@ -9026,6 +9026,21 @@ confirmation, not a post-hoc rescue of this one's already-clear null.
 
 ## OPS GOTCHAS (avoid re-learning)
 
+- **A PR DEFERRED IN MARKET HOURS IS MERGED BY THE FIRST GREEN PR AFTER THE
+  CLOSE, NOT BY THE SWEEP** (2026-11-18, v1.0.1461, scripts/automerge.sh). The
+  sweep's cron ran once a day, 3 h 51 min to 7 h 06 min after the close (all
+  4 runs, 2026-11-11..16), so deferred PRs were overtaken and left in
+  conflict (#1769, #1809). Now: a deferral writes a record (a comment by
+  github-actions[bot] naming the green head commit); the next automerge run
+  outside the window merges the OLDEST older PR whose record names its
+  current head, and does not merge its own PR. If your PR gets the comment
+  "#N was deferred during market hours ... This PR was NOT merged", rebase on
+  main (version = main + 1, re-measure the counter pins, keep both sides of
+  research/*) and push; the next green run merges it. Still open: with no PR
+  after the close the deferred one waits for the late sweep (wishlist
+  2026-11-18), and a second PR deferred the same day still conflicts after
+  the first merges. First real queue decision not yet observed: read the
+  automerge job log of the first PR after a deferral.
 - **/api/health IS RAILWAY'S DEPLOY GATE — A CHECK THAT DEGRADES IT CAN
   TAKE THE SITE DOWN** (bit us 2026-08-12, ~15 min of 502s, self-inflicted
   by v1.0.667's feed dead-air check; fixed in v1.0.669). The handler ends

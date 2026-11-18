@@ -166,6 +166,16 @@ if args[:1] == ["api"]:
         i += 1
     if method == "POST" and path.endswith("/labels"):
         sys.exit(scen.get("label_rc", 0))
+    if method == "POST" and re.search(r"/issues/[0-9]+/comments$", path):
+        sys.exit(scen.get("comment_rc", 0))
+    if method == "GET" and re.search(r"/issues/[0-9]+/comments", path):
+        num = path.split("/issues/")[1].split("/")[0]
+        if num in scen.get("comments_rc", {}):
+            sys.exit(scen["comments_rc"][num])
+        print(json.dumps(scen.get("comments", {}).get(num, [])))
+        sys.exit(0)
+    if method == "GET" and "/pulls?" in path and scen.get("pulls_rc"):
+        sys.exit(scen["pulls_rc"])
     if method == "GET" and "/pulls?" in path:
         page = int(parse_qs(urlparse(path).query).get("page", ["1"])[0])
         print(json.dumps(scen.get("pulls", []) if page == 1 else []))
@@ -233,6 +243,8 @@ def run(args, now, scenario, tmp_path, env=None):
         "GITHUB_REPOSITORY": "o/r",
     })
     full_env.pop("GITHUB_STEP_SUMMARY", None)  # never write into a real CI summary
+    if "GITHUB_EVENT_PATH" not in (env or {}):
+        full_env.pop("GITHUB_EVENT_PATH", None)  # CI's own event is not this test's PR
     r = subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True,
                        timeout=120, env=full_env)
     calls = [json.loads(l) for l in log.read_text().splitlines()] if log.exists() else []
@@ -290,6 +302,156 @@ def test_ci_path_trusts_the_api_when_gh_errs_after_merging(tmp_path):
     r, _ = run([URL7], AFTER, {"merge_rc": {URL7: 1}, "merged": {"7": True}}, tmp_path)
     assert r.returncode == 0
     assert "#7 is merged, but gh exited 1" in r.stdout
+
+
+# ── oldest first on the CI path (2026-11-18) ───────────────────────────────
+# The sweep's cron ran once a day, 3 h 51 min to 7 h 06 min after the close
+# (all 4 runs, 2026-11-11..16), so a PR deferred in market hours was overtaken
+# by PRs opened after the close and left in conflict (#1809, 2026-11-17). The
+# CI path now merges an older deferred PR before its own.
+BOT = "github-actions[bot]"
+MARKER = "deploy-window-deferred head="
+
+
+def record(num, head=None, login=BOT):
+    """One PR comment carrying the deferral record for a head commit."""
+    return {"user": {"login": login},
+            "body": f"DEPLOY WINDOW: deferred.\n<!-- {MARKER}{head or sha(num)} -->"}
+
+
+def event(tmp_path, num):
+    """The pull_request event file GitHub hands the automerge job."""
+    path = tmp_path / "event.json"
+    path.write_text(json.dumps({"pull_request": {"number": num, "head": {"sha": sha(num)}}}))
+    return {"GITHUB_EVENT_PATH": str(path)}
+
+
+def comment_posts(calls, num):
+    return [c for c in calls if c[0] == "api" and "POST" in c and f"repos/o/r/issues/{num}/comments" in c]
+
+
+def queue_merge(num):
+    return ["pr", "merge", "--squash", "--delete-branch", "--match-head-commit", sha(num),
+            f"https://github.com/o/r/pull/{num}"]
+
+
+OWN = ["pr", "merge", "--squash", "--delete-branch", URL7]
+
+
+def test_a_deferral_records_the_head_commit_the_checks_passed_on(tmp_path):
+    r, calls = run([URL7], INSIDE, {}, tmp_path, env=event(tmp_path, 7))
+    assert r.returncode == 0, r.stderr
+    assert merges(calls) == []
+    posts = comment_posts(calls, 7)
+    assert len(posts) == 1, calls
+    body = next(a for a in posts[0] if a.startswith("body="))
+    assert f"{MARKER}{sha(7)}" in body
+    assert "::warning" not in r.stdout
+
+
+def test_a_deferral_without_the_event_or_the_comment_still_defers(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    r, calls = run([URL7], INSIDE, {}, tmp_path / "a")            # no event file
+    assert r.returncode == 0 and merges(calls) == [] and comment_posts(calls, 7) == []
+    assert "could not write the deferral record" in r.stdout
+    r, calls = run([URL7], INSIDE, {"comment_rc": 1}, tmp_path / "b", env=event(tmp_path / "b", 7))
+    assert r.returncode == 0 and merges(calls) == []
+    assert "could not write the deferral record" in r.stdout
+
+
+def test_ci_path_merges_an_older_deferred_pr_first_and_not_its_own(tmp_path):
+    scen = {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5)]}}
+    r, calls = run([URL7], AFTER, scen, tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert merges(calls) == [queue_merge(5)], "the older deferred PR merges, and only it"
+    assert "#7 was NOT merged" in r.stdout
+    told = comment_posts(calls, 7)
+    assert len(told) == 1 and any("#5" in a and "NOT merged" in a for a in told[0]), calls
+
+
+def test_the_2026_11_17_orphan_is_merged_by_the_first_run_after_the_close(tmp_path):
+    # #1809 went green at 16:57Z (11:57 ET) and was deferred. #1810's run at
+    # 21:11Z merged #1810; the sweep had not run; #1809 was left in conflict.
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    url_1810 = "https://github.com/o/r/pull/1810"
+    r, calls = run(["https://github.com/o/r/pull/1809"], "2026-11-17T16:57", {}, tmp_path / "a",
+                   env=event(tmp_path / "a", 1809))
+    assert r.returncode == 0 and merges(calls) == []
+    body = next(a for a in comment_posts(calls, 1809)[0] if a.startswith("body="))[len("body="):]
+    scen = {"pulls": [pr(1706), pr(1809), pr(1810)],
+            "comments": {"1809": [{"user": {"login": BOT}, "body": body}]}}
+    r, calls = run([url_1810], "2026-11-17T21:11", scen, tmp_path / "b")
+    assert r.returncode == 0, r.stderr
+    assert merges(calls) == [queue_merge(1809)]
+
+
+@pytest.mark.parametrize("scen", [
+    {"pulls": [pr(5), pr(7)]},                                                     # no record at all
+    {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5, head=sha(4))]}},        # a push since the record
+    {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5), record(5, head=sha(4))]}},  # newest record names another commit
+    {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5, login="someone")]}},    # not the workflow's bot
+    {"pulls": [pr(7), pr(9)], "comments": {"9": [record(9)]}},                     # a NEWER PR never jumps ahead
+    {"pulls": [pr(5, ref="feature/x"), pr(7)], "comments": {"5": [record(5)]}},    # not a claude/ branch
+    {"pulls": [pr(5, draft=True), pr(7)], "comments": {"5": [record(5)]}},         # a draft
+    {"pulls": [pr(5, repo="fork/r"), pr(7)], "comments": {"5": [record(5)]}},      # a fork
+    {"pulls_rc": 1},                                                               # the queue cannot be listed
+    {"pulls": [pr(5), pr(7)], "comments_rc": {"5": 1}},                            # its comments cannot be read
+])
+def test_ci_path_merges_its_own_pr_when_no_older_pr_holds_a_valid_record(tmp_path, scen):
+    r, calls = run([URL7], AFTER, scen, tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert merges(calls) == [OWN], scen
+    assert comment_posts(calls, 7) == []
+
+
+def test_ci_path_takes_the_oldest_of_several_deferred_prs_and_only_one(tmp_path):
+    scen = {"pulls": [pr(5), pr(3), pr(7)], "comments": {"3": [record(3)], "5": [record(5)]}}
+    r, calls = run([URL7], AFTER, scen, tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert merges(calls) == [queue_merge(3)]
+
+
+def test_ci_path_falls_back_to_its_own_pr_when_the_older_one_cannot_merge(tmp_path):
+    # A deferred PR already in conflict with main: the merge is refused, and
+    # this run's own PR merges as it did before the queue existed.
+    scen = {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5)]},
+            "merge_rc": {"https://github.com/o/r/pull/5": 1}}
+    r, calls = run([URL7], AFTER, scen, tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert merges(calls) == [queue_merge(5), OWN]
+
+
+def test_ci_path_counts_an_older_pr_gh_misreported_as_merged(tmp_path):
+    scen = {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5)]},
+            "merge_rc": {"https://github.com/o/r/pull/5": 1}, "merged": {"5": True}}
+    r, calls = run([URL7], AFTER, scen, tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert merges(calls) == [queue_merge(5)], "two merges in one run would be two changes in one deploy"
+
+
+def test_a_failed_comment_on_the_overtaken_pr_does_not_fail_the_run(tmp_path):
+    scen = {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5)]}, "comment_rc": 1}
+    r, calls = run([URL7], AFTER, scen, tmp_path)
+    assert r.returncode == 0
+    assert merges(calls) == [queue_merge(5)]
+    assert "could not comment on #7" in r.stdout
+
+
+def test_the_queue_is_never_read_inside_the_window(tmp_path):
+    scen = {"pulls": [pr(5), pr(7)], "comments": {"5": [record(5)]}}
+    r, calls = run([URL7], INSIDE, scen, tmp_path)
+    assert r.returncode == 0 and merges(calls) == []
+    assert not [c for c in calls if any("/pulls?" in a for a in c)], calls
+
+
+def test_the_automerge_job_can_write_the_record_it_relies_on():
+    # The record and the notice are PR comments: the job needs pull-requests
+    # write, which it has had since before this change (frozen YAML, read only).
+    job = load(CI)["jobs"]["automerge"]
+    assert job["permissions"].get("pull-requests") == "write"
+    assert "GITHUB_EVENT_PATH" not in CI.read_text(), "the event file is GitHub's own; no workflow may point it elsewhere"
 
 
 def test_ci_path_fails_closed_without_a_tz_database(tmp_path):

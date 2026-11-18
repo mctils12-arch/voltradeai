@@ -1,5 +1,14 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ 2026-11-18 — the after-close merge sweep runs once a day, 4 to 7 hours late (frozen workflow; your call whether to change its schedule)
+
+WHAT: `.github/workflows/automerge-sweep.yml` is scheduled at :07 and :37 past 20-23Z on weekdays, so a PR held back during market hours merges at 16:07 ET. GitHub has run it 4 times since it was installed, once a day: 2026-11-12 04:05Z, 11-13 00:59Z, 11-14 00:51Z, 11-17 02:52Z. That is 3 h 51 min to 7 h 06 min after the close. Meanwhile PRs opened after the close merge at once and leave the held PR in conflict, with its session gone. This cost three sessions for #1769 and a re-land for #1809, and it is what pushed the repair ratio to 7 of 10 on 2026-11-17.
+DONE WITHOUT YOU (v1.0.1461, scripts/automerge.sh, not a frozen file): the first PR to go green after the close now merges the oldest held PR before itself. This covers every evening on which any PR is opened after the close.
+STILL OPEN, YOURS: on an evening with no later PR, a held PR still waits for the late sweep. Scheduled workflows on GitHub are best effort and are delayed or dropped under load; more slots give more chances. Proposed edit, schedule line only:
+  BEFORE: `- cron: "7,37 20-23 * * 1-5"`
+  AFTER:  `- cron: "7,17,27,37,47,57 20-23 * * 1-5"`
+The script still merges one PR per run and nothing inside the window, so the extra runs cannot merge more or earlier than the rule allows. Not known: whether more slots make GitHub start a run sooner. It costs a few seconds of Actions time per run. NOT A SPEND REQUEST. Say "yes sweep schedule" and a session makes the edit.
+
 ## ⚠ 2026-11-16 — PR #1769 (EDGAR archive writers stop re-appending after a restart) is green but can no longer merge; two routines built the same fix
 
 WHAT: two scheduled sessions built the same queued fix today. #1769 was first; the second build (#1771) was closed unmerged. Before the sweep reached #1769, #1770 merged with the same version number (1.0.1413), and #1769 now conflicts with main in three shared files (ci/counter_baseline.txt, research/experiments.md, research/open_questions.md). No code conflicts.
