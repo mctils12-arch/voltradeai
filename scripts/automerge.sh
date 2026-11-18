@@ -30,6 +30,25 @@
 #                          each deploy carries one change.
 #   automerge.sh --window  print the decision for now; exit 0 open, 3 closed.
 #
+# OLDEST FIRST ON THE CI PATH (2026-11-18). A PR deferred in market hours is
+# owned by a session that has ended, so nobody can bring it level with main.
+# The sweep was meant to merge it at 16:07 ET; GitHub ran that cron once a day,
+# 3 h 51 min to 7 h 06 min after the 21:00Z close (all 4 runs, 2026-11-11..16),
+# and by then a PR opened after the close had merged, moved package.json's
+# version line, and left the deferred PR in conflict (#1809, 2026-11-17; it was
+# re-landed by a second session). So the CI path, which runs on an event and
+# not on a cron, serves the deferred queue before its own PR: when the window
+# is open and an OLDER open claude/ PR carries a deferral record for its
+# current head commit, that PR is merged instead (one merge per run, as ever),
+# and this PR is told so in a comment; its session is alive and rebases.
+#   The deferral record is a comment by github-actions[bot] naming the head
+# commit, written by this script when it defers. The automerge job only runs
+# when ci.yml's `if:` held for that commit, so the record means "every required
+# check passed on this commit"; --match-head-commit refuses anything newer.
+# (The job's token has no `checks: read`, so it cannot ask the checks API the
+# way the sweep does.) Any failure to read the queue falls back to merging this
+# PR, which is what the script did before.
+#
 # BRANCHES. Both paths merge with --delete-branch (human, 2026-11-06: "turn on
 # GitHub's auto-delete setting"; that repository setting is a human-only toggle,
 # so the merge deletes its own head instead). gh deletes the branch after the
@@ -55,6 +74,9 @@ REQUIRED_CHECKS='["changes","python-tests","node-build","docker-build","test"]'
 
 DEFERRED_LABEL="deploy-window-deferred"
 DEFERRED_TEXT="merge deferred to after the 4pm ET close (DEPLOY WINDOW)"
+# The deferral record (see OLDEST FIRST above). The sha follows the marker.
+DEFERRED_MARKER="deploy-window-deferred head="
+RECORD_AUTHOR="github-actions[bot]"
 
 # Seconds since the epoch. AUTOMERGE_NOW_EPOCH exists for the tests only; no
 # workflow may set it (pinned by test_automerge_deploy_window.py).
@@ -163,6 +185,68 @@ label_deferred() {
   gh api -X POST "repos/$PR_REPO/issues/$PR_NUM/labels" -f "labels[]=$DEFERRED_LABEL" >/dev/null
 }
 
+# The head commit the automerge job ran for, from the event GitHub hands every
+# step (never the API: a push that arrived during the run would be newer than
+# the commit the checks passed on). Prints nothing when it cannot be read.
+event_head_sha() {
+  local sha
+  [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -r "$GITHUB_EVENT_PATH" ] || return 0
+  sha=$(jq -r '.pull_request.head.sha // empty' "$GITHUB_EVENT_PATH" 2>/dev/null) || return 0
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$sha"
+  return 0
+}
+
+# Best effort, like the label: writes the deferral record for $1 (PR URL).
+record_deferred() {
+  local sha
+  parse_pr_url "$1" || return 1
+  sha=$(event_head_sha)
+  [ -n "$sha" ] || return 1
+  gh api -X POST "repos/$PR_REPO/issues/$PR_NUM/comments" -f body="DEPLOY WINDOW: $DEFERRED_TEXT. Every required check passed on $sha; the first merge run after the close merges it, oldest first.
+<!-- $DEFERRED_MARKER$sha -->" >/dev/null
+}
+
+# Reads one PR's comments JSON on stdin; prints the head commit named by the
+# NEWEST deferral record written by the workflow's own bot, or nothing.
+deferred_record_sha() {
+  jq -r --arg marker "$DEFERRED_MARKER" --arg author "$RECORD_AUTHOR" '
+    [ .[] | select((.user.login // "") == $author)
+          | (.body // "") | capture($marker + "(?<sha>[0-9a-f]{40})")? | .sha ]
+    | last // empty'
+}
+
+# Before the CI path merges PR $2 of repo $1: merge the oldest OLDER open
+# claude/ PR whose current head carries a deferral record. Returns 0 when one
+# was merged (the caller then merges nothing else), 1 otherwise. Every failure
+# to read the queue returns 1: the caller merges its own PR, as it always did.
+merge_older_deferred() {
+  local repo="$1" own="$2" own_url="$3" prs cands num sha url comments rec rc
+  prs=$(list_open_prs "$repo") || return 1
+  cands=$(printf '%s' "$prs" | sweep_candidates "$repo") || return 1
+  while IFS=$'\t' read -r num sha url; do
+    [ -n "$num" ] || continue
+    [ "$num" -lt "$own" ] || continue
+    comments=$(gh api "repos/$repo/issues/$num/comments?per_page=100" --paginate </dev/null | jq -s 'add // []') || continue
+    rec=$(printf '%s' "$comments" | deferred_record_sha) || continue
+    if [ -z "$rec" ] || [ "$rec" != "$sha" ]; then
+      continue
+    fi
+    echo "DEPLOY WINDOW queue: #$num was deferred in market hours and is older than #$own; merging it first at $sha"
+    gh pr merge --squash --delete-branch --match-head-commit "$sha" "$url" </dev/null
+    rc=$?
+    if [ "$rc" -eq 0 ] || pr_is_merged "$repo" "$num"; then
+      echo "MERGED #$num. One merge per run: #$own was NOT merged."
+      echo "::notice title=DEPLOY WINDOW::#$num (deferred, older) merged first; #$own was not merged in this run"
+      summary "### DEPLOY WINDOW" "Merged #$num (deferred in market hours, older) instead of #$own. One merge per run."
+      gh api -X POST "repos/$repo/issues/$own/comments" -f body="DEPLOY WINDOW: #$num was deferred during market hours and is older than this PR, so this run merged it first (oldest first, one merge per run, one change per deploy). This PR was NOT merged. Bring it level with main and push: its next green run merges it. If it needs no change, the after-close sweep merges it." </dev/null >/dev/null 2>&1 \
+        || echo "::warning title=DEPLOY WINDOW::could not comment on #$own"
+      return 0
+    fi
+    echo "merge of #$num failed (a conflict or a newer push); trying the next older deferred PR"
+  done <<< "$cands"
+  return 1
+}
+
 merge_one_pr() {
   local url="$1" now stamp rc
   now=$(now_epoch)
@@ -179,6 +263,12 @@ merge_one_pr() {
     if ! label_deferred "$url"; then
       echo "::warning title=DEPLOY WINDOW::could not add the '$DEFERRED_LABEL' label; the deferral stands"
     fi
+    if ! record_deferred "$url"; then
+      echo "::warning title=DEPLOY WINDOW::could not write the deferral record; only the sweep can merge this PR"
+    fi
+    return 0
+  fi
+  if parse_pr_url "$url" && merge_older_deferred "$PR_REPO" "$PR_NUM" "$url"; then
     return 0
   fi
   echo "DEPLOY WINDOW open ($stamp): merging $url"
