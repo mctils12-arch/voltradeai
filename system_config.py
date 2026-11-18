@@ -747,6 +747,20 @@ BASE_CONFIG = {
     # record moves to rejected_cash_reserve (its prevention P&L is measured).
     # Off switch: CASH_RESERVE_ENABLED False.
     "CASH_RESERVE_ENABLED":     True,
+    # REPAIR 2026-11-18: the floor's idle cash is parked in FLOOR_VM_CASH_TICKER
+    # (BOXX) since 2026-11-06 and the reserve counted that fund as a satellite
+    # position, so the sentence above ("the floor's own de-risked cash counts
+    # toward the reserve") stopped being true the day the park shipped. True =
+    # the park is cash for the reserve (position_mgmt.satellite_headroom). New
+    # key; prior behaviour = False. Reason: on 2026-11-18 (BEAR) $13,100 of
+    # BOXX left $0 of room and the tier engine's three CSPs were refused.
+    # Expected effect: room = cash + park - floor shortfall - reserve; that
+    # day $6,637 (7.4% of equity) instead of $0. The exposure cap, the regime
+    # risk budget, options buying power and the drawdown budget still apply.
+    # EXPLORATORY, kill date 2027-02-18; rollback triggers in
+    # research/experiments.md. No-deploy rollback: env
+    # VOLTRADE_CASH_RESERVE_PARK=satellite.
+    "CASH_RESERVE_PARK_IS_CASH": True,
     "CASH_RESERVE_PCT_BULL":    0.05,
     "CASH_RESERVE_PCT_NEUTRAL": 0.08,
     "CASH_RESERVE_PCT_CAUTION": 0.15,
