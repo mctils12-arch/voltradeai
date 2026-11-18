@@ -1,5 +1,5 @@
 // /api/orders/open (server/routes.ts) answers `{ orders: [...] }` — the
-// orphan TradingActivity component reads it that way — but the Bot page typed
+// since-removed TradingActivity component read it that way — but the Bot page typed
 // the response as a bare array and passed it through. `orders.length` on the
 // wrapper is undefined, so the Orders panel always said "none working" and the
 // stage row read "? open" even with working orders (audit §8.2 D4, fixed
