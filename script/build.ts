@@ -7,12 +7,12 @@ import { rm, readFile, cp } from "fs/promises";
 // (externals = deps - allowlist); 17 Replit-template names that were never
 // dependencies (axios, openai, passport, drizzle-orm, ...) were dropped
 // 2026-11-06 as dead config — the externals list is unchanged.
+// date-fns and zod were dropped with their package.json entries 2026-11-18
+// (STALENESS AUDIT: no importer anywhere).
 const allowlist = [
-  "date-fns",
   "express",
   "stripe",
   "ws",
-  "zod",
 ];
 
 async function buildAll() {
