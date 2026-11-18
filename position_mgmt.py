@@ -205,6 +205,35 @@ def floor_tickers(cfg: Optional[dict] = None) -> set:
     return {str(t).upper() for t in out if t}
 
 
+def cash_park_tickers(cfg: Optional[dict] = None) -> set:
+    """The fund that holds the floor's idle cash (system_config
+    FLOOR_VM_CASH_TICKER, BOXX) under "vol_managed_spy"; empty under "basket",
+    which never parks cash. It is the floor's de-risked cash in another wrapper
+    (bot_engine._manage_floor_cash sells it whenever account cash must cover
+    the satellites' sleeve or a short put's collateral), so it is neither a
+    floor holding with a target of its own nor a satellite. Listed whether or
+    not FLOOR_VM_CASH_ENABLED is on: switched off, the fund is still the park
+    being sold down."""
+    c = _cfg(cfg)
+    if c.get("FLOOR_MODE", "basket") != "vol_managed_spy":
+        return set()
+    t = str(c.get("FLOOR_VM_CASH_TICKER") or "").strip().upper()
+    return {t} if t else set()
+
+
+def park_is_cash(cfg: Optional[dict] = None, env: Optional[dict] = None) -> bool:
+    """Whether the cash reserve reads the floor's cash park as cash (True,
+    system_config CASH_RESERVE_PARK_IS_CASH) or, as before 2026-11-18, as a
+    satellite position. Env VOLTRADE_CASH_RESERVE_PARK=satellite|cash overrides
+    the config without a deploy; any other value is ignored."""
+    v = str((os.environ if env is None else env).get("VOLTRADE_CASH_RESERVE_PARK") or "").strip().lower()
+    if v == "satellite":
+        return False
+    if v == "cash":
+        return True
+    return bool(_cfg(cfg).get("CASH_RESERVE_PARK_IS_CASH", True))
+
+
 def option_commitments(positions: Iterable[dict]) -> Dict[str, float]:
     """Cash each option position obliges the account to spend, by symbol.
 
@@ -470,15 +499,31 @@ def satellite_headroom(equity: float, positions: Iterable[dict], regime,
                    if str(p.get("symbol", "")).upper() in floors and not is_option_position(p))
     tgt, tgt_source = floor_target_dollars(equity, label, c, floor_plan_ratio)
     floor_commit = max(floor_mv, tgt)
+    # REPAIR 2026-11-18: the floor's idle cash sits in a T-bill fund (BOXX,
+    # FLOOR_VM_CASH_TICKER) since 2026-11-06. It was not in floor_tickers(), so
+    # the loop below counted it as a SATELLITE and the reserve read the parked
+    # cash as capital at risk: on 2026-11-18 (BEAR, 25% reserve) $13,100 of
+    # BOXX left $0 of room and three tier CSPs were refused, where the reserve's
+    # own rule ("the floor's own de-risked cash counts toward the reserve",
+    # system_config) leaves $6,637. The park is cash here: not a floor
+    # commitment (the floor's plan already holds its SPY/SSO target), not a
+    # satellite, and a working buy of it commits nothing.
+    # CASH_RESERVE_PARK_IS_CASH False (or env VOLTRADE_CASH_RESERVE_PARK=
+    # satellite, no deploy) restores the old count.
+    park = cash_park_tickers(c)
+    as_cash = park_is_cash(c)
+    park_mv = sum(abs(_f(p.get("market_value"))) for p in positions
+                  if str(p.get("symbol", "")).upper() in park and not is_option_position(p))
+    not_satellite = (floors | park) if as_cash else floors
     opt = option_commitments(positions)
     sat_commit = 0.0
     for p in positions:
         sym = str(p.get("symbol", "")).upper()
         if is_option_position(p):
             sat_commit += opt.get(sym, 0.0)
-        elif sym not in floors:
+        elif sym not in not_satellite:
             sat_commit += abs(_f(p.get("market_value")))
-    working = open_order_commitments(open_orders, positions, skip=floors)
+    working = open_order_commitments(open_orders, positions, skip=not_satellite)
     extra = max(0.0, _f(pending_dollars))
     label_reserve = equity * pct
     room_above_floor = max(0.0, equity - floor_commit)
@@ -514,6 +559,12 @@ def satellite_headroom(equity: float, positions: Iterable[dict], regime,
                    f"in cash, and the floor (${floor_commit:,.0f}), satellites (${sat_commit:,.0f}) and working orders "
                    f"(${working + extra:,.0f}) already use that room, so no new satellite positions until "
                    f"satellites exit (short by ${shortfall:,.0f}; the floor is never sold for the reserve).")
+    if enabled and park_mv > 0:
+        names = "/".join(sorted(park))
+        summary += (f" The ${park_mv:,.0f} parked in {names} is the floor's idle cash and counts as cash."
+                    if as_cash else
+                    f" The ${park_mv:,.0f} parked in {names} is counted as a satellite position "
+                    f"(CASH_RESERVE_PARK_IS_CASH is off).")
     if not known:
         summary += f" Regime '{regime}' was not recognised, so the {DEFAULT_REGIME} reserve was used."
     return {
@@ -535,6 +586,8 @@ def satellite_headroom(equity: float, positions: Iterable[dict], regime,
         "floor_target_source": tgt_source,
         "floor_committed": round(floor_commit, 2),
         "satellite_committed": round(sat_commit, 2),
+        "cash_park_value": round(park_mv, 2),
+        "cash_park_counted_as": None if park_mv <= 0 else ("cash" if as_cash else "satellite"),
         "pending_orders": round(working, 2),
         "pending_other": round(extra, 2),
         "cash_after_commitments": round(cash_after, 2),
@@ -910,7 +963,10 @@ def plan_rotations(held_positions: Iterable[dict], stop_state: dict, candidates:
         tax_fn, tax_source = resolve_tax_fn(c)
         out["tax_source"] = tax_source
     positions = [p for p in (held_positions or []) if isinstance(p, dict)]
-    floors = floor_tickers(c)
+    # 2026-11-18: + the floor's cash park (BOXX). It was absent from
+    # floor_tickers(), so a flat T-bill fund could be offered as the "weakest
+    # holding" to rotate out of. It never was (no rotation row names it).
+    floors = floor_tickers(c) | cash_park_tickers(c)
     short_calls = set()
     for p in positions:
         occ = parse_occ(p.get("symbol", ""))
