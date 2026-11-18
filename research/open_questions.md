@@ -7885,6 +7885,51 @@
     `deep_guard.counts.trim` and `skip` at 0 across a session day as the
     close. ROLLBACK TRIGGER for the fix, stated now: any rise in scan time
     (`/api/diag/timings` total_sec) of more than 10% over three scans.
+    READING 2026-11-18 20:16Z (DAILY 15:16 ET session; the SAME daemon
+    process as the 16:12Z reading, now 5.41 h old, 53 scans: the first
+    reading that meets this item's "3+ hours with scans running"):
+    RSS 647 MB (peak 770.3), python_blocks 3,764,705, C heap 294.2 MB of
+    which in use 80.3 and free-retained 216.9, threads 5. Guard: normal 2,
+    trim 27, skip 24, 51 not-normal in a row, last = skip at 647 MB.
+    Every phase of the scan in progress read 647 MB; deep_score 0 s.
+    WHAT IT SAYS, set beside 16:12Z/16:28Z: there are TWO causes with two
+    time shapes. (i) Live objects fill in the first hour and then stop:
+    3.82 M blocks at 1.34 h, 3.76 M at 5.41 h. That takes the daemon to
+    about 505-520 MB, the guard's TRIM zone. (ii) Fragmentation keeps
+    growing after that: free-retained 71-93 MB at 1.3-1.6 h, 216.9 MB at
+    5.4 h (+124 to +146 MB) while C-heap in-use did not move (80.3 both
+    times). RSS rose 127-142 MB over the same hours. So the step from
+    TRIM to SKIP (past 550 MB) is fragmentation, and the midday reading's
+    "fragmentation cannot be most of it" was true of the first hour only.
+    11-17's 640 MB at 6.4 h is this same second stage.
+    FIX FOR (ii), SHIPPED (v1.0.1465, [REPAIR] 2026-11-18):
+    bot_engine `_release_freed_memory()` runs once per scan after the
+    quick scan and BEFORE either memory guard reads RSS: gc.collect, then
+    glibc `malloc_trim(0)`, which returns every wholly free heap page to
+    the OS (glibc by itself returns only the top of an arena). No
+    threshold, cap or guard constant changed; nothing is held or dropped.
+    Off switch VOLTRADE_MALLOC_TRIM=0. `/api/diag/daemon`
+    `deep_guard.release` = {calls, released_mb_total, unavailable, last
+    {before_mb, after_mb, released_mb, ms}}; the health check prints it.
+    Measured in a session (glibc 2.39; 480 MB allocated on 4 worker
+    threads and freed with scattered survivors): RSS 488 -> 38 MB, 15 ms.
+    NOTE FOR READERS OF THE INSTRUMENT: `malloc.free_retained_mb` does NOT
+    fall after a trim (459 before and after in that run): glibc still
+    counts the chunks as free, their pages are simply no longer resident.
+    Judge the fix by RSS and `deep_guard.release`, not by that field.
+    PRIOR (stated before deploy): 70% that `deep_guard.counts.skip` is 0
+    at 5+ hours of Thursday's session; 60% that a release at that age
+    returns 100 MB or more (a free chunk smaller than a page returns
+    nothing, and how finely the 217 MB is cut is not known); 15% that
+    trim also reaches 0 (it should not: (i) alone sits at 505-520 MB,
+    above the 400 MB trim line).
+    DOES NOT CLOSE THIS ITEM: (i) is untouched and is the census's job
+    (NEXT above, unchanged). CHECK AFTER DEPLOY (5+ hours into a market
+    day): `deep_guard.counts.skip` 0; `deep_guard.release.last.ms` under
+    250; quick_scan `duration_sec` within 0.5 s of today's 0.21 s.
+    ROLLBACK TRIGGER: `release.last.ms` above 250, or scan total_sec up
+    more than 10% over three scans, or the daemon's restart count rising:
+    set VOLTRADE_MALLOC_TRIM=0 (no deploy needed) and reopen here.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.

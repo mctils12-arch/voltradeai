@@ -328,6 +328,15 @@ def _deep_guard_verdict(guard, label):
     run = guard.get("consecutive_not_normal") or 0
     tally = ", ".join(f"{k}={counts.get(k, 0)}" for k in ("normal", "trim", "skip", "survival"))
     detail = f"deep-score guard this process: {tally}; last={last} at {guard['last'].get('rss_mb')}MB; {label}"
+    # 2026-11-18 (#55): what the pre-guard malloc_trim returned to the OS.
+    rel = guard.get("release")
+    if isinstance(rel, dict) and isinstance(rel.get("last"), dict):
+        rl = rel["last"]
+        detail += (f"; freed heap returned to the OS before the guard: last {rl.get('released_mb')}MB "
+                   f"({rl.get('before_mb')}->{rl.get('after_mb')}MB in {rl.get('ms')}ms), "
+                   f"{rel.get('released_mb_total')}MB over {rel.get('calls')} scan(s)")
+    elif isinstance(rel, dict) and rel.get("unavailable"):
+        detail += f"; malloc_trim unavailable on {rel.get('unavailable')} scan(s)"
     if last in ("skip", "survival"):
         return finding(
             ALARM, "daemon_memory",
