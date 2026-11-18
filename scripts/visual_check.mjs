@@ -823,6 +823,41 @@ function filedDayForm4History(req, form4) {
   };
 }
 
+// FILED DAYS AT REAL VOLUME (2026-11-18, item (l)): the shape production
+// answered at 18:10Z that day — three filed days of 94 / 1,047 / 624 filings
+// holding 264 / 2,800 / 1,333 transaction rows — built here, not copied. The
+// page used to show the first 500 rows of it (today and 236 rows of
+// yesterday); every day must now be a line that opens.
+const VOLUME_DAYS = [["2026-11-18", 94, 264, null], ["2026-11-17", 1047, 2800, 1047], ["2026-11-16", 624, 1333, 624]];
+function volumeForm4History() {
+  const filings = [];
+  let i = 0;
+  for (const [day, nFilings, nRows] of VOLUME_DAYS) {
+    for (let k = 0; k < nFilings; k++, i++) {
+      // rows spread over the day's filings: base each, the remainder on the first ones
+      const tx = Math.floor(nRows / nFilings) + (k < nRows % nFilings ? 1 : 0);
+      filings.push({
+        accession: `0000000000-26-${String(100000 + i)}`, filedAt: `${day}T21:10:00.000Z`,
+        issuerName: `FIXTURE ISSUER ${i} HOLDINGS INC`, issuerTradingSymbol: `F${i % 900}`,
+        indexUrl: `https://www.sec.gov/Archives/edgar/data/${1000 + i}/`,
+        owners: [{ cik: String(i), name: `Fixture Insider ${i}`, isDirector: i % 2 === 0, isOfficer: i % 2 === 1, isTenPercentOwner: false, officerTitle: i % 2 === 1 ? "Chief Financial Officer" : null }],
+        transactions: Array.from({ length: tx }, (_, t) => ({
+          table: "nonDerivative", kind: (i + t) % 10 === 0 ? "open_market_buy" : (i + t) % 10 === 1 ? "open_market_sale" : "award_grant",
+          shares: 1000 + ((i * 37 + t * 11) % 9000), pricePerShare: 12.5 + (i % 300), transactionDate: day,
+        })),
+      });
+    }
+  }
+  return {
+    kind: "raw", source: "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04) (fixture)",
+    window_by: "filed_day", days: null, window: { from: "2026-10-20", to: "2026-11-18" }, covered: { from: "2026-11-16", to: "2026-11-18" },
+    truncated: true, next: "?filed_from=2026-10-20&filed_to=2026-11-13",
+    max_filings: 2000, days_scanned: 3, archive_start: "2026-07-04", malformed_lines: 0, archive_days_read: 5, omitted: 312,
+    filed_days: VOLUME_DAYS.map(([day, n, , index]) => ({ day, filings: n, omitted: 0, edgar_index: index, complete: index == null ? null : true, checked_at: index == null ? null : "2026-11-18T07:15:41.235Z" })),
+    complete_days: 2, count: filings.length, filings,
+  };
+}
+
 function pagedFilingHistory(req, kind) {
   const older = /[?&]to=2026-11-13/.test(req.url || "");
   const window = older ? { from: "2026-10-17", to: "2026-11-13" } : { from: "2026-10-17", to: "2026-11-15" };
@@ -1047,6 +1082,7 @@ const PAGES = {
   // production shape in a heavy EDGAR week): the header must state the days
   // loaded, and "load older days" must walk the server's `next` to the rest.
   filingspaged: { route: "/app#/data/filings", map: false, fixtures: { "/api/data/insider/history": (req) => pagedFilingHistory(req, "form4") } },
+  filingsvolume: { route: "/app#/data/filings", map: false, fixtures: { "/api/data/insider/history": () => volumeForm4History() } },
   filings13fpaged: { route: "/app#/data/filings13f", map: false, fixtures: { "/api/data/filings13f/history": (req) => pagedFilingHistory(req, "13f") } },
   earnings: { route: "/app#/data/earnings", map: false },
   earningspaged: { route: "/app#/data/earnings", map: false, fixtures: { "/api/data/earnings-language/history": (req) => pagedFilingHistory(req, "earnings") } },
@@ -3693,7 +3729,12 @@ async function main() {
         // the earnings page lists release cards, the two filing pages table rows
         const rowCount = () => name === "earningspaged"
           ? page.locator(".vt-earnings-list > li").count()
-          : page.locator(".vt-filings-table").first().locator("tbody tr:not(.vt-filings-dayrow)").count();
+          : page.locator(".vt-filings-table").first().locator("tbody tr:not(.vt-filings-dayrow):not(.vt-filings-morerow)").count();
+        // DAYS OPEN AND CLOSE (2026-11-18): a filed day's rows are on the page once its line is opened
+        const openClosedDays = async () => {
+          const closed = page.locator('.vt-filings-dayrow[data-open="0"] .vt-filings-daybtn:not([disabled])');
+          for (let n = await closed.count(); n > 0; n = await closed.count()) { await closed.first().click(); await page.waitForTimeout(60); }
+        };
         const countWord = name === "earningspaged" ? /\b3 releases\b/ : /\b3 filings\b/;
         const fail = (m) => checks.failures.push("filing-coverage: " + m);
         // the Form 4 page reads by filed day (2026-11-18); the other two by archive day
@@ -3717,10 +3758,15 @@ async function main() {
           if (sumText !== "1 of 3 filed days complete against EDGAR's index · 1 partial · 1 not yet checked") fail(`filed-day summary reads "${sumText}"`);
           const lines = await dayLines();
           const expect = [
-            ["2026-11-18", "sample", "Filed 2026-11-18 · 1 filing · sample · not yet checked against EDGAR's index"],
-            ["2026-11-17", "complete", "Filed 2026-11-17 · 1 filing · complete · all 1 on EDGAR's index"],
-            ["2026-11-16", "partial", "Filed 2026-11-16 · 1 filing · partial · 1 of the 624 on EDGAR's index"],
+            ["2026-11-18", "sample", "Filed 2026-11-18 · 1 filing · sample · not yet checked against EDGAR's index · 1 row"],
+            ["2026-11-17", "complete", "Filed 2026-11-17 · 1 filing · complete · all 1 on EDGAR's index · 1 row"],
+            ["2026-11-16", "partial", "Filed 2026-11-16 · 1 filing · partial · 1 of the 624 on EDGAR's index · 1 row"],
           ];
+          // only the newest day starts open; the other two open from their own line
+          const openNow = await page.locator(".vt-filings-dayrow").evaluateAll((els) => els.map((el) => el.getAttribute("data-open")).join(""));
+          if (openNow !== "100") fail(`expected only the newest filed day open at first, got "${openNow}"`);
+          if ((await rowCount()) !== 1) fail(`expected 1 row on screen before a day is opened, found ${await rowCount()}`);
+          await openClosedDays();
           if (lines.length !== 3) fail(`expected 3 filed-day lines, found ${lines.length}`);
           expect.forEach(([day, state, text], i) => {
             const l = lines[i];
@@ -3743,6 +3789,12 @@ async function main() {
           const after = (await cov.count()) ? await cov.first().innerText() : "";
           if (!want.after.test(after)) fail(`after loading older days the header reads "${after}"`);
           if (await page.locator("[data-vt-load-older]").count()) fail("load-older control still shown after the window is whole");
+          if (byFiled) {
+            // older days arrive closed (their lines are the index); the days already open stay open
+            const openAfter = await page.locator(".vt-filings-dayrow").evaluateAll((els) => els.map((el) => el.getAttribute("data-open")).join(""));
+            if (openAfter !== "111000") fail(`after loading older days the open days are "${openAfter}", expected the three loaded first`);
+            await openClosedDays();
+          }
           const rows1 = await rowCount();
           if (rows1 !== rows0 + 3) fail(`older rows not appended (${rows0} -> ${rows1}, expected +3)`);
           if (byFiled) {
@@ -3755,6 +3807,61 @@ async function main() {
           if (!apiLog.some((u) => want.next.test(u))) fail(`the older page was not fetched through the server's next query (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
           await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-older.png`) });
         }
+      }
+      // ── FILED DAYS AT REAL VOLUME (2026-11-18, item (l)): 4,397 rows in
+      // three filed days. Every day is a line; one day's first page of rows
+      // is on screen; the rest is a tap away and no filter is needed.
+      if (name === "filingsvolume") {
+        const fail = (m) => checks.failures.push("filing-days: " + m);
+        const rowCount = () => page.locator(".vt-filings-table tbody tr:not(.vt-filings-dayrow):not(.vt-filings-morerow)").count();
+        const lines = () => page.locator(".vt-filings-dayrow").evaluateAll((els) => els.map((el) => ({
+          day: el.getAttribute("data-vt-filed-day"), open: el.getAttribute("data-open"),
+          rows: (el.querySelector("[data-vt-day-rows]")?.textContent || "").replace(/\s+/g, " ").trim(),
+          expanded: el.querySelector(".vt-filings-daybtn")?.getAttribute("aria-expanded"),
+          left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right, h: el.getBoundingClientRect().height,
+        })));
+        const l0 = await lines();
+        const got0 = l0.map((l) => `${l.day}:${l.open}:${l.rows}`).join(" | ");
+        if (got0 !== "2026-11-18:1:· 264 rows | 2026-11-17:0:· 2,800 rows | 2026-11-16:0:· 1,333 rows") fail(`day lines read "${got0}"`);
+        if (l0.some((l) => l.expanded !== (l.open === "1" ? "true" : "false"))) fail("a day line's aria-expanded disagrees with its state");
+        for (const l of l0) {
+          if (l.left < -0.5 || l.right > vp.w + 0.5) fail(`day line ${l.day} overflows the viewport (${Math.round(l.left)}..${Math.round(l.right)} of ${vp.w})`);
+          if (vp.touch && l.h < 44) fail(`day line ${l.day} is ${Math.round(l.h)}px tall on touch (<44)`);
+        }
+        if ((await rowCount()) !== 25) fail(`expected the newest day's first 25 rows on screen, found ${await rowCount()}`);
+        if (/showing first/.test(await page.locator(".vt-filings-tablewrap").first().innerText())) fail("the 500-row cap message is back on a filed-day page");
+        // item (l)'s check: the list is under 20 screens before anything is opened, and every day's line is in it
+        const listH = await page.locator(".vt-filings-table").first().evaluate((el) => el.getBoundingClientRect().height);
+        if (listH > 20 * vp.h) fail(`the unopened list is ${Math.round(listH)}px, over 20 screens of ${vp.h}px`);
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-first.png`) });
+        // "show more" adds a page of the open day
+        const more = page.locator('[data-vt-day-more="2026-11-18"]');
+        const moreText = (await more.count()) ? (await more.first().innerText()).replace(/\s+/g, " ").trim() : "";
+        if (moreText !== "Show 200 more · 25 of 264 rows shown") fail(`show-more control reads "${moreText}"`);
+        else {
+          const box = await more.first().boundingBox();
+          if (box && (box.x < 0 || box.x + box.width > vp.w + 0.5)) fail(`show-more control overflows the viewport (${Math.round(box.x)}..${Math.round(box.x + box.width)} of ${vp.w})`);
+          if (box && vp.touch && box.height < 44) fail(`show-more control is ${Math.round(box.height)}px tall on touch (<44)`);
+          await more.first().click();
+          await page.waitForTimeout(150);
+          if ((await rowCount()) !== 225) fail(`after "show more" expected 225 rows, found ${await rowCount()}`);
+          const again = (await more.first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+          if (again !== "Show the last 39 · 225 of 264 rows shown") fail(`second show-more reads "${again}"`);
+        }
+        // closing the open day and opening the oldest: the day the old cap never reached
+        await page.locator('.vt-filings-dayrow[data-vt-filed-day="2026-11-18"] .vt-filings-daybtn').click();
+        await page.locator('.vt-filings-dayrow[data-vt-filed-day="2026-11-16"] .vt-filings-daybtn').click();
+        await page.waitForTimeout(150);
+        const l1 = (await lines()).map((l) => `${l.day}:${l.open}`).join(" ");
+        if (l1 !== "2026-11-18:0 2026-11-17:0 2026-11-16:1") fail(`after closing the newest day and opening the oldest the lines are "${l1}"`);
+        if ((await rowCount()) !== 25) fail(`the oldest day opened with ${await rowCount()} rows, expected its first 25`);
+        // a filter keeps every day's line and says what matched
+        await page.locator('.vt-filings-filter[role="tab"]', { hasText: "Buys" }).first().click();
+        await page.waitForTimeout(200);
+        const l2 = await lines();
+        if (l2.length !== 3) fail(`a filter left ${l2.length} day lines, expected 3`);
+        if (l2.some((l) => !/matching rows?$|no rows match the filter$/.test(l.rows))) fail(`under a filter the day lines read "${l2.map((l) => l.rows).join(" | ")}"`);
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-opened.png`) });
       }
       if (name === "forecastexpired") {
         const fail = (m) => checks.failures.push("session-expired: " + m);

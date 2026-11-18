@@ -7834,6 +7834,49 @@
     only. Tested (glibc 2.39, 180 MB allocated and half freed on a worker
     thread): mallinfo2 reported arena 172 / in use 86 / free 86 MB. It sums
     every arena; `malloc.free_retained_mb` does cover the scan threads.
+    READING 2026-11-18 18:08Z (PRODUCT session; uptime 3.27 h, 35 scans,
+    market open since 14:30Z: THE READING THIS ITEM ASKS FOR): RSS 617 MB
+    (75.6 at start; peak 703.9), python_blocks 3,792,568 (294,338 at
+    start, 12.9x), malloc heap 263.2 MB of which in use 80.4 and
+    free-retained 185.9 (18.1 / 19.0 / 0.4 at start), mmapped 3.0,
+    threads 5 (1 at start). Guard: normal 2, trim 27, skip 6, survival 0;
+    33 scans in a row not normal; last decision skip at 617 MB. Timings
+    of the scan then running: 617 MB at universe_load, 616 after every
+    later phase, deep_score 0 s (skipped): the scan itself adds nothing
+    once deep scoring is off, so what is held is held between scans.
+    WHAT IT SAYS, by the HOW TO READ IT rules above: neither rule alone.
+    Of the 541 MB gained since start the C heap is 245 MB (in use +61,
+    freed but retained +186) and about 296 MB sits outside it, where the
+    interpreter keeps its own arenas (mmap'd by pymalloc, not counted by
+    mallinfo2) and where the 3.5 M extra live blocks are. So BOTH: (i)
+    live Python objects are the larger part (about 55%) and (ii)
+    fragmentation about 34%; (iii) is out (5 threads). The prior
+    (50% (ii), 35% (i), 15% (iii)) had the order of (i) and (ii) wrong.
+    `largest_containers` names nothing big enough: _SCAN_CHANGES 1,714,
+    vol_surface._sabr_cache 399, options_scanner._options_candidates_cache
+    283, vol_surface._surface_cache 200 entries. Entry counts hide entry
+    SIZE: a 200-surface cache of arrays can be most of 296 MB.
+    NEXT STEP (T-BOT, DAILY session, read-only instrument, own PR): add to
+    `/api/diag/daemon` `memory` (a) a census of live objects by type
+    (count per type name over gc.get_objects(), top 15) and (b) the deep
+    size of each module-level cache it already lists (sum of
+    sys.getsizeof over the container and its values, numpy `nbytes` where
+    present). One reading at 3+ market hours then names the holder; bound
+    that cache, and treat (ii) second (malloc_trim after a scan) only if
+    the skip persists. Not built here: product sessions do not preempt
+    the DAILY repair duty, and a threshold must not move before the
+    holder is named.
+    ADDED AT MERGE (21:15Z): the DAILY midday session built that census
+    the same day (#1824, v1.0.1464; its 16:12Z and 16:28Z readings follow
+    this one in the file but were taken earlier). Read together: live
+    blocks were 3.82 M at 1.34 h and 3.79 M at 3.27 h, so the live
+    objects stopped growing after the first hour, as #1824 says, while
+    freed-but-retained C heap went 92.8 -> 185.9 MB and RSS 520 -> 617.
+    The rise from trim to skip between hour 1.3 and hour 3.3 is therefore
+    (ii) fragmentation on top of a flat (i). The NEXT STEP above is done
+    by #1824; what is left is its census read at 3+ hours.
+    #1825 (v1.0.1465, merged 21:2xZ) returns freed heap to the OS after a
+    scan: the (ii) part this reading measured at 186 MB.
     READING 2026-11-18 16:12Z and 16:28Z (DAILY midday session, market
     open; the daemon was 1.34 h and then 1.60 h old, so still short of the
     3 h this item asked for, but with 20 and then 23 scans behind it):
@@ -24230,6 +24273,18 @@ STILL OPEN, filed by this build:
 (j) THE REGISTRY STILL SAYS "LIVE". `server/streamsInventory.ts` `deriveHealth` calls any hourly stream live up to 26 h after its last file write; on 11-16 that read "live, newest file 11.6h old". TESTABLE FORM: a per-stream filing-hours rule (the health check's own window) feeding the registry's note for `filings`, so /data's own freshness line cannot say live while the health check alarms. One rule, two readers: move the window arithmetic server-side and let the Python check read the verdict.
 (k) 13F AND 8-K HAVE NO REFILL AND NO ARCHIVE-WRITE RULE. A day of failed polls there is a permanent gap unless a session sees the WARN. EDGAR's daily form index lists 13F-HR and 8-K accessions the same way it lists Form 4s; the completeness pass (`server/edgarForm4Completeness.ts`) is written for one form. TESTABLE FORM: for five recent business days, the archive's distinct 13F-HR accessions against the index's count (the 8-K archive keeps Item 2.02 only, so its truth needs the item, which the index does not carry). PRIOR: 60% the 13F archive is short on deadline days (40 filings a poll against a 14 November burst).
 Ladder: gate 1 (DATA) for RAW archives. No signal claim.
+
+## 2026-11-18 — RESULT on "(l) THE ROW CAP HIDES MOST OF A DAY": every loaded filed day is a line that opens (v1.0.1466)
+
+(l) BUILT (experiments.md 2026-11-18 13:07 ET [PRODUCT], T-CLIENT). READ ON PRODUCTION FIRST (18:20Z, v1.0.1463, headless browser on #/data/filings): header "(days filed) · 2 of 3 filed days complete"; day lines for 2026-11-18 and 2026-11-17 only; 502 table rows. The third loaded day, 2026-11-16 (624 filings, 1,333 transaction rows, complete), had no line and no row: the 500-row cap ended 236 rows into 11-17. This also closes #1823's CHECK AFTER DEPLOY (the header and the first group read as filed).
+NOW: `client/src/lib/filingDayGroups.ts` builds one group per loaded filed day from EVERY loaded row (and from the server's day list, so a day whose rows a filter removed keeps its line). The day line is a button (aria-expanded) that also states the day's rows ("2,800 rows", "281 matching rows", "no rows match the filter"). The newest day with rows starts open; an open day shows 25 rows, then "Show 200 more · 25 of 2,800 rows shown". Days loaded by "Load older days" arrive closed. An archive-day page (an older server) keeps the flat 500-row list and its cap message.
+ITEM'S CHECKS: every loaded filed day reachable without a filter: yes (harness page `filingsvolume`: 94 / 1,047 / 624 filings, 264 / 2,800 / 1,333 rows, three lines, the oldest opened by its line). The 390 px list before anything is opened is 25 cards, measured under 20 screens by the harness at each width.
+CHECK AFTER DEPLOY: #/data/filings shows one line per loaded filed day (three today), only the newest open with 25 rows and a "Show 200 more" control; tapping a closed line opens it.
+STILL OPEN, each its own PR:
+(o) FILINGS WITH NO TRANSACTION NEVER APPEAR (T-CLIENT, small). The page lists transaction rows; a Form 4 that reports holdings only has none (live 11-18: 4 of 1,765 loaded filings). The day line counts it ("94 filings") and no row shows it. TESTABLE FORM: such a filing gets one row reading "no transaction reported (holdings only)" with its SEC link; check: rows' distinct accessions per day == the day line's filing count.
+(p) ROWS INSIDE A DAY ARE IN ARCHIVE ORDER, NOT BY SIZE OR TIME (T-CLIENT). With 2,800 rows a day behind a 25-row first page, which 25 come first matters. MEASURED on the live 18:08Z payload: `filedAt` is a date with no time on every 2026-11-17 filing, so there is no time order inside a day, and the first 25 rows of 11-17 are one issuer's single run (19 option exercises, 6 open-market sales). The order is the archive's, chosen by nobody. TESTABLE FORM: decide one order and say it on the line (for example open-market buys by dollar value first, or one filing per issuer before any issuer's second); check with the 11-17 payload that the first page holds more than one issuer.
+Unchanged and still open: (m) server `covered.from` on a truncated filed-day page, (n) filed-day index build time on a visitor's first request (18:08Z reading, not the first after a deploy: 1.10 s for the 30-day window, 1.9 MB), (g), (h), (i), (j), (k), (e).
+Ladder: gate 1 (DATA) for a RAW archive, product surface. No signal claim.
 
 ## 2026-11-18 — RESULT on "(f) THE /data FILINGS PAGE STILL WALKS ARCHIVE DAYS", and "(b) THE GATE-2 READER" closed: its premise was false (v1.0.1463)
 
