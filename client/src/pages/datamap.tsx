@@ -458,7 +458,10 @@ function ensureSatcat(): Promise<void> {
 // Baked-in build version — compared against the registry's server_version
 // to detect open-tab skew (old bundle + fresh registry = layer rows the
 // bundle has no wiring for; the 2026-07-04 production toggle desync).
-import { version as CLIENT_VERSION } from "../../../package.json";
+// Baked into index.html by the build, not into this chunk: importing it from
+// package.json renamed the 2.1 MB entry chunk on every deploy
+// (lib/clientVersion.ts).
+import { CLIENT_VERSION, isVersionSkew } from "@/lib/clientVersion";
 
 /**
  * /data — the data-intelligence map (v2).
@@ -3626,7 +3629,7 @@ export default function DataMapPage() {
     if (signal.aborted) return;
     setLayers(reg.layers);
     setRegistryRetry(0);
-    if (reg.serverVersion && reg.serverVersion !== CLIENT_VERSION) {
+    if (isVersionSkew(reg.serverVersion)) {
       setVersionSkew(reg.serverVersion);
     }
   }, (failures) => setRegistryRetry(failures + 1)), [registryNonce]);
@@ -3635,7 +3638,7 @@ export default function DataMapPage() {
     if (awayMs < VERSION_RECHECK_AWAY_MS) return;
     fetchLayerRegistry(fetch, timeoutSignal(LIVE_FETCH_TIMEOUT_MS))
       .then((reg) => {
-        if (reg.serverVersion && reg.serverVersion !== CLIENT_VERSION) setVersionSkew(reg.serverVersion);
+        if (isVersionSkew(reg.serverVersion)) setVersionSkew(reg.serverVersion);
       })
       .catch(() => { /* next resume tries again; the feeds refresh regardless */ });
   }), []);
