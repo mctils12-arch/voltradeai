@@ -70,14 +70,14 @@ def test_the_put_selector_uses_the_walk_and_records_the_quote():
 
 def test_select_contract_reads_the_walk_from_the_tier_metadata_only():
     assert re.search(r'_price_walk = \(metadata or \{\}\)\.get\("price_walk"\) if isinstance\(metadata, dict\) else None', SRC)
-    assert re.search(r"_select_sell_put\(liquid, price, equity, ticker, size_pct, cash_available=cash_available,\s*"
-                     r"target_delta=_target_delta, price_walk=_price_walk\)", SRC)
+    assert re.search(r'if _price_walk is not None:\s*_csp_kwargs\["price_walk"\] = _price_walk\s*'
+                     r"result = _select_sell_put\(liquid, price, equity, ticker, size_pct, \*\*_csp_kwargs\)", SRC)
     # every other strategy keeps the default: no other caller passes a walk
     assert len(re.findall(r"_optimized_limit_price\([^)\n]*walk=", SRC)) == 1
 
 
 def test_the_lower_limit_is_still_judged_by_the_fair_value_check_and_the_tax_filter():
     sel = SRC[SRC.index("def select_contract("):SRC.index("def _select_sell_put(")]
-    pick = sel.index("price_walk=_price_walk")
+    pick = sel.index('_csp_kwargs["price_walk"] = _price_walk')
     assert pick < sel.index("option_fair_value.apply(result, strategy, ticker, price, surface_data, liquid)")
     assert pick < sel.index("_tax_gate_contract(result, ticker, strategy, metadata, price")

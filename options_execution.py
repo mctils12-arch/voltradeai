@@ -566,8 +566,12 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
         elif strategy == "buy_put":
             result = _select_buy_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "sell_cash_secured_put":
-            result = _select_sell_put(liquid, price, equity, ticker, size_pct, cash_available=cash_available,
-                                      target_delta=_target_delta, price_walk=_price_walk)
+            # the walk is passed only when the dispatcher sent one: a first
+            # attempt makes exactly the call it made before 2026-11-19
+            _csp_kwargs = {"cash_available": cash_available, "target_delta": _target_delta}
+            if _price_walk is not None:
+                _csp_kwargs["price_walk"] = _price_walk
+            result = _select_sell_put(liquid, price, equity, ticker, size_pct, **_csp_kwargs)
         elif strategy == "bull_call_spread":
             result = _select_bull_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "bear_put_spread":

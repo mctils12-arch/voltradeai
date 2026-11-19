@@ -305,5 +305,5 @@ test("ladder wiring: the dispatcher counts today's declined puts, stops when the
   assert.match(bot, /cspLadder = cspLadderStep\(\s*countUnfilledRestedCspSince\(/);
   assert.match(bot, /if \(cspLadder\.exhausted\) \{[\s\S]{0,400}noteCspGate\(action, "rejected_csp_resubmit"[\s\S]{0,200}continue;/);
   assert.match(bot, /cooldownMinutes: cspLadder\.cooldownMinutes,/);
-  assert.match(bot, /metadata: cspLadder\.step > 0 && cspLadder\.walk != null\s*\? \{ \.\.\.\(action\.metadata \?\? \{\}\), price_walk: cspLadder\.walk, price_step: cspLadder\.step \}\s*: action\.metadata,/);
+  assert.match(bot, /if \(cspLadder\.step > 0 && cspLadder\.walk != null\) \{\s*cspPayload\.metadata = \{ \.\.\.\(action\.metadata \?\? \{\}\), price_walk: cspLadder\.walk, price_step: cspLadder\.step \};/);
 });

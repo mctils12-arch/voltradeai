@@ -7337,12 +7337,11 @@ print(json.dumps(check_weekly_loss(history)))
                 equity: equity,
                 cash: tierCashAvailable,
                 size_pct: action.size_pct,
-                // PRICE LADDER 2026-11-19: step 0 sends no walk (the selector's own 30%)
-                metadata: cspLadder.step > 0 && cspLadder.walk != null
-                  ? { ...(action.metadata ?? {}), price_walk: cspLadder.walk, price_step: cspLadder.step }
-                  : action.metadata,
+                metadata: action.metadata,
               };
+              // PRICE LADDER 2026-11-19: a first attempt sends no walk (the selector's own 30%)
               if (cspLadder.step > 0 && cspLadder.walk != null) {
+                cspPayload.metadata = { ...(action.metadata ?? {}), price_walk: cspLadder.walk, price_step: cspLadder.step };
                 audit("CSP-LADDER", `${action.ticker}: put attempt ${cspLadder.step + 1} of ${CSP_PRICE_WALKS.length} today — ${cspLadder.step} earlier limit(s) rested unfilled, so this one asks ${Math.round(cspLadder.walk * 100)}% of the way from mid to the bid${cspLadder.walk >= 1 ? " (the bid)" : ""}`);
               }
               const cspTmpPath = `/tmp/tier_csp_${action.ticker}_${Date.now()}.json`;
