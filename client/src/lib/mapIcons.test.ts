@@ -3,7 +3,7 @@
 // npx tsx --test client/src/lib/mapIcons.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor, chemicalFeedstockColor, lngShipyardCountryTier, summarizeFurnaceUnits } from "./mapIcons.ts";
+import { camdQuarterHours, camdUtilizationPct, camdUtilizationColor, volcanoAlertColor, ironOreStatusColor, ironSteelTechColor, chemicalFeedstockColor, lngShipyardCountryTier, summarizeFurnaceUnits, registerIcons, iconDataURL, iconNames, ICON_CANVAS_2D } from "./mapIcons.ts";
 
 test("camdQuarterHours: real calendar length per quarter, not a fixed 91-day assumption", () => {
   assert.equal(camdQuarterHours(2026, 1), 90 * 24); // Jan(31)+Feb(28, non-leap)+Mar(31)
@@ -121,4 +121,78 @@ test("lngShipyardCountryTier: the top-3 shipbuilding nations get their own tier,
   assert.equal(lngShipyardCountryTier("France"), "other");
   assert.equal(lngShipyardCountryTier(null), "other");
   assert.equal(lngShipyardCountryTier(undefined), "other");
+});
+
+// ── icon rasterization cost (map speed, 2026-11-19) ─────────────────────────
+// The load trace showed the icon registry as two ~1 s main-thread tasks: every
+// shape was drawn on a GPU-backed canvas and read back (a synchronous round
+// trip to the GPU process per shape), once for the map and again for the
+// legend. These pin the two properties that removed it: every icon canvas is
+// CPU-backed, and a shape is drawn once per session whoever asks for it.
+type CanvasRecord = { kind: string | null; settings: { willReadFrequently?: boolean } | undefined; readbacks: number };
+type FakeImage = { width: number; height: number; data: Uint8ClampedArray };
+type FakeCanvas = { width: number; height: number; getContext(kind: string, settings?: CanvasRecord["settings"]): unknown; toDataURL(): string };
+function fakeCanvasDocument() {
+  const canvases: CanvasRecord[] = [];
+  const doc = {
+    createElement(tag: string) {
+      assert.equal(tag, "canvas");
+      const rec: CanvasRecord = { kind: null, settings: undefined, readbacks: 0 };
+      canvases.push(rec);
+      const canvas = { width: 0, height: 0 } as FakeCanvas;
+      canvas.getContext = (kind, settings) => {
+        rec.kind = kind; rec.settings = settings;
+        // any drawing call is accepted; only the read-backs are observed
+        return new Proxy({} as Record<string, unknown>, {
+          get(target, prop) {
+            if (prop === "getImageData") return (_x: number, _y: number, w: number, h: number) => { rec.readbacks++; return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; };
+            if (prop in target) return target[prop as string];
+            return () => undefined;
+          },
+          set(target, prop, value) { target[prop as string] = value; return true; },
+        });
+      };
+      canvas.toDataURL = () => { rec.readbacks++; return `data:image/png;base64,canvas${canvases.indexOf(rec)}`; };
+      return canvas;
+    },
+  };
+  return { doc, canvases };
+}
+
+test("icon canvases: every one is CPU-backed (willReadFrequently), and a shape is drawn once for map + legend", () => {
+  assert.deepEqual(ICON_CANVAS_2D, { willReadFrequently: true });
+  const { doc, canvases } = fakeCanvasDocument();
+  const g = globalThis as unknown as { document?: unknown };
+  const prevDoc = g.document;
+  g.document = doc;
+  try {
+    const names = iconNames();
+    assert.ok(names.length >= 50, `the registry holds the map's shapes (${names.length})`);
+    const added = new Map<string, { img: FakeImage; o: unknown }>();
+    const map = { hasImage: (n: string) => added.has(n), addImage: (n: string, img: FakeImage, o: unknown) => { added.set(n, { img, o }); } };
+    registerIcons(map);
+    assert.deepEqual([...added.keys()].sort(), [...names].sort(), "every shape is registered");
+    for (const { o } of added.values()) assert.deepEqual(o, { sdf: true });
+    const drawn = canvases.length;
+    assert.equal(drawn, names.length, "one canvas per shape, no more");
+    assert.ok(canvases.every((c) => c.kind === "2d" && c.settings?.willReadFrequently === true),
+      "a GPU-backed icon canvas makes each read-back a synchronous GPU round trip");
+
+    // a second map (the landing globe, a re-registration after a lost context) redraws nothing
+    const added2 = new Map<string, FakeImage>();
+    registerIcons({ hasImage: (n: string) => added2.has(n), addImage: (n: string, img: FakeImage) => { added2.set(n, img); } });
+    assert.equal(canvases.length, drawn, "a second registration reuses the session's rasters");
+    assert.equal(added2.get("vt-jet"), added.get("vt-jet")?.img, "same pixels for every consumer");
+
+    // the legend tints the SAME raster: two small canvases per (shape, color), never a redraw of the shape
+    const url = iconDataURL("vt-jet", "#4d9fff");
+    assert.match(url, /^data:image\/png/);
+    assert.equal(canvases.length, drawn + 2, "tint canvas + scaled output canvas, the shape is not drawn again");
+    assert.ok(canvases.slice(drawn).every((c) => c.settings?.willReadFrequently === true), "legend canvases are CPU-backed too");
+    assert.equal(iconDataURL("vt-jet", "#4d9fff"), url);
+    assert.equal(canvases.length, drawn + 2, "a repeated legend render is a cache hit");
+    assert.equal(iconDataURL("vt-not-a-shape", "#fff"), "", "an unknown shape renders nothing rather than throwing");
+  } finally {
+    if (prevDoc === undefined) delete g.document; else g.document = prevDoc;
+  }
 });
