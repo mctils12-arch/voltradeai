@@ -65,3 +65,79 @@ export function setAllGrids(
   }
   return next;
 }
+
+// ── ALL STATES (human request 2026-11-19: "I want the option to have all
+// power grids for states, but the way you have all the drop-downs"). One
+// control at the top of the "Power grid — US (by state)" drop-down that
+// turns every state grid layer on or off.
+//
+// SAME STATE RULE as the master above: a convenience control over the
+// panel's `enabled` map, never parallel state. Its three displayed
+// positions (all / some / none) are DERIVED from the per-state values, so a
+// user who picked three states sees "some", never a switch that lies.
+//
+// NOT THE US MASTER. The `powergrid` master draws the whole country from
+// ONE overview tile set; the states are 51 separate, more detailed tile
+// sets. Measured 2026-11-19 from the served files' own headers: the master
+// is tiled to z7 with its densest lines thinned at every zoom, the states
+// to z9 (Texas z12). The two are different pictures, so this control turns
+// the real state layers on and never swaps in the master behind the label.
+
+/** A US per-state grid layer id: `powergrid_` + the two-letter state code
+ *  (`powergrid_tx`; DC is `powergrid_dc`). Every other grid id has a longer
+ *  or prefixed suffix (`powergrid_ca_ab`, `powergrid_eu_de`,
+ *  `powergrid_hifld`, `powergrid_canada`, the bare `powergrid` master), so
+ *  the shape alone separates the states from the masters and the other
+ *  regions. `gridMaster.test.ts` pins this against the registry. (It is a
+ *  rule about LAYER ids: the US master's map source happens to be named
+ *  `powergrid_us`, which is a source, not a layer, and not a state.) */
+export function isUsStateGridId(id: string): boolean {
+  return /^powergrid_[a-z]{2}$/.test(id);
+}
+
+/** The three honest positions of a group control. */
+export type GridGroupState = "all" | "some" | "none";
+
+/** How many of `ids` are on. */
+export function countGridGroupOn(
+  enabled: Record<string, boolean>,
+  ids: readonly string[],
+): number {
+  let n = 0;
+  for (const id of ids) if (enabled[id]) n++;
+  return n;
+}
+
+/** Derived position: "all" only when every id is on, "none" when no id is
+ *  on (an empty group is "none": there is nothing to show as on). */
+export function gridGroupState(
+  enabled: Record<string, boolean>,
+  ids: readonly string[],
+): GridGroupState {
+  const n = countGridGroupOn(enabled, ids);
+  if (n === 0) return "none";
+  return n === ids.length ? "all" : "some";
+}
+
+/** Next `enabled` with exactly `ids` set to `on`. Nothing else is touched:
+ *  the masters, HIFLD and every other region keep their values. Input is
+ *  never mutated. */
+export function setGridGroup(
+  enabled: Record<string, boolean>,
+  ids: readonly string[],
+  on: boolean,
+): Record<string, boolean> {
+  const next: Record<string, boolean> = { ...enabled };
+  for (const id of ids) next[id] = on;
+  return next;
+}
+
+/** One press of the group control: "all" turns the group off; "some" and
+ *  "none" turn it all on (a partly-on group completes, as a tri-state
+ *  checkbox does, so a second press is always a clean off). */
+export function toggleGridGroup(
+  enabled: Record<string, boolean>,
+  ids: readonly string[],
+): Record<string, boolean> {
+  return setGridGroup(enabled, ids, gridGroupState(enabled, ids) !== "all");
+}
