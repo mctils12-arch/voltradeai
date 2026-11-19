@@ -136,8 +136,54 @@ def plan(closes: Sequence[float], equity: float, base_value: float, levered_valu
     }
 
 
+def park_sleeve_enabled(cfg: Dict, env: Optional[Dict] = None) -> bool:
+    """Whether the T-bill fund also holds the satellites' UNUSED cash (True,
+    system_config FLOOR_VM_CASH_PARK_SLEEVE) or only the floor's idle capital,
+    as before 2026-11-19. Env VOLTRADE_PARK_SLEEVE=0|1 overrides without a
+    deploy; any other value is ignored."""
+    import os
+    v = str((os.environ if env is None else env).get("VOLTRADE_PARK_SLEEVE") or "").strip().lower()
+    if v in ("0", "false", "off", "no"):
+        return False
+    if v in ("1", "true", "on", "yes"):
+        return True
+    return bool(cfg.get("FLOOR_VM_CASH_PARK_SLEEVE", True))
+
+
+def parking_inputs(equity: float, short_put_collateral: float, cfg: Dict, env: Optional[Dict] = None) -> Dict:
+    """What the cash step may park and what must stay in cash.
+
+    Before 2026-11-19 ("floor"): the fund held only the floor's idle capital
+    (FLOOR_VM_CAPITAL_PCT x equity minus SPY/SSO) and account cash stayed >=
+    the satellites' whole sleeve ((1 - FLOOR_VM_CAPITAL_PCT) x equity) + every
+    short put's collateral. On 2026-11-19 that sleeve was $15,815 of plain
+    cash, 18% of the account, earning nothing while the satellites held no
+    position at all.
+
+    Now ("sleeve"): the fund may hold everything that is not the core, a small
+    cash buffer (FLOOR_VM_CASH_BUFFER_PCT x equity) or short-put collateral.
+    The satellites' budget is unchanged: the cash reserve reads the fund as
+    cash (position_mgmt, CASH_RESERVE_PARK_IS_CASH), the exposure caps leave
+    it out (bot_engine.without_floor_cash), and the step sells the fund as
+    soon as cash falls under buffer + collateral, so a trade that needs the
+    money gets it by selling the park, not by keeping cash idle for it."""
+    equity = max(0.0, float(equity or 0.0))
+    collateral = max(0.0, float(short_put_collateral or 0.0))
+    capital_pct = float(cfg.get("FLOOR_VM_CAPITAL_PCT", 0.85))
+    capital = equity * capital_pct
+    if not park_sleeve_enabled(cfg, env):
+        return {"mode": "floor", "capital": capital, "idle_capital": capital,
+                "reserve": (1.0 - capital_pct) * equity + collateral, "buffer": (1.0 - capital_pct) * equity}
+    buffer = equity * max(0.0, min(1.0 - capital_pct, float(cfg.get("FLOOR_VM_CASH_BUFFER_PCT", 0.02))))
+    # idle_capital leaves out the buffer only: put collateral is kept in cash
+    # through `reserve` (cash_plan's room), so the plan's reason names it
+    return {"mode": "sleeve", "capital": capital, "idle_capital": max(capital, equity - buffer),
+            "reserve": buffer + collateral, "buffer": buffer}
+
+
 def cash_plan(capital: float, core_value: float, held_value: float, cash: Optional[float],
-              reserve: float, cfg: Dict, enabled: bool = True, buys_allowed: bool = True) -> Dict:
+              reserve: float, cfg: Dict, enabled: bool = True, buys_allowed: bool = True,
+              idle_capital: Optional[float] = None) -> Dict:
     """Where the floor's idle capital sits (2026-11-06): in the T-bill fund
     FLOOR_VM_CASH_TICKER, not in cash. The study credited it with the T-bill
     rate; Alpaca paper credits no interest and no dividends, so the fund must
@@ -170,7 +216,11 @@ def cash_plan(capital: float, core_value: float, held_value: float, cash: Option
     if capital <= 0:
         out["reason"] = "no floor capital (equity unreadable)"
         return out
-    idle = max(0.0, float(capital) - max(0.0, float(core_value)))
+    # idle_capital (2026-11-19, parking_inputs "sleeve"): what the fund may hold
+    # at most, when that is more than the floor's own capital. The band stays on
+    # the floor's capital either way.
+    whole = float(capital) if idle_capital is None else max(float(capital), float(idle_capital))
+    idle = max(0.0, whole - max(0.0, float(core_value)))
     room = held if cash is None else max(0.0, held + float(cash) - max(0.0, float(reserve)))
     target = min(idle, room)
     gap = target - held
@@ -180,7 +230,10 @@ def cash_plan(capital: float, core_value: float, held_value: float, cash: Option
         out.update(action="sell", dollars=round(-gap, 2), reason=f"{why}: hold ${target:,.0f}, not ${held:,.0f}")
     elif gap > band and buys_allowed:
         out.update(action="buy", dollars=round(gap, 2),
-                   reason=f"${idle:,.0f} of the floor's ${capital:,.0f} is idle; park ${target:,.0f} (cash would earn 0)")
+                   reason=(f"${idle:,.0f} of the floor's ${capital:,.0f} is idle; park ${target:,.0f} (cash would earn 0)"
+                           if whole <= float(capital) else
+                           f"${idle:,.0f} outside the core, the cash buffer and put collateral is idle; "
+                           f"park ${target:,.0f} (cash would earn 0)"))
     elif gap > band:
         out["reason"] = "buy waits: the core traded this pass or an order is working"
     elif cash is None and idle > held + band:

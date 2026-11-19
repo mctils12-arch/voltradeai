@@ -6945,7 +6945,7 @@ def _manage_floor_cash(core_result: dict) -> dict:
     core_result["cash_parking"]; an order joins core_result["actions"] so the
     floor audit (server/floorAudit.ts) logs it."""
     from system_config import BASE_CONFIG as cfg
-    from floor_vol_managed import cash_plan as _vm_cash_plan
+    from floor_vol_managed import cash_plan as _vm_cash_plan, parking_inputs as _vm_parking_inputs
     import math as _fcm
     ticker = floor_cash_ticker(cfg)
     if ticker is None:
@@ -6969,15 +6969,19 @@ def _manage_floor_cash(core_result: dict) -> dict:
         return float(by_sym[sym].get("market_value") or 0) if sym in by_sym else 0.0
 
     base, lev = _floor_vm_tickers(cfg)
-    capital_pct = float(cfg.get("FLOOR_VM_CAPITAL_PCT", 0.85))
-    capital = max(0.0, equity) * capital_pct
-    reserve = (1.0 - capital_pct) * max(0.0, equity) + _short_put_collateral(positions)
+    # 2026-11-19 (floor_vol_managed.parking_inputs): the fund also holds the
+    # satellites' unused cash; cash keeps a small buffer + put collateral.
+    # FLOOR_VM_CASH_PARK_SLEEVE False restores the floor-only rule.
+    _park = _vm_parking_inputs(equity, _short_put_collateral(positions), cfg)
+    capital = _park["capital"]
+    reserve = _park["reserve"]
     core_traded = any(str(a.get("type", "")) in FLOOR_VM_CORE_ORDER_ACTIONS
                       for a in core_result.get("actions", []) if isinstance(a, dict))
     plan = _vm_cash_plan(capital, _value(base) + _value(lev), _value(ticker), cash, reserve, cfg,
-                         enabled=bool(cfg.get("FLOOR_VM_CASH_ENABLED", True)), buys_allowed=not core_traded)
+                         enabled=bool(cfg.get("FLOOR_VM_CASH_ENABLED", True)), buys_allowed=not core_traded,
+                         idle_capital=_park["idle_capital"])
     plan.update(ticker=ticker, cash=None if cash is None else round(cash, 2), reserve=round(reserve, 2),
-                status="ok")
+                status="ok", parks=_park["mode"], cash_buffer=round(_park["buffer"], 2))
     core_result["cash_parking"] = plan
 
     def _done() -> dict:

@@ -392,6 +392,23 @@ BASE_CONFIG = {
     #   the 13-week T-bill yield minus 1 pp, or any fill more than 0.3% from
     #   the mid.
     "FLOOR_VM_CASH_ENABLED": True,
+    # IDLE SATELLITE CASH 2026-11-19 (owner: "why hold that much cash on the
+    # side why not sell out of positions"). The fund above held only the
+    # FLOOR's idle capital; the satellites' whole sleeve (15% of equity) stayed
+    # in plain cash for trades that were not there: $15,815 on 2026-11-19, 18%
+    # of the account at 0%. True = the fund also holds that unused cash, and
+    # cash keeps only FLOOR_VM_CASH_BUFFER_PCT of equity + every short put's
+    # collateral; a trade that needs money gets it because the cash step
+    # sells the fund when cash is short (floor_vol_managed.parking_inputs).
+    # New keys; prior behaviour = PARK_SLEEVE False. Expected effect: about
+    # $14,000 more in the fund today; at its ~4.2%/yr price return on ~16% of
+    # equity, about +0.6-0.7%/yr against the same account with idle cash. The
+    # satellites' budget does not change (the cash reserve reads the fund as
+    # cash; the exposure caps leave it out). EXPLORATORY, kill date
+    # 2027-02-19; rollback triggers in research/experiments.md. No-deploy
+    # rollback: env VOLTRADE_PARK_SLEEVE=0.
+    "FLOOR_VM_CASH_PARK_SLEEVE": True,
+    "FLOOR_VM_CASH_BUFFER_PCT": 0.02,
     "FLOOR_VM_CASH_TICKER": "BOXX",
     "FLOOR_VM_CASH_BAND": 0.05,               # of the floor's capital
     "FLOOR_VM_CASH_MIN_TRADE_DOLLARS": 2000,
