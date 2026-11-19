@@ -5625,6 +5625,198 @@ async function main() {
       } finally {
         page.off("request", onSnapshotReq);
       }
+      // ── RAIL MENUS (owner report 2026-11-19: "when you click on the
+      // mountain, it covers the other icon and moves down. Why does it move?
+      // It's where I have my mouse"). The base-map-style menu was laid out in
+      // flow beside its button, so opening it pushed the 44px button 23px down
+      // onto the time-machine button — and nothing here ever opened it. Every
+      // menu on the top-left rail ([data-vt-rail-menu], components/RailMenu)
+      // is now driven the way a person drives it — the pointer goes to the
+      // button and STAYS there — and must hold, at every width:
+      //   • no rail button ([data-vt-rail-btn]) moves when the menu opens, and
+      //     the button pressed is still under the pointer;
+      //   • the menu covers no rail button and no other control, sits inside
+      //     the viewport, and each of its options is reachable (44px on phone);
+      //   • a second press on the same spot closes it; so do Escape and a
+      //     press outside;
+      //   • the same holds with the analyst pane or the time machine open (the
+      //     panels that share the space right of the rail): the menu steps
+      //     aside instead of opening over or under them.
+      // Touch widths tap; the desktop width moves a mouse, which also covers
+      // the hover-open path that moved the button in the report.
+      try {
+        if (!cfg.map) throw { skip: true };
+        // start from the page's default layout: a panel an earlier battery
+        // failed to close (its own failure, already recorded) must not be read
+        // here as "the menu opened over a panel on the default layout"
+        const strayPanel = () => page.locator("[data-vt-analyst-panel], [data-vt-timescrub-panel]").count();
+        if (await strayPanel()) { await page.keyboard.press("Escape"); await page.waitForTimeout(300); }
+        const menuIds = await page.$$eval("[data-vt-rail-menu]", (els) => els.map((e) => e.getAttribute("data-vt-rail-menu")));
+        if (!menuIds.length) {
+          checks.failures.push("railmenu: no [data-vt-rail-menu] on the map rail (the base-map-style menu is one)");
+          throw { skip: true };
+        }
+        const railSnap = (id) => page.evaluate((menuId) => {
+          const box = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+          const rail = {};
+          const covered = [];
+          for (const el of document.querySelectorAll("[data-vt-rail-btn]")) {
+            const k = el.getAttribute("data-vt-rail-btn");
+            const b = box(el);
+            rail[k] = b;
+            const top = document.elementFromPoint(b.x + b.w / 2, b.y + b.h / 2);
+            if (!top || !(top === el || el.contains(top))) covered.push(`${k} by <${top ? top.tagName.toLowerCase() : "nothing"} class='${top ? String(top.className).slice(0, 30) : ""}'>`);
+          }
+          const menu = document.querySelector(`[data-vt-rail-flyout="${menuId}"]`);
+          return { rail, covered, menu: menu ? box(menu) : null, mode: menu ? menu.getAttribute("data-vt-rail-placement") : null };
+        }, id);
+        const moved = (a, b) => Object.keys(a).filter((k) => !b[k] || Math.abs(a[k].x - b[k].x) > 0.5 || Math.abs(a[k].y - b[k].y) > 0.5 || Math.abs(a[k].w - b[k].w) > 0.5 || Math.abs(a[k].h - b[k].h) > 0.5);
+        const pressAt = async (x, y) => {
+          if (vp.touch) await page.touchscreen.tap(x, y);
+          else { await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.up(); }
+          await page.waitForTimeout(300);
+        };
+        // a spot outside the map that is not a control (the top bar's blank
+        // stretch): an outside press there closes the menu without touching
+        // the map or navigating
+        const outside = await page.evaluate(() => {
+          for (const fx of [0.5, 0.42, 0.6, 0.35, 0.7]) {
+            const x = Math.round(innerWidth * fx), y = 22;
+            const el = document.elementFromPoint(x, y);
+            if (el && !el.closest("a, button, input, select, [role='button'], .vt-map-page")) return { x, y };
+          }
+          return null;
+        });
+        if (!outside) checks.failures.push("railmenu: no blank spot in the top bar to press outside the menu (harness needs one)");
+        const panels = [
+          { tag: "", open: null },
+          { tag: "+analyst", open: "[data-vt-analyst]", panel: "[data-vt-analyst-panel]", ready: "[data-vt-analyst-input]", close: '[data-vt-analyst-panel] [aria-label="Close analyst"]' },
+          { tag: "+timescrub", open: "[data-vt-timescrub]", panel: "[data-vt-timescrub-panel]", ready: "[data-vt-timescrub-slider]", close: '[data-vt-timescrub-panel] [aria-label="Close time machine"]' },
+        ];
+        for (const id of menuIds) {
+          for (const sc of panels) {
+            const who = `railmenu ${id}${sc.tag}`;
+            if (sc.open) {
+              await page.click(sc.open, { timeout: 2000 }).catch(() => {});
+              await page.waitForSelector(sc.ready, { timeout: 8000 }).catch(() => null);
+              await page.waitForTimeout(450); // the panel's 0.18s entry animation
+              if (!(await page.locator(sc.panel).count())) { checks.failures.push(`${who}: the panel did not open, so the combination was not checked`); continue; }
+            }
+            const base = await railSnap(id);
+            const btn = base.rail[id];
+            if (!btn) { checks.failures.push(`${who}: its button carries no [data-vt-rail-btn="${id}"]`); continue; }
+            if (Object.keys(base.rail).length < 5) checks.failures.push(`${who}: only ${Object.keys(base.rail).length} rail buttons carry [data-vt-rail-btn] (fullscreen, globe, analyst, style, time machine expected)`);
+            if (base.menu) checks.failures.push(`${who}: menu already open before its button was pressed`);
+            const px = btn.x + btn.w / 2, py = btn.y + btn.h / 2;
+            if (!vp.touch) {
+              // the report's exact motion: the mouse arrives on the button
+              await page.mouse.move(px, py);
+              await page.waitForTimeout(250);
+              const hov = await railSnap(id);
+              const hm = moved(base.rail, hov.rail);
+              if (hm.length) checks.failures.push(`${who}: hovering its button moved rail button(s) ${hm.join(", ")}`);
+            }
+            await pressAt(px, py);
+            const open = await railSnap(id);
+            if (!open.menu) { checks.failures.push(`${who}: one press on its button did not open the menu`); }
+            else {
+              const mv = moved(base.rail, open.rail);
+              if (mv.length) checks.failures.push(`${who}: opening the menu moved rail button(s) ${mv.join(", ")} (e.g. ${mv[0]} y ${Math.round(base.rail[mv[0]].y)} -> ${Math.round(open.rail[mv[0]]?.y ?? -1)})`);
+              if (open.covered.length) checks.failures.push(`${who}: rail button covered with the menu open — ${open.covered.join("; ")}`);
+              // "overlap" = the placement found no free spot. Never legitimate on
+              // the page's default layout; with a panel open on a narrow page
+              // there can truly be none (768 with the analyst pane, the layers
+              // panel and the legend all up), and the menu then opens on top,
+              // beside its button — reported, and still held to everything else.
+              const crowded = open.mode === "overlap" && !!sc.open;
+              if (open.mode === "overlap" && !sc.open) checks.failures.push(`${who}: the menu found no free spot on the default layout and opened over another control (placement "overlap")`);
+              if (crowded) checks.warnings.push(`${who}: no free spot at ${vp.w}px with this panel open — the menu opened on top, beside its button`);
+              const geo = await page.evaluate(({ menuId, x, y, phone, crowded }) => {
+                const fails = [];
+                const menu = document.querySelector(`[data-vt-rail-flyout="${menuId}"]`);
+                const slot = document.querySelector(`[data-vt-rail-menu="${menuId}"]`);
+                const trigger = document.querySelector(`[data-vt-rail-btn="${menuId}"]`);
+                const m = menu.getBoundingClientRect();
+                // intersection in px²; boxes closer than half a pixel count as touching
+                const area = (r) => { const w = Math.min(m.right, r.right) - Math.max(m.left, r.left), h = Math.min(m.bottom, r.bottom) - Math.max(m.top, r.top); return w > 0.5 && h > 0.5 ? w * h : 0; };
+                const under = document.elementFromPoint(x, y);
+                if (!under || !(under === trigger || trigger.contains(under))) fails.push("the pressed button is no longer under the pointer");
+                if (m.left < -0.5 || m.top < -0.5 || m.right > innerWidth + 0.5 || m.bottom > innerHeight + 0.5) fails.push(`menu outside the viewport (l=${Math.round(m.left)} t=${Math.round(m.top)} r=${Math.round(m.right)} b=${Math.round(m.bottom)} of ${innerWidth}x${innerHeight})`);
+                const page_ = document.querySelector(".vt-map-page").getBoundingClientRect();
+                if (m.bottom > page_.bottom + 0.5 || m.top < page_.top - 0.5) fails.push(`menu outside the map page (t=${Math.round(m.top)} b=${Math.round(m.bottom)}, page ${Math.round(page_.top)}..${Math.round(page_.bottom)})`);
+                for (const el of document.querySelectorAll("[data-vt-rail-btn]")) {
+                  if (area(el.getBoundingClientRect()) > 0) fails.push(`menu covers rail button ${el.getAttribute("data-vt-rail-btn")}`);
+                }
+                // every other control on the map page: its box and the menu's must not intersect
+                const hit = new Set();
+                for (const el of document.querySelectorAll(".vt-map-page button, .vt-map-page a[href], .vt-map-page input, .vt-map-page select, .vt-map-page textarea, .vt-map-page [role='button'], .vt-layer-panel, .vt-legend-float, .vt-analyst-panel, .vt-timescrub-panel, .vt-site-card, .vt-aero-card, .vt-map-statusbar, .vt-device-notice, .vt-nuke-timebar")) {
+                  if (slot.contains(el)) continue;
+                  const cs = getComputedStyle(el);
+                  const r = el.getBoundingClientRect();
+                  if (cs.display === "none" || cs.visibility === "hidden" || r.width < 1 || r.height < 1) continue;
+                  if (area(r) > 0) hit.add(`<${el.tagName.toLowerCase()} class='${String(el.className).slice(0, 30)}'>`);
+                }
+                if (hit.size && !crowded) fails.push(`menu covers ${hit.size} other control(s): ${[...hit].slice(0, 3).join(", ")}`);
+                const opts = [...menu.querySelectorAll("button")];
+                if (!opts.length) fails.push("menu has no options");
+                for (const o of opts) {
+                  const r = o.getBoundingClientRect();
+                  const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                  const name = o.textContent.trim();
+                  if (!top || !(top === o || o.contains(top))) fails.push(`option "${name}" is not reachable (covered or scrolled out)`);
+                  if (phone && (r.width < 43.5 || r.height < 43.5)) fails.push(`option "${name}" is ${Math.round(r.width)}x${Math.round(r.height)} — under the 44px touch target`);
+                }
+                return { fails, labels: opts.map((o) => o.textContent.trim()) };
+              }, { menuId: id, x: px, y: py, phone: vp.w < 640, crowded });
+              for (const f of geo.fails) checks.failures.push(`${who}: ${f}`);
+              if (id === "style") {
+                // the menu's whole offer (2026-11-19): three base styles, five chart views
+                const want = ["Natural", "Night", "Minimal", "Satellite", "VFR Sectional", "VFR Terminal", "IFR Low", "IFR High"];
+                const gone = want.filter((w) => !geo.labels.includes(w));
+                if (gone.length) checks.failures.push(`${who}: option(s) missing from the menu: ${gone.join(", ")}`);
+              }
+              await page.screenshot({ path: path.join(OUT, `${name}-railmenu-${id}${sc.tag.replace("+", "-")}-${vp.w}.png`), animations: "disabled" });
+            }
+            // a second press on the same spot closes it, and nothing moved
+            await pressAt(px, py);
+            const shut = await railSnap(id);
+            if (open.menu && shut.menu) checks.failures.push(`${who}: a second press on its button did not close the menu`);
+            const back = moved(base.rail, shut.rail);
+            if (back.length) checks.failures.push(`${who}: rail button(s) ${back.join(", ")} not back in place after the menu closed`);
+            if (!sc.open) {
+              // Escape closes (DESIGN.md: Escape closes panels/popovers)
+              await pressAt(px, py);
+              if (!(await railSnap(id)).menu) checks.failures.push(`${who}: the menu did not reopen on the next press`);
+              await page.keyboard.press("Escape");
+              await page.waitForTimeout(250);
+              if ((await railSnap(id)).menu) checks.failures.push(`${who}: Escape did not close the menu`);
+              // a press outside closes
+              if (outside) {
+                await pressAt(px, py);
+                if (!(await railSnap(id)).menu) checks.failures.push(`${who}: the menu did not reopen after Escape`);
+                await pressAt(outside.x, outside.y);
+                if ((await railSnap(id)).menu) checks.failures.push(`${who}: a press outside did not close the menu`);
+              }
+            } else {
+              // the panel's own close control is the analyst / time-machine
+              // batteries' assertion; here it only has to be gone before the
+              // next combination (Escape closes panels — DESIGN.md)
+              await page.click(sc.close, { timeout: 2000 }).catch(() => {});
+              await page.waitForTimeout(250);
+              if (await strayPanel()) { await page.keyboard.press("Escape"); await page.waitForTimeout(300); }
+              if (await strayPanel()) checks.failures.push(`${who}: the panel would not close afterwards (close control and Escape)`);
+            }
+            if ((await railSnap(id)).menu) {
+              checks.failures.push(`${who}: menu left open at the end of its checks`);
+              await page.keyboard.press("Escape");
+            }
+          }
+        }
+        // park the mouse off the rail so no later battery starts on a hover
+        if (!vp.touch && outside) await page.mouse.move(outside.x, outside.y);
+      } catch (e) {
+        if (!e?.skip) checks.failures.push("railmenu: driver error — " + (e?.message || e));
+      }
       // ── SELF-SEE (DESIGN.md, human-approved 2026-07-04): after any panel/
       // overlay change, ALL registered content must be reachable — visible or
       // behind an on-screen expand control. The 2026-07-04 defect: the panel
