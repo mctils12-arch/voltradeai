@@ -145,6 +145,7 @@ import { heapDiagnostic, trackSet } from "./heapDiag"; // memory audit 2026-11-0
 import { registerBuiltinHeapGauges } from "./heapGauges";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { createExitRecorder, exitRecorderFile, setActiveRecorder, ALIVE_INTERVAL_MS } from "./exitRecorder";
+import { createFatalReports, fatalReportDir, type ReportApi } from "./fatalReport";
 import { version as pkgVersion } from "../package.json";
 import { confirmCancelAfterDeleteError, shouldDispatchCsp, countUnfilledRestedCspSince, cspLadderStep, cspPriceLadderEnabled, CSP_PRICE_WALKS } from "./cspSweepCooldown";
 import { followReplacements, hasOpenMlegOpeningOn, mlegOpeningLegs, openMlegUnderlyings } from "./mlegOpenOrders";
@@ -1436,6 +1437,10 @@ const exitRecorder = createExitRecorder({
   pid: process.pid,
 });
 let exitRecorderServing = false;
+// 2026-11-19: Node's own report of a fatal error (heap limit, failed allocation),
+// written to the volume; the next boot posts a summary and deletes the raw file
+// (server/fatalReport.ts).
+const fatalReports = createFatalReports({ dir: fatalReportDir(process.env), fs, audit: (action, detail) => audit(action, detail) });
 // server/index.ts marks "routes_registered" and "listening" through
 // exitRecorder.ts markBootStage(): on 2026-11-18 seven boots died ~3 s after
 // their "Server boot" row and nothing says how far they got.
@@ -1844,6 +1849,9 @@ export function registerBotRoutes(app: Express) {
   // 2026-11-18: was the previous process killed? (UNCLEAN-EXIT / RESTART-BURST
   // rows; `checks.restarts` on /api/health.) An uncaught exception is already
   // recorded by the handler above, so it is marked as an end, not as a kill.
+  // 2026-11-19: FATAL-REPORT first (server/fatalReport.ts), then UNCLEAN-EXIT.
+  fatalReports.collect();
+  fatalReports.enable(process.report as unknown as ReportApi | undefined);
   exitRecorder.begin();
   process.on("uncaughtException", () => exitRecorder.end("uncaught exception"));
   setInterval(() => exitRecorder.tick(), ALIVE_INTERVAL_MS).unref();
@@ -2353,6 +2361,8 @@ print(json.dumps(data))
     // gate and never the top-level status.
     if (!exitRecorderServing) { exitRecorderServing = true; exitRecorder.stage("serving"); }
     checks.checks.restarts = exitRecorder.status();
+    // 2026-11-19: fatal-error reports the previous process left (status only, never a gate)
+    checks.checks.fatal_reports = fatalReports.status();
 
     // OOM fix: expose memory usage in health check for monitoring.
     // KNOWN BROKEN #41 (2026-09-16): ALSO expose the two walls — V8's heap
