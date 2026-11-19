@@ -313,7 +313,7 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
         rss, label = peak, f"daemon rss={peak}MB"
     if rss is None:
         return finding(WARN, "daemon_memory", "rss_mb missing from /api/diag/daemon response")
-    label += _memory_makeup(daemon.get("memory"))
+    label += _memory_makeup(daemon.get("memory"), daemon.get("memory_maps"))
     # 2026-11-17 (KNOWN BROKEN #55): a daemon that reports `deep_guard`
     # states what the guard DID; the memory figure is then context, not the
     # verdict. An idle reading can sit under the line while scans skip, and
@@ -335,9 +335,11 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
     return finding(OK, "daemon_memory", f"{label}, well under trim_mb={trim_mb}MB")
 
 
-def _memory_makeup(memory):
+def _memory_makeup(memory, maps=None):
     """' — C heap in use X MB, freed but retained Y MB, python blocks N
-    (start M)' from the daemon's `memory` block; '' when it is absent."""
+    (start M); resident by mapping: ...' from the daemon's `memory` and
+    `memory_maps` blocks; '' when `memory` is absent. A daemon older than
+    a field leaves it out."""
     if not isinstance(memory, dict):
         return ""
     parts = []
@@ -348,6 +350,14 @@ def _memory_makeup(memory):
     if isinstance(blocks, int) and not isinstance(blocks, bool):
         start = (memory.get("at_start") or {}).get("python_blocks")
         parts.append(f"python blocks {blocks}" + (f" (start {start})" if isinstance(start, int) else ""))
+    # 2026-11-19 (#55): the kernel's split of what is resident, by mapping.
+    if isinstance(maps, dict):
+        libs = ", ".join(f"{l.get('name')} {l.get('mb')}" for l in (maps.get("top_libraries") or [])[:3]
+                         if isinstance(l, dict))
+        parts.append(
+            f"resident by mapping: anonymous {maps.get('anonymous_mb')}MB in {maps.get('anonymous_maps')} maps, "
+            f"[heap] {maps.get('heap_mb')}MB, libraries {maps.get('libraries_mb')}MB"
+            + (f" ({libs})" if libs else "") + f", files {maps.get('files_mb')}MB")
     return (" — " + "; ".join(parts)) if parts else ""
 
 
