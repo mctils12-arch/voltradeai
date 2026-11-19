@@ -164,7 +164,11 @@ def _pos(sym, qty, px, asset_class="us_equity"):
 
 def _run(broker, core_actions=(), hour=11.0, regular=True, clock=(True, "open"), core_ok=True, cfg=None):
     core = {"mode": "vol_managed_spy", "ok": core_ok, "actions": list(core_actions), "status": "ok"}
-    with patch.dict(system_config.BASE_CONFIG, cfg or {}), \
+    # 2026-11-19: the engine tests in this file pin the FLOOR-ONLY rule, which is now the
+    # rollback mode (FLOOR_VM_CASH_PARK_SLEEVE False); the default "sleeve" mode is pinned in
+    # test_park_sleeve.py. No assertion below changed.
+    with patch.dict(system_config.BASE_CONFIG, {"FLOOR_VM_CASH_PARK_SLEEVE": False, **(cfg or {})}), \
+         patch.dict(os.environ, {"VOLTRADE_PARK_SLEEVE": ""}), \
          patch.dict(bot_engine._FLOOR_CASH_BUY_BLOCK, {"day": None, "error": None}), \
          patch.object(bot_engine, "get_alpaca_account", side_effect=broker.account) as acct, \
          patch.object(bot_engine, "get_alpaca_positions", return_value=broker.positions), \
