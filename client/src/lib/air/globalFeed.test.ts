@@ -181,6 +181,52 @@ test('heldQueryCovers: pans inside the held padding keep it; zoom-in / leaving /
   assert.equal(heldQueryCovers(held, null), false);
 });
 
+test('heldQueryCovers: a box that crosses the antimeridian is an arc like any other (the default desktop globe view is one)', () => {
+  // the padded query the 1440px default view sends, as measured: lomin=142, lomax=24
+  const held = { lamin: -19, lamax: 75, lomin: 142, lomax: 24 };
+  assert.equal(heldQueryCovers(held, held), true, 'the same view polls the held box: a delta, not a full snapshot');
+  assert.equal(heldQueryCovers(held, { lamin: -10, lamax: 70, lomin: 150, lomax: 20 }), true, 'a pan inside the padding');
+  assert.equal(heldQueryCovers(held, { lamin: -10, lamax: 70, lomin: -170, lomax: 10 }), true, 'a non-wrapping view on the far side of the seam, inside the held arc');
+  assert.equal(heldQueryCovers(held, { lamin: -10, lamax: 70, lomin: 150, lomax: 178 }), false, 'inside the arc but a tenth of its area: re-queries smaller, as any box does');
+  assert.equal(heldQueryCovers(held, { lamin: -10, lamax: 70, lomin: 130, lomax: 20 }), false, 'west edge left the held arc');
+  assert.equal(heldQueryCovers(held, { lamin: -10, lamax: 70, lomin: 150, lomax: 30 }), false, 'east edge left the held arc');
+  assert.equal(heldQueryCovers(held, { lamin: -25, lamax: 70, lomin: 150, lomax: 20 }), false, 'latitude left the held box');
+  assert.equal(heldQueryCovers(held, { lamin: 30, lamax: 40, lomin: -100, lomax: -80 }), false, 'deep zoom-in still re-queries smaller');
+  assert.equal(heldQueryCovers(held, { lamin: -10, lamax: 70, lomin: 30, lomax: 120 }), false, 'the arc the held box does NOT cover');
+  // a non-wrapping held box never covers a view that crosses the seam outside it
+  const plain = { lamin: 20, lamax: 50, lomin: -100, lomax: -60 };
+  assert.equal(heldQueryCovers(plain, { lamin: 25, lamax: 45, lomin: 170, lomax: -170 }), false);
+  // whole-turn held box (lomin -180, lomax 180) covers a wrapped view of comparable size
+  assert.equal(heldQueryCovers({ lamin: -60, lamax: 80, lomin: -180, lomax: 180 }, { lamin: -19, lamax: 75, lomin: 142, lomax: 24 }), true);
+});
+
+test('createAircraftFeed: the default desktop globe view (antimeridian-crossing bounds) polls deltas too', async () => {
+  let t = 3_000_000;
+  const urls: string[] = [];
+  const answers: unknown[] = [
+    { at: 111, full: true, fields: F, rows: [row('a', -75, 100)] },
+    { at: 222, full: false, fields: F, rows: [row('b', -74, 200)] },
+  ];
+  const fetchImpl = ((url: string) => {
+    urls.push(url);
+    const body = answers.shift();
+    return Promise.resolve({ ok: true, status: 200, json: async () => body } as unknown as Response);
+  }) as unknown as typeof fetch;
+  const feed = createAircraftFeed({ fetchImpl, now: () => t });
+  // maplibre's unwrapped bounds for the globe centred on North America: west of -180
+  const view = B(-3, 60, -200, 6);
+  const q = globalQueryBBox(view)!;
+  assert.ok(q.lomin > q.lomax, `the padded query wraps (lomin ${q.lomin}, lomax ${q.lomax})`);
+  feed.shouldUseGlobal(view, 3.6);
+  const r1 = await feed.fetchGlobal(view);
+  assert.ok('aircraft' in r1 && r1.count === 1);
+  assert.ok(!urls[0].includes('changed='), 'first poll is full');
+  t += 8_000;
+  const r2 = await feed.fetchGlobal(view);
+  assert.equal(urls[1], urls[0] + '&changed=111', 'the second poll of an unmoved wrapped view is a delta on the held bbox');
+  assert.ok('aircraft' in r2 && r2.count === 2, 'delta merged into the held rows');
+});
+
 test('createAircraftFeed: second poll is a changed=<at> delta on the held bbox; resync after GLOBAL_RESYNC_MS', async () => {
   let t = 2_000_000;
   const urls: string[] = [];

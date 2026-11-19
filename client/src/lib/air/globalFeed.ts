@@ -130,18 +130,32 @@ export function globalFeedUrl(b: Bounds): string {
 
 const qArea = (q: QueryBBox) => (q.lamax - q.lamin) * (q.lomin <= q.lomax ? q.lomax - q.lomin : 360 - q.lomin + q.lomax);
 
+/** A query bbox's longitude arc on an unwrapped axis: [lo, hi], lo <= hi,
+ *  hi - lo <= 360. A box written west > east crosses the antimeridian. */
+const lonArc = (q: QueryBBox): [number, number] => (q.lomin <= q.lomax ? [q.lomin, q.lomax] : [q.lomin, q.lomax + 360]);
+
 /**
  * May a view keep polling the HELD query bbox (so the next poll can be a
  * delta) instead of a fresh full query? Yes when the view's own padded query
  * lies inside the held one (a pan inside the padding) and the held area is
  * not wildly larger (a deep zoom-in re-queries to shrink the payload).
- * Antimeridian-crossing boxes simply re-query (rare, always correct).
+ *
+ * Antimeridian-crossing boxes are compared as arcs ([REPAIR 2026-11-19] map
+ * speed). They used to "simply re-query (rare, always correct)" — but the
+ * DEFAULT desktop view is one: the 1440px globe over North America reports
+ * bounds whose padded query is lomin=142, lomax=24. Measured there: every
+ * 8 s poll was a full snapshot (340 KB on the wire, 0.96 MB of JSON) and
+ * never the changed= delta (58 KB / 0.16 MB) the cadence was designed around,
+ * while the 412px view, whose box does not wrap, polled deltas as intended.
  */
 export function heldQueryCovers(held: QueryBBox | null, next: QueryBBox | null): boolean {
   if (held === null) return next === null; // world covers only a world view (a smaller view re-queries smaller)
   if (next === null) return false;
-  if (held.lomin > held.lomax || next.lomin > next.lomax) return false;
-  if (next.lamin < held.lamin || next.lamax > held.lamax || next.lomin < held.lomin || next.lomax > held.lomax) return false;
+  if (next.lamin < held.lamin || next.lamax > held.lamax) return false;
+  const [hLo, hHi] = lonArc(held), [nLo, nHi] = lonArc(next);
+  // the same arc can be written a whole turn apart on either side of the seam
+  const lonInside = hHi - hLo >= 360 || [0, 360, -360].some((turn) => nLo + turn >= hLo && nHi + turn <= hHi);
+  if (!lonInside) return false;
   return qArea(held) <= HELD_BBOX_MAX_AREA_RATIO * Math.max(1, qArea(next));
 }
 
