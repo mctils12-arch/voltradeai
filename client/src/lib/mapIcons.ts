@@ -61,10 +61,23 @@ export const AIRCRAFT_CLASS_LABEL: Record<AircraftClass, string> = {
 // White shapes on transparent, registered with {sdf:true} so maplibre tints
 // them per-feature via icon-color. All point "up" (north); icon-rotate turns
 // them to heading.
+//
+// ICON_CANVAS_2D (map speed, 2026-11-19): every icon canvas exists only to be
+// READ BACK (getImageData for maplibre, toDataURL for the legend). Chrome
+// backs a default 2D canvas with the GPU, so each read-back is a synchronous
+// round trip to the GPU process — one per shape, issued in the same frames in
+// which the map is creating its WebGL context and compiling its shaders, so
+// they queue behind that work. Measured on the load trace: registerIcons was
+// one 1.0-1.2 s main-thread task and the open legend's first render another
+// (150 canvases: 803 ms GPU-backed vs 8 ms CPU-backed on the same machine).
+// `willReadFrequently` is the platform's switch for exactly this case: the
+// canvas is rasterized in software and a read-back is a memory copy.
+export const ICON_CANVAS_2D: CanvasRenderingContext2DSettings = { willReadFrequently: true };
+
 function draw(size: number, fn: (ctx: CanvasRenderingContext2D, s: number) => void): ImageData {
   const c = document.createElement("canvas");
   c.width = c.height = size;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", ICON_CANVAS_2D)!;
   ctx.fillStyle = "#fff";
   ctx.strokeStyle = "#fff";
   fn(ctx, size);
@@ -929,11 +942,32 @@ const shapes: Record<string, () => ImageData> = {
   }),
 };
 
+/** One raster per shape for the whole session: the map registration, the
+ *  legend, a second map (the landing globe, the procedures panel) and a
+ *  re-registration after a lost WebGL context all read the same pixels
+ *  instead of drawing the shape again. Callers only read it: maplibre's
+ *  addImage copies the bytes, iconDataURL putImageData's them. */
+const rasterCache = new Map<string, ImageData>();
+function rasterOf(name: string): ImageData | null {
+  const hit = rasterCache.get(name);
+  if (hit) return hit;
+  const make = shapes[name];
+  if (!make) return null;
+  const img = make();
+  rasterCache.set(name, img);
+  return img;
+}
+
+/** Names of every registry shape (tests; the legend/map parity checks). */
+export function iconNames(): string[] {
+  return Object.keys(shapes);
+}
+
 /** Register all SDF icons on a maplibre map (idempotent). */
 export function registerIcons(map: any) {
-  for (const [name, make] of Object.entries(shapes)) {
+  for (const name of Object.keys(shapes)) {
     if (!map.hasImage || map.hasImage(name)) continue;
-    map.addImage(name, make(), { sdf: true });
+    map.addImage(name, rasterOf(name)!, { sdf: true });
   }
 }
 
@@ -947,18 +981,18 @@ export function iconDataURL(name: string, color: string, out = 18): string {
   const key = `${name}|${color}|${out}`;
   const hit = iconUrlCache.get(key);
   if (hit) return hit;
-  const make = shapes[name];
-  if (!make) return "";
+  const img = rasterOf(name);
+  if (!img) return "";
   const c = document.createElement("canvas");
   c.width = c.height = S;
-  const ctx = c.getContext("2d")!;
-  ctx.putImageData(make(), 0, 0);
+  const ctx = c.getContext("2d", ICON_CANVAS_2D)!;
+  ctx.putImageData(img, 0, 0);
   ctx.globalCompositeOperation = "source-in";
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, S, S);
   const o = document.createElement("canvas");
   o.width = o.height = out;
-  o.getContext("2d")!.drawImage(c, 0, 0, out, out);
+  o.getContext("2d", ICON_CANVAS_2D)!.drawImage(c, 0, 0, out, out);
   const url = o.toDataURL();
   iconUrlCache.set(key, url);
   return url;
