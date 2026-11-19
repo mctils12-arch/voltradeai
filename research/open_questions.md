@@ -7973,6 +7973,93 @@
     ROLLBACK TRIGGER: `release.last.ms` above 250, or scan total_sec up
     more than 10% over three scans, or the daemon's restart count rising:
     set VOLTRADE_MALLOC_TRIM=0 (no deploy needed) and reopen here.
+    CHECK AFTER DEPLOY, DONE 2026-11-19 20:16-20:26Z (DAILY 15:16 ET
+    session; daemon 19.4 h old, 115-117 scans, the whole Thursday session
+    on v1.0.1465+): skip 0 (normal 14, trim 101-103, survival 0); RSS
+    467 MB now, peak 600; release 115 calls, 3,318 MB in all (29 MB a
+    scan), last 39-40 MB in 72 ms; quick_scan 0.26 s; no daemon restart.
+    PRIORS JUDGED: skip 0 at 5+ hours (70%) RIGHT; a release of 100 MB or
+    more (60%) WRONG at this age, because releasing every scan leaves
+    only one scan's worth to return; trim not 0 (85%) RIGHT. The (ii)
+    part is fixed. No rollback trigger met.
+    CENSUS READ 2026-11-19 20:19Z (the NEXT above; idle between scans,
+    1.22 s, 547,250 objects walked, python_blocks 1,698,988):
+    - vol_surface._surface_cache 200 tickers, 393,532 objects, 18.5 MB
+      (`&root=`: largest QQQ 0.55 MB, 25th 0.19 MB).
+    - options_scanner._chain_cache 50 chains, 93,575 objects, 6.3 MB
+      (largest SPOT_14_45, 602 contracts, 0.46 MB).
+    - then a frame local `_existing` 2.1 MB, leveraged_etf_filter._cache
+      1.5 MB, ml_model_v3._cache 0.6 MB, vol_surface._sabr_cache 0.4 MB.
+      Unreached: 57,640 objects, the largest owner 0.19 MB.
+    WHAT IT SAYS: every named Python holder together is about 30 MB of a
+    467 MB process. NO CACHE BOUND CAN CLOSE THIS ITEM: emptying both
+    caches would take the guard's reading from 430 to about 405 MB, still
+    above the 400 MB trim line. The 11-18 candidates (a 200-surface cache
+    "can be most of 296 MB") are measured and are not it.
+    SECOND FINDING, same hour: python_blocks is not flat, it swings with
+    the scan. 1,698,988 and 1,715,096 between scans; 3,889,774 at 20:26Z
+    with a scan in its trade loop. The 11-18 readings of 3.76-3.92 M were
+    taken before #1825 added a gc.collect to every scan, so "live objects
+    that fill in the first hour and stop" was partly garbage not yet
+    collected. RSS does not follow the blocks down: 465-472 MB through a
+    scan, 467 idle, 430-432 right after the release.
+    WHAT IS NOT ACCOUNTED FOR: glibc counts 62-85 MB in use; the same
+    modules imported in a session with no data read 190-210 MB RSS (heap
+    66, anonymous 73, libraries 63); production reads 467. No instrument
+    says where the other 250 MB or so is resident.
+    HYPOTHESIS (stated before the reading that tests it): the scan's own
+    working set (about 2.2 M blocks more than idle) is allocated in the
+    interpreter's object arenas; an arena goes back to the OS only when
+    every block in it is free, so a few survivors per arena hold the
+    scan's peak resident between scans, and malloc_trim cannot touch it
+    (pymalloc arenas are mmap'd by the interpreter, outside glibc).
+    PRIOR: 65% that `memory_maps.anonymous_mb` is 250 MB or more and does
+    not fall between a mid-scan and an idle reading while python_blocks
+    halves; 20% that libraries + files are 150 MB or more (models and
+    libraries are simply larger than the 2026-07 baseline of 254 MB and
+    the trim line is under the floor); 15% something else.
+    SESSION A/B (2026-11-19, Python 3.11 as in production, glibc 2.39; a
+    measurement of the mechanism, NOT of production): 370,000 five-field
+    row dicts built (2.59 M blocks, +140 MB), freed except every 400th,
+    then gc.collect and malloc_trim(0), read with the new reader.
+    - default allocator: RSS 76 -> 216 -> 212 MB; anonymous 29 -> 168 ->
+      165 MB; blocks back to 300 K. 136 of 140 MB stays resident with
+      0.25% of the rows alive.
+    - PYTHONMALLOC=malloc: RSS 78 -> 224 -> 84 MB; [heap] 46 -> 189 ->
+      52 MB. 140 of 146 MB returned.
+    So the mechanism exists at the scan's scale and the reader tells the
+    two cases apart (anonymous vs [heap]). Whether it is what production
+    holds is the reading below.
+    INSTRUMENT 3 (v1.0.1473, read-only): `/api/diag/daemon` gains
+    `memory_maps` = the kernel's smaps summed by kind of mapping:
+    {total_mb, heap_mb ([heap], malloc's main arena), anonymous_mb and
+    anonymous_maps (object arenas, malloc's thread arenas, large arrays),
+    libraries_mb, files_mb, stacks_mb, other_mb, top_libraries
+    [{name, mb}], ms, at_start {same}}. The kinds add up to RSS. 15 ms on
+    a 166 MB process in a session. The session health check prints it in
+    the daemon_memory line.
+    NEXT (first DAILY session after it deploys, 2+ hours into a market
+    day): read `memory_maps` once between scans and once during one,
+    with python_blocks beside each.
+    - anonymous high and flat while blocks halve: the hypothesis holds.
+      Candidate fixes, each its own PR with this reading before and
+      after: (a) the scan's largest transient named by `census=1&force=1`
+      DURING a scan and built smaller (stream the snapshot, drop columns
+      early); (b) run the scan's allocation-heavy phase where its memory
+      dies with it; (c) PYTHONMALLOC=malloc, which sends object
+      allocations through glibc where the per-scan release can return
+      them: a Railway variable (run_with_daemon.sh is frozen), or
+      the daemon re-executing itself once at startup with the variable
+      set (voltrade_daemon.py, same PID, so the supervisor is
+      untouched). Needs scan time measured before and after (glibc is
+      slower than pymalloc on small objects); rollback = the variable.
+    - libraries + files high: the floor moved, and the 400 MB trim line
+      is then a threshold question with a named cause; file the
+      before/after for RULE REVIEW, one threshold, rollback stated.
+    COST OF THE OPEN PART, read in code: trim deep-scores the top 3
+    candidates instead of 5 (VOLTRADE_DEEP_SCORE_CAP), on 103 of 117
+    scans today. Skips, which sent candidates through on quick_score
+    alone, are 0.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.

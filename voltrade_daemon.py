@@ -58,6 +58,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import resource
 import socket
 import socketserver
@@ -320,6 +321,79 @@ def _largest_containers(modules=None, top=12, min_len=200):
     return rows[:top]
 
 
+# 2026-11-19 (KNOWN BROKEN #55): the census read on production named 25 MB
+# of Python caches in a 470 MB process, and glibc counted 62 MB in use. The
+# other ~380 MB had no reader. The kernel's own account of each mapping
+# says which kind of memory is resident: the C heap, anonymous maps (the
+# interpreter's object arenas, malloc's per-thread arenas, large arrays),
+# shared libraries, or mapped files.
+_MAPS_HEADER = re.compile(r"^[0-9a-f]+-[0-9a-f]+ \S+ \S+ \S+ \S+ *(.*)$")
+_MAPS_RSS = re.compile(r"^Rss:\s+(\d+) kB")
+_MAPS_KINDS = ("heap", "anonymous", "libraries", "files", "stacks", "other")
+
+
+def _library_name(path):
+    """'/usr/lib/libscipy_openblas-abc.so.0' -> 'libscipy_openblas'."""
+    base = os.path.basename(path).split(".so")[0]
+    return re.split(r"[-.]", base)[0][:40]
+
+
+def _maps_snapshot(path="/proc/self/smaps", top=6):
+    """Resident memory by kind of mapping, in MB, from the kernel's smaps:
+    {total_mb, heap_mb, anonymous_mb, libraries_mb, files_mb, stacks_mb,
+    other_mb, anonymous_maps, top_libraries [{name, mb}], ms}. The kinds
+    add up to total_mb, which is the process's RSS as the kernel sums it.
+    `heap_mb` is the [heap] mapping (malloc's main arena); `anonymous_mb`
+    is every unnamed mapping. Reads one file; changes and frees nothing.
+    None where smaps is absent (macOS) or unreadable."""
+    started = time.time()
+    kb = dict.fromkeys(_MAPS_KINDS, 0)
+    libs = {}
+    anonymous_maps = 0
+    kind, lib = "other", None
+    try:
+        with open(path, "r") as fh:
+            for line in fh:
+                if line.startswith("Rss:"):
+                    r = _MAPS_RSS.match(line)
+                    if r is None:      # not a figure: nothing to count
+                        continue
+                    n = int(r.group(1))
+                    kb[kind] += n
+                    if lib is not None:
+                        libs[lib] = libs.get(lib, 0) + n
+                    continue
+                m = _MAPS_HEADER.match(line)
+                if not m:
+                    continue
+                name = m.group(1).strip()
+                lib = None
+                if not name:
+                    kind = "anonymous"
+                    anonymous_maps += 1
+                elif name == "[heap]":
+                    kind = "heap"
+                elif name.startswith("[stack"):
+                    kind = "stacks"
+                elif name.startswith("["):
+                    kind = "other"
+                elif ".so" in os.path.basename(name):
+                    kind, lib = "libraries", _library_name(name)
+                else:
+                    kind = "files"
+    except OSError:
+        return None
+    out = {"total_mb": round(sum(kb.values()) / 1024, 1)}
+    for k in _MAPS_KINDS:
+        out[f"{k}_mb"] = round(kb[k] / 1024, 1)
+    out["anonymous_maps"] = anonymous_maps
+    out["top_libraries"] = [
+        {"name": n, "mb": round(v / 1024, 1)}
+        for n, v in sorted(libs.items(), key=lambda kv: (-kv[1], kv[0]))[:top] if v >= 512]
+    out["ms"] = round((time.time() - started) * 1000, 1)
+    return out
+
+
 def _memory_point():
     return {
         "rss_current_mb": _current_rss_mb(),
@@ -335,6 +409,15 @@ def _memory_snapshot():
     out = _memory_point()
     out["at_start"] = _MEMORY_AT_START
     out["largest_containers"] = _largest_containers()
+    return out
+
+
+def _memory_maps():
+    """The smaps reading now, with the one taken at startup beside it. Its
+    own health key: `memory` keeps the exact shape its readers pin."""
+    out = _maps_snapshot()
+    if out is not None:
+        out["at_start"] = _MAPS_AT_START
     return out
 
 
@@ -738,6 +821,8 @@ class RPCDispatcher:
             # made of now against its start (read-only, see the helpers).
             "deep_guard": _deep_guard_snapshot(),
             "memory": _memory_snapshot(),
+            # 2026-11-19 (#55): resident memory by kind of mapping.
+            "memory_maps": _memory_maps(),
             "pid": os.getpid(),
         }
 
@@ -990,6 +1075,7 @@ _DAEMON_START = time.time()
 # The memory reading every later health() answer is compared with: taken
 # once the startup imports above are done, before any RPC has run.
 _MEMORY_AT_START = _memory_point()
+_MAPS_AT_START = _maps_snapshot()
 _dispatcher = RPCDispatcher()
 
 
