@@ -50,6 +50,15 @@
 //     standard cadence (at most TRACKED_MAX_REQ_PER_MIN) fits the share and
 //     nothing is paced.
 //   - no limit read yet: the cadence above, unchanged.
+//
+// A SECOND SOURCE (2026-11-19, trackedBackup.ts). At 500 requests a day the
+// pacing above checks each watched plane about every 14 minutes. The same
+// planes are therefore also asked of adsb.fi by hex, in a loop of its own
+// (every 10 s while one is active, every 30 s otherwise; nothing in this
+// file's adsb.lol pacing changes). Both loops land their readings on the one
+// registry through applyOutcome -> mergePolled, which is newest-wins: a cycle
+// that started before the other loop wrote can never put its older reading
+// back. Every fix keeps the provider that served it.
 
 import fs from "fs";
 import path from "path";
@@ -57,6 +66,11 @@ import { archiveAircraft, archiveAircraftAt, archiveBaseDir, type AircraftPoint,
 import { mapPointAircraft } from "./aircraftTiling";
 import { providerClockMs, publishFixes } from "./aircraftFixBus";
 import { TRACKED_QUOTA_SHARE, TRACKED_QUOTA_SHARE_FULL, adsbLolGovernor, adsbLolKeyHeader, parseRetryAfter, type HeaderSource, type QuotaMode, type UpstreamGovernor } from "./adsbGovernor";
+// trackedBackup.ts imports this module too: both use the other only inside functions
+import { TRACKED_BACKUP_PROVIDER, TRACKED_BACKUP_START_DELAY_MS, createTrackedBackup, type TrackedBackupStatus } from "./trackedBackup";
+
+/** the provider key of this file's own (adsb.lol) requests */
+export const TRACKED_PRIMARY_PROVIDER = "adsblol";
 
 // ── TRACE BACKFILL (phase 2, same 2026-08-08 directive: "every time a plane
 // turn on we have the data all over the world not just the 250nm") ─────────
@@ -172,6 +186,10 @@ export interface TrackedPlane {
   heard?: HeardReading | null;
   /** unix ms high-water mark of `heard.at` */
   last_heard?: number | null;
+  /** the provider that served last_pos / heard ("adsblol" | "adsbfi");
+   *  absent on a reading taken before 2026-11-19 */
+  last_pos_provider?: string | null;
+  heard_provider?: string | null;
   /** unix SEC high-water mark of the day-trace backfill — each cycle only
    *  archives trace points newer than this (small overlap is collapsed by
    *  the read-side t-dedupe) */
@@ -324,10 +342,13 @@ export interface PollHooks {
  *  plane when its registration matches, or when its hex is the plane's known
  *  hex and the row names no OTHER registration (identity is never inferred).
  *  A row with a position updates last_seen/last_pos exactly as before; a row
- *  WITHOUT one only records `heard` — last_seen/last_pos are left alone. */
+ *  WITHOUT one only records `heard` — last_seen/last_pos are left alone.
+ *  `provider` (the one that served `rows`) is written beside each reading it
+ *  lands: last_pos_provider / heard_provider. */
 export function foldTrackedRows(
-  registry: TrackedRegistry, rows: RawAircraft[], baseMs: number, nowMs: number,
+  registry: TrackedRegistry, rows: RawAircraft[], baseMs: number, nowMs: number, provider?: string,
 ): { registry: TrackedRegistry; positioned: RawAircraft[]; heard: number } {
+  const src = provider ?? null;
   const byReg = new Map<string, RawAircraft>();
   const byHex = new Map<string, RawAircraft>();
   const better = (cur: RawAircraft | undefined, next: RawAircraft) => !cur || (!rawHasPosition(cur) && rawHasPosition(next));
@@ -353,8 +374,8 @@ export function foldTrackedRows(
     if (!reading.has_position) {
       heard++;
       // an older reading never replaces a newer one
-      const keep = tp.heard && tp.heard.at > reading.at ? tp.heard : reading;
-      return { ...tp, hex, heard: keep, last_heard: lastHeard };
+      const kept = !!tp.heard && tp.heard.at > reading.at;
+      return { ...tp, hex, heard: kept ? tp.heard : reading, last_heard: lastHeard, heard_provider: kept ? tp.heard_provider : src };
     }
     positioned.push(hit);
     return {
@@ -364,6 +385,8 @@ export function foldTrackedRows(
       last_pos: { la: hit.lat as number, lo: hit.lon as number, al: reading.alt_ft == null ? null : Math.round(reading.alt_ft * 0.3048) },
       heard: reading,
       last_heard: lastHeard,
+      last_pos_provider: src,
+      heard_provider: src,
     };
   });
   return { registry: { planes }, positioned, heard };
@@ -408,7 +431,7 @@ export async function pollTrackedOnce(
   if (!res.ok) throw new Error(`adsb.lol reg batch ${res.status}`);
   const raw = await res.json();
   const regRows = rawAircraftRows(raw);
-  const first = foldTrackedRows(registry, regRows, upstreamBaseMs(raw, nowMs), nowMs);
+  const first = foldTrackedRows(registry, regRows, upstreamBaseMs(raw, nowMs), nowMs, TRACKED_PRIMARY_PROVIDER);
   // tracked poller uses the adsb.lol reg-batch endpoint (batchUrl) — tag it.
   // Every row the batch returned WITH a position, as before.
   const points = mapPointAircraft({ ac: regRows.filter(rawHasPosition) }, "ac", "adsblol") as AircraftPoint[];
@@ -425,7 +448,7 @@ export async function pollTrackedOnce(
       try {
         requests++;
         const hexRaw = await fetchHexRows(missing, fetchImpl, headers, hooks);
-        const second = foldTrackedRows(out, rawAircraftRows(hexRaw), upstreamBaseMs(hexRaw, nowMs), nowMs);
+        const second = foldTrackedRows(out, rawAircraftRows(hexRaw), upstreamBaseMs(hexRaw, nowMs), nowMs, TRACKED_PRIMARY_PROVIDER);
         out = second.registry;
         heard += second.heard;
         points.push(...(mapPointAircraft({ ac: second.positioned }, "ac", "adsblol") as AircraftPoint[]));
@@ -449,7 +472,7 @@ export async function pollHexesOnce(
 ): Promise<PollOutcome> {
   if (!hexes.length) return { points: [], registry, heard: 0, requests: 0, hexNote: null };
   const raw = await fetchHexRows(hexes, fetchImpl, headers, hooks);
-  const f = foldTrackedRows(registry, rawAircraftRows(raw), upstreamBaseMs(raw, nowMs), nowMs);
+  const f = foldTrackedRows(registry, rawAircraftRows(raw), upstreamBaseMs(raw, nowMs), nowMs, TRACKED_PRIMARY_PROVIDER);
   return {
     points: mapPointAircraft({ ac: f.positioned }, "ac", "adsblol") as AircraftPoint[],
     registry: f.registry, heard: f.heard, requests: 1, hexNote: null,
@@ -621,14 +644,40 @@ export function createTrackedCycle(deps: {
 /** Pure: land one cycle's readings on the CURRENT registry by tail number.
  *  The registry can change while a cycle is in flight (a tail added or
  *  removed through the API, the backfill's high-water mark) — only the
- *  fields a poll owns are taken from the polled copy. */
+ *  fields a poll owns are taken from the polled copy.
+ *
+ *  NEWEST WINS (2026-11-19). Two loops write here now (adsb.lol's cycle and
+ *  the adsb.fi backup), and each folds its answer into the registry AS IT WAS
+ *  WHEN ITS REQUEST LEFT. A slow cycle therefore comes back holding older
+ *  readings than the other loop wrote meanwhile; taking its fields as they
+ *  are (the rule until now) put those older readings back. So each reading is
+ *  compared by its own time and the newer one stays:
+ *    - the position (last_seen, last_pos, last_pos_provider) by last_seen;
+ *    - the transponder reading (heard, heard_provider) by heard.at;
+ *    - last_heard is a high-water mark: the larger;
+ *    - hex from the side holding the newest reading, else from the other.
+ *  A tie goes to the polled copy, so with ONE loop (the polled copy is then
+ *  never older) the result is the polled copy's fields, as before. */
 export function mergePolled(current: TrackedRegistry, polled: TrackedRegistry): TrackedRegistry {
   const byReg = new Map(polled.planes.map((p) => [p.reg, p] as const));
+  const newest = (tp: TrackedPlane): number => Math.max(tp.last_heard ?? 0, tp.last_seen ?? 0);
   return {
     planes: current.planes.map((cur) => {
       const p = byReg.get(cur.reg);
-      if (!p) return cur;
-      return { ...cur, hex: p.hex, last_seen: p.last_seen, last_pos: p.last_pos, heard: p.heard, last_heard: p.last_heard };
+      if (!p || p === cur) return cur;
+      const pos = (p.last_seen ?? 0) >= (cur.last_seen ?? 0) ? p : cur;
+      const heard = !cur.heard || (!!p.heard && p.heard.at >= cur.heard.at) ? p : cur;
+      const lastHeard = Math.max(p.last_heard ?? 0, cur.last_heard ?? 0);
+      return {
+        ...cur,
+        hex: newest(p) >= newest(cur) ? p.hex ?? cur.hex : cur.hex ?? p.hex,
+        last_seen: pos.last_seen,
+        last_pos: pos.last_pos,
+        last_pos_provider: pos.last_pos_provider,
+        heard: heard.heard,
+        heard_provider: heard.heard_provider,
+        last_heard: lastHeard > 0 ? lastHeard : p.last_heard ?? cur.last_heard,
+      };
     }),
   };
 }
@@ -644,14 +693,19 @@ export function startTrackedPoller(deps: {
   onCycle?: (archived: number, live: number) => void;
   /** adsb.lol governor the hex requests are accounted to (tests inject) */
   governor?: UpstreamGovernor;
-  /** where ADSBLOL_API_KEY is read (default process.env) */
+  /** where ADSBLOL_API_KEY is read (default process.env); also the adsb.fi
+   *  backup's switches (TRACKED_BACKUP_ENABLED, the billing rule) */
   env?: NodeJS.ProcessEnv;
+  /** ms before the adsb.fi backup's first request (tests shorten it) */
+  backupStartDelayMs?: number;
 }): {
   getRegistry: () => TrackedRegistry;
   /** cadence counters (base/fast cycles, skips, requests) */
   cycleStats: () => Record<string, number>;
   /** the interval in force and why (the daily quota may set it) */
   pacing: () => TrackedPacing;
+  /** the adsb.fi backup loop: on or off and why, cadence, counters, backoff */
+  backupStatus: () => TrackedBackupStatus;
   mutate: (fn: (r: TrackedRegistry) => TrackedRegistry | null) => boolean;
   stop: () => void;
 } {
@@ -659,36 +713,52 @@ export function startTrackedPoller(deps: {
   saveRegistry(registry, deps.baseDir); // persist the seed on first boot
   let stopped = false;
   const cycle = createTrackedCycle({ fetchImpl: deps.fetchImpl, headers: deps.headers, governor: deps.governor, env: deps.env });
+  // the same planes asked of adsb.fi by hex, in a loop of its own (trackedBackup.ts)
+  const backup = createTrackedBackup({ fetchImpl: deps.fetchImpl, env: deps.env });
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let backupTimer: ReturnType<typeof setTimeout> | null = null;
   let dirty = false;
   let lastSaveAt = 0;
+  /** ONE application path for both loops: the readings land on the live
+   *  registry newest-wins (mergePolled), the fixes go on the fix bus with the
+   *  provider that served them (the worldwide snapshot, /live/:hex and the
+   *  tracked planes' permanent log subscribe there) and into the archive, and
+   *  the registry file is written (coalesced unless `saveNow`). Returns the
+   *  archive lines written. */
+  const applyOutcome = (
+    out: { points: AircraftPoint[]; registry: TrackedRegistry; heard: number },
+    at: number, provider: string, saveNow: boolean, upstreamNowMs?: number | null,
+  ): number => {
+    registry = mergePolled(registry, out.registry);
+    // WATCHED-PLANE LOOKUP (2026-09-30): tracked fixes also feed the
+    // worldwide snapshot, so GET /api/data/aircraft/live/:hex (and the
+    // plan's missing-callsign fill) always hold a watched plane's newest
+    // fix even where no sweep disc or viewer covered it. Origin "tracked"
+    // is not in the global archiver's origins — these archive below.
+    if (out.points.length) {
+      publishFixes({ provider, origin: "tracked", aircraft: out.points, fetchedAt: at, ...(upstreamNowMs != null ? { upstreamNowMs } : {}) });
+    }
+    const archived = out.points.length
+      ? archiveAircraft(out.points, deps.sites, deps.baseDir, at, TRACKED_ARCHIVE_INTERVAL_MS)
+      : 0;
+    if (out.points.length || out.heard) dirty = true;
+    // a base cycle writes as before (a plane is always FIRST heard by
+    // one); fast ticks and the backup coalesce their writes — the API serves
+    // the in-memory registry, so nothing a viewer sees waits on the file
+    if (dirty && (saveNow || at - lastSaveAt >= TRACKED_SAVE_MIN_MS)) {
+      saveRegistry(registry, deps.baseDir);
+      dirty = false;
+      lastSaveAt = at;
+    }
+    return archived;
+  };
   const tick = async () => {
     if (stopped) return;
     const started = Date.now();
     try {
       if (registry.planes.length) {
         const out = await cycle.run(registry, started);
-        registry = mergePolled(registry, out.registry);
-        // WATCHED-PLANE LOOKUP (2026-09-30): tracked fixes also feed the
-        // worldwide snapshot, so GET /api/data/aircraft/live/:hex (and the
-        // plan's missing-callsign fill) always hold a watched plane's newest
-        // fix even where no sweep disc or viewer covered it. Origin "tracked"
-        // is not in the global archiver's origins — these archive below.
-        if (out.points.length) {
-          publishFixes({ provider: "adsblol", origin: "tracked", aircraft: out.points, fetchedAt: started });
-        }
-        const archived = out.points.length
-          ? archiveAircraft(out.points, deps.sites, deps.baseDir, started, TRACKED_ARCHIVE_INTERVAL_MS)
-          : 0;
-        if (out.points.length || out.heard) dirty = true;
-        // a base cycle writes as before (a plane is always FIRST heard by
-        // one); fast ticks coalesce their writes — the API serves the
-        // in-memory registry, so nothing a viewer sees waits on the file
-        if (dirty && (out.kind === "base" || started - lastSaveAt >= TRACKED_SAVE_MIN_MS)) {
-          saveRegistry(registry, deps.baseDir);
-          dirty = false;
-          lastSaveAt = started;
-        }
+        const archived = applyOutcome(out, started, TRACKED_PRIMARY_PROVIDER, out.kind === "base");
         if (out.hexNote) console.error("[tracked-planes] hex lookup failed:", out.hexNote);
         if (out.kind === "base" || out.kind === "fast") deps.onCycle?.(archived, out.points.length);
       }
@@ -707,6 +777,32 @@ export function startTrackedPoller(deps: {
       }
     }
   };
+  // THE BACKUP LOOP: independent of the cycle above (its own timer, its own
+  // provider, its own backoff). backup.poll never throws and sends nothing
+  // while it is off, backing off, or no tracked plane has a hex yet.
+  const backupTick = async () => {
+    if (stopped) return;
+    const started = Date.now();
+    try {
+      if (registry.planes.length) {
+        const out = await backup.poll(registry, started);
+        if (out.ok && !stopped) {
+          const archived = applyOutcome(out, started, TRACKED_BACKUP_PROVIDER, false, out.upstreamNowMs);
+          deps.onCycle?.(archived, out.points.length);
+        }
+      }
+    } catch (e) {
+      console.error("[tracked-planes] backup:", errText(e));
+    } finally {
+      if (!stopped) {
+        const t = Date.now();
+        backupTimer = setTimeout(() => { void backupTick(); }, Math.max(1_000, backup.nextDelayMs(registry, t) - (t - started)));
+        unrefTimer(backupTimer);
+      }
+    }
+  };
+  backupTimer = setTimeout(() => { void backupTick(); }, Math.max(0, deps.backupStartDelayMs ?? TRACKED_BACKUP_START_DELAY_MS));
+  unrefTimer(backupTimer);
   void tick(); // first cycle immediately — "when their signal pops up"
   // day-trace backfill: global-network fidelity for every tracked plane
   const backfill = async () => {
@@ -738,6 +834,7 @@ export function startTrackedPoller(deps: {
     getRegistry: () => registry,
     cycleStats: () => cycle.stats(),
     pacing: () => cycle.pacing(registry, Date.now()),
+    backupStatus: () => backup.status(registry, Date.now()),
     mutate: (fn) => {
       const next = fn(registry);
       if (!next) return false;
@@ -745,6 +842,12 @@ export function startTrackedPoller(deps: {
       saveRegistry(registry, deps.baseDir);
       return true;
     },
-    stop: () => { stopped = true; if (timer) clearTimeout(timer); clearInterval(backfillTimer); clearTimeout(firstBackfill); },
+    stop: () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      if (backupTimer) clearTimeout(backupTimer);
+      clearInterval(backfillTimer);
+      clearTimeout(firstBackfill);
+    },
   };
 }

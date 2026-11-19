@@ -36,6 +36,7 @@ import {
 } from "./datacoreArchive";
 import { fullTrackAsync, splitTrips, tripsCoverage } from "./aircraftTrips";
 import { startTrackedPoller, addTracked, removeTracked, normalizeReg, TRACKED_CAP, TRACKED_POLL_MS, TRACKED_FAST_POLL_MS, TRACKED_ACTIVE_WINDOW_MS, TRACKED_MAX_REQ_PER_MIN } from "./trackedPlanes";
+import { TRACKED_PROVIDER_NOTE, trackedSourceText } from "./trackedBackup";
 import { registerAircraftFindRoute } from "./aircraftFind";
 import { registerAircraftEstimateRoute } from "./aircraftEstimate";
 import { publishFixes } from "./aircraftFixBus";
@@ -1018,6 +1019,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/aircraft/tracked", async (_req, res) => {
     const r = trackedPoller.getRegistry();
     const trackedPacing = trackedPoller.pacing();
+    const trackedBackup = trackedPoller.backupStatus();
     const logStatus = await trackedLog.log.status().catch((e: unknown) => {
       console.error("[tracked-log] status:", e instanceof Error ? e.message : String(e));
       return null;
@@ -1041,8 +1043,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       effective_poll_s: trackedPacing.effective_poll_s,
       pacing: trackedPacing,
       cycles: trackedPoller.cycleStats(),
-      source: "adsb.lol registration query (ODbL), one batched request per cycle, plus one batched hex query for tracked planes it returned no position for",
-      note: "tracked tails are archived continuously whenever they broadcast — no viewer required; last_seen null = never seen since tracking began. last_seen / last_pos are a real position fix; heard / last_heard say the provider heard the transponder (heard.has_position false = altitude and ground speed only, no position yet)",
+      // 2026-11-19: the same planes are also asked of adsb.fi by hex, in a loop of
+      // its own (server/trackedBackup.ts); poll_s / pacing / cycles above are adsb.lol's
+      backup: trackedBackup,
+      source: trackedSourceText(trackedBackup),
+      note: "tracked tails are archived continuously whenever they broadcast — no viewer required; last_seen null = never seen since tracking began. last_seen / last_pos are a real position fix; heard / last_heard say the provider heard the transponder (heard.has_position false = altitude and ground speed only, no position yet)" + TRACKED_PROVIDER_NOTE,
     });
   });
   app.post("/api/data/aircraft/tracked/:reg", (req, res) => {
