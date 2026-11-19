@@ -436,6 +436,12 @@ export const DIAG_PROBES = [
   // accessions, held, backfilled, unparsed, failed, deferred. Counts only: no
   // ticker, name, CIK, accession or filing URL; no network; no query parameters.
   "form4_completeness",
+  // ADDED 2026-11-19 ([PIPELINE]): read-only status of the nightly 13F archive
+  // completeness pass (server/edgar13fCompleteness.ts
+  // filings13fCompletenessStatus) — the latest night's counts and the per-day
+  // ledger in counts (index, held, short days by date). Counts and dates only:
+  // no manager, CIK, accession or filing URL; no network; no query parameters.
+  "filings13f_completeness",
   // ADDED 2026-11-17 ([PIPELINE]): read-only health of the three EDGAR
   // pollers (server/edgarPollHealth.ts edgarPollHealthStatus) — polls ok /
   // failed since boot, consecutive failures, the last error (the poller's own

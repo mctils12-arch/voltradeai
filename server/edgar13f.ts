@@ -71,6 +71,12 @@ export interface Filing13F extends Parsed13FPrimary {
    *  FOCUSED_MAX_HOLDINGS (summary-only record, holdingsOmitted=true). */
   holdings: Holding13F[] | null;
   holdingsOmitted: boolean;
+  /** Only on rows the nightly completeness pass recovered: EDGAR's daily
+   *  form index type, exact ("13F-HR" | "13F-HR/A"). */
+  form?: string;
+  /** Only on recovered rows: ISO time the pass fetched it. The row sits in
+   *  that night's day file; filedAt is the index's filing date. */
+  backfilledAt?: string;
 }
 
 // ── Namespace-tolerant XML helpers ──────────────────────────────────────────
@@ -179,6 +185,37 @@ async function fetchText(fetchImpl: FetchFn, url: string): Promise<string> {
   return r.text();
 }
 
+export type Filing13FDocs = Parsed13FPrimary & Pick<Filing13F, "holdings" | "holdingsOmitted">;
+
+/** One filing's parsed documents, read from its EDGAR directory (`base` ends
+ *  in "/"): index.json, the primary doc, and the information table unless the
+ *  focused-manager cap omits it. null when the directory has no primary doc.
+ *  Shared by the 15-minute poll and the nightly completeness pass
+ *  (edgar13fCompleteness.ts), so a recovered row is parsed exactly as a live one. */
+export async function fetch13FFilingDocs(
+  base: string,
+  getText: (url: string) => Promise<string>,
+): Promise<Filing13FDocs | null> {
+  const indexJson = JSON.parse(await getText(`${base}index.json`));
+  const { primary, info } = pick13FDocNames(indexJson);
+  if (!primary) return null;
+  const head = parse13FPrimaryDoc(await getText(`${base}${primary}`));
+  let omit = (head.entryTotal ?? 0) > FOCUSED_MAX_HOLDINGS;
+  let holdings: Holding13F[] | null = null;
+  if (!omit && info) {
+    holdings = parse13FInfoTable(await getText(`${base}${info}`));
+    // [REPAIR 2026-07-05, audit defect #10a] null entryTotal + a parse
+    // that HITS the cap means the table may have been truncated — the
+    // never-silent cap doctrine requires marking it, not shipping 250
+    // rows that look complete. Treated as over-cap: summary-only.
+    if (head.entryTotal == null && holdings.length >= FOCUSED_MAX_HOLDINGS) {
+      omit = true;
+      holdings = null;
+    }
+  }
+  return { ...head, holdings, holdingsOmitted: omit };
+}
+
 /** Fetches the N most recent 13F-HR filings, parsed. Three requests per
  *  filing (index.json, primary doc, info table) with spacing — well under
  *  the 10 req/s fair-access ceiling. */
@@ -193,32 +230,14 @@ export async function fetchLatest13FFilings(
   const out: Filing13F[] = [];
   for (const entry of entries) {
     try {
-      const base = entry.indexUrl.replace(/[^/]+$/, "");
-      const indexJson = JSON.parse(await fetchText(fetchImpl, `${base}index.json`));
-      const { primary, info } = pick13FDocNames(indexJson);
-      if (!primary) continue;
-      const head = parse13FPrimaryDoc(await fetchText(fetchImpl, `${base}${primary}`));
-      let omit = (head.entryTotal ?? 0) > FOCUSED_MAX_HOLDINGS;
-      let holdings: Holding13F[] | null = null;
-      if (!omit && info) {
-        holdings = parse13FInfoTable(await fetchText(fetchImpl, `${base}${info}`));
-        // [REPAIR 2026-07-05, audit defect #10a] null entryTotal + a parse
-        // that HITS the cap means the table may have been truncated — the
-        // never-silent cap doctrine requires marking it, not shipping 250
-        // rows that look complete. Treated as over-cap: summary-only.
-        if (head.entryTotal == null && holdings.length >= FOCUSED_MAX_HOLDINGS) {
-          omit = true;
-          holdings = null;
-        }
-      }
+      const doc = await fetch13FFilingDocs(entry.indexUrl.replace(/[^/]+$/, ""), (url) => fetchText(fetchImpl, url));
+      if (!doc) continue;
       out.push({
-        ...head,
+        ...doc,
         accession: entry.accession,
         filedAt: entry.filedAt,
-        cik: entry.cik || head.managerCik || "",
+        cik: entry.cik || doc.managerCik || "",
         indexUrl: entry.indexUrl,
-        holdings,
-        holdingsOmitted: omit,
       });
     } catch {
       // one malformed filing never kills the batch
@@ -326,7 +345,9 @@ export function trimHoldings(f: Filing13F, top = 25): Filing13F {
 // contract (whole archive days atomic, `covered`/`truncated`/`next`) lives in
 // server/filingHistoryPage.ts, shared with the Form 4 archive. ──────────────
 
-/** Oldest 13F archive day — the poll loop has appended every filing since. */
+/** Oldest 13F archive day. The 15-minute poll keeps the 40 newest filings a
+ *  poll, which falls short on deadline days (measured 2026-11-19: 27% of
+ *  2026-11-16); edgar13fCompleteness.ts recovers the rest from EDGAR's index. */
 export const FILINGS13F_ARCHIVE_START = "2026-07-05";
 /** Default and maximum filings per page (read13FHistory's pre-existing cap,
  *  now reported instead of hidden — a 250-holding filing is ~40 KB). */
