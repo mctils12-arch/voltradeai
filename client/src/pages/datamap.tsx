@@ -104,6 +104,7 @@ import { idbGetCatalog, idbSetCatalog, catalogPlan, staleCatalogNote } from "@/l
 // not a side viewer): the followed satellite resolves to a lit, tumbling
 // class-representative form drawn at its live position on the globe.
 import MapNavCluster from "@/components/MapNavCluster";
+import { RailMenu } from "@/components/RailMenu";
 import { SatModelLayer } from "@/lib/orbital/modelLayer";
 import { ArcLayer } from "@/lib/orbital/arcLayer";
 // FLIGHT TRACK 3D (design_handoff_flight_track_3d, human-approved,
@@ -3185,7 +3186,8 @@ export default function DataMapPage() {
     try { const p = window.localStorage.getItem("vt-map-preset") || "natural"; return p === "terrain" ? "natural" : p; } catch { return "natural"; }
   });
   // preset popout (human 2026-07-21): collapsed chip in the top-left,
-  // expands to the right on hover/click, collapses on mouse-leave
+  // expands to the right on hover/click, collapses on mouse-leave. The
+  // open/close behaviour and the placement live in components/RailMenu.
   const [presetOpen, setPresetOpen] = useState(false);
   useEffect(() => {
     try { window.localStorage.setItem(GLOBE_PREF_KEY, globeOn ? "1" : "0"); } catch {}
@@ -14889,7 +14891,7 @@ export default function DataMapPage() {
       })()}
 
       {/* v2.3 fullscreen: hide the site nav for a full-viewport map */}
-      <button className="vt-map-fs-btn" data-vt-fullscreen
+      <button className="vt-map-fs-btn" data-vt-fullscreen data-vt-rail-btn="fullscreen"
               aria-label={fullscreen ? "Exit fullscreen map" : "Fullscreen map"}
               aria-pressed={fullscreen}
               onClick={() => setFullscreen((v) => !v)}>
@@ -14902,7 +14904,7 @@ export default function DataMapPage() {
       {(() => {
         const globeActive = globeOn && globeSupport !== "unavailable";
         return (
-          <button className="vt-map-globe-btn" data-vt-globe
+          <button className="vt-map-globe-btn" data-vt-globe data-vt-rail-btn="globe"
                   aria-label={globeActive ? "Switch to flat map projection" : "Switch to 3D globe projection"}
                   aria-pressed={globeActive}
                   disabled={globeSupport === "unavailable"}
@@ -14917,7 +14919,7 @@ export default function DataMapPage() {
       {/* W6 ANALYST toggle — third button in the top-left control column
           (same 44px family as fullscreen/globe above it). The pane itself
           is a lazy chunk: closed = zero analyst code loaded, ever. */}
-      <button className="vt-map-analyst-btn" data-vt-analyst
+      <button className="vt-map-analyst-btn" data-vt-analyst data-vt-rail-btn="analyst"
               aria-label={analystOpen ? "Close analyst" : "Open analyst"}
               aria-pressed={analystOpen}
               title="Analyst — ask questions answered strictly from the platform's own data"
@@ -14937,7 +14939,7 @@ export default function DataMapPage() {
       )}
       {/* W3 TIME SCRUBBER toggle — fourth button in the top-left control
           column. Lazy chunk: closed = zero time-scrubber code loaded, ever. */}
-      <button className="vt-map-timescrub-btn" data-vt-timescrub
+      <button className="vt-map-timescrub-btn" data-vt-timescrub data-vt-rail-btn="timescrub"
               aria-label={timescrubOpen ? "Close time machine" : "Open time machine"}
               aria-pressed={timescrubOpen}
               title="Time Machine — scrub our own recorded archives across the past week"
@@ -14975,31 +14977,31 @@ export default function DataMapPage() {
           RELOCATED + POPOUT (human 2026-07-21: "natural night terrain
           minimal need to be moved somewhere else, maybe the left-hand top
           corner and when you click on it it pops out to the right … when
-          your mouse is not over it it goes away"): a compact chip in the
-          top-left showing the ACTIVE preset; hover/click expands the four
-          pills to the right; mouse-leave (or picking one) collapses.
+          your mouse is not over it it goes away"): a 44px ICON button in
+          the top-left column (human 2026-07-22: "should look the same as
+          those other icons and not be placed behind them"); hover/click
+          opens the pills to the RIGHT; mouse-leave (or picking a base
+          style) closes. "Terrain" preset dropped 2026-07-22 — it only
+          duplicated Natural + the Layers-tab 3D-relief toggle.
+          RAIL MENU (owner 2026-11-19: "when you click on the mountain, it
+          covers the other icon and moves down. Why does it move? It's
+          where I have my mouse"): the menu is a RailMenu flyout — out of
+          flow, so the button's slot never moves and no rail button is
+          covered; a second click, Escape or an outside press closes it.
           Hidden while the space frame owns the viewport (unchanged). */}
       {!spaceActive && (
-      <div
-        className={`vt-preset-switch${presetOpen ? " vt-preset-open" : ""}`}
-        role="group" aria-label="Map style preset"
-        onMouseEnter={() => setPresetOpen(true)}
-        onMouseLeave={() => setPresetOpen(false)}
+      <RailMenu
+        id="style"
+        open={presetOpen}
+        onOpenChange={setPresetOpen}
+        className="vt-preset-switch" openClassName="vt-preset-open"
+        groupLabel="Map style preset"
+        buttonClassName="vt-preset-chip"
+        buttonLabel={`Map style: ${mapPreset}. Change base style`}
+        buttonTitle="Base map style"
+        icon={<Mountain size={18} aria-hidden />}
+        menuClassName="vt-preset-pop"
       >
-        {/* Collapsed = a 44px ICON button matching the fullscreen/globe/
-            analyst column (human 2026-07-22: "should look the same as
-            those other icons and not be placed behind them"). Hover/click
-            pops the base-style pills out to the RIGHT. "Terrain" preset
-            dropped 2026-07-22 — it only duplicated Natural + the Layers-tab
-            3D-relief toggle; Natural/Night/Minimal are the distinct bases. */}
-        <button className="vt-preset-chip" aria-expanded={presetOpen}
-                aria-haspopup="true" aria-label={`Map style: ${mapPreset}. Change base style`}
-                title="Base map style"
-                onClick={() => setPresetOpen((v) => !v)}>
-          <Mountain size={18} aria-hidden />
-        </button>
-        {presetOpen && (
-          <div className="vt-preset-pop">
           <div className="vt-preset-pills">
             {([
               ["natural", "Natural"],
@@ -15038,9 +15040,7 @@ export default function DataMapPage() {
               </button>
             ))}
           </div>
-          </div>
-        )}
-      </div>
+      </RailMenu>
       )}
 
       {/* FAA chart freshness card (Law V: every layer says how old it is):

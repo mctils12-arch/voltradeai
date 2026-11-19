@@ -3073,16 +3073,37 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-map-globe-btn:active:not(:disabled) { transform: scale(0.96); }
 .vt-map-globe-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* RAIL MENU (components/RailMenu + lib/railFlyout) — the one layout for a
+   menu opened from the top-left icon rail. Owner report 2026-11-19: "when
+   you click on the mountain, it covers the other icon and moves down. Why
+   does it move? It's where I have my mouse" — the style menu was an in-flow
+   sibling of its button inside a centring inline-flex row, so the taller
+   menu re-centred the 44px button 23px lower, over the button beneath it.
+   Now the SLOT is a fixed 44px box and the menu is absolutely positioned out
+   of flow: opening it cannot move or cover a rail button. RailMenu writes
+   left/top/max-width/max-height (right of the rail, inside the page, clear
+   of other controls); the values below are only the pre-measure fallback. */
+.vt-rail-menu {
+  position: absolute; left: 12px; z-index: 10;
+  display: flex; width: 44px; height: 44px;
+}
+/* open: above the panels beside the rail, so a menu that found no free spot
+   is still usable rather than hidden under one */
+.vt-rail-menu-open { z-index: 20; }
+.vt-rail-flyout {
+  position: absolute; left: calc(100% + 6px); top: 0;
+  width: max-content; max-width: calc(100vw - 70px);
+}
+/* a page shorter than the menu: it scrolls inside its max-height (only then —
+   an always-on overflow would clip the pill rows' drop shadows) */
+.vt-rail-flyout[data-vt-rail-scroll="true"] { overflow-y: auto; overscroll-behavior: contain; }
 /* Style presets (worldview-globe G1) — FOURTH button in the top-left
    control column (2026-07-22: human "should look the same as those other
    icons and not be placed behind them" — was overlapping the fullscreen
    button at the same 12/12 slot). Collapsed = a 44px icon button matching
-   fullscreen/globe/analyst; hover/click pops the base-style pills out to
-   the RIGHT; mouse-leave collapses. */
-.vt-preset-switch {
-  position: absolute; left: 12px; top: 162px; z-index: 10;
-  display: inline-flex; align-items: center; gap: 6px;
-}
+   fullscreen/globe/analyst; hover/click opens the base-style pills to the
+   RIGHT as a rail menu; mouse-leave closes. */
+.vt-preset-switch { top: 162px; }
 .vt-preset-chip {
   appearance: none; flex: 0 0 auto;
   width: 44px; height: 44px; border-radius: 10px;
@@ -3121,11 +3142,12 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
    off-screen at 390px. */
 .vt-preset-pop {
   display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-  max-width: calc(100vw - 80px);
 }
 .vt-preset-pop .vt-preset-pills { flex-wrap: wrap; }
+/* phone: every option in the menu is a 44px touch target (DESIGN.md) — the
+   base-style row was shorter than the 44px chart row */
 @media (max-width: 480px) {
-  .vt-aero-pills .vt-preset-pill { min-height: 44px; }
+  .vt-preset-pop .vt-preset-pill { min-height: 44px; min-width: 44px; }
 }
 /* chart freshness card: top-centre, clear of the left control column and
    the top-right layers button; honesty tone on the left rule */
