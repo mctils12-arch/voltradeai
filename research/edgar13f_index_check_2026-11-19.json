@@ -1,0 +1,258 @@
+{
+ "from": "2026-11-02",
+ "to": "2026-11-18",
+ "read_at": "2026-11-19T00:13:40+00:00",
+ "archive": {
+  "pages": 12,
+  "submission_types": {
+   "13F-HR": 4290,
+   "13F-HR/A": 217
+  }
+ },
+ "rows": [
+  {
+   "day": "2026-11-02",
+   "index": 255,
+   "held": 255,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 254,
+     "held": 254
+    },
+    "13F-HR/A": {
+     "index": 1,
+     "held": 1
+    }
+   }
+  },
+  {
+   "day": "2026-11-03",
+   "index": 299,
+   "held": 299,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 292,
+     "held": 292
+    },
+    "13F-HR/A": {
+     "index": 7,
+     "held": 7
+    }
+   }
+  },
+  {
+   "day": "2026-11-04",
+   "index": 236,
+   "held": 236,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 228,
+     "held": 228
+    },
+    "13F-HR/A": {
+     "index": 8,
+     "held": 8
+    }
+   }
+  },
+  {
+   "day": "2026-11-05",
+   "index": 279,
+   "held": 279,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 258,
+     "held": 258
+    },
+    "13F-HR/A": {
+     "index": 21,
+     "held": 21
+    }
+   }
+  },
+  {
+   "day": "2026-11-06",
+   "index": 316,
+   "held": 316,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 296,
+     "held": 296
+    },
+    "13F-HR/A": {
+     "index": 20,
+     "held": 20
+    }
+   }
+  },
+  {
+   "day": "2026-11-07",
+   "index": null,
+   "held": 0,
+   "missing": 0,
+   "share": null,
+   "by_form": {}
+  },
+  {
+   "day": "2026-11-08",
+   "index": null,
+   "held": 0,
+   "missing": 0,
+   "share": null,
+   "by_form": {}
+  },
+  {
+   "day": "2026-11-09",
+   "index": 349,
+   "held": 349,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 320,
+     "held": 320
+    },
+    "13F-HR/A": {
+     "index": 29,
+     "held": 29
+    }
+   }
+  },
+  {
+   "day": "2026-11-10",
+   "index": 400,
+   "held": 400,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 390,
+     "held": 390
+    },
+    "13F-HR/A": {
+     "index": 10,
+     "held": 10
+    }
+   }
+  },
+  {
+   "day": "2026-11-11",
+   "index": null,
+   "held": 0,
+   "missing": 0,
+   "share": null,
+   "by_form": {}
+  },
+  {
+   "day": "2026-11-12",
+   "index": 782,
+   "held": 755,
+   "missing": 27,
+   "share": 0.9655,
+   "by_form": {
+    "13F-HR": {
+     "index": 765,
+     "held": 738
+    },
+    "13F-HR/A": {
+     "index": 17,
+     "held": 17
+    }
+   }
+  },
+  {
+   "day": "2026-11-13",
+   "index": 1087,
+   "held": 905,
+   "missing": 182,
+   "share": 0.8326,
+   "by_form": {
+    "13F-HR": {
+     "index": 1032,
+     "held": 856
+    },
+    "13F-HR/A": {
+     "index": 55,
+     "held": 49
+    }
+   }
+  },
+  {
+   "day": "2026-11-14",
+   "index": null,
+   "held": 0,
+   "missing": 0,
+   "share": null,
+   "by_form": {}
+  },
+  {
+   "day": "2026-11-15",
+   "index": null,
+   "held": 0,
+   "missing": 0,
+   "share": null,
+   "by_form": {}
+  },
+  {
+   "day": "2026-11-16",
+   "index": 1712,
+   "held": 462,
+   "missing": 1250,
+   "share": 0.2699,
+   "by_form": {
+    "13F-HR": {
+     "index": 1662,
+     "held": 451
+    },
+    "13F-HR/A": {
+     "index": 50,
+     "held": 11
+    }
+   }
+  },
+  {
+   "day": "2026-11-17",
+   "index": 95,
+   "held": 95,
+   "missing": 0,
+   "share": 1.0,
+   "by_form": {
+    "13F-HR": {
+     "index": 81,
+     "held": 81
+    },
+    "13F-HR/A": {
+     "index": 14,
+     "held": 14
+    }
+   }
+  },
+  {
+   "day": "2026-11-18",
+   "index": null,
+   "held": 0,
+   "missing": 0,
+   "share": null,
+   "by_form": {}
+  }
+ ],
+ "total": {
+  "index_days": 11,
+  "index": 5810,
+  "held": 4351,
+  "missing": 1459,
+  "share": 0.7489,
+  "complete_days": 8,
+  "held_not_in_window_index": 156
+ }
+}

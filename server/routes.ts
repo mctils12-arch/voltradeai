@@ -151,6 +151,7 @@ import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { bootEarningsQoq } from "./earningsQoq";
 import { bootGithubGate2 } from "./githubGate2";
 import { bootForm4Completeness } from "./edgarForm4Completeness";
+import { boot13FCompleteness } from "./edgar13fCompleteness";
 import { bootEventStudy } from "./eventStudy";
 import { platformStats } from "./platformStats";
 import {
@@ -1689,6 +1690,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // form index lists every Form 4 of a day; what the poll missed is fetched
   // and appended with `backfilledAt`. VOLTRADE_FORM4_COMPLETENESS=0 disables.
   bootForm4Completeness();
+  boot13FCompleteness(); // nightly 13F-HR recovery against EDGAR's daily form index (06:00-09:00 ET)
   app.get("/api/data/insider", (_req, res) => {
     const hit = latestForm4Filings();
     if (!hit) {

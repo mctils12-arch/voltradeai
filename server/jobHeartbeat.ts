@@ -314,6 +314,23 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_FORM4_COMPLETENESS off",
   },
   {
+    // edgar13fCompleteness.ts boot13FCompleteness: 30-min tick, one pass per ET
+    // morning inside 06:00-09:00 — EDGAR's daily form index (types 13F-HR,
+    // 13F-HR/A) minus what the 13F archive holds is fetched and appended, for
+    // every weekday back to the archive's first day that the ledger has not
+    // settled. Up to 600 filings at 400 ms spacing (about 8 min); a quiet
+    // night is one index read.
+    id: "filings13f_completeness_nightly", label: "13F archive completeness pass (EDGAR daily form index, 06:00-09:00 ET)",
+    source: "server/edgar13fCompleteness.ts", kind: "daily", tz: "America/New_York", dueMin: 6 * 60,
+    graceMs: 90 * MIN, maxRunMs: 2 * HOUR, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_13F_COMPLETENESS;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_13F_COMPLETENESS off",
+  },
+  {
     // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,
