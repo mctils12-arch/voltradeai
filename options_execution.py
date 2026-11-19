@@ -555,6 +555,9 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             equity, positions, macro
         )
         _target_delta = (metadata or {}).get("target_delta") if isinstance(metadata, dict) else None
+        # PRICE LADDER 2026-11-19: the tier dispatcher's step for an underlying
+        # whose earlier put limit rested unfilled today (None on a first attempt).
+        _price_walk = (metadata or {}).get("price_walk") if isinstance(metadata, dict) else None
 
         # Select contract based on strategy
         result = None
@@ -564,7 +567,7 @@ def select_contract(ticker: str, strategy: str, price: float, equity: float,
             result = _select_buy_put(liquid, price, equity, ticker, size_pct)
         elif strategy == "sell_cash_secured_put":
             result = _select_sell_put(liquid, price, equity, ticker, size_pct, cash_available=cash_available,
-                                      target_delta=_target_delta)
+                                      target_delta=_target_delta, price_walk=_price_walk)
         elif strategy == "bull_call_spread":
             result = _select_bull_spread(liquid, price, equity, ticker, size_pct)
         elif strategy == "bear_put_spread":
@@ -866,13 +869,33 @@ def _is_liquid(contract: dict) -> bool:
     return False
 
 
-def _optimized_limit_price(contract: dict, direction: str) -> float:
+def _clean_price_walk(walk) -> float:
+    """A caller's price walk as a share of the half-spread, or None when it is
+    not usable. Bounded to [WALK default, 1.0]: a walk can only move TOWARD the
+    natural side (the bid for a sale), never past it and never back toward mid."""
+    try:
+        w = float(walk)
+    except (TypeError, ValueError):
+        return None
+    if w != w:  # NaN
+        return None
+    return max(0.30, min(1.0, w))
+
+
+def _optimized_limit_price(contract: dict, direction: str, walk: float = None) -> float:
     """
     Professional limit price optimization.
     Instead of paying full ask (buying) or accepting full bid (selling),
     start at the midpoint and walk 30% toward the natural side.
     
     This saves money on every trade — pros never pay the full spread.
+
+    walk (2026-11-19): the share of the half-spread to give up instead of the
+    default 30%: 0.65 = 65% of the way from mid to the natural side, 1.0 = the
+    natural side itself (the bid for a sale). Only the cash-secured-put entry
+    passes it, from the tier dispatcher's price ladder (server/
+    cspSweepCooldown.ts): an entry that rested unfilled is next offered closer
+    to the bid. None = the default, exactly as before.
     
     Args:
         contract: dict with 'bid', 'ask', 'mid' keys
@@ -894,6 +917,9 @@ def _optimized_limit_price(contract: dict, direction: str) -> float:
     # For buying: mid + 30% of (ask - mid) = lean slightly toward ask
     # For selling: mid - 30% of (mid - bid) = lean slightly toward bid
     WALK_PCT = 0.30
+    _w = _clean_price_walk(walk) if walk is not None else None
+    if _w is not None:
+        WALK_PCT = _w
     
     if direction == "buy":
         optimized = mid + WALK_PCT * (ask - mid)
@@ -1128,7 +1154,8 @@ def _select_buy_put(contracts: list, price: float, equity: float, ticker: str, s
 
 
 def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, size_pct: float = 0.05,
-                      cash_available: float = None, target_delta: float = None) -> dict:
+                      cash_available: float = None, target_delta: float = None,
+                      price_walk: float = None) -> dict:
     """
     Select a put to sell (cash-secured).
     Slightly OTM, delta ~-0.30 (70% probability of expiring worthless = profit).
@@ -1346,7 +1373,7 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         logging.getLogger("voltrade.options_execution").info(
             f"CSP {ticker}: no delta data; using strike-distance fallback (target=${target_strike:.2f}, picked=${best.get('strike')})"
         )
-    limit_price = _optimized_limit_price(best, "sell")
+    limit_price = _optimized_limit_price(best, "sell", walk=price_walk)
 
     # Cash required to secure: strike * 100 per contract
     cash_per_contract = best["strike"] * 100
@@ -1381,6 +1408,13 @@ def _select_sell_put(contracts: list, price: float, equity: float, ticker: str, 
         "theta": best.get("theta"),
         "iv": best.get("iv"),
         "days_to_expiry": best.get("days_to_expiry"),
+        # 2026-11-19: the quote the limit was built from and the walk used, so
+        # an entry that did not fill can be read against its market afterwards
+        # (the AAL puts of 11-19 rested 12 min twice and nothing recorded their
+        # bid/ask).
+        "bid": best.get("bid"),
+        "ask": best.get("ask"),
+        "price_walk": (_clean_price_walk(price_walk) if price_walk is not None else None) or 0.30,
         "error": None,
     }
 

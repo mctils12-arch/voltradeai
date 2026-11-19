@@ -198,3 +198,77 @@ export function shouldDispatchCsp(ticker: string, ctx: CspDispatchContext): CspD
   }
   return { dispatch: true };
 }
+
+// ── PRICE LADDER (2026-11-19) ────────────────────────────────────────────────
+// Live 2026-11-19, the first day the tier engine reached the order stage in
+// weeks: SELL 1 AAL261231P00011500 @ 0.29 (15:30Z) and @ 0.30 (18:50Z). Both
+// rested 12 minutes unfilled and were swept; in between the 60-minute cooldown
+// above held the underlying. The limit is always mid minus 30% of the half
+// spread (options_execution._optimized_limit_price), so every attempt asks
+// for nearly the same price a buyer already declined, and an entry can only
+// fill if the market comes to it.
+//
+// The ladder changes WHAT price the next attempt asks, not how an order is
+// sent: an underlying whose put rested unfilled today is next offered 65% of
+// the way from mid to the bid, then at the bid, CSP_LADDER_COOLDOWN_MINUTES
+// apart; after the last step it is left alone until tomorrow. The count is
+// read from the BROKER's closed orders (restart-proof, like the KB #46 brake).
+// Nothing is sold below the bid, and options_execution's fair-value check and
+// tax filter still judge the lower limit and refuse it when it is too cheap.
+// Off switch: VOLTRADE_CSP_PRICE_LADDER=0 (one price, the 60-minute cooldown).
+
+/** Share of the half-spread given up at each attempt of the day. */
+export const CSP_PRICE_WALKS: readonly number[] = [0.3, 0.65, 1.0];
+/** Minutes between a swept attempt and the next step of the ladder. */
+export const CSP_LADDER_COOLDOWN_MINUTES = 20;
+
+export function cspPriceLadderEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const v = String(env.VOLTRADE_CSP_PRICE_LADDER ?? "1").trim().toLowerCase();
+  return !(v === "0" || v === "false" || v === "off" || v === "no");
+}
+
+/**
+ * Sell-to-open orders on `underlying` that were submitted at or after
+ * `sinceMs`, RESTED >= staleMinutes and ended canceled/expired with no fill:
+ * the attempts the market declined. A cancel soon after submit (a deploy's
+ * cancel-all, a manual cancel) proves nothing about the price and is not
+ * counted, the same rule as isRecentUnfilledRestedCsp.
+ */
+export function countUnfilledRestedCspSince(
+  orders: OpenOrderLike[] | null | undefined,
+  underlying: string,
+  sinceMs: number,
+  staleMinutes: number,
+): number {
+  let n = 0;
+  for (const o of Array.isArray(orders) ? orders : []) {
+    if (!isOpenSellToOpenOn(o, underlying)) continue;
+    if (o.status !== "canceled" && o.status !== "expired") continue;
+    if (Number(o.filled_qty ?? 0) > 0) continue;
+    const start = Date.parse(String(o.submitted_at ?? ""));
+    const end = Date.parse(String(o.canceled_at ?? o.expired_at ?? ""));
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < sinceMs) continue;
+    if ((end - start) / 60000 < staleMinutes) continue;
+    n++;
+  }
+  return n;
+}
+
+export interface CspLadderStep {
+  /** 0-based attempt of the day */
+  step: number;
+  /** share of the half-spread to give up; null once the ladder is spent */
+  walk: number | null;
+  /** true when no further attempt may be made today */
+  exhausted: boolean;
+  /** cooldown that applies after a sweep at this point of the ladder */
+  cooldownMinutes: number;
+}
+
+/** Pure: the price step for an underlying with `attempts` declined attempts today. */
+export function cspLadderStep(attempts: number, enabled: boolean, legacyCooldownMinutes: number): CspLadderStep {
+  const n = Number.isFinite(attempts) && attempts > 0 ? Math.floor(attempts) : 0;
+  if (!enabled) return { step: n, walk: CSP_PRICE_WALKS[0], exhausted: false, cooldownMinutes: legacyCooldownMinutes };
+  if (n >= CSP_PRICE_WALKS.length) return { step: n, walk: null, exhausted: true, cooldownMinutes: legacyCooldownMinutes };
+  return { step: n, walk: CSP_PRICE_WALKS[n], exhausted: false, cooldownMinutes: CSP_LADDER_COOLDOWN_MINUTES };
+}
