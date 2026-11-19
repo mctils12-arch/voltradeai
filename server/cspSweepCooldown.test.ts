@@ -179,7 +179,11 @@ test("SELL_CSP dispatch consults shouldDispatchCsp before submitting, and audits
   assert.ok(gateIdx > 0 && submitIdx > gateIdx, "the sweep/open-order gate must precede the CSP submission");
   assert.ok(/sweptAt:\s*sweptCspAt\[/.test(loop), "the gate must read the sweep memory");
   assert.ok(/openOrders:\s*Array\.isArray\(freshOpenOrdersForTiers\)/.test(loop), "the gate must see the live open-orders list");
-  assert.ok(/cooldownMinutes:\s*SWEPT_CSP_COOLDOWN_MINUTES/.test(loop), "the cooldown comes from the named constant");
+  // 2026-11-19 (price ladder): was /cooldownMinutes:\s*SWEPT_CSP_COOLDOWN_MINUTES/. The gate's cooldown now
+  // comes from the ladder step, which is itself built from the named constant (its value when the
+  // ladder is off or spent); both halves are pinned.
+  assert.ok(/cooldownMinutes:\s*cspLadder\.cooldownMinutes/.test(loop), "the gate's cooldown comes from the ladder step");
+  assert.ok(/cspLadderStep\([\s\S]{0,300}?cspLadderOn, SWEPT_CSP_COOLDOWN_MINUTES\)/.test(loop), "the ladder's legacy cooldown is the named constant");
   assert.ok(/if \(!cspGate\.dispatch\) \{\s*audit\("CSP-SKIP"[\s\S]*?continue;/.test(loop), "a skip writes one CSP-SKIP audit line then moves on");
   assert.ok(/cspUnderlying:\s*String\(action\.ticker\)\.toUpperCase\(\)/.test(loop), "the tracked CSP order carries its underlying so the sweep can record it");
 });
@@ -226,4 +230,80 @@ test("filled, old, other-underlying and buy-to-close closed orders do not brake"
 test("bot.ts feeds the dispatcher gate the broker's closed orders", () => {
   assert.match(bot, /closedOrders: Array\.isArray\(recentClosedOrdersForCsp\)/);
   assert.match(bot, /status=closed&after=/);
+});
+
+// ── PRICE LADDER (2026-11-19): the AAL puts of that day, replayed ────────────
+import { countUnfilledRestedCspSince, cspLadderStep, cspPriceLadderEnabled, CSP_PRICE_WALKS, CSP_LADDER_COOLDOWN_MINUTES } from "./cspSweepCooldown";
+import fsLadder from "node:fs";
+import pathLadder from "node:path";
+import { fileURLToPath as urlLadder } from "node:url";
+
+const DAY = Date.parse("2026-11-19T14:30:00Z");
+const order = (sym: string, submitted: string, ended: string, extra: Record<string, unknown> = {}) => ({
+  symbol: sym, side: "sell", position_intent: "sell_to_open", status: "canceled", filled_qty: "0",
+  submitted_at: submitted, canceled_at: ended, ...extra,
+});
+const AAL1 = order("AAL261231P00011500", "2026-11-19T15:30:08Z", "2026-11-19T15:42:54Z");
+const AAL2 = order("AAL261231P00011500", "2026-11-19T18:50:20Z", "2026-11-19T19:02:54Z");
+
+test("ladder: the day's declined attempts are counted from the broker's closed orders", () => {
+  assert.equal(countUnfilledRestedCspSince([AAL1, AAL2], "AAL", DAY, 12), 2);
+  assert.equal(countUnfilledRestedCspSince([AAL1, AAL2], "aal", DAY, 12), 2);
+  assert.equal(countUnfilledRestedCspSince([AAL1], "NU", DAY, 12), 0);                 // another underlying
+  assert.equal(countUnfilledRestedCspSince(null, "AAL", DAY, 12), 0);
+});
+
+test("ladder: a fill, a quick cancel, a close, a call on another root and yesterday's order are not declined attempts", () => {
+  const filled = order("AAL261231P00011500", "2026-11-19T15:30:08Z", "2026-11-19T15:42:54Z", { filled_qty: "1" });
+  const quick = order("AAL261231P00011500", "2026-11-19T16:00:00Z", "2026-11-19T16:03:00Z");   // a deploy's cancel-all
+  const closing = order("AAL261231P00011500", "2026-11-19T16:00:00Z", "2026-11-19T16:20:00Z", { position_intent: "sell_to_close" });
+  const yesterday = order("AAL261231P00011500", "2026-11-18T15:30:00Z", "2026-11-18T15:45:00Z");
+  const buy = order("AAL261231P00011500", "2026-11-19T16:00:00Z", "2026-11-19T16:20:00Z", { side: "buy" });
+  const stillOpen = order("AAL261231P00011500", "2026-11-19T16:00:00Z", "", { status: "new", canceled_at: null });
+  assert.equal(countUnfilledRestedCspSince([filled, quick, closing, yesterday, buy, stillOpen], "AAL", DAY, 12), 0);
+  const expired = order("AAL261231P00011500", "2026-11-19T15:00:00Z", "", { status: "expired", canceled_at: null, expired_at: "2026-11-19T21:00:00Z" });
+  assert.equal(countUnfilledRestedCspSince([expired], "AAL", DAY, 12), 1);
+});
+
+test("ladder: three prices a day — near mid, 65% toward the bid, the bid — then nothing until tomorrow", () => {
+  assert.deepEqual([...CSP_PRICE_WALKS], [0.3, 0.65, 1.0]);
+  assert.deepEqual(cspLadderStep(0, true, 60), { step: 0, walk: 0.3, exhausted: false, cooldownMinutes: CSP_LADDER_COOLDOWN_MINUTES });
+  assert.deepEqual(cspLadderStep(1, true, 60), { step: 1, walk: 0.65, exhausted: false, cooldownMinutes: 20 });
+  assert.deepEqual(cspLadderStep(2, true, 60), { step: 2, walk: 1.0, exhausted: false, cooldownMinutes: 20 });
+  assert.deepEqual(cspLadderStep(3, true, 60), { step: 3, walk: null, exhausted: true, cooldownMinutes: 60 });
+  assert.equal(cspLadderStep(9, true, 60).exhausted, true);
+  assert.equal(cspLadderStep(-1, true, 60).step, 0);
+  assert.equal(cspLadderStep(NaN, true, 60).step, 0);
+  assert.ok(CSP_PRICE_WALKS.every((w, i) => w > 0 && w <= 1 && (i === 0 || w > CSP_PRICE_WALKS[i - 1])), "each step moves toward the bid and never past it");
+});
+
+test("ladder: one setting restores one price and the 60-minute cooldown", () => {
+  assert.equal(cspPriceLadderEnabled({}), true);
+  for (const v of ["0", "false", "off", "no", " OFF "]) assert.equal(cspPriceLadderEnabled({ VOLTRADE_CSP_PRICE_LADDER: v }), false);
+  assert.equal(cspPriceLadderEnabled({ VOLTRADE_CSP_PRICE_LADDER: "1" }), true);
+  for (const n of [0, 1, 2, 3, 7]) {
+    assert.deepEqual(cspLadderStep(n, false, 60), { step: n, walk: 0.3, exhausted: false, cooldownMinutes: 60 });
+  }
+});
+
+test("ladder: 11-19 replayed — the second AAL attempt comes 20 minutes after the first sweep, not 60, and asks a lower price", () => {
+  // 15:30 first limit, swept 15:42:54. At 15:46:54 the dispatcher ran again.
+  const at = Date.parse("2026-11-19T15:46:54Z");
+  const step = cspLadderStep(countUnfilledRestedCspSince([AAL1], "AAL", DAY, 12), true, 60);
+  assert.equal(step.walk, 0.65);
+  const tooSoon = shouldDispatchCsp("AAL", { now: at, openOrders: [], closedOrders: [AAL1], cooldownMinutes: step.cooldownMinutes, staleMinutes: 12 });
+  assert.equal(tooSoon.dispatch, false);                                             // 4 min after the sweep
+  const later = shouldDispatchCsp("AAL", { now: Date.parse("2026-11-19T16:03:00Z"), openOrders: [], closedOrders: [AAL1], cooldownMinutes: step.cooldownMinutes, staleMinutes: 12 });
+  assert.equal(later.dispatch, true);                                                // 20 min after: step 2 may go
+  const legacy = shouldDispatchCsp("AAL", { now: Date.parse("2026-11-19T16:03:00Z"), openOrders: [], closedOrders: [AAL1], cooldownMinutes: 60, staleMinutes: 12 });
+  assert.equal(legacy.dispatch, false);                                              // what happened on 11-19
+});
+
+test("ladder wiring: the dispatcher counts today's declined puts, stops when the ladder is spent, and sends the walk only from the second attempt", () => {
+  const bot = fsLadder.readFileSync(pathLadder.join(pathLadder.dirname(urlLadder(import.meta.url)), "bot.ts"), "utf8");
+  assert.match(bot, /const cspLadderSinceMs = Date\.now\(\) - 7 \* 3600_000;/);
+  assert.match(bot, /cspLadder = cspLadderStep\(\s*countUnfilledRestedCspSince\(/);
+  assert.match(bot, /if \(cspLadder\.exhausted\) \{[\s\S]{0,400}noteCspGate\(action, "rejected_csp_resubmit"[\s\S]{0,200}continue;/);
+  assert.match(bot, /cooldownMinutes: cspLadder\.cooldownMinutes,/);
+  assert.match(bot, /if \(cspLadder\.step > 0 && cspLadder\.walk != null\) \{\s*cspPayload\.metadata = \{ \.\.\.\(action\.metadata \?\? \{\}\), price_walk: cspLadder\.walk, price_step: cspLadder\.step \};/);
 });

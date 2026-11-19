@@ -146,7 +146,7 @@ import { registerBuiltinHeapGauges } from "./heapGauges";
 import { installCrashHandlers, crashStats } from "./crashVisibility";
 import { createExitRecorder, exitRecorderFile, setActiveRecorder, ALIVE_INTERVAL_MS } from "./exitRecorder";
 import { version as pkgVersion } from "../package.json";
-import { confirmCancelAfterDeleteError, shouldDispatchCsp } from "./cspSweepCooldown";
+import { confirmCancelAfterDeleteError, shouldDispatchCsp, countUnfilledRestedCspSince, cspLadderStep, cspPriceLadderEnabled, CSP_PRICE_WALKS } from "./cspSweepCooldown";
 import { followReplacements, hasOpenMlegOpeningOn, mlegOpeningLegs, openMlegUnderlyings } from "./mlegOpenOrders";
 import { decideMorningQueueEntry } from "./morningQueueEntry";
 import { ReserveBudget, parseReserveSnapshot, reserveAuditLine, fitTradeToReserve, parseRotationPlan, rotationPreflight, appendPositionMgmtLog, type ReserveFit, type RotationRow } from "./positionMgmt"; // position management 2026-11-06
@@ -7179,7 +7179,11 @@ print(json.dumps(check_weekly_loss(history)))
         // opening legs count too (countOpenOptionsOpeningOrders, server/mlegOpenOrders.ts).
         const freshOpenOrdersForTiers = await alpaca("/v2/orders?status=open&nested=true").catch(() => []);
         // KB #46: restart-proof CSP brake reads the BROKER's closed orders (read-only GET).
-        const cspClosedSince = new Date(Date.now() - (SWEPT_CSP_COOLDOWN_MINUTES + STALE_ORDER_MINUTES) * 60000).toISOString();
+        // PRICE LADDER 2026-11-19: the window now reaches back over the whole session (7 h, was
+        // cooldown + stale = 72 min) so today's declined attempts on an underlying can be counted.
+        const cspLadderSinceMs = Date.now() - 7 * 3600_000;
+        const cspClosedSince = new Date(cspLadderSinceMs).toISOString();
+        const cspLadderOn = cspPriceLadderEnabled(process.env);
         const recentClosedOrdersForCsp = await alpaca(`/v2/orders?status=closed&after=${encodeURIComponent(cspClosedSince)}&direction=desc&limit=500`).catch(() => []);
         let tierOptionsSlotsUsed = countOptionsPositions(
           Array.isArray(freshPositionsForTiers) ? freshPositionsForTiers : []
@@ -7272,13 +7276,25 @@ print(json.dumps(check_weekly_loss(history)))
           // underlying whose limit was just swept as non-marketable, nor on one
           // that already has a resting sell-to-open option order — either way
           // the new order only restarts the submit/cancel loop.
+          // PRICE LADDER 2026-11-19 (server/cspSweepCooldown.ts): how many of today's put limits
+          // on this underlying the market declined decides the next price and the wait before it.
+          let cspLadder = cspLadderStep(0, cspLadderOn, SWEPT_CSP_COOLDOWN_MINUTES);
           if (action.action === "SELL_CSP") {
+            cspLadder = cspLadderStep(
+              countUnfilledRestedCspSince(Array.isArray(recentClosedOrdersForCsp) ? recentClosedOrdersForCsp : [],
+                String(action.ticker), cspLadderSinceMs, STALE_ORDER_MINUTES),
+              cspLadderOn, SWEPT_CSP_COOLDOWN_MINUTES);
+            if (cspLadder.exhausted) {
+              audit("CSP-SKIP", `${action.ticker}: tier dispatcher skipped SELL_CSP — ${cspLadder.step} put limits rested unfilled today (the last at the bid); no further attempt until tomorrow`);
+              noteCspGate(action, "rejected_csp_resubmit", `${cspLadder.step} put limits rested unfilled today, the last at the bid`);
+              continue;
+            }
             const cspGate = shouldDispatchCsp(action.ticker, {
               now: Date.now(),
               sweptAt: sweptCspAt[String(action.ticker).toUpperCase()],
               openOrders: Array.isArray(freshOpenOrdersForTiers) ? freshOpenOrdersForTiers : [],
               openStructureUnderlyings: openMlegUnderlyings(freshOpenOrdersForTiers),
-              cooldownMinutes: SWEPT_CSP_COOLDOWN_MINUTES,
+              cooldownMinutes: cspLadder.cooldownMinutes,
               closedOrders: Array.isArray(recentClosedOrdersForCsp) ? recentClosedOrdersForCsp : [],
               staleMinutes: STALE_ORDER_MINUTES,
             });
@@ -7323,6 +7339,11 @@ print(json.dumps(check_weekly_loss(history)))
                 size_pct: action.size_pct,
                 metadata: action.metadata,
               };
+              // PRICE LADDER 2026-11-19: a first attempt sends no walk (the selector's own 30%)
+              if (cspLadder.step > 0 && cspLadder.walk != null) {
+                cspPayload.metadata = { ...(action.metadata ?? {}), price_walk: cspLadder.walk, price_step: cspLadder.step };
+                audit("CSP-LADDER", `${action.ticker}: put attempt ${cspLadder.step + 1} of ${CSP_PRICE_WALKS.length} today — ${cspLadder.step} earlier limit(s) rested unfilled, so this one asks ${Math.round(cspLadder.walk * 100)}% of the way from mid to the bid${cspLadder.walk >= 1 ? " (the bid)" : ""}`);
+              }
               const cspTmpPath = `/tmp/tier_csp_${action.ticker}_${Date.now()}.json`;
               fs.writeFileSync(cspTmpPath, JSON.stringify(cspPayload));
               try {
