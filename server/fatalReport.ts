@@ -84,7 +84,7 @@ export interface FatalReportStatus {
   gates_top_level_status: false;
 }
 
-const mb = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v / 1048576) : null);
+const mb = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v / (1024 * 1024)) : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
 /** Pure: a report's JSON text -> the few facts worth keeping. Never includes
