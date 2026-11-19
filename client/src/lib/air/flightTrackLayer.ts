@@ -346,7 +346,14 @@ export interface TrackTail {
    *  each with the RENDERED ground under it, so a long tail's trace and
    *  curtain bottom follow ridges instead of one straight quad. */
   inner?: ReadonlyArray<{ mercX: number; mercY: number; altM: number; groundZ: number }>;
+  /** the stretch to the plane is an ESTIMATE (no real fix for over 30 s,
+   *  lib/air/planeMotion.ts): drawn at TRACK_ESTIMATED_ALPHA of its colour */
+  estimated?: boolean;
 }
+
+/** An estimated position (tail and plane) is drawn at this share of its
+ *  normal opacity: visibly not the same thing as a recorded track. */
+export const TRACK_ESTIMATED_ALPHA = 0.45;
 
 /** Pure: tail → the same packed layout as buildTrackVertices (≤3 quads per
  *  piece; 1 piece + one per inner point). */
@@ -361,10 +368,14 @@ export function buildTailVertices(tail: TrackTail, altScale: number): Float32Arr
     merc[(k + 1) * 2] = p.mercX; merc[(k + 1) * 2 + 1] = p.mercY; altM[k + 1] = p.altM; groundZ[k + 1] = p.groundZ;
   });
   merc[(n - 1) * 2] = tail.toMercX; merc[(n - 1) * 2 + 1] = tail.toMercY; altM[n - 1] = tail.toAltM; groundZ[n - 1] = tail.toGroundZ;
-  return buildTrackVertices(
+  const out = buildTrackVertices(
     { merc, altM, groundZ, altMin: tail.altMin, altMax: tail.altMax, drapeBelowM: tail.drapeBelowM },
     altScale,
   );
+  if (tail.estimated) {
+    for (let a = FT_VERT_STRIDE - 1; a < out.length; a += FT_VERT_STRIDE) out[a] *= TRACK_ESTIMATED_ALPHA;
+  }
+  return out;
 }
 
 /** Exported for flightTrackLayer.test.ts — pins the projection/extrusion/
@@ -537,6 +548,9 @@ export interface TrackMarker {
   /** AIR_SHAPE code — the selected aircraft's class silhouette
    *  (symbols-not-dots holds for the marker too). */
   shape: number;
+  /** the position is an ESTIMATE or held (no real fix for over 30 s): the
+   *  glyph, drop line and ground dot are drawn at TRACK_ESTIMATED_ALPHA */
+  estimated?: boolean;
 }
 
 // dot: a small circle fan in local px space (unit radius, scaled by u_scaleClip)
@@ -906,6 +920,8 @@ export class FlightTrackLayer implements CustomLayerInterface {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.mLineBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 1]), gl.STATIC_DRAW);
     }
+    const fade = m.estimated ? TRACK_ESTIMATED_ALPHA : 1;
+    const faded = (c: [number, number, number, number]): number[] => (fade === 1 ? c : [c[0], c[1], c[2], c[3] * fade]);
     const shape = Number.isFinite(m.shape) ? m.shape : AIR_SHAPE.DEFAULT;
     if (!this.mGlyphBuffer || this.mGlyphShape !== shape) {
       if (!this.mGlyphBuffer) this.mGlyphBuffer = gl.createBuffer();
@@ -920,7 +936,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
 
     // 1) AGL drop line (only when altitude is known — never invent AGL)
     if (hasAlt) {
-      if (this.mU.color) gl.uniform4fv(this.mU.color, MARKER_LINE_RGBA);
+      if (this.mU.color) gl.uniform4fv(this.mU.color, faded(MARKER_LINE_RGBA));
       gl.disableVertexAttribArray(this.mALocal);
       gl.vertexAttrib4f(this.mALocal, 0, 0, 0, 1);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.mLineBuffer);
@@ -930,7 +946,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
       gl.disableVertexAttribArray(this.mAAltFrac);
     }
     // 2) soft ground dot (altFrac 0)
-    if (this.mU.color) gl.uniform4fv(this.mU.color, MARKER_DOT_RGBA);
+    if (this.mU.color) gl.uniform4fv(this.mU.color, faded(MARKER_DOT_RGBA));
     gl.vertexAttrib1f(this.mAAltFrac, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.mDotBuffer);
     gl.enableVertexAttribArray(this.mALocal);
@@ -938,7 +954,7 @@ export class FlightTrackLayer implements CustomLayerInterface {
     gl.drawArrays(gl.TRIANGLES, 0, DOT_SEGS * 3);
     // 3) the aircraft at altitude (altFrac 1): world-space 3D mesh, nose
     // along the track, pitched by the climb (airLayer's airWorldVertex)
-    if (this.mU.color) gl.uniform4fv(this.mU.color, MARKER_GLYPH_RGBA);
+    if (this.mU.color) gl.uniform4fv(this.mU.color, faded(MARKER_GLYPH_RGBA));
     if (this.mU.world) gl.uniform1f(this.mU.world, 1);
     gl.vertexAttrib1f(this.mAAltFrac, 1);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.mGlyphBuffer);

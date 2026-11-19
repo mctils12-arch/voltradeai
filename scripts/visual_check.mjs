@@ -6774,6 +6774,299 @@ async function main() {
     }
   }
 
+  // ── SELECTED-PLANE GLIDE battery (owner 2026-11-19: "the bluish line runs
+  // in front of the plane and ... it jumps when it catches signal") ────────
+  // Three fixture aircraft served by a per-context route override (the shared
+  // FIXTURES are untouched). Their data is a function of the wall clock:
+  //   abc001  flies a slow turn. Its row in the feed snapshot is 40-48 s old
+  //           (the snapshot refreshes every 8 s); its one-hex lookup and its
+  //           track have fixes up to 5 s old. Selected, the drawn plane and
+  //           the head of its track must be ONE point, and the drawn plane
+  //           must never jump or reverse when a newer fix or snapshot lands.
+  //   abc002  stopped reporting at the start of the battery. Once its last
+  //           fix is over 30 s old the card must say the drawn position is an
+  //           estimate, and the plane must still be moving.
+  //   abc003  stopped reporting 60 s before the battery. Past 120 s it must
+  //           hold, and say so.
+  // `--page planeglide` runs this battery alone.
+  if (!only || only === "data" || only === "planeglide") {
+    const pgFailures = [];
+    const pgInfo = {};
+    const shot = path.join(OUT, "data-planeglide-1440.png");
+    const shotPhone = path.join(OUT, "data-planeglide-390.png");
+    const T0 = Date.now();
+    const V = 230; // m/s ground speed of every fixture plane
+    const M_DEG = 111320;
+    const SNAP_MS = 8000, ROW_AGE_MS = 40000, LIVE_AGE_MS = 5000;
+    const PLANES = {
+      abc001: { lon0: -97.0, lat0: 36.0, h0: 60, turn: 0.35, lastFixMs: () => Date.now() - LIVE_AGE_MS },
+      abc002: { lon0: -96.2, lat0: 36.6, h0: 90, turn: 0, lastFixMs: () => T0 },
+      abc003: { lon0: -97.6, lat0: 35.3, h0: 20, turn: 0, lastFixMs: () => T0 - 60000 },
+    };
+    // where a plane truly was at wall time `ms` (constant speed, constant turn rate)
+    const truth = (hex, ms) => {
+      const p = PLANES[hex];
+      const t = (ms - T0) / 1000;
+      const h0 = (p.h0 * Math.PI) / 180, w = (p.turn * Math.PI) / 180;
+      const h = h0 + w * t;
+      const e = w === 0 ? V * Math.sin(h0) * t : (-V / w) * (Math.cos(h) - Math.cos(h0));
+      const n = w === 0 ? V * Math.cos(h0) * t : (V / w) * (Math.sin(h) - Math.sin(h0));
+      return {
+        lon: p.lon0 + e / (M_DEG * Math.cos((p.lat0 * Math.PI) / 180)), lat: p.lat0 + n / M_DEG,
+        heading: ((((h * 180) / Math.PI) % 360) + 360) % 360,
+      };
+    };
+    // the feed snapshot's row for a plane: its newest fix as of the snapshot, never newer than the plane's last report
+    const rowFixMs = (hex, snapMs) => Math.min(hex === "abc001" ? snapMs - ROW_AGE_MS : Infinity, PLANES[hex].lastFixMs());
+    const wideRow = (hex, fixMs, atMs) => {
+      const s = truth(hex, fixMs);
+      return [hex, s.lon, s.lat, 36000, Math.round(V / 0.5144), s.heading, "GLD" + hex.slice(-1), "GLF6", fixMs, "A2", 0, "N" + hex, "adsblol", atMs];
+    };
+    const FIELDS = ["hex", "lon", "lat", "altFt", "gsKt", "trk", "callsign", "type", "seenAt", "cat", "gnd", "reg", "src"];
+    const json = (route, body) => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
+    let liveCalls = 0;
+
+    const { ctx, page, flip } = await bootDemandPage(browser, port, 1);
+    const pgErrors = [];
+    page.on("pageerror", (e) => pgErrors.push(e.message));
+    await page.route("**/api/data/track/aircraft/**", (route) => {
+      const hex = new URL(route.request().url()).pathname.split("/").pop();
+      if (!PLANES[hex]) return json(route, { kind: "aircraft", id: hex, points: [], count: 0 });
+      const last = PLANES[hex].lastFixMs();
+      const points = [];
+      for (let k = 20; k >= 0; k--) {
+        const ms = last - k * 30000;
+        const s = truth(hex, ms);
+        points.push({ t: Math.floor(ms / 1000), la: s.lat, lo: s.lon, al: 10973 });
+      }
+      return json(route, { kind: "aircraft", id: hex, points, count: points.length });
+    });
+    await page.route("**/api/data/aircraft**", (route) => {
+      const u = new URL(route.request().url());
+      const now = Date.now();
+      if (u.pathname.startsWith("/api/data/aircraft/live/")) {
+        const hex = u.pathname.split("/").pop();
+        if (!PLANES[hex]) return json(route, { at: now, fields: FIELDS, rows: [], source: "snapshot" });
+        liveCalls++;
+        return json(route, { at: now, fields: FIELDS, rows: [wideRow(hex, PLANES[hex].lastFixMs(), now).slice(0, FIELDS.length)], source: "upstream" });
+      }
+      const snapMs = Math.floor(now / SNAP_MS) * SNAP_MS;
+      if (u.pathname === "/api/data/aircraft/global") {
+        return json(route, { at: now, count: 3, full: true, scope: "world", fields: FIELDS,
+          rows: Object.keys(PLANES).map((hex) => wideRow(hex, rowFixMs(hex, snapMs), now).slice(0, FIELDS.length)),
+          coverage: { opensky: { enabled: false } }, honesty: "plane-glide fixture" });
+      }
+      if (u.pathname !== "/api/data/aircraft") return json(route, {});
+      const time = Math.floor(snapMs / 1000);
+      if (u.searchParams.get("since") === String(time)) return json(route, { unchanged: true, time, count: 3 });
+      const aircraft = Object.keys(PLANES).map((hex) => {
+        const fixMs = rowFixMs(hex, snapMs);
+        const s = truth(hex, fixMs);
+        return {
+          icao24: hex, callsign: "GLD" + hex.slice(-1), registration: "N" + hex, lon: s.lon, lat: s.lat,
+          altitude_m: 10973, on_ground: false, velocity_ms: V, heading: s.heading, type: "GLF6", category: "A2",
+          seen_pos: (snapMs - fixMs) / 1000, provider: "adsblol",
+        };
+      });
+      return json(route, { source: "plane-glide fixture", kind: "raw", time, count: aircraft.length, aircraft });
+    });
+
+    // in-page readers: where the selected plane is DRAWN (the track layer's
+    // own marker when it draws the plane, else the plane's 3D instance at its
+    // shader-glided position) and where the live track's head is
+    await page.evaluate(() => {
+      const mercToLL = (x, y) => ({ lon: x * 360 - 180, lat: (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI });
+      const impl = (id) => { const l = window.__vtMap?.getLayer(id); return l ? (l.implementation || l) : null; };
+      window.__pgRead = (index) => {
+        const map = window.__vtMap;
+        const ft = impl("flight-track-3d");
+        const tail = ft && ft.getTailEnd ? ft.getTailEnd() : null;
+        const mk = ft && ft.getMarker ? ft.getMarker() : null;
+        const air = window.__vtAir;
+        const inst = air && air.getInstances ? air.getInstances() : null;
+        const stride = 9;
+        const count3d = inst ? Math.floor(inst.length / stride) : 0;
+        let plane = null, by = null;
+        if (mk) { plane = mercToLL(mk.mercX, mk.mercY); by = "marker"; }
+        else if (inst && index != null && index < count3d && map.getZoom() >= 8.05) {
+          const dt = air.getGlideDtSec();
+          const b = index * stride;
+          plane = mercToLL(inst[b] + inst[b + 6] * dt, inst[b + 1] + inst[b + 7] * dt); by = "instance";
+        }
+        const head = tail ? mercToLL(tail.mercX, tail.mercY) : null;
+        let gapPx = null, gapM = null;
+        if (plane && head) {
+          const a = map.project([plane.lon, plane.lat]), b = map.project([head.lon, head.lat]);
+          gapPx = Math.hypot(a.x - b.x, a.y - b.y);
+          const cos = Math.cos((plane.lat * Math.PI) / 180);
+          gapM = Math.hypot((plane.lon - head.lon) * 111320 * cos, (plane.lat - head.lat) * 111320);
+        }
+        const note = document.querySelector('[data-testid="plane-estimate"]');
+        return { t: performance.now(), zoom: map.getZoom(), plane, by, head, gapPx, gapM, count3d,
+                 dim: mk ? !!mk.estimated : null, note: note ? note.textContent : null };
+      };
+      // sample every animation frame for ms: [t, lon, lat, gapPx]
+      window.__pgSample = (index, ms) => new Promise((resolve) => {
+        const out = [];
+        const t0 = performance.now();
+        const tick = () => {
+          const r = window.__pgRead(index);
+          if (r.plane) out.push([r.t, r.plane.lon, r.plane.lat, r.gapPx]);
+          if (performance.now() - t0 < ms) requestAnimationFrame(tick); else resolve(out);
+        };
+        requestAnimationFrame(tick);
+      });
+    });
+    const analyse = (samples, headingDeg) => {
+      const hr = (headingDeg * Math.PI) / 180;
+      let maxSpeed = 0, maxBack = 0, maxGapPx = 0, moved = 0;
+      const metres = (a, b) => [(b[1] - a[1]) * M_DEG * Math.cos((b[2] * Math.PI) / 180), (b[2] - a[2]) * M_DEG];
+      for (let i = 1; i < samples.length; i++) {
+        const [e, n] = metres(samples[i - 1], samples[i]);
+        moved += Math.hypot(e, n);
+        maxBack = Math.max(maxBack, -(e * Math.sin(hr) + n * Math.cos(hr)));
+        if (samples[i][3] != null) maxGapPx = Math.max(maxGapPx, samples[i][3]);
+      }
+      // speed over every window of at least 0.6 s: away from close zoom the
+      // plane is advanced in 300 ms steps (each under a pixel there), so a
+      // frame-to-frame speed would call every step a jump. A real jump (a
+      // plane relocated when a new position lands) is kilometres inside one
+      // window and reads as several times the ground speed.
+      for (let i = 0, j = 0; i < samples.length; i++) {
+        while (j < samples.length && samples[j][0] - samples[i][0] < 600) j++;
+        if (j >= samples.length) break;
+        const [e, n] = metres(samples[i], samples[j]);
+        maxSpeed = Math.max(maxSpeed, Math.hypot(e, n) / ((samples[j][0] - samples[i][0]) / 1000));
+      }
+      return { frames: samples.length, maxSpeed: Math.round(maxSpeed), maxBackM: Math.round(maxBack * 10) / 10,
+               maxGapPx: Math.round(maxGapPx * 100) / 100, movedM: Math.round(moved) };
+    };
+    const selectPlane = async (hex) => {
+      await page.keyboard.press("Escape").catch(() => {});
+      const s = truth(hex, PLANES[hex].lastFixMs());
+      await page.evaluate(([lon, lat]) => window.__vtMap.jumpTo({ center: [lon, lat], zoom: 7, pitch: 0, bearing: 0 }), [s.lon, s.lat]);
+      let spot = null;
+      for (let i = 0; i < 40 && !spot; i++) {
+        await page.waitForTimeout(500);
+        spot = await page.evaluate((h) => {
+          try {
+            const m = window.__vtMap;
+            const f = m.querySourceFeatures("aircraft").find((x) => x.properties.icao24 === h);
+            if (!f || m.isMoving()) return null;
+            const px = m.project(f.geometry.coordinates);
+            const rect = m.getContainer().getBoundingClientRect();
+            return { x: rect.left + px.x, y: rect.top + px.y };
+          } catch { return null; }
+        }, hex);
+      }
+      if (!spot) { pgFailures.push(`planeglide: fixture plane ${hex} never rendered as a clickable symbol`); return false; }
+      await page.mouse.click(spot.x, spot.y);
+      const chip = await page.waitForSelector('[data-testid="trail-freshness"]', { timeout: 10000 }).catch(() => null);
+      if (!chip) { pgFailures.push(`planeglide: selecting ${hex} opened no flight card`); return false; }
+      // the click eases the camera in (zoom >= 9.2, pitch 55) and locks the follow
+      for (let i = 0; i < 30; i++) {
+        await page.waitForTimeout(300);
+        if (await page.evaluate(() => !window.__vtMap.isMoving() && window.__vtMap.getZoom() >= 9)) break;
+      }
+      return true;
+    };
+
+    try {
+      if (!(await flip("aircraft", true))) pgFailures.push("planeglide: the aircraft layer toggle never landed");
+      await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {}); // close the layers panel
+
+      // ── abc001: fresh per-plane fixes over a 40 s old feed row ──
+      if (await selectPlane("abc001")) {
+        // the first one-hex fix and the track are in, and the plane has closed
+        // on its reckoned position from where its 40 s old feed icon was drawn
+        await page.waitForTimeout(8000);
+        const s3d = await page.evaluate(() => window.__pgSample(0, 12000)); // spans >= 4 one-hex fixes and a snapshot refresh
+        const a3d = analyse(s3d, truth("abc001", Date.now()).heading);
+        const r3d = await page.evaluate(() => window.__pgRead(0));
+        pgInfo.abc001_3d = { ...a3d, zoom: Math.round(r3d.zoom * 100) / 100, drawnBy: r3d.by, gapM: r3d.gapM == null ? null : Math.round(r3d.gapM), count3d: r3d.count3d, liveCalls };
+        if (!s3d.length) pgFailures.push("planeglide 3D: the selected plane is not drawn at all");
+        if (a3d.maxGapPx > 1) pgFailures.push(`planeglide 3D: the track's head is ${a3d.maxGapPx}px from the drawn plane (must be the same point; ${pgInfo.abc001_3d.gapM} m at the last sample)`);
+        if (a3d.maxSpeed > 1.9 * V) pgFailures.push(`planeglide 3D: the drawn plane covered ground at ${a3d.maxSpeed} m/s (ground speed ${V} m/s; a jump when a new position arrived)`);
+        if (a3d.maxBackM > 1) pgFailures.push(`planeglide 3D: the drawn plane moved ${a3d.maxBackM} m backward along its track`);
+        if (a3d.movedM < 0.5 * V * 12) pgFailures.push(`planeglide 3D: the drawn plane covered only ${a3d.movedM} m in 12 s at ${V} m/s (it must keep moving between fixes)`);
+        if (r3d.by !== "marker") pgFailures.push("planeglide 3D: the selected plane is drawn by the feed's instance buffer, not at the head of its own track");
+        if (r3d.count3d !== 2) pgFailures.push(`planeglide 3D: ${r3d.count3d} feed instances drawn with one plane selected (expected 2: the selected plane must not be drawn twice)`);
+        if (r3d.note) pgFailures.push(`planeglide 3D: a plane with a 5 s old fix is labelled "${r3d.note}"`);
+        await page.screenshot({ path: shot });
+        // the same plane in the 2D band (below the 3D hand-off zoom)
+        await page.evaluate(() => window.__vtMap.jumpTo({ zoom: 7.2, pitch: 0 }));
+        await page.waitForTimeout(1500);
+        const s2d = await page.evaluate(() => window.__pgSample(0, 6000));
+        const a2d = analyse(s2d, truth("abc001", Date.now()).heading);
+        const icons = await page.evaluate(() => {
+          const m = window.__vtMap;
+          return m.queryRenderedFeatures({ layers: ["aircraft-sym", "aircraft-sym-lo"].filter((l) => m.getLayer(l)) })
+            .filter((f) => f.properties.icao24 === "abc001").length;
+        });
+        pgInfo.abc001_2d = { ...a2d, icons };
+        if (!s2d.length) pgFailures.push("planeglide 2D: the selected plane is not drawn at all below the 3D zoom");
+        if (a2d.maxGapPx > 1) pgFailures.push(`planeglide 2D: the track's head is ${a2d.maxGapPx}px from the drawn plane`);
+        if (a2d.maxSpeed > 1.9 * V) pgFailures.push(`planeglide 2D: the drawn plane covered ground at ${a2d.maxSpeed} m/s (ground speed ${V} m/s)`);
+        if (a2d.maxBackM > 1) pgFailures.push(`planeglide 2D: the drawn plane moved ${a2d.maxBackM} m backward along its track`);
+        if (icons !== 0) pgFailures.push(`planeglide 2D: the selected plane also has ${icons} 2D symbol(s) drawn (one plane, one representation)`);
+      }
+
+      // ── abc002: no new fix; past 30 s the drawn position is an ESTIMATE ──
+      if (await selectPlane("abc002")) {
+        const age = () => (Date.now() - PLANES.abc002.lastFixMs()) / 1000;
+        await page.waitForTimeout(Math.max(7000, (33 - age()) * 1000)); // past 30 s, and past the catch-up from its feed icon
+        const r0 = await page.evaluate(() => window.__pgRead(1));
+        await page.waitForTimeout(2000);
+        const r1 = await page.evaluate(() => window.__pgRead(1));
+        const movedM = r0.plane && r1.plane
+          ? Math.hypot((r1.plane.lon - r0.plane.lon) * M_DEG * Math.cos((r1.plane.lat * Math.PI) / 180), (r1.plane.lat - r0.plane.lat) * M_DEG) : 0;
+        pgInfo.abc002 = { ageSec: Math.round(age()), movedM: Math.round(movedM), note: r1.note, dim: r1.dim, gapPx: r1.gapPx };
+        if (movedM < 0.5 * V * 2 || movedM > 1.9 * V * 2) pgFailures.push(`planeglide estimate: ${Math.round(age())} s after its last fix the drawn plane moved ${Math.round(movedM)} m in 2 s at ${V} m/s (speed and track are known: it must keep moving, at its own speed)`);
+        if (!/estimate/i.test(r1.note || "")) pgFailures.push(`planeglide estimate: ${Math.round(age())} s after the last real fix the card does not say the drawn position is an estimate (text: ${JSON.stringify(r1.note)})`);
+        if (r1.dim !== true) pgFailures.push("planeglide estimate: the estimated plane is not drawn faded");
+        if (r1.gapPx == null || r1.gapPx > 1) pgFailures.push(`planeglide estimate: track head ${r1.gapPx}px from the drawn plane`);
+        await page.screenshot({ path: path.join(OUT, "data-planeglide-estimated-1440.png") });
+      }
+
+      // ── abc003: past 120 s with no fix the estimate HOLDS, and says so ──
+      if (await selectPlane("abc003")) {
+        const age = () => (Date.now() - PLANES.abc003.lastFixMs()) / 1000;
+        await page.waitForTimeout(Math.max(9000, (124 - age()) * 1000)); // past 120 s, and past the catch-up from its feed icon
+        const r0 = await page.evaluate(() => window.__pgRead(2));
+        await page.waitForTimeout(2000);
+        const r1 = await page.evaluate(() => window.__pgRead(2));
+        const movedM = r0.plane && r1.plane
+          ? Math.hypot((r1.plane.lon - r0.plane.lon) * M_DEG * Math.cos((r1.plane.lat * Math.PI) / 180), (r1.plane.lat - r0.plane.lat) * M_DEG) : -1;
+        // straight ahead for no more than 120 s from the last real fix
+        const fix = truth("abc003", PLANES.abc003.lastFixMs());
+        const reachM = r1.plane
+          ? Math.hypot((r1.plane.lon - fix.lon) * M_DEG * Math.cos((fix.lat * Math.PI) / 180), (r1.plane.lat - fix.lat) * M_DEG) : -1;
+        pgInfo.abc003 = { ageSec: Math.round(age()), movedM: Math.round(movedM), reachM: Math.round(reachM), note: r1.note };
+        if (movedM < 0 || movedM > 5) pgFailures.push(`planeglide hold: ${Math.round(age())} s after its last fix the drawn plane still moved ${Math.round(movedM)} m in 2 s (it must hold past 120 s)`);
+        if (reachM > V * 121) pgFailures.push(`planeglide hold: the plane is drawn ${Math.round(reachM)} m past its last real fix (limit ${V * 120} m = 120 s straight ahead)`);
+        if (!/held|hold/i.test(r1.note || "")) pgFailures.push(`planeglide hold: the card does not say the position is held (text: ${JSON.stringify(r1.note)})`);
+        // phone width: the same plane must still sit at the head of its track
+        // (card minimized and layers panel closed so the map is what is shot)
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(1200);
+        await page.click('[aria-label="Collapse layers panel"]', { timeout: 1500 }).catch(() => {});
+        await page.click('[aria-label="Minimize details"]', { timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(1200);
+        const rPhone = await page.evaluate(() => window.__pgRead(2));
+        pgInfo.phone = { gapPx: rPhone.gapPx, drawnBy: rPhone.by };
+        if (rPhone.gapPx == null || rPhone.gapPx > 1) pgFailures.push(`planeglide 390px: track head ${rPhone.gapPx}px from the drawn plane`);
+        await page.screenshot({ path: shotPhone });
+      }
+    } catch (e) {
+      pgFailures.push("planeglide: battery crashed: " + String(e?.message || e).split("\n")[0]);
+    }
+    for (const e of pgErrors) pgFailures.push("planeglide: pageerror: " + e);
+    console.log("\n[PLANE GLIDE] " + JSON.stringify(pgInfo));
+    await ctx.close();
+    results.push({ page: "data-planeglide", width: 1440, label: "plane-glide", screenshot: shot,
+                   tti: null, perf: {}, failures: pgFailures, warnings: [], info: { planeGlide: pgInfo } });
+  }
+
   await browser.close();
   srv.close();
 
