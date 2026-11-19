@@ -83,7 +83,10 @@ export function withinBudget<T>(p: Promise<T>, ms: number, fallback: T): Promise
 
 export const FIND_SOURCE =
   "adsb.lol (ODbL) community ADS-B — the server's worldwide snapshot and 24/7 tracked-tails registry, " +
-  "one adsb.lol lookup when neither holds the aircraft, and our own ADS-B archive for the last position";
+  "one adsb.lol lookup when neither holds the aircraft, and our own ADS-B archive for the last position. " +
+  // 2026-11-19: the tracked registry has a second source (trackedBackup.ts); the snapshot already had fallbacks
+  "The snapshot and the tracked registry can also hold a reading served by adsb.fi (non-commercial): a live row " +
+  "names its provider in src, a tracked plane's row in last_pos_provider / heard_provider (GET /api/data/aircraft/tracked)";
 export const FIND_HONESTY =
   "live = a broadcast position under 2 min old. heard = the provider's receivers hear this transponder now " +
   "but hold no current position for it (altitude and ground speed only; no position is inferred). " +

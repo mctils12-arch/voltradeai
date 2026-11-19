@@ -243,6 +243,12 @@ result feeds endpoint 3.
 `GET /api/data/aircraft/tracked` returns `planes` (`reg`, `hex` once learned,
 `last_seen` ms, `last_pos`, and since 2026-11-17 `log`), `cap` (20), `poll_s`
 (30) and a top-level `log` (the total against the caps).
+Since 2026-11-19 the tracked planes are read from two providers: adsb.lol
+(`poll_s`, `pacing`, `cycles`) and adsb.fi by hex (`backup`: `enabled`,
+`off_reason`, `poll_s` now in force, request counters, `backoff_until`). On a
+plane row `last_pos_provider` and `heard_provider` (`adsblol` or `adsbfi`) name
+the provider that served each reading; they are absent on a reading taken
+before that date.
 `POST /api/data/aircraft/tracked/:reg` adds a tail,
 `DELETE /api/data/aircraft/tracked/:reg` removes one. A tracked tail is
 archived at every poll whether or not anyone is looking at it.

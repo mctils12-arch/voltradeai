@@ -3,7 +3,7 @@
  "storage": "volume JSONL <archive>/aircraft_tracked/<HEX>/YYYY-MM.jsonl(.gz): one directory per aircraft (ICAO hex, upper case), one file per UTC month of the fix's own time; a month is gzipped an hour after it ends. Retention: permanent, capped: 50 MiB per plane, 500 MiB total, oldest month first (the current month is never deleted; a plane whose current month alone is at the cap stops being written until the month turns). Not in the R2 cold tier, not rolled up, no age limit.",
  "layout": "per_entity_dirs",
  "written_by": "server/trackedPlaneLog.ts TrackedPlaneLog.ingest (subscribed to the in-process fix bus, server/aircraftFixBus.ts): every position fix any path receives for a tail on the server's tracked list (server/trackedPlanes.ts, at most 20 tails), written once, never thinned",
- "source": "the same community ADS-B providers as the aircraft stream, per row: adsb.lol (ODbL 1.0; the tracked poller and the primary of every other path) + adsb.fi + airplanes.live (non-commercial fallbacks) + OpenSky Network (non-commercial, only with credentials)",
+ "source": "the same community ADS-B providers as the aircraft stream, per row: adsb.lol (ODbL 1.0; the tracked poller's first source and the primary of every other path) + adsb.fi (non-commercial; the tracked poller's second source since 2026-11-19, server/trackedBackup.ts, and a fallback of the other paths) + airplanes.live (non-commercial fallback) + OpenSky Network (non-commercial, only with credentials)",
  "license": "per row, by its pv field: adsblol = ODbL 1.0 (commercial use with attribution and share-alike); adsbfi / airplaneslive / opensky = personal / non-commercial only. Rows keep the provider that served them, so the ODbL subset is one filter. Monetization tripwire applies.",
  "attribution": "adsb.lol + airplanes.live + adsb.fi + OpenSky Network",
  "schema_version": 5,
@@ -35,6 +35,6 @@
  "entity_key": "i (icao24)",
  "sentiment": null,
  "started": "2026-11-17",
- "cadence": "fixes as they occur: every fix received while a tracked tail is broadcasting (about one every 5 s from the tracked poller, more while a viewer has the aircraft selected); nothing while it is parked and silent",
+ "cadence": "fixes as they occur: every fix received while a tracked tail is broadcasting (about one every 10 s from the tracked poller's adsb.fi loop; more when adsb.lol's daily quota allows its own 5 s ticks or a viewer has the aircraft selected); nothing while it is parked and silent",
  "_note": "Universal archive envelope (approved 2026-07-04). Owner's instruction 2026-11-17: the bulk log of every aircraft is off (GLOBAL_SWEEP_ARCHIVE unset), tracked tails keep a full permanent log, and that log is capped. Caps: TRACKED_PLANE_LOG_MAX_MB_PER_PLANE (50), TRACKED_PLANE_LOG_MAX_MB_TOTAL (500). Kill switch: TRACKED_PLANE_LOG=0 (reads still work). Removing a tail from the tracked list keeps its log; it still counts toward the total cap. Read by GET /api/data/aircraft/track/:hex and /fleet for what is older than the local hour files."
 }
