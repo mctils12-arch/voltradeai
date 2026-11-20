@@ -138,7 +138,7 @@ import { preserveGnssIntegrityDailyBeforeRollup, loadGnssIntegrityDailyArchive }
 import { siteTimelineCached, type SiteRef } from "./siteTimeline";
 import { queryWindowCached, querySnapshot } from "./queryEngine";
 import { analystResponse } from "./analyst";
-import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse } from "./nasaFirms";
+import { firmsEnabled, bootFirmsPoll, latestFirms, buildFiresResponse, buildFiresEmptyResponse, firmsPollState } from "./nasaFirms";
 import { firesNearFacilities } from "./firesFacilities";
 import { gaugePoints, plantsNearGauges, powerplantTable } from "./riverPlants";
 import { plantsUnderAlerts } from "./plantsUnderAlerts";
@@ -1271,7 +1271,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       if (!firmsEnabled()) return res.json({ enabled: false, awaiting_key: true, note: "NASA_FIRMS_MAP_KEY not set — fires feed inactive", facilities: [] });
       const latest = latestFirms();
-      if (!latest) return res.json({ warming_up: true, facilities: [], note: "fires feed warming up" });
+      if (!latest) {
+        // After a poll that found no detection on any satellite this is not a
+        // warm-up ([REPAIR 2026-11-20]): say so, with the poll.
+        const poll = firmsPollState();
+        return res.json(poll.last_attempt_at
+          ? { enabled: true, no_detections: true, facilities: [], poll, note: "the last fires poll returned no detections, so there is nothing to check against the facilities" }
+          : { warming_up: true, facilities: [], note: "fires feed warming up" });
+      }
       const r = Math.min(200, Math.max(1, parseFloat(String(req.query.radius_km)) || 25));
       const sites: any[] = (datacoreSites as any).sites || (datacoreSites as any) || [];
       const hits = firesNearFacilities(sites, latest.detections || [], r);
@@ -1281,7 +1288,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         facilities_with_fires: hits.length,
         facilities: hits,
         note: "RAW cross-tie: strategic assets with active VIIRS 375m fire detections nearby (NRT ~3h). No predictive claim — the fires-near-assets → insurer/utility hypothesis is validation-gated. Not for safety-of-life use.",
-        source: "NASA FIRMS/LANCE (VIIRS_SNPP_NRT) × datacore/sites strategic facilities",
+        source: "NASA FIRMS/LANCE (VIIRS 375m NRT; each detection names its satellite) × datacore/sites strategic facilities",
       });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
@@ -1838,7 +1845,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     const hit = latestFirms();
     if (!hit) {
-      return res.json({ enabled: true, kind: "raw", warming_up: true, count: 0, fires: [] });
+      return res.json(buildFiresEmptyResponse());
     }
     res.json(buildFiresResponse(hit.detections, req.query.bbox, hit.at));
   });
