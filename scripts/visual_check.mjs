@@ -2585,7 +2585,7 @@ const FIXTURES = {
   "/api/data/dts": {
     kind: "raw", source: "U.S. Treasury Fiscal Data — Daily Treasury Statement, Table II (public domain) (fixture)",
     attribution: "U.S. Treasury Fiscal Data — Daily Treasury Statement", time: "2026-08-17T12:00:00.000Z",
-    record_date: "2026-08-14", count: 2,
+    record_date: "2026-08-14", count: 3,
     note: "daily TGA deposits/withdrawals by category, $ millions as published (fixture)",
     lines: [
       { record_date: "2026-08-14", account_type: "Federal Reserve Account", transaction_type: "Deposits",
@@ -2594,6 +2594,11 @@ const FIXTURES = {
       { record_date: "2026-08-14", account_type: "Federal Reserve Account", transaction_type: "Withdrawals",
         category: "Department of Defense - Military Active Duty Pay", today_amt: 3210, mtd_amt: 28100, fytd_amt: 341200,
         src_line: 14, rt: "2026-08-14" },
+      // the real shape of a roll-up row: FiscalData publishes the literal
+      // STRING "null" as its category (2026-11-19: the page printed the word)
+      { record_date: "2026-08-14", account_type: "Treasury General Account Total Deposits", transaction_type: "Deposits",
+        category: "null", today_amt: 24450, mtd_amt: 299146, fytd_amt: 4953493,
+        src_line: 30, rt: "2026-08-14" },
     ],
   },
   // FDA binary events (2026-08-17, RAW display, fdaEvents.tsx). Fixture
@@ -3334,6 +3339,15 @@ const CHECKS_SNIPPET = (width, touch, mapPage = true) => `(() => {
   // below this one passed clean on a totally dead page. #root is React's
   // mount point (client/index.html); a script that never executed leaves
   // it permanently empty.
+  // 0a. a table cell that is nothing but an unformatted empty value
+  // (2026-11-19: the Treasury statement's Category column printed the word
+  // "null" on production at every width; no check looked at cell text).
+  {
+    const bare = [...document.querySelectorAll('td, th')]
+      .filter((c) => /^(null|undefined|NaN)$/.test((c.textContent || '').trim()));
+    if (bare.length) out.failures.push(bare.length + ' table cell(s) show a bare unformatted value: [' + bare[0].textContent.trim() + '] in the row [' + ((bare[0].closest('tr') || bare[0]).textContent || '').trim().slice(0, 120) + ']');
+  }
+
   const root = document.getElementById('root');
   if (!root || root.childElementCount === 0) {
     out.failures.push("app did not mount: #root has no children (blank page — script failed to load/execute)");
