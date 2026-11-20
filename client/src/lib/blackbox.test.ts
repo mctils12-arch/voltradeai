@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   bootBegin, mark, bootComplete, shouldRunSafe, lastCrashReport, resetAll,
-  heartbeat, closeCleanly,
+  heartbeat, closeCleanly, standDown, armBoot,
   TRAIL_MAX, KEYS, type Storage,
 } from "./blackbox.ts";
 
@@ -186,4 +186,124 @@ test("SOURCE RATCHET: the crash popup stays deleted; the silent capture stays wi
   assert.ok(src.includes('window.localStorage.setItem("vt-last-crash-payload"'),
     "silent crash-payload capture removed — the report must stay one paste away");
   assert.ok(src.includes("[VT CRASH REPORT]"), "console capture removed");
+});
+
+// ── 2026-11-19: the marker is a statement about a MAP start ───────────────────
+// Measured on production: a visit to pricing, to the AI Engine page or to the
+// landing page, left normally, put the NEXT visit's map in reduced mode ("the
+// last visit ended during startup"). The module that arms the marker runs on
+// every page; only the mounted map ever disarmed it.
+
+test("a visit that never starts the map does not accuse the next one", () => {
+  const s = mem();
+  const r1 = bootBegin(s, 1000, "b1");          // landing page: the module arms the marker
+  assert.equal(r1.prevCrashed, false);
+  assert.ok(s.getItem(KEYS.IN_PROGRESS), "armed at module evaluation, as before");
+  standDown(s);                                  // page hidden / start-up window over, no map mounted
+  assert.equal(s.getItem(KEYS.IN_PROGRESS), null);
+  const r2 = bootBegin(s, 60_000, "b2");
+  assert.equal(r2.prevCrashed, false, "a page that never started the map did not die during map startup");
+  assert.equal(r2.consecutive, 0);
+  assert.equal(shouldRunSafe(r2), false, "no reduced mode after a visit to another page");
+  assert.equal(lastCrashReport(s), null, "and no crash report is fabricated for it");
+});
+
+test("opening the map later in the same visit arms the marker again: a death during THAT start is still caught", () => {
+  const s = mem();
+  bootBegin(s, 1000, "b1");
+  standDown(s);                                  // 20 s on the AI Engine page
+  armBoot(s, 1000, "b1");                        // then the map is opened inside the app
+  mark(s, 1000, 31_000, "map-create");
+  // ...renderer killed during the map's start: nothing runs
+  const r2 = bootBegin(s, 90_000, "b2");
+  assert.equal(r2.prevCrashed, true, "a real start-up death after a stand-down must be detected");
+  assert.ok(shouldRunSafe(r2));
+  assert.deepEqual(r2.prevTrail.map((c) => c.step), ["map-create"]);
+});
+
+test("armBoot does not replace a marker that is already armed (a direct load of the map)", () => {
+  const s = mem();
+  bootBegin(s, 1000, "b1");
+  const before = s.getItem(KEYS.IN_PROGRESS);
+  armBoot(s, 5000, "other");
+  assert.equal(s.getItem(KEYS.IN_PROGRESS), before);
+});
+
+test("a healthy map start, then leaving the map inside the app, leaves nothing behind", () => {
+  const s = mem();
+  bootBegin(s, 1000, "b1");
+  armBoot(s, 1000, "b1");
+  bootComplete(s);                               // healthy
+  heartbeat(s, 25_000, "healthy");               // still alive on the map
+  closeCleanly(s);                               // the map unmounts: the user opened another tab of the app
+  standDown(s);                                  // later the page is hidden, no map mounted
+  const r2 = bootBegin(s, 90_000, "b2");
+  assert.equal(r2.prevCrashed, false);
+  assert.equal(r2.prevEndedAbruptly, false, "a heartbeat left by an unmounted map used to read as an abrupt end");
+  assert.equal(shouldRunSafe(r2), false);
+});
+
+test("a REAL crash loop is not forgiven by a visit to another page in between", () => {
+  const s = mem();
+  bootBegin(s, 0, "b1");
+  mark(s, 0, 600, "map-create");                 // dies during the map's start
+  const r2 = bootBegin(s, 10_000, "b2");         // next visit: pricing only
+  assert.ok(shouldRunSafe(r2), "b2 is owed a reduced start");
+  standDown(s);                                  // ...and never starts the map
+  const r3 = bootBegin(s, 20_000, "b3");         // the visit after that opens the map
+  assert.equal(r3.prevCrashed, false, "b2 itself did not crash");
+  assert.equal(r3.consecutive, 1, "the reduced start b2 never used is carried");
+  assert.ok(shouldRunSafe(r3), "so the map still gets its reduced start after the real death");
+  assert.ok(lastCrashReport(s), "and the report of that death is still readable");
+  armBoot(s, 20_000, "b3");
+  bootComplete(s);                               // the reduced start comes up healthy
+  standDown(s);
+  const r4 = bootBegin(s, 30_000, "b4");
+  assert.equal(r4.consecutive, 0, "a healthy map start settles the debt");
+  assert.equal(shouldRunSafe(r4), false);
+});
+
+test("a debt that was stood down and then settled in the SAME visit is not carried", () => {
+  const s = mem();
+  bootBegin(s, 0, "b1");                         // dies during the map's start
+  bootBegin(s, 10_000, "b2");                    // owed a reduced start
+  standDown(s);                                  // 20 s on another page: debt recorded
+  assert.equal(s.getItem(KEYS.OWED), "1");
+  armBoot(s, 10_000, "b2");                      // then the map is opened and comes up healthy
+  bootComplete(s);
+  assert.equal(s.getItem(KEYS.OWED), null);
+  assert.equal(shouldRunSafe(bootBegin(s, 20_000, "b3")), false);
+});
+
+test("standDown and armBoot never throw on hostile storage; a corrupt debt reads as none", () => {
+  const hostile: Storage = {
+    getItem: () => { throw new Error("blocked"); },
+    setItem: () => { throw new Error("full"); },
+    removeItem: () => { throw new Error("blocked"); },
+  };
+  assert.doesNotThrow(() => { standDown(hostile); armBoot(hostile, 0, "x"); });
+  const s = mem();
+  s.setItem(KEYS.OWED, '"many"');
+  assert.equal(bootBegin(s, 0, "b1").consecutive, 0);
+  s.setItem(KEYS.OWED, "-3");
+  assert.equal(bootBegin(s, 0, "b2").prevCrashed, true, "(b1 was never completed)");
+});
+
+test("SOURCE WIRING: every page is watched; the map arms the marker on mount and clears it on unmount", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../pages/datamap.tsx", import.meta.url), "utf-8");
+  const comp = src.indexOf("export default function DataMapPage()");
+  assert.ok(comp > 0);
+  const moduleLevel = src.slice(0, comp), component = src.slice(comp);
+  // module level (runs on every page of the site): the page watcher, told whether the map is mounted
+  assert.ok(moduleLevel.includes("watchBootMarker({ store: BOOT_STORE, mapMounted: () => BOOT_MAP_MOUNTED, windowMs: BOOT_HEALTHY_MS, win: window, doc: document });"),
+    "the page watcher must be started for EVERY page, not only while the map is mounted");
+  // the map: arm on mount, nothing left behind on unmount
+  const at = component.indexOf("BOOT_MAP_MOUNTED = true;");
+  assert.ok(at > 0, "the map never tells the watcher it is mounted");
+  const fx = component.slice(at, at + 900);
+  assert.ok(fx.includes("armBoot(BOOT_STORE, BOOT_STARTED_AT, BOOT_REPORT.bootId);"));
+  assert.ok(fx.includes('bootComplete(BOOT_STORE); bmark("healthy"); }, BOOT_HEALTHY_MS)'));
+  assert.match(fx, /BOOT_MAP_MOUNTED = false;\s+closeCleanly\(BOOT_STORE\);/);
+  assert.ok(!component.includes('addEventListener("pagehide", clean)'), "the mounted-map-only pagehide listener came back");
 });

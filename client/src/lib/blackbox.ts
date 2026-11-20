@@ -22,6 +22,20 @@
 //   boot N+1 : bootBegin() finds IN_PROGRESS still there  =>  boot N died young
 //              its breadcrumb trail is right there, naming the last thing it did
 //
+// WHAT THE MARKER IS A STATEMENT ABOUT (2026-11-19). The recorder's module is
+// evaluated on EVERY page of the site (the landing page, pricing, the AI Engine
+// page: they all import the map's module), but only the mounted map ever
+// disarmed the marker. So a visit that never opened the map left it armed, and
+// the next visit was told "the last visit ended during startup" and started the
+// map in reduced mode — measured on production: pricing, AI Engine and landing,
+// each left normally, each put the next map visit in reduced mode. The marker
+// is a statement about a MAP start, so:
+//   standDown()  a page that has not started the map (and will not be judged
+//                for it) removes the marker. A reduced start that was owed and
+//                never used is carried to the next boot, so a real crash loop
+//                is not forgiven by an intervening visit to another page.
+//   armBoot()    the map is starting (again): arm, if not already armed.
+//
 // Hermetic: pure functions over an injectable storage, no DOM, no timers —
 // `npx tsx --test`-able.
 
@@ -62,6 +76,8 @@ const HEARTBEAT = "vt-boot-heartbeat";
 const TRAIL = "vt-boot-trail";
 const PREV = "vt-boot-prev";
 const STREAK = "vt-boot-deadstreak";
+/** a reduced start that was owed to a boot which never started the map */
+const OWED = "vt-boot-owed";
 
 /** Breadcrumbs kept per boot. Small on purpose: this is written to localStorage
  *  repeatedly, and a trail nobody can read in one screen is not a trail. */
@@ -71,6 +87,10 @@ export const SAFE_MODE_AFTER = 1;
 
 function readJson<T>(s: Storage, k: string, fallback: T): T {
   try { const raw = s.getItem(k); return raw ? (JSON.parse(raw) as T) : fallback; } catch { return fallback; }
+}
+/** Remove a key. Storage can be blocked or gone: the recorder must never throw. */
+function drop(s: Storage, k: string): void {
+  try { s.removeItem(k); } catch { /* storage blocked — nothing to remove from */ }
 }
 function writeJson(s: Storage, k: string, v: unknown): void {
   try { s.setItem(k, JSON.stringify(v)); } catch { /* storage full/blocked — recorder must never throw */ }
@@ -96,6 +116,10 @@ export function bootBegin(s: Storage, now: number, bootId: string): BootReport {
   //    minutes in is not a startup problem, but its record matters MORE,
   //    because no context-loss snapshot exists for a hard renderer kill)
   let consecutive = readJson<number>(s, STREAK, 0);
+  // a reduced start owed to a boot that never started the map (standDown)
+  const owedRaw = readJson<number>(s, OWED, 0);
+  const owed = typeof owedRaw === "number" && Number.isFinite(owedRaw) && owedRaw > 0 ? Math.floor(owedRaw) : 0;
+  drop(s, OWED);
   if (prevCrashed) {
     consecutive = consecutive + 1;
     writeJson(s, PREV, {
@@ -109,7 +133,7 @@ export function bootBegin(s: Storage, now: number, bootId: string): BootReport {
     // healthy session that never closed cleanly: keep how long it lived, the
     // LAST THING IT DID, and its full breadcrumb trail (read above, before the
     // trail is reset for this boot)
-    consecutive = 0;
+    consecutive = owed;
     writeJson(s, PREV, {
       kind: "abrupt-end",
       aliveMs: beat.aliveMs ?? null,
@@ -117,8 +141,9 @@ export function bootBegin(s: Storage, now: number, bootId: string): BootReport {
       trail: prevTrail,
     });
   } else {
-    consecutive = 0;
-    try { s.removeItem(PREV); } catch { /* fine */ }
+    consecutive = owed;
+    // the report of the start-up death that is still owed a reduced start stays readable
+    if (!owed) { drop(s, PREV); }
   }
   writeJson(s, STREAK, consecutive);
 
@@ -128,7 +153,7 @@ export function bootBegin(s: Storage, now: number, bootId: string): BootReport {
 
   // a heartbeat left behind means the last session was never closed cleanly
   const prevEndedAbruptly = !prevCrashed && !!beat;
-  try { s.removeItem(HEARTBEAT); } catch { /* fine */ }
+  drop(s, HEARTBEAT);
 
   return {
     prevCrashed,
@@ -154,7 +179,8 @@ export function mark(s: Storage, startedAt: number, now: number, step: string, e
  * call it too early and a crash-loop looks like a clean run.
  */
 export function bootComplete(s: Storage): void {
-  try { s.removeItem(IN_PROGRESS); } catch { /* fine */ }
+  drop(s, IN_PROGRESS);
+  drop(s, OWED);   // a healthy map start settles any reduced start still owed
   writeJson(s, STREAK, 0);
 }
 
@@ -164,7 +190,7 @@ export function heartbeat(s: Storage, aliveMs: number, lastStep: string): void {
   writeJson(s, HEARTBEAT, { aliveMs: Math.round(aliveMs), lastStep });
 }
 export function closeCleanly(s: Storage): void {
-  try { s.removeItem(HEARTBEAT); } catch { /* fine */ }
+  drop(s, HEARTBEAT);
   // FALSE-POSITIVE FIX (human field payload 2026-08-08: a HEALTHY trail —
   // first-idle at 2.2s — closed at 10.0s, a hair before the ~10.2s
   // healthy-idle mark, was recorded as a boot death and put the next visit
@@ -173,7 +199,29 @@ export function closeCleanly(s: Storage): void {
   // never run it. A graceful exit before bootComplete is therefore not a
   // crash — disarm the marker too. Accepted cost: a crash after a bfcache
   // freeze/resume goes unrecorded (the gl-loss log still covers GL deaths).
-  try { s.removeItem(IN_PROGRESS); } catch { /* fine */ }
+  drop(s, IN_PROGRESS);
+}
+
+/**
+ * This page has not started the map, so its marker says nothing about a map
+ * start: remove it, or the next visit is accused of a start-up death that never
+ * happened. Call when the page is hidden or has lived its start-up window with
+ * no map mounted. If this boot was owed a reduced start (a real start-up death
+ * came before it) and never used it, the debt is carried to the next boot.
+ * Leaves the trail and the last report alone.
+ */
+export function standDown(s: Storage): void {
+  drop(s, IN_PROGRESS);
+  const streak = readJson<number>(s, STREAK, 0);
+  if (typeof streak === "number" && streak > 0) writeJson(s, OWED, streak);
+}
+
+/** The map is starting (again): from here a death is a start-up death. Arms the
+ *  marker unless it is already armed (a direct load of the map arms it at
+ *  module evaluation, before this runs). */
+export function armBoot(s: Storage, startedAt: number, bootId: string): void {
+  if (readJson<unknown | null>(s, IN_PROGRESS, null)) return;
+  writeJson(s, IN_PROGRESS, { bootId, startedAt });
 }
 
 /** Reduced configuration is warranted when the previous boot(s) died young. */
@@ -189,9 +237,9 @@ export function lastCrashReport(s: Storage): unknown | null {
 /** Clear every recorder key AND the caller-supplied preference keys — the
  *  "get me out of this" button. */
 export function resetAll(s: Storage, extraKeys: string[] = []): void {
-  for (const k of [IN_PROGRESS, TRAIL, PREV, STREAK, HEARTBEAT, ...extraKeys]) {
-    try { s.removeItem(k); } catch { /* fine */ }
+  for (const k of [IN_PROGRESS, TRAIL, PREV, STREAK, HEARTBEAT, OWED, ...extraKeys]) {
+    drop(s, k);
   }
 }
 
-export const KEYS = { IN_PROGRESS, TRAIL, PREV, STREAK, HEARTBEAT } as const;
+export const KEYS = { IN_PROGRESS, TRAIL, PREV, STREAK, HEARTBEAT, OWED } as const;

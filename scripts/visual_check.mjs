@@ -7067,6 +7067,131 @@ async function main() {
                    tti: null, perf: {}, failures: pgFailures, warnings: [], info: { planeGlide: pgInfo } });
   }
 
+  // ── BOOT MARKER battery (2026-11-19) ────────────────────────────────────
+  // Measured on production: a visit to pricing, to the AI Engine page or to
+  // the landing page, left normally, put the NEXT visit's map in reduced mode
+  // ("the last visit ended during startup"). The module that arms the boot
+  // marker runs on every page; only the mounted map ever disarmed it. This
+  // battery drives the built bundle through what a visitor does:
+  //   A  another page, then leave, then the map  -> no reduced mode, no report
+  //   B  another page goes to the background     -> the marker is gone
+  //   C  open the map from another page of the app -> the marker is armed again
+  //   D  the renderer is KILLED during the map's start (chrome://crash: no code
+  //      runs) -> the next visit still gets its reduced start. The protection
+  //      the marker exists for must survive the fix.
+  // `--page bootmarker` runs this battery alone.
+  if (!only || only === "data" || only === "bootmarker") {
+    const bmFailures = [];
+    const bmInfo = {};
+    const base = `http://127.0.0.1:${port}`;
+    const shotOf = (w) => path.join(OUT, `data-bootmarker-${w}.png`);
+    const NOTE = "Reduced mode: the last visit ended during startup";
+    const newCtx = async (w) => {
+      const ctx = await browser.newContext({ viewport: { width: w, height: w === 390 ? 844 : w === 768 ? 1024 : 900 }, deviceScaleFactor: 1 });
+      await ctx.route("**/*", (route) => (route.request().url().startsWith(base) ? route.continue() : route.abort()));
+      return ctx;
+    };
+    const state = (page) => page.evaluate((note) => {
+      const j = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return "unreadable"; } };
+      return {
+        note: document.body.innerText.includes(note), armed: !!localStorage.getItem("vt-boot-inprogress"),
+        streak: localStorage.getItem("vt-boot-deadstreak"), prevKind: j("vt-boot-prev")?.kind ?? null,
+        trail: (j("vt-boot-trail") || []).map((c) => c.step),
+      };
+    }, NOTE);
+    const openMap = async (page) => {
+      await page.goto(`${base}/app#/data`, { waitUntil: "load", timeout: 30000 });
+      for (let i = 0; i < 60; i++) {
+        if (await page.evaluate(() => !document.querySelector(".vt-map-skeleton"))) break;
+        await page.waitForTimeout(250);
+      }
+      await page.waitForTimeout(1200);
+      if (!(await page.locator(".vt-layer-panel").count())) await page.click(".vt-map-fab", { timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      await page.locator('.vt-device-notice button[aria-label="Dismiss"]').click({ timeout: 600 }).catch(() => {});
+    };
+    try {
+      // A — another page, left normally, then the map
+      for (const [w, firsts] of [[1440, ["/pricing", "/app#/bot", "/"]], [768, ["/pricing"]], [390, ["/pricing"]]]) {
+        for (const first of firsts) {
+          const ctx = await newCtx(w);
+          const page = await ctx.newPage();
+          const errs = [];
+          page.on("pageerror", (e) => errs.push(e.message));
+          await page.goto(base + first, { waitUntil: "load", timeout: 30000 });
+          await page.waitForTimeout(1200);
+          await page.goto("about:blank");               // a real navigation away: pagehide fires
+          await openMap(page);
+          const st = await state(page);
+          bmInfo[`A ${w} ${first}`] = st;
+          if (st.note) bmFailures.push(`bootmarker: after visiting ${first} and leaving, the map at ${w}px says "${NOTE}"`);
+          if (st.streak !== "0" || st.prevKind) bmFailures.push(`bootmarker: a visit to ${first} was recorded as a start-up death (streak=${st.streak} report=${st.prevKind}) at ${w}px`);
+          if (!st.armed || !st.trail.includes("map-mount")) bmFailures.push(`bootmarker: the map did not arm its own start at ${w}px (armed=${st.armed} trail=${st.trail.join(">")})`);
+          for (const e of errs) bmFailures.push(`bootmarker: pageerror at ${w}px after ${first}: ${e}`);
+          if (first === "/pricing") await page.screenshot({ path: shotOf(w) });
+          await ctx.close();
+        }
+      }
+      // B — another page is sent to the background (the phone case: the tab is
+      // later discarded with no pagehide)
+      {
+        const ctx = await newCtx(1440);
+        const page = await ctx.newPage();
+        await page.goto(`${base}/pricing`, { waitUntil: "load", timeout: 30000 });
+        await page.waitForTimeout(600);
+        const before = (await state(page)).armed;
+        await page.evaluate(() => {
+          Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        const after = (await state(page)).armed;
+        bmInfo["B hidden"] = { before, after };
+        if (after) bmFailures.push("bootmarker: a non-map page sent to the background kept its marker armed");
+        await ctx.close();
+      }
+      // C + D — the map opened from another page of the app arms the marker;
+      // a renderer killed during that start is still a start-up death
+      {
+        const ctx = await newCtx(1440);
+        const page = await ctx.newPage();
+        await page.goto(`${base}/pricing`, { waitUntil: "load", timeout: 30000 });
+        await page.waitForTimeout(600);
+        await page.evaluate(() => {      // background and back: the marker stands down
+          Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+          document.dispatchEvent(new Event("visibilitychange"));
+          Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        const stood = !(await state(page)).armed;
+        // in-app navigation: no reload, the module is not evaluated again
+        await page.evaluate(() => { window.history.pushState({}, "", "/app#/data"); window.dispatchEvent(new PopStateEvent("popstate")); });
+        let armed = false;
+        for (let i = 0; i < 40 && !armed; i++) { await page.waitForTimeout(150); armed = (await state(page)).armed; }
+        const st = await state(page);
+        bmInfo["C in-app"] = { stood, armed, trail: st.trail };
+        if (!stood) bmFailures.push("bootmarker: C could not set up (the marker did not stand down on the non-map page)");
+        if (!armed) bmFailures.push(`bootmarker: opening the map from another page of the app did not arm the marker (trail=${st.trail.join(">")})`);
+        // D — kill the renderer: no pagehide, no handler, nothing
+        page.on("crash", () => {});
+        await page.goto("chrome://crash", { timeout: 5000 }).catch(() => {});
+        await page.close().catch(() => {});
+        const page2 = await ctx.newPage();
+        await openMap(page2);
+        const st2 = await state(page2);
+        bmInfo["D after a real death"] = st2;
+        if (armed && (!st2.note || st2.prevKind !== "boot-crash")) bmFailures.push(`bootmarker: a renderer killed during the map's start was NOT followed by a reduced start (note=${st2.note} report=${st2.prevKind} streak=${st2.streak})`);
+        await ctx.close();
+      }
+    } catch (e) {
+      bmFailures.push("bootmarker: battery crashed: " + String(e?.message || e).split("\n")[0]);
+    }
+    console.log("\n[BOOT MARKER] " + JSON.stringify(bmInfo));
+    for (const w of [1440, 768, 390]) {
+      results.push({ page: "data-bootmarker", width: w, label: "boot-marker", screenshot: shotOf(w),
+                     tti: null, perf: {}, failures: w === 1440 ? bmFailures : [], warnings: [], info: w === 1440 ? { bootMarker: bmInfo } : {} });
+    }
+  }
+
   await browser.close();
   srv.close();
 
