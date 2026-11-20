@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 269 | 5 | 10 | 27 | 11 |
+| HTTP routes | 270 | 5 | 7 | 27 | 14 |
 | Diagnostic probes (token-gated) | 36 | 14 | 2 | 11 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -26,7 +26,7 @@ Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, th
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (12)
+## Missing: user-relevant, no UI yet (9)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -34,9 +34,6 @@ layers are not listed one by one here.
 | route | `POST /api/bot/circuit-breaker/reset` | `server/bot.ts` | Owner action: clear a tripped circuit breaker. The AI Engine page shows the kill state but offers no reset. Placement: beside the kill-state banner, owner only, with a confirm step. A risk control: needs the human's go-ahead before it is exposed. |
 | route | `POST /api/bot/trade` | `server/bot.ts` | Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner). |
 | route | `POST /api/bot/close` | `server/bot.ts` | Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above. |
-| route | `GET /api/monitoring/overview` | `server/bot.ts` | Pre-refocus monitoring summary (tiers, drawdown, caches). Not read by any page. Check against the AI Engine Overview first: where it duplicates, remove the route; where it adds (drawdown path), surface it there. |
-| route | `GET /api/monitoring/tier-pnl` | `server/bot.ts` | as above (P&L by tier) |
-| route | `GET /api/monitoring/drawdown` | `server/bot.ts` | as above (drawdown from peak). The Overview shows the kill distance but not the drawdown path. |
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards. |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
@@ -71,12 +68,15 @@ layers are not listed one by one here.
 | strategy | `strategies/squeeze.py` | `strategies/squeeze.py` | as above: results show under its sleeve, not by strategy name |
 | strategy | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | visible as decisions in the journal; no state view (how much reserve, what is queued) |
 
-## Legacy: removal candidates, not UI gaps (11)
+## Legacy: removal candidates, not UI gaps (14)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
 | route | `POST /api/auth/reset-request` | `server/auth.ts` | Legacy stub that tells callers to use /api/auth/reset (which the login page uses). Removal candidate; auth.ts is a FROZEN PATH, so the human removes it. |
 | route | `GET /api/bot/history` | `server/bot.ts` | The last 50 closed orders from the broker. Superseded 2026-11-20 by /api/bot/order-history (every status, the price ladder's steps), which the Orders panel reads, and by /api/bot/lots for closed trades. Nothing reads this one. Removal candidate. |
+| route | `GET /api/monitoring/overview` | `server/bot.ts` | Pre-refocus monitoring summary (daemon, kill switch, drawdown, model). Checked against the AI Engine page 2026-11-20: its kill-switch block (the daemon's risk_status, get_kill_switch_status) takes the losing streak and the day's loss from two files nothing writes, so both always read 0; the page reads the real figures through /api/bot/safety-limits, the model through /api/ml/status and the drawdown through /api/bot/status. Nothing to surface. Removal is its own PR (drawdownGuard.test.ts pins its text). |
+| route | `GET /api/monitoring/tier-pnl` | `server/bot.ts` | P&L by strategy bucket from the trade-feedback file. It adds per-trade percentages whatever the size of each trade, so the total cannot be read as money. The page shows P&L per sleeve in dollars from the broker's own fills (the sleeve ledger, the expectancy table). Nothing to surface. |
+| route | `GET /api/monitoring/drawdown` | `server/bot.ts` | Drawdown from the engine's shared peak, with -20 written into the route. /api/bot/safety-limits (2026-11-20) measures each drawdown guard from its own peak against its own limit, on the page. Nothing to surface. Removal is its own PR (peakEquityRpc.test.ts pins its text). |
 | route | `POST /api/bot/backtest` | `server/bot.ts` | runs the backtest CLI from the server; no page calls it. Removal candidate (STALENESS AUDIT). |
 | route | `GET /api/bot/ml-status` | `server/bot.ts` | duplicate of /api/ml/status, which the page reads. Removal candidate. |
 | route | `GET /api/bot/system-status` | `server/routes.ts` | pre-refocus status route; the page reads /api/bot/status. Removal candidate. |
@@ -130,7 +130,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (311)
+## Surfaced (312)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -168,6 +168,7 @@ layers are not listed one by one here.
 | route | `GET /api/bot/decisions` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/attribution` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/export-trades` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/safety-limits` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/lots` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/order-history` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/floor-tracking` | `server/bot.ts` | a page calls it |
@@ -433,7 +434,7 @@ layers are not listed one by one here.
 | probe | `github_activity_poll_health` | `server/bot.ts /api/diag/github_activity_poll_health` | /data Pipeline health |
 | probe | `gnss_integrity_daily` | `server/bot.ts /api/diag/gnss_integrity_daily` | same panel |
 | probe | `signups` | `server/bot.ts /api/diag/signups` | owner /admin page |
-| probe | `kill_state` | `server/bot.ts /api/diag/kill_state` | kill-state banner |
+| probe | `kill_state` | `server/bot.ts /api/diag/kill_state` | kill-state banner; since 2026-11-20 each guard's reading, peak and limit in the Issues panel's Safety limits block (through /api/bot/safety-limits) |
 | probe | `gate_counterfactuals` | `server/bot.ts /api/diag/gate_counterfactuals` | What each blocking rule prevented. Since 2026-11-20 the Why panel's 'Rules that blocked trades' section shows one row per rule, tier and action with its caveats, through /api/bot/rule-counterfactuals. |
 | probe | `walkforward` | `server/bot.ts /api/diag/walkforward` | The multi-year walk-forward test of the score's price inputs. CORRECTED 2026-11-20 (was 'partial'): the Brain page shows each input's long-term verdict from it (brain_evidence.py reads the last good result) beside the short-term evidence, with the run's date; the AI Engine's 'why' card also cites it in words. |
 | probe | `edge_p2` | `server/bot.ts /api/diag/edge_p2` | lookup ledger (ticker dossier) |
