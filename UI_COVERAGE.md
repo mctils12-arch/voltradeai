@@ -18,21 +18,18 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 267 | 2 | 15 | 27 | 11 |
-| Diagnostic probes (token-gated) | 33 | 14 | 6 | 10 | 0 |
+| HTTP routes | 267 | 5 | 12 | 27 | 11 |
+| Diagnostic probes (token-gated) | 36 | 14 | 2 | 11 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, the legend and
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (21)
+## Missing: user-relevant, no UI yet (14)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
-| route | `GET /api/data/aircraft/estimate/:hex` | `server/aircraftEstimate.ts` | Server-side position ESTIMATE for a plane that stopped reporting (2026-11-17). The selected plane's card estimates in the browser (planeMotion.ts) and does not read this. Placement: the flight card's 'estimate' line should state the server's estimate and its limits for planes not in the live feed (watch list, search result). |
-| route | `GET /api/data/aircraft/track/:hex` | `server/aircraftTrackData.ts` | A watched plane's stored track from the tracked-plane log (2026-11-17, built for the app contract). The flight card draws its track from the older /api/data/track route and does not read this one. It was counted as called by a page until 2026-11-20 because /api/data/aircraft/tracked starts the same way. Placement: with fleet and plan history on the flight card (batch B). |
-| route | `GET /api/data/aircraft/fleet` | `server/aircraftTrackData.ts` | Fleet / operator data for an aircraft (2026-11-17). Placement: a 'Fleet' block on the existing flight card (DetailCard), under registration and type. |
 | route | `GET /api/bot/stream` | `server/bot.ts` | Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh. |
 | route | `POST /api/bot/circuit-breaker/reset` | `server/bot.ts` | Owner action: clear a tripped circuit breaker. The AI Engine page shows the kill state but offers no reset. Placement: beside the kill-state banner, owner only, with a confirm step. A risk control: needs the human's go-ahead before it is exposed. |
 | route | `POST /api/bot/trade` | `server/bot.ts` | Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner). |
@@ -41,30 +38,29 @@ layers are not listed one by one here.
 | route | `GET /api/monitoring/tier-pnl` | `server/bot.ts` | as above (P&L by tier) |
 | route | `GET /api/monitoring/drawdown` | `server/bot.ts` | as above (drawdown from peak). The Overview shows the kill distance but not the drawdown path. |
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
-| route | `GET /api/data/aircraft/plan-history/:hex` | `server/flightPlanHistory.ts` | Flight-plan versions for a plane (2026-11-17): every filed plan and amendment. No UI. Placement: a 'Plan history' section on the flight card, beside the route. |
+| route | `GET /api/data/aircraft/plan-history/:hex` | `server/flightPlanHistory.ts` | Flight-plan versions for a plane: every filed plan, amendment and off-route stretch. Built for the mobile app (contract section 9). The web card shows the current plan only (/api/data/aircraft/plan). Placement: a 'Plan changes' section on the flight card, beside the route. |
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | FAA SWIM feed: products received. No UI. Placement: one row per product in the Streams inventory. |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards. |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
-| probe | `ml_v3` | `server/bot.ts /api/diag/ml_v3` | The candidate model's out-of-sample readings. No UI. Placement: the Brain page, beside the live model's verdicts. |
-| probe | `shadow_bands` | `server/bot.ts /api/diag/shadow_bands` | Score-band outcomes from shadow logging. No UI. Placement: the Brain page. |
-| probe | `shadow_bands_dedup` | `server/bot.ts /api/diag/shadow_bands_dedup` | as above, de-duplicated (the honest version) |
-| probe | `source_validation` | `server/bot.ts /api/diag/source_validation` | Per-source validation of the scoring inputs. No UI. Placement: the Brain page's signal table (a 'validated' column). |
 | probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel. |
 
-## Partial (20)
+## Partial (23)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
+| route | `GET /api/data/aircraft/estimate/:hex` | `server/aircraftEstimate.ts` | Server-side position ESTIMATE for a plane that stopped reporting. Built for the mobile app (contract section 8). CORRECTED 2026-11-20 (was 'missing'): the web card estimates the selected plane in the browser with the same arithmetic (shared/aircraftEstimate.ts through client/src/lib/air/planeMotion.ts) and marks it an estimate. It does not ask the server, so a watched plane that is not selected gets no estimate. |
+| route | `GET /api/data/aircraft/track/:hex` | `server/aircraftTrackData.ts` | A plane's flown track with altitude, speed and vertical rate at each point. Built for the mobile app (contract section 3). CORRECTED 2026-11-20 (was 'missing'): the web draws a plane's track from the older /api/data/track route. Not shown on the web: this route's per-point vertical rate, which altitude each point is, and its list of coverage gaps. |
+| route | `GET /api/data/aircraft/fleet` | `server/aircraftTrackData.ts` | Past flights for saved tail numbers. Built for the mobile app (docs/aircraft_app_data_contract.md, section 4). CORRECTED 2026-11-20 (was 'missing'): the web flight card lists the same flight objects for one plane through /api/data/aircraft/trips/:hex. What the web lacks is the all-saved-tails view in one answer. Whether the app shows it cannot be checked from this repository. |
 | route | `GET /api/data/query` | `server/routes.ts` | The query engine (console W4). The analyst pane uses it on the server; there is no direct query box. Placement: none proposed until the analyst pane's use shows a need. |
 | route | `GET /api/data/satellites` | `server/routes.ts` | Server-side satellite catalog (relay-gated: CelesTrak blocks Railway). The map reads CelesTrak from the browser instead. Nothing to place until the relay decision. |
 | probe | `archive` | `server/bot.ts /api/diag/archive` | Archive health per stream. Since 2026-11-20 the Data quality panel lists every archive's files, size, first and newest file (/api/data/archive/stats) and the off-site copy (/api/data/archive/offload-status). What this probe reports beyond those two routes has not been compared field by field; do that before placing anything more. |
+| probe | `shadow_bands_dedup` | `server/bot.ts /api/diag/shadow_bands_dedup` | Score-band outcomes from the shadow log, one first-seen record per ticker per day. CORRECTED 2026-11-20 (was 'missing'): the Brain page's short-term evidence is computed under this same de-duplication rule (decision buckets against SPY, the score's own IC). What no page shows is this probe's table of outcomes by score quintile and by day-change band. Placement if wanted: a small table on the Brain page's 'Minimum score gate' card. |
 | probe | `shadowfleet_gate1` | `server/bot.ts /api/diag/shadowfleet_gate1` | gate result; the Signal strength panel shows each root's ladder position, not the gate's numbers. Placement: expandable evidence row in Signal strength. |
 | probe | `fdic_gate2` | `server/bot.ts /api/diag/fdic_gate2` | as above |
 | probe | `insider_cusum_gate2` | `server/bot.ts /api/diag/insider_cusum_gate2` | as above |
 | probe | `chain_iv30` | `server/bot.ts /api/diag/chain_iv30` | Option-chain archive readings. The Trade page shows a live IV figure; the archive's history is not shown. Placement: Trade page IV chart, once the archive has enough days. |
 | probe | `options_entitlements` | `server/bot.ts /api/diag/options_entitlements` | Which options data the account is entitled to. Since 2026-11-20 the Book says which QUOTE feed applies (indicative today) under its options, through /api/bot/options-feed. The rest of the report (historical trades, bars, open interest per vendor) has no UI; it is an execution-layer Phase 0 fact. |
-| probe | `walkforward` | `server/bot.ts /api/diag/walkforward` | Walk-forward reads. The 'why we are losing' card cites them in words. Placement: the Brain page, as a dated table. |
 | probe | `lazy_prices` | `server/bot.ts /api/diag/lazy_prices` | as above (backfill progress and gate reading) |
 | probe | `earnings_qoq` | `server/bot.ts /api/diag/earnings_qoq` | as above |
 | probe | `github_gate2` | `server/bot.ts /api/diag/github_gate2` | as above |
@@ -93,7 +89,7 @@ layers are not listed one by one here.
 | route | `GET /api/shorts/dashboard` | `server/routes.ts` | pre-refocus route; no page reads it. Removal candidate. |
 | route | `GET /api/trades/history` | `server/routes.ts` | pre-refocus route. Removal candidate. |
 
-## Plumbing: not user features (37)
+## Plumbing: not user features (38)
 
 | Kind | Item | Why |
 |---|---|---|
@@ -129,13 +125,14 @@ layers are not listed one by one here.
 | probe | `reconstruct_pnl` | reconciliation diagnostic |
 | probe | `scanner` | scan health |
 | probe | `timings` | stage timings |
+| probe | `shadow_bands` | The same score-band table WITHOUT de-duplication. Kept for comparison only: each candidate was logged about 30 times a day, and reading this version is what produced the October 'the score is anti-predictive' artifact. It should not be shown; the de-duplicated probe is the honest one. |
 | probe | `chain_csp_entry` | research diagnostic for put entries |
 | probe | `chain_vs` | research diagnostic |
 | probe | `volume` | disk volume |
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (306)
+## Surfaced (309)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -426,6 +423,8 @@ layers are not listed one by one here.
 | probe | `equity_curve` | `server/bot.ts /api/diag/equity_curve` | scoreboard / equity curve |
 | probe | `orders` | `server/bot.ts /api/diag/orders` | Open and recent orders. Since 2026-11-20 the Orders panel's 'Order history' lists every order with its price-ladder step, through the owner route /api/bot/order-history. |
 | probe | `gnss_integrity` | `server/bot.ts /api/diag/gnss_integrity` | /data GNSS integrity panel |
+| probe | `ml_v3` | `server/bot.ts /api/diag/ml_v3` | The candidate model's out-of-sample readings. CORRECTED 2026-11-20 (was 'missing'): the Brain page's 'ML v3 candidate' card shows them (brain_evidence.py reads the same status: out-of-sample AUC with its confidence interval, log-loss against the base rate, top-minus-bottom quintile, rows and dates, and the IC of its logged probability on the live shadow population). Not shown: the calibration deciles and the per-regime split. |
+| probe | `source_validation` | `server/bot.ts /api/diag/source_validation` | Per-source validation of the scoring inputs. CORRECTED 2026-11-20 (was 'missing'): the Brain page shows it (brain_evidence.py trims source_validation.py's own report): each input's short-term rank IC, its confidence interval, Benjamini-Hochberg q and verdict on its card, and the forward selection and ablation in the 'combinations' panel. |
 | probe | `signals` | `server/bot.ts /api/diag/signals` | signals list |
 | probe | `portdwell_window` | `server/bot.ts /api/diag/portdwell_window` | /data port dwell |
 | probe | `midas_quarter` | `server/bot.ts /api/diag/midas_quarter` | /data MIDAS |
@@ -436,6 +435,7 @@ layers are not listed one by one here.
 | probe | `signups` | `server/bot.ts /api/diag/signups` | owner /admin page |
 | probe | `kill_state` | `server/bot.ts /api/diag/kill_state` | kill-state banner |
 | probe | `gate_counterfactuals` | `server/bot.ts /api/diag/gate_counterfactuals` | What each blocking rule prevented. Since 2026-11-20 the Why panel's 'Rules that blocked trades' section shows one row per rule, tier and action with its caveats, through /api/bot/rule-counterfactuals. |
+| probe | `walkforward` | `server/bot.ts /api/diag/walkforward` | The multi-year walk-forward test of the score's price inputs. CORRECTED 2026-11-20 (was 'partial'): the Brain page shows each input's long-term verdict from it (brain_evidence.py reads the last good result) beside the short-term evidence, with the run's date; the AI Engine's 'why' card also cites it in words. |
 | probe | `edge_p2` | `server/bot.ts /api/diag/edge_p2` | lookup ledger (ticker dossier) |
 | probe | `filings13f_completeness` | `server/bot.ts /api/diag/filings13f_completeness` | 13F page, by filed day (#1845, API); the page itself still reads by archive day: PARTIAL in the UI |
 | probe | `event_study` | `server/bot.ts /api/diag/event_study` | ticker dossier |
