@@ -46,6 +46,8 @@ import DroughtMonitorView from "./droughtMonitor";
 import FiresNearFacilitiesView from "./firesNearFacilities";
 import AirQualityView from "./airQuality";
 import PortImportsView from "./portImports";
+import PlantsUnderAlertsView from "./plantsUnderAlerts";
+import RailTrafficView from "./railTraffic";
 import FacilityEventsView from "./facilityEvents";
 import AppStoreRankingsView from "./appStoreRankings";
 import GithubOrgActivityView from "./githubOrgActivity";
@@ -3013,6 +3015,11 @@ export default function DataMapPage() {
   // coordinates, only Schedule D port codes; server/censusImports.ts shipped
   // API-only 2026-07-05, no client view until now).
   const [portImportsOpen, setPortImportsOpen] = useState(() => window.location.hash === "#/data/imports");
+  // Plants under weather warnings (#/data/plants-under-alerts) and rail
+  // carloads (#/data/rail-traffic) — UI coverage batch C, 2026-11-20: two
+  // routes that had no panel. Same overlay pattern as the two above.
+  const [plantsAlertsOpen, setPlantsAlertsOpen] = useState(() => window.location.hash === "#/data/plants-under-alerts");
+  const [railTrafficOpen, setRailTrafficOpen] = useState(() => window.location.hash === "#/data/rail-traffic");
   // Media events near tracked facilities (#/data/facility-events) — same
   // overlay pattern. Deliberately NOT a spatial layer: GDELT geocoding is
   // city/ADM-approximate, so plotting these beside our metre-accurate layers
@@ -3576,6 +3583,8 @@ export default function DataMapPage() {
       setFiresFacilitiesOpen(window.location.hash === "#/data/fires-near-facilities");
       setAirQualityOpen(window.location.hash === "#/data/air-quality");
       setPortImportsOpen(window.location.hash === "#/data/imports");
+      setPlantsAlertsOpen(window.location.hash === "#/data/plants-under-alerts");
+      setRailTrafficOpen(window.location.hash === "#/data/rail-traffic");
       setFacilityEventsOpen(window.location.hash === "#/data/facility-events");
       setAppStoreOpen(window.location.hash === "#/data/appstore-rankings");
       setGithubActivityOpen(window.location.hash === "#/data/github-activity");
@@ -15004,6 +15013,12 @@ export default function DataMapPage() {
       {portImportsOpen && (
         <PortImportsView onBack={() => { window.location.hash = "#/data"; setPortImportsOpen(false); }} />
       )}
+      {plantsAlertsOpen && (
+        <PlantsUnderAlertsView onBack={() => { window.location.hash = "#/data"; setPlantsAlertsOpen(false); }} />
+      )}
+      {railTrafficOpen && (
+        <RailTrafficView onBack={() => { window.location.hash = "#/data"; setRailTrafficOpen(false); }} />
+      )}
       {facilityEventsOpen && (
         <FacilityEventsView onBack={() => { window.location.hash = "#/data"; setFacilityEventsOpen(false); }} />
       )}
@@ -15624,6 +15639,15 @@ export default function DataMapPage() {
               <Flame size={13} /> Facilities near active fires
               <span className="vt-streams-launch-sub">strategic assets × NASA FIRMS, live radius join · RAW</span>
             </button>
+            {/* Plants-under-warnings launcher (2026-11-20, UI coverage batch
+                C): the join of two existing layers (power plants, NWS
+                warnings), not a layer of its own, so it launches here like
+                fires-near-facilities immediately above. */}
+            <button type="button" className="vt-streams-launch" data-vt-plantsalerts-launch
+                    onClick={() => { window.location.hash = "#/data/plants-under-alerts"; setPlantsAlertsOpen(true); }}>
+              <Zap size={13} /> Power plants under weather warnings
+              <span className="vt-streams-launch-sub">US plants × active NWS warning polygons, live join · RAW</span>
+            </button>
             {/* Air-quality launcher (2026-08-20): per-site current-conditions
                 readings over the strategic-sites archive, not a spatial layer
                 of its own, so it launches from the panel top like
@@ -15641,6 +15665,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/imports"; setPortImportsOpen(true); }}>
               <Ship size={13} /> US port imports — monthly
               <span className="vt-streams-launch-sub">general &amp; containerized value by port of entry, US Census FT920 · RAW</span>
+            </button>
+            {/* Rail carloads launcher (2026-11-20, UI coverage batch C):
+                system-wide weekly counts with no coordinates, so it launches
+                from the panel top beside port imports. */}
+            <button type="button" className="vt-streams-launch" data-vt-railtraffic-launch
+                    onClick={() => { window.location.hash = "#/data/rail-traffic"; setRailTrafficOpen(true); }}>
+              <TrainFront size={13} /> Rail carloads — weekly
+              <span className="vt-streams-launch-sub">Class I railroads by commodity group, STB EP 724 · RAW</span>
             </button>
             {/* Facility media-events launcher (2026-08-20): GDELT unrest/
                 strike mentions geocoded near our strategic sites. NOT a map

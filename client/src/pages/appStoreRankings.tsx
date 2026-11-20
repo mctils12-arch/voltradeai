@@ -8,6 +8,8 @@
 // the archive itself, not a claimed edge. GATE 1 (DATA) only, no signal.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, Smartphone } from "lucide-react";
+import HistoryChart, { HistorySection, useTrend } from "@/components/HistoryChart";
+import { rankedShareSeries, ratingCountSeries, type AppStoreTrendDay } from "@/lib/historySeries";
 
 interface RankRecord {
   t: "rank";
@@ -80,6 +82,15 @@ function buildRows(records: AppStoreRecord[]): Row[] {
   });
 }
 
+// Compact count for the chart labels (161.0M); the table keeps full figures.
+const fmtCompact = (n: number): string => {
+  const a = Math.abs(n);
+  if (a >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toFixed(0);
+};
+
 export default function AppStoreRankingsView({ onBack }: { onBack: () => void }) {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState(false);
@@ -99,6 +110,9 @@ export default function AppStoreRankingsView({ onBack }: { onBack: () => void })
   }, []);
 
   const rows = useMemo(() => buildRows(data?.records ?? []), [data]);
+  // The archive's daily history (2026-11-20, UI coverage batch C).
+  const hist = useTrend<AppStoreTrendDay>("/api/data/appstore-rankings/history");
+  const lastDay = hist.trend?.length ? hist.trend[hist.trend.length - 1] : null;
 
   return (
     <div className="vt-filings-page" role="region" aria-label="App Store rank + review watchlist">
@@ -123,8 +137,21 @@ export default function AppStoreRankingsView({ onBack }: { onBack: () => void })
         <div className="vt-filings-state">No rows for today yet.</div>
       )}
 
-      {!error && rows.length > 0 && (
+      {!error && data && !data.warming_up && (
         <div className="vt-shortvol-body">
+          <HistorySection heading="Whole watchlist, day by day (our archive, up to 30 days)" state={hist.state} reason={hist.reason}>
+            <HistoryChart unit="day" title="Chart slots with a watchlist app ranked"
+              points={rankedShareSeries(hist.trend ?? [])}
+              format={(v) => `${v.toFixed(0)}%`}
+              footnote={lastDay && lastDay.total_slots
+                ? `Newest day: ${lastDay.ranked_slots} of ${lastDay.total_slots} fetched slots (app × storefront × chart). Each day is divided by the slots fetched that day.`
+                : "Each day is divided by the slots fetched that day."} />
+            <HistoryChart unit="day" title="Total US rating count, all watchlist apps"
+              points={ratingCountSeries(hist.trend ?? [])}
+              format={fmtCompact}
+              footnote="A running total Apple reports; it mostly rises. RAW, no predictive claim." />
+          </HistorySection>
+          {rows.length > 0 && (<>
           <div className="vt-filings-sub vt-shortvol-topheader">
             ranked by best US chart position (top-free or top-grossing) ·
             GB/CA storefronts archived too, not shown in this view · Android excluded (ToS-blocked)
@@ -156,6 +183,7 @@ export default function AppStoreRankingsView({ onBack }: { onBack: () => void })
             </table>
           </div>
           {data?.note && <div className="vt-filings-sub vt-streams-foot">{data.note}</div>}
+          </>)}
         </div>
       )}
     </div>

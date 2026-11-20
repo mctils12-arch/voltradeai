@@ -13,6 +13,8 @@
 // are new.
 import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Sprout } from "lucide-react";
+import HistoryChart, { HistorySection, useTrend } from "@/components/HistoryChart";
+import { goodExcellentSeries, type CropTrendWeek } from "@/lib/historySeries";
 
 interface ConditionRow {
   commodity: string;      // CORN | SOYBEANS
@@ -121,6 +123,11 @@ export default function CropConditionsView({ onBack }: { onBack: () => void }) {
     return () => { stop = true; };
   }, []);
 
+  // The archive's weekly history (2026-11-20, UI coverage batch C): the
+  // panel showed the latest week only, which is an empty page out of season.
+  const hist = useTrend<CropTrendWeek>("/api/data/crop-conditions/history?weeks=52");
+  const showHistory = !error && !!data && data.enabled !== false;
+
   const commodities = Array.from(new Set((data?.rows ?? []).map((r) => r.commodity))).sort();
 
   return (
@@ -149,13 +156,26 @@ export default function CropConditionsView({ onBack }: { onBack: () => void }) {
         <div className="vt-filings-state">No rows for the current week yet.</div>
       )}
 
-      {!error && commodities.length > 0 && (
+      {(showHistory || (!error && commodities.length > 0)) && (
         <div className="vt-shortvol-body">
-          <div className="vt-cropcond-body">
-            {commodities.map((c) => (
-              <CommodityBar key={c} commodity={c} rows={(data!.rows ?? []).filter((r) => r.commodity === c)} />
-            ))}
-          </div>
+          {!error && commodities.length > 0 && (
+            <div className="vt-cropcond-body">
+              {commodities.map((c) => (
+                <CommodityBar key={c} commodity={c} rows={(data!.rows ?? []).filter((r) => r.commodity === c)} />
+              ))}
+            </div>
+          )}
+          {showHistory && (
+            <HistorySection heading="Good + excellent share, week by week (our archive, up to 52 weeks)" state={hist.state} reason={hist.reason}>
+              {(["corn", "soybeans"] as const).map((c) => (
+                <HistoryChart key={c} unit="week"
+                  title={c === "corn" ? "Corn" : "Soybeans"}
+                  points={goodExcellentSeries(hist.trend ?? [], c)}
+                  format={(v) => `${v.toFixed(0)}%`}
+                  footnote="NASS publishes ratings in the growing season only; weeks it did not rate are gaps. RAW, no predictive claim." />
+              ))}
+            </HistorySection>
+          )}
           {data?.note && <div className="vt-filings-sub vt-streams-foot">{data.note}</div>}
         </div>
       )}

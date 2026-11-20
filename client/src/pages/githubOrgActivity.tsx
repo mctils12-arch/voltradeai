@@ -9,6 +9,8 @@
 // the module's own header and datacore/signal_ladder.json.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, GitBranch } from "lucide-react";
+import HistoryChart, { HistorySection, useTrend } from "@/components/HistoryChart";
+import { githubSeries, weeksWithDifferentCoverage, type GithubTrendWeek } from "@/lib/historySeries";
 
 interface GithubActivityRecord {
   t: "org_week";
@@ -75,6 +77,14 @@ export default function GithubOrgActivityView({ onBack }: { onBack: () => void }
   }, []);
 
   const rows = useMemo(() => latestRowsByTicker(data?.records ?? []), [data]);
+  // The archive's weekly history (2026-11-20, UI coverage batch C).
+  const hist = useTrend<GithubTrendWeek>("/api/data/github-activity/history");
+  const uneven = weeksWithDifferentCoverage(hist.trend ?? []);
+  const lastWeek = hist.trend?.length ? hist.trend[hist.trend.length - 1] : null;
+  const coverage = lastWeek
+    ? `Sum over the orgs that reported each week (${lastWeek.orgs_reporting} in the newest)` +
+      (uneven > 0 ? `; ${uneven} week${uneven === 1 ? "" : "s"} in this window had a different count, so those totals are not like for like.` : "; every week in this window had the same count.")
+    : undefined;
 
   return (
     <div className="vt-filings-page" role="region" aria-label="GitHub org engineering-momentum watchlist">
@@ -99,8 +109,17 @@ export default function GithubOrgActivityView({ onBack }: { onBack: () => void }
         <div className="vt-filings-state">No completed week archived yet.</div>
       )}
 
-      {!error && rows.length > 0 && (
+      {!error && data && !data.warming_up && (
         <div className="vt-shortvol-body">
+          <HistorySection heading="Whole watchlist, week by week (our archive, up to 26 weeks)" state={hist.state} reason={hist.reason}>
+            <HistoryChart unit="week" title="Merged pull requests"
+              points={githubSeries(hist.trend ?? [], "total_merged_prs")}
+              format={(v) => v.toLocaleString("en-US")} footnote={coverage} />
+            <HistoryChart unit="week" title="Commits"
+              points={githubSeries(hist.trend ?? [], "total_commits")}
+              format={(v) => v.toLocaleString("en-US")} footnote={coverage} />
+          </HistorySection>
+          {rows.length > 0 && (<>
           <div className="vt-filings-sub vt-shortvol-topheader">
             most recently archived completed week per org · public-repo activity is a strategic, biased slice
             — real signal only for companies that genuinely develop in public, noise for the rest
@@ -134,6 +153,7 @@ export default function GithubOrgActivityView({ onBack }: { onBack: () => void }
             </table>
           </div>
           {data?.note && <div className="vt-filings-sub vt-streams-foot">{data.note}</div>}
+          </>)}
         </div>
       )}
     </div>

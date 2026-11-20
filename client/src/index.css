@@ -4012,6 +4012,60 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-cropcond-legend-val { font-family: var(--font-mono); color: var(--text-primary); margin-left: 2px; }
 .vt-cropcond-note { font-size: 10.5px; color: var(--text-tertiary); margin-top: 8px; line-height: 1.4; }
 
+/* ── /data history charts (HistoryChart.tsx; UI coverage batch C, 2026-11-20):
+   crop conditions, App Store rankings, GitHub activity ── */
+.vt-hist-section { display: flex; flex-direction: column; gap: 10px; }
+.vt-hist-heading { font-size: 12px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.02em; }
+.vt-hist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.vt-hist {
+  background: var(--bg-card); border: 1px solid rgba(102, 128, 160, 0.25);
+  border-radius: 10px; padding: 12px 14px; min-width: 0;
+}
+.vt-hist-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.vt-hist-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.vt-hist-last { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); }
+.vt-hist-svg { display: block; width: 100%; height: 64px; }
+.vt-hist-foot {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 14px; margin-top: 6px;
+  font-size: 10.5px; font-family: var(--font-mono); color: var(--text-tertiary);
+}
+.vt-hist-note { font-size: 10.5px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.4; }
+.vt-hist-skel {
+  height: 118px; border-radius: 10px; border: 1px solid rgba(102, 128, 160, 0.18);
+  background: linear-gradient(90deg, rgba(102,128,160,0.08), rgba(102,128,160,0.16), rgba(102,128,160,0.08));
+  background-size: 200% 100%; animation: vt-hist-skel 1.4s linear infinite;
+}
+@keyframes vt-hist-skel { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .vt-hist-skel { animation: none; } }
+
+/* ── /data/plants-under-alerts + /data/rail-traffic (same batch) ── */
+.vt-pua-alert {
+  background: var(--bg-card); border: 1px solid rgba(102, 128, 160, 0.25);
+  border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.vt-pua-alert-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.vt-pua-alert-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.vt-pua-alert-meta { font-size: 11px; font-family: var(--font-mono); color: var(--text-tertiary); }
+.vt-pua-more {
+  align-self: flex-start; min-height: 44px; padding: 0 12px; border-radius: 6px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary); font-size: 12px;
+}
+/* A panel with more than one table: each table takes its own height (the
+   shared .vt-filings-tablewrap is flex: 1, which squeezes two tables into two
+   small scroll boxes), and on a phone every cell keeps its label, the last
+   one included (the shared rule drops it for a trailing link column). */
+.vt-tablewrap-flow { flex: none; overflow-x: auto; overflow-y: visible; padding: 0; }
+@media (max-width: 639px) {
+  .vt-tablewrap-flow .vt-filings-table td:last-child::before { content: attr(data-l); }
+}
+.vt-rail-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.vt-rail-tile {
+  background: var(--bg-card); border: 1px solid rgba(102, 128, 160, 0.25);
+  border-radius: 10px; padding: 10px 12px; min-width: 0;
+}
+.vt-rail-tile-l { font-size: 11px; color: var(--text-tertiary); }
+.vt-rail-tile-v { font-size: 17px; font-weight: 600; font-family: var(--font-mono); color: var(--text-primary); margin-top: 2px; }
+
 /* ── /developers — API product page (T3, 2026-07-04) ─────────────────── */
 .vt-dev-page {
   max-width: 880px; margin: 0 auto; padding: 88px 20px 64px;

@@ -1092,6 +1092,11 @@ const PAGES = {
   // US port imports — Census FT920 monthly port-level values (2026-08-20) —
   // same Phase 5 ratchet rule as airquality above.
   portimports: { route: "/app#/data/imports", map: false },
+  // UI coverage batch C (2026-11-20): two routes that had no panel. The
+  // history charts added to cropconditions / appstorerankings /
+  // githubactivity in the same batch are checked on those pages.
+  plantsunderalerts: { route: "/app#/data/plants-under-alerts", map: false },
+  railtraffic: { route: "/app#/data/rail-traffic", map: false },
   // GDELT media events near tracked facilities — same Phase 5 ratchet rule as
   // portimports above.
   facilityevents: { route: "/app#/data/facility-events", map: false },
@@ -1864,6 +1869,98 @@ const FIXTURES = {
       { id: "1319209440", day: "20260820", code: "172", root: "17", gold: -5, tone: 7.34463276836158, mentions: 8, lat: 37.8044, lon: -122.2712, site: "port_oakland", url: "https://heritageradionetwork.org/episode/dokidoki-innovative-sake-shochu-cocktails-in-japanese-tachinomi-vibes/", rt: "2026-08-20T19:58:56.918Z" },
       { id: "1319211777", day: "20260820", code: "1799", root: "17", gold: -7.4, tone: -6.1, mentions: 2, lat: 40.7834, lon: -73.9662, site: "port_nynj", url: "https://www.example-news.test/a-code-our-table-predates.html", rt: "2026-08-20T20:13:56.923Z" },
     ],
+  },
+  // ── UI coverage batch C (2026-11-20) ──────────────────────────────────────
+  // History behind three panels. Each fixture carries the case that can
+  // misrender: a week / day with no reading (must be a gap, never zero).
+  "/api/data/crop-conditions/history": {
+    kind: "raw", weeks: 52,
+    source: "USDA NASS QuickStats — weekly crop condition ratings (fixture)",
+    trend: [
+      { week_ending: "2026-09-20", corn: { EXCELLENT: 14, GOOD: 46, FAIR: 26, POOR: 10, "VERY POOR": 4 }, soybeans: { EXCELLENT: 12, GOOD: 48, FAIR: 27, POOR: 9, "VERY POOR": 4 } },
+      { week_ending: "2026-09-27", corn: { EXCELLENT: 13, GOOD: 45, FAIR: 27, POOR: 11, "VERY POOR": 4 }, soybeans: { EXCELLENT: 11, GOOD: 48, FAIR: 28, POOR: 9, "VERY POOR": 4 } },
+      { week_ending: "2026-10-04", corn: { EXCELLENT: 13, GOOD: 44, FAIR: 27, POOR: 11, "VERY POOR": 5 }, soybeans: { EXCELLENT: 11, GOOD: 47, FAIR: 28, POOR: 10, "VERY POOR": 4 } },
+      { week_ending: "2026-10-11", corn: { EXCELLENT: 13, GOOD: 44, FAIR: 26, POOR: 12, "VERY POOR": 5 }, soybeans: {} },
+      { week_ending: "2026-10-18", corn: { EXCELLENT: 13, GOOD: 43, FAIR: 27, POOR: 12, "VERY POOR": 5 }, soybeans: {} },
+    ],
+    note: "(fixture)",
+  },
+  "/api/data/appstore-rankings/history": {
+    kind: "raw", days: 30,
+    trend: [
+      { date: "2026-08-01", ranked_slots: 22, total_slots: 48, total_rating_count: 159313303 },
+      { date: "2026-08-02", ranked_slots: 21, total_slots: 48, total_rating_count: 159401220 },
+      { date: "2026-08-03", ranked_slots: 0, total_slots: 0, total_rating_count: null },
+      { date: "2026-08-04", ranked_slots: 20, total_slots: 48, total_rating_count: 159580771 },
+      { date: "2026-08-05", ranked_slots: 18, total_slots: 48, total_rating_count: 159660012 },
+    ],
+    note: "(fixture)",
+  },
+  "/api/data/github-activity/history": {
+    kind: "raw", weeks: 26,
+    trend: [
+      { weekStart: "2026-07-06", weekEnd: "2026-07-12", orgs_reporting: 14, total_merged_prs: 4870, total_commits: 5510 },
+      { weekStart: "2026-07-13", weekEnd: "2026-07-19", orgs_reporting: 15, total_merged_prs: 5012, total_commits: null },
+      { weekStart: "2026-07-20", weekEnd: "2026-07-26", orgs_reporting: 15, total_merged_prs: 5118, total_commits: 5834 },
+      { weekStart: "2026-07-27", weekEnd: "2026-08-02", orgs_reporting: 15, total_merged_prs: 5240, total_commits: 6010 },
+    ],
+    note: "(fixture)",
+  },
+  // Plants under NWS warnings: one warning with more plants than the list
+  // opens on (the "show the other N" control), a plant with no stated
+  // capacity (server writes 0), and one warning with no end time.
+  "/api/data/plants-under-alerts": {
+    kind: "raw", as_of: Date.now() - 4 * 60000,
+    alerts_checked: 10, zone_only_excluded: 421, plants_checked: 14428, alerts_with_plants: 2,
+    alerts: [
+      {
+        id: "urn:fixture:1", event: "Flood Warning", severity: "Severe", area: "Brevard, FL", ends: new Date(Date.now() + 95 * 60000).toISOString(),
+        plants: [
+          { name: "Cape Canaveral", fuel: "gas", capacity_mw: 1295, operator: "Florida Power & Light Co" },
+          { name: "Oleander Power Project LP", fuel: "gas", capacity_mw: 994.4, operator: "Oleander Holdings LLC" },
+          { name: "Indian River", fuel: "gas", capacity_mw: 609, operator: "Orlando Utilities Comm" },
+          { name: "Indian River Plant", fuel: "gas", capacity_mw: 342.8, operator: "Orlando Utilities Comm" },
+          { name: "Discovery Solar Center", fuel: "solar", capacity_mw: 74.5, operator: "Florida Power & Light Co" },
+          { name: "Space Coast Next Gen Solar Energy", fuel: "solar", capacity_mw: 10, operator: "Florida Power & Light Co" },
+          { name: "Brevard", fuel: "other", capacity_mw: 9.6, operator: "Brevard Energy  LLC" },
+          { name: "Fixture Landfill Gas", fuel: "other", capacity_mw: 4.8, operator: null },
+          { name: "Fixture Rooftop Solar One", fuel: "solar", capacity_mw: 1.2, operator: "Fixture Solar LLC" },
+          { name: "Fixture Unrated Unit", fuel: "oil", capacity_mw: 0, operator: "Fixture Municipal Utility" },
+        ],
+        plant_count: 10, total_capacity_mw: 3341, capacity_by_fuel: { gas: 3241.2000000000003, solar: 85.7, other: 14.399999999999999, oil: 0 },
+      },
+      {
+        id: "urn:fixture:2", event: "Flood Warning", severity: "Severe", area: "Seminole, FL", ends: null,
+        plants: [
+          { name: "Sanford", fuel: "gas", capacity_mw: 2377.8, operator: "Florida Power & Light Co" },
+          { name: "DeBary", fuel: "oil", capacity_mw: 748, operator: "Duke Energy Florida  LLC" },
+        ],
+        plant_count: 2, total_capacity_mw: 3126, capacity_by_fuel: { gas: 2377.8, oil: 748 },
+      },
+    ],
+    note: "RAW cross-tie (fixture)",
+    source: "NWS api.weather.gov active warnings (public domain) × WRI Global Power Plant DB (CC BY 4.0) (fixture)",
+  },
+  // Rail carloads: a commodity with no prior week (the change is a dash).
+  "/api/data/rail-traffic": {
+    kind: "raw", predictive: false,
+    source: "STB EP724 consolidated rail service data (public domain) (fixture)",
+    attribution: "Surface Transportation Board (EP 724 rail service data)",
+    archiveBuiltAt: "2026-11-02T13:39:52.923615+00:00",
+    latestWeek: "2026-10-28", priorWeek: "2026-10-21", weeksArchived: 501, railroadsReporting: 6,
+    systemLatestWeekCarloads: 741292, systemIntermodalLatestWeekCarloads: 372100, systemNonIntermodalLatestWeekCarloads: 369192,
+    commodities: [
+      { variable: "Containers", latestWeekCarloads: 362683, priorWeekCarloads: 361708, weekOverWeekDeltaPct: 0.3, isIntermodal: true },
+      { variable: "Coal", latestWeekCarloads: 70695, priorWeekCarloads: 70042, weekOverWeekDeltaPct: 0.9, isIntermodal: false },
+      { variable: "Non Metallic Minerals", latestWeekCarloads: 3805, priorWeekCarloads: 4425, weekOverWeekDeltaPct: -14, isIntermodal: false },
+      { variable: "Farm Products except Grain", latestWeekCarloads: 1315, priorWeekCarloads: null, weekOverWeekDeltaPct: null, isIntermodal: false },
+    ],
+    railroads: [
+      { railroad: "BNSF", latestWeekCarloads: 205978 }, { railroad: "UP", latestWeekCarloads: 178728 },
+      { railroad: "NS", latestWeekCarloads: 144281 }, { railroad: "CSX", latestWeekCarloads: 135944 },
+      { railroad: "CN", latestWeekCarloads: 46333 }, { railroad: "CPKC", latestWeekCarloads: 30028 },
+    ],
+    note: "GATE 1 (data) PASSED 2026-09-27. GATE 2 (signal) REJECTED 2026-09-28. Shown here as RAW, self-reported weekly carload counts only, no predictive claim. (fixture)",
   },
   // App Store rankings — consumer-app watchlist (2026-08-05, RAW display).
   "/api/data/appstore-rankings": {
@@ -3957,6 +4054,111 @@ async function main() {
         if (l2.length !== 3) fail(`a filter left ${l2.length} day lines, expected 3`);
         if (l2.some((l) => !/matching rows?$|no rows match the filter$/.test(l.rows))) fail(`under a filter the day lines read "${l2.map((l) => l.rows).join(" | ")}"`);
         await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-opened.png`) });
+      }
+      // ── UI COVERAGE BATCH C (2026-11-20): the history charts on three
+      // panels and the two new panels. Each check reads the rendered words
+      // against the fixture: a missing reading is a stated gap, never a zero.
+      if (["cropconditions", "appstorerankings", "githubactivity"].includes(name)) {
+        const fail = (m) => checks.failures.push("history charts: " + m);
+        await page.waitForSelector("[data-vt-hist]", { timeout: 8000 }).catch(() => {});
+        const cards = await page.$$eval("[data-vt-hist]", (els) => els.map((e) => ({
+          title: e.querySelector(".vt-hist-title")?.textContent || "",
+          last: e.querySelector("[data-vt-hist-last]")?.textContent || "",
+          count: e.querySelector("[data-vt-hist-count]")?.textContent || "",
+          paths: e.querySelectorAll("svg path").length,
+          empty: !!e.querySelector("[data-vt-hist-empty]"),
+          w: e.getBoundingClientRect().width, sw: e.scrollWidth, cw: e.clientWidth,
+        })));
+        const want = {
+          cropconditions: [
+            { title: "Corn", last: "56% · 2026-10-18", count: "5 weeks", paths: 1 },
+            { title: "Soybeans", last: "58% · 2026-10-04", count: "3 weeks · 2 with no reading, left as gaps", paths: 1 },
+          ],
+          appstorerankings: [
+            { title: "Chart slots with a watchlist app ranked", last: "38% · 2026-08-05", count: "4 days · 1 with no reading, left as gaps", paths: 2 },
+            { title: "Total US rating count, all watchlist apps", last: "159.7M · 2026-08-05", count: "4 days · 1 with no reading, left as gaps", paths: 2 },
+          ],
+          githubactivity: [
+            { title: "Merged pull requests", last: "5,240 · 2026-07-27", count: "4 weeks", paths: 1 },
+            { title: "Commits", last: "6,010 · 2026-07-27", count: "3 weeks · 1 with no reading, left as gaps", paths: 1 },
+          ],
+        }[name];
+        if (cards.length !== want.length) fail(`${cards.length} charts rendered, expected ${want.length}`);
+        want.forEach((w, i) => {
+          const c = cards[i]; if (!c) return;
+          for (const k of ["title", "last", "count", "paths"]) if (c[k] !== w[k]) fail(`chart ${i + 1} ${k} reads "${c[k]}", expected "${w[k]}"`);
+          if (c.empty) fail(`chart ${i + 1} shows the not-enough-history sentence`);
+          if (c.sw > c.cw + 1) fail(`chart ${i + 1} overflows its card (${c.sw} > ${c.cw})`);
+        });
+        if (name === "githubactivity") {
+          const note = await page.$$eval(".vt-hist-note", (els) => els.map((e) => e.textContent));
+          if (!note.every((t) => /15 in the newest\); 1 week in this window had a different count/.test(t || ""))) fail(`coverage note reads "${note[0]}"`);
+        }
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-history.png`), fullPage: true });
+      }
+      if (name === "plantsunderalerts") {
+        const fail = (m) => checks.failures.push("plants under alerts: " + m);
+        await page.waitForSelector("[data-vt-pua-alert]", { timeout: 8000 }).catch(() => {});
+        const blocks = page.locator("[data-vt-pua-alert]");
+        if ((await blocks.count()) !== 2) fail(`${await blocks.count()} warnings rendered, expected 2`);
+        else {
+          const age = await page.locator("[data-vt-pua-age]").innerText();
+          if (!/^warnings read [45] min ago$/.test(age)) fail(`age reads "${age}"`);
+          const scope = await page.locator("[data-vt-pua-scope]").innerText();
+          if (!/10 warnings with a polygon checked against 14,428 US plants · 2 cover at least one plant · 421 alerts are issued for a forecast zone with no polygon and could not be checked/.test(scope)) fail(`scope line reads "${scope}"`);
+          const sum = await blocks.nth(0).locator("[data-vt-pua-sum]").innerText();
+          if (sum !== "10 plants inside the polygon · 3,341 MW nameplate · gas 3,241 MW · solar 85.7 MW · other 14.4 MW") fail(`first summary reads "${sum}"`);
+          const meta = await blocks.nth(0).locator(".vt-pua-alert-meta").innerText();
+          if (!/^Severe · ends in 1 h 3[45] min$/.test(meta)) fail(`first warning's end reads "${meta}"`);
+          const meta2 = await blocks.nth(1).locator(".vt-pua-alert-meta").innerText();
+          if (meta2 !== "Severe · no end time stated") fail(`second warning's end reads "${meta2}"`);
+          const rows = () => blocks.nth(0).locator("tbody tr").count();
+          if ((await rows()) !== 8) fail(`first warning opens on ${await rows()} plants, expected 8`);
+          const more = blocks.nth(0).locator("[data-vt-pua-more]");
+          if ((await more.innerText()) !== "Show the other 2 plants (smaller)") fail(`more control reads "${await more.innerText()}"`);
+          const box = await more.boundingBox();
+          if (box && box.height < 44) fail(`more control is ${box.height}px tall`);
+          await more.click();
+          if ((await rows()) !== 10) fail(`after opening, ${await rows()} plants, expected 10`);
+          const lastCap = await blocks.nth(0).locator("tbody tr").nth(9).locator("td").nth(3).innerText();
+          if (!/not stated/.test(lastCap)) fail(`a plant with no stated capacity reads "${lastCap}"`);
+          const wraps = await page.$$eval(".vt-tablewrap-flow", (els) => els.map((e) => ({ sh: e.scrollHeight, ch: e.clientHeight })));
+          if (wraps.some((w) => w.sh > w.ch + 1)) fail(`a plant table is clipped vertically: ${JSON.stringify(wraps)}`);
+          if (vp.w < 640) {
+            const lbl = await blocks.nth(0).locator("tbody tr td:last-child").first().evaluate((td) => getComputedStyle(td, "::before").content);
+            if (!/Nameplate capacity/.test(lbl)) fail(`on a phone the capacity cell's label reads ${lbl}`);
+          }
+          if ((await blocks.nth(1).locator("[data-vt-pua-more]").count()) !== 0) fail("a two-plant warning offers a more control");
+          await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-opened.png`), fullPage: true });
+        }
+      }
+      if (name === "railtraffic") {
+        const fail = (m) => checks.failures.push("rail carloads: " + m);
+        await page.waitForSelector("[data-vt-rail-commodities]", { timeout: 8000 }).catch(() => {});
+        const total = await page.locator("[data-vt-rail-total]").innerText().catch(() => "");
+        if (total !== "741,292") fail(`system total reads "${total}"`);
+        const age = await page.locator("[data-vt-rail-age]").innerText().catch(() => "");
+        if (!/^Newest week in our archive: 2026-10-28 \(\d+ weeks? ago\) · archive rebuilt 2026-11-02 · 501 weeks held · 6 railroads reported this week\. The archive is rebuilt/.test(age)) fail(`age line reads "${age}"`);
+        const cells = await page.$$eval("[data-vt-rail-commodities] tbody tr", (trs) => trs.map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent)));
+        if (cells.length !== 4) fail(`${cells.length} commodity rows, expected 4`);
+        else {
+          if (cells[0][0] !== "Containers (intermodal)" || cells[0][3] !== "+0.3%") fail(`first row reads "${cells[0].join(" | ")}"`);
+          if (cells[2][3] !== "-14.0%") fail(`a fall reads "${cells[2][3]}"`);
+          if (cells[3][2] !== "—" || cells[3][3] !== "—") fail(`a commodity with no prior week reads "${cells[3].join(" | ")}"`);
+        }
+        // two tables on one panel: neither may be squeezed into a scroll box
+        // (first run, 390px: each showed one row), and on a phone the last
+        // cell keeps its label
+        const wraps = await page.$$eval(".vt-tablewrap-flow", (els) => els.map((e) => ({ sh: e.scrollHeight, ch: e.clientHeight })));
+        if (wraps.length !== 2 || wraps.some((w) => w.sh > w.ch + 1)) fail(`a table is clipped vertically: ${JSON.stringify(wraps)}`);
+        if (vp.w < 640) {
+          const lbl = await page.$eval("[data-vt-rail-commodities] tbody tr td:last-child", (td) => getComputedStyle(td, "::before").content);
+          if (!/Change/.test(lbl)) fail(`on a phone the change cell's label reads ${lbl}`);
+        }
+        const rr = await page.locator("[data-vt-rail-railroads] tbody tr").count();
+        if (rr !== 6) fail(`${rr} railroad rows, expected 6`);
+        const txt = await page.evaluate(() => document.body.innerText);
+        if (!/GATE 2 \(signal\) REJECTED/.test(txt)) fail("the rejected signal test is not stated on the page");
       }
       if (name === "forecastexpired") {
         const fail = (m) => checks.failures.push("session-expired: " + m);
