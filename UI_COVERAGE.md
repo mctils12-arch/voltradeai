@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 265 | 4 | 15 | 27 | 11 |
+| HTTP routes | 267 | 2 | 15 | 27 | 11 |
 | Diagnostic probes (token-gated) | 33 | 14 | 6 | 10 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -52,15 +52,13 @@ layers are not listed one by one here.
 | probe | `source_validation` | `server/bot.ts /api/diag/source_validation` | Per-source validation of the scoring inputs. No UI. Placement: the Brain page's signal table (a 'validated' column). |
 | probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel. |
 
-## Partial (22)
+## Partial (20)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
-| route | `GET /api/data/archive/offload-status` | `server/archiveOffload.ts` | Archive off-site copy status. The Data quality panel shows archive growth, not the off-site copy. Placement: one row in the Data quality panel. |
-| route | `GET /api/data/archive/stats` | `server/routes.ts` | Archive row counts and sizes. The Data quality panel shows growth for some archives. Placement: complete that panel from this route. |
 | route | `GET /api/data/query` | `server/routes.ts` | The query engine (console W4). The analyst pane uses it on the server; there is no direct query box. Placement: none proposed until the analyst pane's use shows a need. |
 | route | `GET /api/data/satellites` | `server/routes.ts` | Server-side satellite catalog (relay-gated: CelesTrak blocks Railway). The map reads CelesTrak from the browser instead. Nothing to place until the relay decision. |
-| probe | `archive` | `server/bot.ts /api/diag/archive` | Archive health per stream. The Data quality panel shows growth for some archives. Placement: complete that panel (see /api/data/archive/stats). |
+| probe | `archive` | `server/bot.ts /api/diag/archive` | Archive health per stream. Since 2026-11-20 the Data quality panel lists every archive's files, size, first and newest file (/api/data/archive/stats) and the off-site copy (/api/data/archive/offload-status). What this probe reports beyond those two routes has not been compared field by field; do that before placing anything more. |
 | probe | `shadowfleet_gate1` | `server/bot.ts /api/diag/shadowfleet_gate1` | gate result; the Signal strength panel shows each root's ladder position, not the gate's numbers. Placement: expandable evidence row in Signal strength. |
 | probe | `fdic_gate2` | `server/bot.ts /api/diag/fdic_gate2` | as above |
 | probe | `insider_cusum_gate2` | `server/bot.ts /api/diag/insider_cusum_gate2` | as above |
@@ -137,13 +135,14 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (304)
+## Surfaced (306)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
 | route | `GET /tiles/aero/:chart/:z/:x/:y` | `server/aeroCharts.ts` | a page calls it |
 | route | `GET /api/data/aero/status` | `server/aeroCharts.ts` | a page calls it |
 | route | `GET /api/data/aircraft/find` | `server/aircraftFind.ts` | a page calls it |
+| route | `GET /api/data/archive/offload-status` | `server/archiveOffload.ts` | a page calls it |
 | route | `POST /api/auth/login` | `server/auth.ts` | a page calls it |
 | route | `POST /api/auth/register` | `server/auth.ts` | a page calls it |
 | route | `POST /api/auth/logout` | `server/auth.ts` | a page calls it |
@@ -219,6 +218,7 @@ layers are not listed one by one here.
 | route | `GET /api/data/track/:kind/:id` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/aircraft/window` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/aircraft/trips/:hex` | `server/routes.ts` | a page calls it |
+| route | `GET /api/data/archive/stats` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/fires-near-facilities` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/plants-near-rivergauges` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/plants-under-alerts` | `server/routes.ts` | a page calls it |

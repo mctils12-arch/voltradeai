@@ -1012,6 +1012,50 @@ const PAGES = {
   // completeness ledger: one day of each status. A function, so the last run
   // is always 2 h 10 min before the page reads it.
   quality: { route: "/app#/data/quality", map: false, fixtures: {
+    // Archive files + off-site copy (batch C, second part): 14 archives so
+    // the "show all" control exists; one whose newest file is 18 days old
+    // (the fires stall of 2026-11-20), one dated ahead, one with a marker
+    // file as its oldest name, one moved off-site whole. Dates are relative
+    // to the run so the ages never drift.
+    "/api/data/archive/stats": () => {
+      const day = (back) => new Date(Date.now() - back * 86400_000).toISOString().slice(0, 10);
+      const k = (files, bytes, oldest, newest) => ({ files, bytes, oldest, newest });
+      return { base: "/data/voltrade/datacore_archive", totalBytes: 2012622084, kinds: {
+        dtccswaps: k(93, 514568833, "2026-08-23.jsonl.gz", `${day(0)}.jsonl.gz`),
+        vessels: k(187, 348035232, `${day(7)}-00.jsonl.gz`, `${day(0)}-18.jsonl`),
+        aircraft: k(523, 272372657, `${day(21)}-00.jsonl.gz`, `${day(0)}-18.jsonl`),
+        secmidas: k(5, 149626356, "2025q2.jsonl.gz", "2026q2.jsonl.gz"),
+        finrashortvol: k(612, 105016630, "2024-06-17.jsonl.gz", `${day(1)}.jsonl`),
+        optionchains: k(99, 96581068, ".last_run_day", `${day(1)}.jsonl`),
+        flight_plan_versions: k(92, 77530701, `${day(4)}-23.jsonl.gz`, `${day(0)}-18.jsonl`),
+        buoys: k(32, 50091491, `${day(31)}.jsonl.gz`, `${day(0)}.jsonl`),
+        filings13f: k(125, 45158310, "2026-07-05.jsonl.gz", `${day(0)}.jsonl`),
+        fires: k(14, 15478920, `${day(31)}.jsonl.gz`, `${day(18)}.jsonl.gz`),
+        eudayaheadprices: k(121, 986441, "2026-07-25.jsonl.gz", `${day(-2)}.jsonl`),
+        aircraft_tracked: k(3, 755590, "A2605B/2026-11.jsonl", "ABDB6B/2026-11.jsonl"),
+        cropconditions: k(17, 3841, "2026-07-06.jsonl.gz", "2026-10-26.jsonl.gz"),
+        aircraft_tracks: k(0, 0, null, null),
+      } };
+    },
+    "/api/data/archive/offload-status": () => ({
+      configured: true, retentionDays: 30, oldestReplayableDate: "2026-10-21",
+      lastRun: new Date(Date.now() - 9 * 60_000).toISOString(),
+      lastRunSummary: { uploaded: 2, uploadFailed: 0, pending: 0, permanent: { uploaded: 0, uploadFailed: 0, pendingUploads: 0 } },
+      lastError: null, lastErrorAt: null,
+      tiers: { r2: { bytes: 1686760740, objects: 1386, byKind: {
+        aircraft: { objects: 690, bytes: 318328602, oldestDate: "2026-10-21", newestDate: "2026-11-18" },
+        vessels: { objects: 690, bytes: 1368429871, oldestDate: "2026-10-21", newestDate: "2026-11-18" },
+      } } },
+      volume: { freeBytes: 1878728704, hotTierTargetFreeBytes: 2147483648, underPressure: true },
+      permanentTier: {
+        enabled: true, r2Objects: 1197, r2Bytes: 1541902410, conflicts: [], missing: [],
+        lastReconcile: new Date(Date.now() - 219 * 60_000).toISOString(),
+        byStream: {
+          aircraft_tracks: { r2Objects: 119, r2Bytes: 202020693, localFiles: 0, oldestDate: "2026-07-03", newestDate: "2026-10-29" },
+          fires: { r2Objects: 116, r2Bytes: 203889327, localFiles: 14, oldestDate: "2026-07-04", newestDate: "2026-11-02" },
+        },
+      },
+    }),
     "/api/data/fires/completeness": () => ({
       kind: "raw", enabled: true, job: "fires_completeness_daily",
       last_run_at: new Date(Date.now() - 130 * 60_000).toISOString(),
@@ -4180,6 +4224,55 @@ async function main() {
         else want.forEach((re, i) => { if (!re.test(lines[i] || "")) fail(`sentence ${i + 1} reads "${lines[i]}"`); });
         const over = await page.$eval("[data-vt-quality-checks]", (el) => el.scrollWidth > el.clientWidth + 1).catch(() => false);
         if (over) fail("the section scrolls sideways");
+        // archive files + off-site copy (batch C, second part)
+        const fa = (m) => checks.failures.push("data quality, archive files: " + m);
+        await page.waitForSelector("[data-vt-quality-files] tbody tr", { timeout: 8000 }).catch(() => {});
+        const rowsOf = () => page.$$eval("[data-vt-quality-files] tbody tr", (trs) => trs.map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent)));
+        let ar = await rowsOf();
+        if (ar.length !== 12) fa(`${ar.length} archives listed before "show all", expected 12`);
+        else {
+          if (ar[0][0] !== "dtccswaps" || ar[0][2] !== "514.6 MB" || !/\(today\)$/.test(ar[0][4])) fa(`the largest archive reads "${ar[0].join(" | ")}"`);
+          const fires = ar.find((r) => r[0] === "fires");
+          if (!fires || !/\(18 d ago\)$/.test(fires[4]) || !/^116 day files kept for good, 2026-07-04 to 2026-11-02$/.test(fires[5])) fa(`the archive whose newest file is 18 days old reads "${(fires || []).join(" | ")}"`);
+          const oc = ar.find((r) => r[0] === "optionchains");
+          if (!oc || oc[3] !== "—") fa(`a marker file is shown as a first file: "${(oc || []).join(" | ")}"`);
+          const ac = ar.find((r) => r[0] === "aircraft");
+          if (!ac || ac[5] !== "690 files in the replay window, 2026-10-21 to 2026-11-18") fa(`the replay-window copy reads "${(ac || [])[5]}"`);
+        }
+        const moreA = page.locator("[data-vt-archive-more]");
+        if ((await moreA.innerText().catch(() => "")) !== "Show all 14 archives") fa(`the show-all control reads "${await moreA.innerText().catch(() => "")}"`);
+        const mb = await moreA.boundingBox().catch(() => null);
+        if (mb && mb.height < 44) fa(`the show-all control is ${mb.height}px tall`);
+        await moreA.click().catch(() => {});
+        ar = await rowsOf();
+        if (ar.length !== 14) fa(`${ar.length} archives after "show all", expected 14`);
+        else {
+          const ahead = ar.find((r) => r[0] === "eudayaheadprices");
+          if (!ahead || !/\(dated ahead\)$/.test(ahead[4])) fa(`a day-ahead file reads "${(ahead || [])[4]}"`);
+          const last = ar[13];
+          if (last[0] !== "aircraft_tracks" || last[1] !== "0" || last[2] !== "—" || last[4] !== "—" || last[5] !== "119 day files kept for good, 2026-07-03 to 2026-10-29") fa(`an archive moved off-site whole reads "${last.join(" | ")}"`);
+          const tracked = ar.find((r) => r[0] === "aircraft_tracked");
+          if (!tracked || tracked[4] !== "2026-11") fa(`a per-month file reads "${(tracked || [])[4]}"`);
+        }
+        const wrapsA = await page.$$eval("[data-vt-quality-files] .vt-tablewrap-flow", (els) => els.map((e) => ({ sh: e.scrollHeight, ch: e.clientHeight })));
+        if (wrapsA.some((w) => w.sh > w.ch + 1)) fa(`the table is clipped vertically: ${JSON.stringify(wrapsA)}`);
+        if (vp.w < 640) {
+          const lbl = await page.$eval("[data-vt-quality-files] tbody tr td:last-child", (td) => getComputedStyle(td, "::before").content).catch(() => "");
+          if (!/Off-site/.test(lbl)) fa(`on a phone the off-site cell's label reads ${lbl}`);
+        }
+        const off = await page.$$eval("[data-vt-quality-offsite] li", (els) => els.map((e) => e.textContent));
+        const wantOff = [
+          /^Last copy run (9|10) min ago: 2 files copied, 0 failed, 0 waiting\.$/,
+          /^Held off-site: 3\.2 GB in 2,583 files\. 1\.5 GB is day files that are never deleted; 1\.7 GB is the last 30 days of hourly position logs, replayable from 2026-10-21\.$/,
+          /^Compared with the off-site listing 3 h (39|40) min ago: 0 files differ from the copy, 0 missing off-site\.$/,
+          /^The volume has 1\.9 GB free; the server aims to keep 2\.1 GB free\. It is under that target, so days already verified off-site are removed from the volume first\.$/,
+        ];
+        if (off.length !== wantOff.length) fa(`${off.length} off-site sentences, expected ${wantOff.length}: ${JSON.stringify(off)}`);
+        else wantOff.forEach((re, i) => { if (!re.test(off[i] || "")) fa(`off-site sentence ${i + 1} reads "${off[i]}"`); });
+        await page.locator("[data-vt-quality-files]").scrollIntoViewIfNeeded().catch(() => {});
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-files.png`) });
+        await page.locator("[data-vt-quality-offsite]").scrollIntoViewIfNeeded().catch(() => {});
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-offsite.png`) });
         await page.locator("[data-vt-quality-checks]").scrollIntoViewIfNeeded().catch(() => {});
         await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-checks.png`) });
       }
