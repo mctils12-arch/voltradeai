@@ -123,6 +123,7 @@ import {
 } from "@/lib/air/trackModel";
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { usePlannedRoute } from "@/components/PlannedRoute";
+import { usePlanChanges } from "@/components/PlanChanges";
 import { useRunwayStatus } from "@/components/RunwayStatus";
 import { useFlightProcedures } from "@/components/FlightProcedures";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
@@ -4480,6 +4481,12 @@ export default function DataMapPage() {
     const sc = selectedCallsignRef.current;
     return sc && hexLc && sc.id === hexLc ? sc.callsign : null;
   };
+  // PLAN CHANGES (2026-11-20, UI coverage batch B): how the selected aircraft's FILED plan changed — versions,
+  // changes, off-route stretches. Fetch, refresh, teardown and the row all live in components/PlanChanges.tsx.
+  const planChanges = usePlanChanges({
+    hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
+    getCallsign: () => selectedCallsignOf(selectedHexLc()),
+  });
   const plannedRoute = usePlannedRoute({
     mapRef, mapReady,
     hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
@@ -16652,6 +16659,9 @@ export default function DataMapPage() {
           {/* planned-route toggle + provenance (FILED/PREDICTED, route,
               deviation, plan age) — components/PlannedRoute.tsx */}
           {detail.kind === "aircraft" && plannedRoute.row}
+          {/* how the filed plan changed (versions, changes, off-route) — components/PlanChanges.tsx;
+              rendered only when there is a change to show */}
+          {detail.kind === "aircraft" && planChanges.row}
           {/* instrument procedures: filed DP/STAR, suggested approaches, CIFP
               path + georeferenced plate — components/FlightProcedures.tsx */}
           {detail.kind === "aircraft" && flightProcedures.row}
