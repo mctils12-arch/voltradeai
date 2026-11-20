@@ -209,7 +209,8 @@ import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
 // statically importable (tiny, pure) while the space frame itself stays a
 // lazy chunk; spaceFrame re-exports these same names for its tests.
 import { ZOOM_BUTTON_DELTAY, wheelDeltaForFactor, SEAM_ENTRY_DELTAY } from "@/lib/celestial/zoomSeam";
-import { bootBegin, mark as bbMark, bootComplete, shouldRunSafe, lastCrashReport, resetAll, heartbeat, closeCleanly } from "@/lib/blackbox";
+import { bootBegin, mark as bbMark, bootComplete, shouldRunSafe, lastCrashReport, resetAll, heartbeat, closeCleanly, armBoot } from "@/lib/blackbox";
+import { watchBootMarker } from "@/lib/bootWatch";
 // Celestial v2 B2 (2026-07-18): user-controlled scale for the space view —
 // pure mapping + persisted preference store (localStorage, the units.ts
 // pattern), statically importable for the LAYERS-panel CELESTIAL section
@@ -729,6 +730,26 @@ if (BOOT_REPORT.prevCrashed || BOOT_REPORT.prevEndedAbruptly) {
   try { window.localStorage.setItem("vt-last-crash-payload", payload); } catch { /* console below */ }
   // eslint-disable-next-line no-console
   console.error("[VT CRASH REPORT]", payload);
+}
+
+// WHO DISARMS THE MARKER (2026-11-19). This module is evaluated on EVERY page
+// of the site (App → pages/home → here), so bootBegin above arms the marker on
+// the landing page, on pricing and on the AI Engine page too — but until this
+// date only the mounted map disarmed it. A visit that never opened the map left
+// it armed, and the next visit started the map in reduced mode, told that "the
+// last visit ended during startup" (measured on production for all three
+// pages). The marker is a statement about a MAP start:
+//  · the page — whatever it shows — is watched by lib/bootWatch.ts: a graceful
+//    leave is not a crash, and a page that is hidden, or has lived the whole
+//    start-up window, with no map mounted stands down;
+//  · the map arms the marker again when it mounts (BOOT HEALTH effect in
+//    DataMapPage) and leaves nothing behind when it unmounts.
+/** Wall-clock start-up window: a map start that survives it is healthy; a page
+ *  that survives it with no map mounted stands down. */
+const BOOT_HEALTHY_MS = 20_000;
+let BOOT_MAP_MOUNTED = false;
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  watchBootMarker({ store: BOOT_STORE, mapMounted: () => BOOT_MAP_MOUNTED, windowMs: BOOT_HEALTHY_MS, win: window, doc: document });
 }
 
 const GL_LOSS_LOG_KEY = "vt-gl-loss-log";
@@ -2618,16 +2639,23 @@ export default function DataMapPage() {
   //  · the heartbeat records that a HEALTHY session was still alive N seconds in,
   //    so a late death (the reported OOM hit ~190s) is still reportable without
   //    triggering safe mode, which is only for start-up loops.
+  //  · the marker is armed exactly while a map is starting: this effect arms it
+  //    (a direct load already armed it at module evaluation; opening the map
+  //    from another page of the app arms it here), and leaving the map inside
+  //    the app is a navigation — no marker and no heartbeat are left behind to
+  //    accuse the next visit. pagehide is handled for every page (lib/bootWatch.ts).
   useEffect(() => {
-    const healthy = window.setTimeout(() => { bootComplete(BOOT_STORE); bmark("healthy"); }, 20_000);
+    BOOT_MAP_MOUNTED = true;
+    armBoot(BOOT_STORE, BOOT_STARTED_AT, BOOT_REPORT.bootId);
+    bmark("map-mount");
+    const healthy = window.setTimeout(() => { bootComplete(BOOT_STORE); bmark("healthy"); }, BOOT_HEALTHY_MS);
     const beat = window.setInterval(
       () => heartbeat(BOOT_STORE, Date.now() - BOOT_STARTED_AT, BOOT_LAST_STEP), 5_000);
-    const clean = () => closeCleanly(BOOT_STORE);   // a real navigation/close is not a crash
-    window.addEventListener("pagehide", clean);
     return () => {
       window.clearTimeout(healthy);
       window.clearInterval(beat);
-      window.removeEventListener("pagehide", clean);
+      BOOT_MAP_MOUNTED = false;
+      closeCleanly(BOOT_STORE);
     };
   }, []);
   // W1 always-on celestial sky: handle + readiness (the paths toggle effect
