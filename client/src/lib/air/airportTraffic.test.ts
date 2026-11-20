@@ -73,7 +73,10 @@ test("restrictions: a list of airports matches each of them, ALL matches none, a
 
 test("nothing for the airport is a sentence; rates of 0 are not given; a tower report without programs still shows", () => {
   const none = parseAirportTraffic(LIVE, "XYZ")!;
-  assert.equal(trafficHeadline(none, NOW), "No ground stop, delay program or restriction for XYZ in the FAA feed");
+  assert.equal(trafficHeadline(none, NOW), "Nothing for XYZ among the 12 programs and restrictions held from the FAA feed (the list restarts with the server)");
+  // one row held reads in the singular; an empty list says so with its number
+  assert.equal(trafficHeadline(parseAirportTraffic({ at: NOW, programs: [LIVE.programs[0]] }, "XYZ")!, NOW), "Nothing for XYZ among the 1 program and restriction held from the FAA feed (the list restarts with the server)");
+  assert.equal(trafficHeadline(parseAirportTraffic({ at: NOW, programs: [] }, "XYZ")!, NOW), "Nothing for XYZ among the 0 programs and restrictions held from the FAA feed (the list restarts with the server)");
   assert.equal(configLine(none, NOW), null);
   const atl = parseAirportTraffic(LIVE, "ATL")!;
   assert.equal(configLine(atl, NOW), "Arriving 08L/09R/10 · 132 arrivals an hour · visual conditions (VMC) · reported 21:58Z");
