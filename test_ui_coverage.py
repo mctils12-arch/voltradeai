@@ -113,3 +113,48 @@ def test_the_keyed_api_counts_as_surfaced_only_when_the_catalog_lists_it(tmp_pat
     )
     by = {r[1]: r[3] for r in uc.build(root)["rows"]}
     assert by["GET /api/v1/data/x"] == "surfaced" and by["GET /api/v1/data/y"] == "UNCLASSIFIED"
+
+
+def test_a_route_is_not_called_by_a_page_that_reads_a_longer_path(tmp_path):
+    """2026-11-20: "a page calls it" was a substring test, so a route whose path
+    starts another route's path was marked surfaced by the longer one
+    (/api/news by /api/newsletter/issues; /api/data/aircraft/track/:hex by
+    /api/data/aircraft/tracked). The match must end where the route's path ends."""
+    root = _tree(
+        tmp_path,
+        'app.get("/api/news", h);\n'
+        'app.get("/api/newsletter/issues", h);\n'
+        'app.get("/api/data/aircraft/track/:hex", h);\n'
+        'app.get("/api/data/aircraft/tracked", h);\n'
+        'app.get("/api/data/insider", h);\n'
+        'app.get("/api/data/insider/history", h);\n'
+        'app.get("/api/ticker-dossier/:symbol", h);\n'
+        'app.get("/api/bot/decisions", h);\n'
+        'app.get("/api/data/tiles/*", h);\n',
+        'fetch("/api/newsletter/issues"); fetch("/api/data/aircraft/tracked");\n'
+        'fetch("/api/data/insider/history"); fetch(`/api/ticker-dossier/${sym}`);\n'
+        'fetch("/api/bot/decisions?limit=200"); const t = "/api/data/tiles/" + z;\n',
+        {"routes": {}, "probes": {}, "strategies": {}},
+    )
+    b = uc.build(root)
+    status = {r[1]: r[3] for r in b["rows"] if r[0] == "route"}
+    # read by a page: an exact path, a fixed path with a query, a parameter's value after "/"
+    for key in ("GET /api/newsletter/issues", "GET /api/data/aircraft/tracked", "GET /api/data/insider/history",
+                "GET /api/ticker-dossier/:symbol", "GET /api/bot/decisions", "GET /api/data/tiles/*"):
+        assert status[key] == "surfaced", key
+    # NOT read by a page: only a longer path that starts the same way is
+    for key in ("GET /api/news", "GET /api/data/aircraft/track/:hex", "GET /api/data/insider"):
+        assert status[key] == "UNCLASSIFIED", key
+    assert sorted(b["unclassified"]) == ["GET /api/data/aircraft/track/:hex", "GET /api/data/insider", "GET /api/news"]
+
+
+def test_page_calls_ends_the_match_where_the_route_ends():
+    assert uc.page_calls("/api/bot/close", 'apiRequest("POST", "/api/bot/close")')
+    assert uc.page_calls("/api/bot/close", "fetch(`/api/bot/close`)")
+    assert not uc.page_calls("/api/bot/close", 'getJson("/api/bot/closed-lots?limit=200")')
+    assert not uc.page_calls("/api/bot/close", 'getJson("/api/bot/close/all")')
+    assert uc.page_calls("/api/x/:id", 'fetch("/api/x/" + id)')
+    assert uc.page_calls("/api/x/:id", 'queryKey: ["/api/x", id]')
+    assert not uc.page_calls("/api/x/:id", 'fetch("/api/xy/" + id)')
+    assert not uc.page_calls("/:anything", "whatever")
+
