@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 267 | 5 | 12 | 27 | 11 |
+| HTTP routes | 268 | 5 | 11 | 27 | 11 |
 | Diagnostic probes (token-gated) | 36 | 14 | 2 | 11 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -26,7 +26,7 @@ Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, th
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (14)
+## Missing: user-relevant, no UI yet (13)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -38,7 +38,6 @@ layers are not listed one by one here.
 | route | `GET /api/monitoring/tier-pnl` | `server/bot.ts` | as above (P&L by tier) |
 | route | `GET /api/monitoring/drawdown` | `server/bot.ts` | as above (drawdown from peak). The Overview shows the kill distance but not the drawdown path. |
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
-| route | `GET /api/data/aircraft/plan-history/:hex` | `server/flightPlanHistory.ts` | Flight-plan versions for a plane: every filed plan, amendment and off-route stretch. Built for the mobile app (contract section 9). The web card shows the current plan only (/api/data/aircraft/plan). Placement: a 'Plan changes' section on the flight card, beside the route. |
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | FAA SWIM feed: products received. No UI. Placement: one row per product in the Streams inventory. |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards. |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
@@ -132,7 +131,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (309)
+## Surfaced (310)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -188,6 +187,7 @@ layers are not listed one by one here.
 | route | `GET /api/bot/diagnostics` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/insight` | `server/bot.ts` | a page calls it |
 | route | `GET /api/data/fires/completeness` | `server/firesCompleteness.ts` | a page calls it |
+| route | `GET /api/data/aircraft/plan-history/:hex` | `server/flightPlanHistory.ts` | a page calls it |
 | route | `GET /api/data/aircraft/plan/:hex` | `server/flightPlans.ts` | a page calls it |
 | route | `GET /api/data/aircraft/global` | `server/globalAircraft.ts` | a page calls it |
 | route | `GET /api/data/aircraft/live/:hex` | `server/globalAircraft.ts` | a page calls it |

@@ -105,10 +105,6 @@
    "legacy",
    "duplicate of /api/ml/status, which the page reads. Removal candidate."
   ],
-  "GET /api/data/aircraft/plan-history/:hex": [
-   "missing",
-   "Flight-plan versions for a plane: every filed plan, amendment and off-route stretch. Built for the mobile app (contract section 9). The web card shows the current plan only (/api/data/aircraft/plan). Placement: a 'Plan changes' section on the flight card, beside the route."
-  ],
   "GET /api/data/aircraft/plan-status": [
    "plumbing",
    "flight-plan pipeline status; belongs in Pipeline health if anywhere"

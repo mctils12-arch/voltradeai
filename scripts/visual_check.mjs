@@ -7473,6 +7473,77 @@ async function main() {
     const FIELDS = ["hex", "lon", "lat", "altFt", "gsKt", "trk", "callsign", "type", "seenAt", "cat", "gnd", "reg", "src"];
     const json = (route, body) => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
     let liveCalls = 0;
+    const planHistCalls = [];
+    const PH_T = Date.now() - 40 * 60_000;
+    const phGeo = (changed, nm) => ({ changed, firstDifferingLeg: null, maxLateralNm: nm, lateralEstimated: false, note: null });
+    const planHistoryFx = (hex) => ({
+      hex, callsign: "GLD" + hex.slice(-1), kind: "raw", source: "FILED_FAA", label: "FILED — 4 versions of the FAA SWIM flight plan KSFO→KSNA",
+      honesty: "Flight plan versions from FAA SWIM SFDPS, matched to this aircraft by callsign.",
+      plan: { planFirstSeenMs: PH_T - 600_000, originalAsFiled: false, originalIsFirstSeen: true, originalNote: "first seen", versionsReturned: 4, versionsMissing: 0, ended: false },
+      original: { version: 1, departure: "KSFO", arrival: "KSNA", cruiseAltFt: 33000 }, current: { version: 4, departure: "KSFO", arrival: "KSNA", cruiseAltFt: 29000 },
+      versions: [{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }],
+      amendments: [
+        { version: 2, fromVersion: 1, at: PH_T + 7 * 60_000, atBasis: "SWIM_MESSAGE_TIME", detail: "route text changed", kinds: ["ROUTE_TEXT_ONLY"], change: { kinds: ["ROUTE_TEXT_ONLY"], fixesAdded: [], fixesRemoved: [], destination: null, cruiseAltFt: null, directTo: null, geometry: phGeo(false, 0) }, spansMissingVersions: false, position: null, positionReason: "the nearest ADS-B fix is 1998 s from that time (tolerance 30 s)" },
+        { version: 3, fromVersion: 2, at: PH_T + 20 * 60_000, atBasis: "SWIM_MESSAGE_TIME", detail: "cruise 33000→29000 ft", kinds: ["ALTITUDE_CHANGE"], change: { kinds: ["ALTITUDE_CHANGE"], fixesAdded: [], fixesRemoved: [], destination: null, cruiseAltFt: { from: 33000, to: 29000, deltaFt: -4000 }, directTo: null, geometry: phGeo(false, null) }, spansMissingVersions: false, position: { lat: 36.1, lon: -120.4, altFt: 33000, method: "NEAREST", interpolated: false, fixTimeMs: PH_T + 20 * 60_000 - 9000, gapSec: 9, between: null }, positionReason: null },
+        { version: 4, fromVersion: 3, at: PH_T + 28 * 60_000, atBasis: "OUR_RECEIVE_TIME", detail: "route changed", kinds: ["REROUTE", "FIXES_REMOVED", "DIRECT_TO"], change: { kinds: ["REROUTE", "FIXES_REMOVED", "DIRECT_TO"], fixesAdded: [], fixesRemoved: ["ZIPRR", "WURLL"], destination: null, cruiseAltFt: null, directTo: { fix: "TCUPS" }, geometry: phGeo(true, 12.4) }, spansMissingVersions: false, position: null, positionReason: "no fix near that time" },
+      ],
+      restatements: [], offRoute: { assessed: true, reason: null, fixesJudged: 41, episodes: [] }, generatedAt: Date.now(),
+    });
+    const phZ = (ms) => new Date(ms).toISOString().slice(11, 16) + "Z";
+    // The flight card's Plan changes row at the current viewport: the headline quotes the newest change; opened, one
+    // line per change (newest first) with its Zulu time, plain words, the route's sideways move through the unit
+    // setting (12.4 nm = 14 mi, imperial default) and the position note; the list scrolls inside the card; nothing
+    // leaves the window or the card; the control is 44 px on a phone. `expect` false = the row must be absent.
+    const checkPlanChanges = async (hex, expect) => {
+      const fail = (m) => pgFailures.push(`plan changes ${hex} @${page.viewportSize().width}px: ${m}`);
+      const row = page.locator('[data-testid="plan-changes-row"]');
+      if (!expect) {
+        await page.waitForTimeout(1500);
+        if (await row.count()) fail("a row is shown for an aircraft with no FAA-filed plan (it must be absent, never an empty box)");
+        return;
+      }
+      for (let i = 0; i < 50 && !(await row.count()); i++) await page.waitForTimeout(100);
+      if (!(await row.count())) { fail("no Plan changes row on the flight card"); return; }
+      const read = () => page.evaluate(() => {
+        const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+        const r = document.querySelector('[data-testid="plan-changes-row"]');
+        const btn = r.querySelector("[data-vt-plan-changes-toggle]");
+        const rb = r.getBoundingClientRect(), bb = btn.getBoundingClientRect();
+        const list = r.querySelector("[data-vt-plan-changes-list]");
+        const card = r.closest(".vt-site-card") || r.parentElement;
+        const cb = card.getBoundingClientRect();
+        return { headline: txt(r.querySelector("[data-vt-plan-changes-headline]")), open: r.getAttribute("data-open") === "true", btnH: Math.round(bb.height),
+          right: Math.round(rb.right - window.innerWidth), outOfCard: Math.round(rb.right - cb.right),
+          items: list ? [...list.querySelectorAll("[data-vt-plan-change]")].map(txt) : [], listText: txt(list), listScrolls: list ? getComputedStyle(list).overflowY : null,
+          listH: list ? Math.round(list.getBoundingClientRect().height) : 0, pageOver: Math.max(0, document.documentElement.scrollWidth - window.innerWidth) };
+      });
+      const want3 = `direct to TCUPS · dropped ZIPRR, WURLL`;
+      let r = await read();
+      if (r.headline.split("No off-route")[0].trim() !== `4 plan versions · 3 changes · latest ${phZ(PH_T + 28 * 60_000)}: ${want3}`) fail(`the headline reads "${r.headline}"`);
+      if (!/No off-route stretch in the 41 positions we hold for this flight\./.test(r.headline)) fail(`the closed row lacks its off-route line: "${r.headline}"`);
+      if (r.right > 1 || r.outOfCard > 1) fail(`the row leaves the ${r.right > 1 ? "window" : "card"} by ${Math.max(r.right, r.outOfCard)}px`);
+      const covered = await page.evaluate(() => { const b = document.querySelector("[data-vt-plan-changes-toggle]"); const q = b.getBoundingClientRect(); const top = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2); return top && !b.contains(top) && !top.contains(b) ? (top.className || top.tagName).toString().slice(0, 60) : null; });
+      if (covered) fail(`the Plan changes control is covered by another element (${covered})`);
+      if (page.viewportSize().width < 640 && r.btnH < 44) fail(`the control is ${r.btnH}px tall on a phone (44)`);
+      const tgl = page.locator("[data-vt-plan-changes-toggle]");
+      await tgl.scrollIntoViewIfNeeded(); await tgl.click(); await page.waitForTimeout(250);
+      r = await read();
+      if (!r.open || r.items.length !== 3) fail(`opened, the list has ${r.items.length} changes (3 served)`);
+      // each row is two grid cells (time | words): their text joins with no space between
+      const want = [
+        `${phZ(PH_T + 28 * 60_000)}*${want3} · route moved up to 14 mi · v3→v4 · aircraft position at that moment not known`,
+        `${phZ(PH_T + 20 * 60_000)}cruise FL330 → FL290 · v2→v3 · aircraft position: nearest recorded position`,
+        `${phZ(PH_T + 7 * 60_000)}route text reworded, same path · v1→v2 · aircraft position at that moment not known`,
+      ];
+      r.items.forEach((t, i) => { if (t !== want[i]) fail(`change ${i + 1} reads "${t}" (expected "${want[i]}")`); });
+      if (!/Version 1 is the plan as we first saw it, not necessarily as filed\./.test(r.listText) || !/\* = the time we received the message/.test(r.listText) || !/derived by us\. Fetched \d+ (s|min) ago\./.test(r.listText)) fail(`the list lacks its origin, time-basis or source line: "${r.listText.slice(-260)}"`);
+      if (/NaN|undefined|\bnull\b|Infinity|no data/.test(r.listText + r.headline)) fail("a bare NaN / undefined / null / 'no data' in the row");
+      if (r.listScrolls !== "auto" || r.listH > 150) fail(`the open list is ${r.listH}px tall with overflow ${r.listScrolls} (it must scroll inside 148px, the card's chrome may not grow further)`);
+      if (r.right > 1 || r.pageOver > 1) fail(`opened, the row leaves the window by ${r.right}px (page overflow ${r.pageOver}px)`);
+      await page.locator('[data-testid="plan-changes-row"]').screenshot({ path: path.join(OUT, `data-planchanges-${page.viewportSize().width}.png`) }).catch(() => {});
+      await tgl.click(); await page.waitForTimeout(150);
+      if ((await read()).open) fail("the list does not close again");
+    };
 
     const { ctx, page, flip } = await bootDemandPage(browser, port, 1);
     const pgErrors = [];
@@ -7503,6 +7574,13 @@ async function main() {
         return json(route, { at: now, count: 3, full: true, scope: "world", fields: FIELDS,
           rows: Object.keys(PLANES).map((hex) => wideRow(hex, rowFixMs(hex, snapMs), now).slice(0, FIELDS.length)),
           coverage: { opensky: { enabled: false } }, honesty: "plane-glide fixture" });
+      }
+      // PLAN CHANGES ([PRODUCT] 2026-11-20, components/PlanChanges.tsx): abc001 and abc003 fly a filed plan
+      // with four versions and three changes (the shape of a live answer); abc002 has no FAA-filed plan
+      if (u.pathname.startsWith("/api/data/aircraft/plan-history/")) {
+        const hex = u.pathname.split("/").pop();
+        planHistCalls.push(u.pathname + u.search);
+        return json(route, hex === "abc002" ? { hex, callsign: null, kind: "raw", source: "NONE", label: "No FAA-filed plan", honesty: "No versions: only FAA-filed plans have them.", plan: null, original: null, current: null, versions: [], amendments: [], restatements: [], offRoute: { assessed: false, reason: "no filed plan", fixesJudged: 0, episodes: [] }, generatedAt: now } : planHistoryFx(hex));
       }
       if (u.pathname !== "/api/data/aircraft") return json(route, {});
       const time = Math.floor(snapMs / 1000);
@@ -7625,6 +7703,8 @@ async function main() {
 
       // ── abc001: fresh per-plane fixes over a 40 s old feed row ──
       if (await selectPlane("abc001")) {
+        await checkPlanChanges("abc001", true);
+        if (!planHistCalls.includes("/api/data/aircraft/plan-history/abc001?callsign=GLD1") && !planHistCalls.includes("/api/data/aircraft/plan-history/abc001")) pgFailures.push(`plan changes: the request was ${JSON.stringify(planHistCalls)}`);
         // the first one-hex fix and the track are in, and the plane has closed
         // on its reckoned position from where its 40 s old feed icon was drawn
         await page.waitForTimeout(8000);
@@ -7661,6 +7741,7 @@ async function main() {
 
       // ── abc002: no new fix; past 30 s the drawn position is an ESTIMATE ──
       if (await selectPlane("abc002")) {
+        await checkPlanChanges("abc002", false);
         const age = () => (Date.now() - PLANES.abc002.lastFixMs()) / 1000;
         await page.waitForTimeout(Math.max(7000, (33 - age()) * 1000)); // past 30 s, and past the catch-up from its feed icon
         const r0 = await page.evaluate(() => window.__pgRead(1));
@@ -7695,9 +7776,17 @@ async function main() {
         if (!/held|hold/i.test(r1.note || "")) pgFailures.push(`planeglide hold: the card does not say the position is held (text: ${JSON.stringify(r1.note)})`);
         // phone width: the same plane must still sit at the head of its track
         // (card minimized and layers panel closed so the map is what is shot)
+        await page.setViewportSize({ width: 768, height: 1024 });
+        await page.waitForTimeout(1200);
+        // this session was laid out at 1440 with the legend open; at tablet and phone width the open legend floats
+        // over the flight card, so it is folded before the card is read (a known overlap, filed in open_questions)
+        await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(300);
+        await checkPlanChanges("abc003", true);
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(1200);
         await page.click('[aria-label="Collapse layers panel"]', { timeout: 1500 }).catch(() => {});
+        await checkPlanChanges("abc003", true);
         await page.click('[aria-label="Minimize details"]', { timeout: 1500 }).catch(() => {});
         await page.waitForTimeout(1200);
         const rPhone = await page.evaluate(() => window.__pgRead(2));
