@@ -3309,6 +3309,46 @@ print(out.getvalue())
     }
   });
 
+  // ── SAFETY LIMITS FOR THE OWNER ([PRODUCT] 2026-11-20, UI coverage batch A, third part): every limit that can block entries or
+  // stop the bot, each beside the reading its own guard keeps. `node` is this loop's drawdown kill (the same fields
+  // the `kill_state` probe serves); `engine` is safety_limits_view.py: the engine's kill switch and drawdown halt
+  // measured from their own peaks against the SAME account equity, the day's worst loss and the losing streak from
+  // the kill switch's own state file, and the limit constants. The older /api/monitoring/overview is not used: its
+  // streak and day-loss figures come from two files nothing writes (always 0). Read-only; nothing is reset here.
+  // (ownerView / ownerViewError are declared in the block below; they are only called per request.)
+  app.get("/api/bot/safety-limits", requireOwner, async (_req, res) => {
+    try {
+      res.json(await ownerView("limits", 30_000, async () => {
+        let acctEq: number | null = null;
+        try {
+          const acct = await alpaca("/v2/account");
+          const dd = evaluateDrawdown(acct?.equity, state.equityPeak, state.maxDrawdownPct);
+          acctEq = dd.valid ? Number(acct.equity) : null;
+        } catch { acctEq = null; }
+        const eqArg = acctEq === null ? "None" : String(acctEq);
+        const r = await pythonCall(
+          "safety_limits",
+          { equity: acctEq },
+          `python3 -c "import json; from safety_limits_view import safety_limits; print(json.dumps(safety_limits(equity=${eqArg}), default=str))"`,
+          { timeout: 20000 },
+          20000,
+        );
+        return sanitizeDiag({
+          via: r.via,
+          node: {
+            killSwitch: state.killSwitch,
+            reason: state.killSwitch ? killSwitchMeta.reason : null,
+            equityPeak: state.equityPeak,
+            maxDrawdownPct: state.maxDrawdownPct,
+            equity: acctEq,
+            drawdownPct: acctEq !== null && state.equityPeak > 0 ? +((acctEq - state.equityPeak) / state.equityPeak * 100).toFixed(2) : null,
+          },
+          ...(r.success ? { engine: r.result } : { engine_error: String(r.result?.error || "safety_limits_view failed").slice(0, 300) }),
+        });
+      }));
+    } catch (e: unknown) { ownerViewError(res, "/api/bot/safety-limits", e); }
+  });
+
   // ── OWNER VIEWS OF THE EVIDENCE PROBES ([PRODUCT] 2026-11-20, UI coverage
   // batch A — CLAUDE.md UI INTEGRATION AND ONE ORDER PATH). Six reads the
   // sessions already had behind the diag token and the owner's page did not:

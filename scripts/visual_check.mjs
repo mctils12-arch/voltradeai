@@ -387,6 +387,18 @@ function botFixtures({ latched, between = false }) {
       ],
       warnings: [{ system: "disk", message: "Cache using 410MB of 500MB limit" }], auto_fixes: ["Removed 12 expired cache files"], recommendations: [] },
       auto_fix: { position_size_multiplier: 0.7, min_score_threshold: 75, should_pause: false, force_retrain: false, problems_summary: "[HIGH] Critical data sources stale" } } } : {}),
+    // SAFETY LIMITS ([PRODUCT] 2026-11-20, client/src/bot/limitsView.ts; the shape of the live answer): on the latched
+    // page this loop's kill is tripped, the day's worst loss is 80% of the way to its limit, the streak is 2 of 5 and
+    // the engine's halt measures from a different peak (said); the idle page has no route (a designed sentence)
+    ...(latched ? { "/api/bot/safety-limits": { via: "daemon",
+      node: { killSwitch: true, reason: "Max drawdown -10.0% from peak", equityPeak: 110727.04, maxDrawdownPct: -10, equity: 100172.07, drawdownPct: -9.53 },
+      engine: { checked_at: ago(0), equity: 100172.07, state_read: true,
+        kill_switch: { killed: false, reason: "", killed_at: null, manual_kill_file: false, peak_equity: 110727.04, drawdown_pct: -9.53, kill_equity: 88581.63, resume_equity: 105190.69 },
+        engine_halt: { halted: false, reason: "", halted_at: null, peak_equity: 110000, drawdown_pct: -8.93 },
+        streak: { losses: 2, last_loss_at: "2026-11-19T15:01:00" }, day: { worst_pct: -2.41, date: "2026-11-20", is_today: true },
+        limits: { kill_pct: -20, daily_loss_pct: -3, streak_losses: 5, streak_pause_hours: 24, vxx_ratio_stop: 1.4, min_free_bp_pct: 10, correlated_group_cap_pct: 60, position_stop_pct: -25, position_warn_pct: -15,
+          resume_recovery_pct: 95, resume_cooldown_hours: 4, engine_halt_pct: -18, engine_halt_enabled: true, engine_halt_resume_within_pct: 5, engine_halt_resume_regimes: ["BULL", "NEUTRAL"] },
+        recent_events: [{ at: "2026-11-06T15:32:44.341096", reason: "DRAWDOWN", equity: 89370.65, drawdown_pct: -20.02 }] } } } : {}),
     // EVIDENCE ([PRODUCT] 2026-11-20, client/src/bot/evidence.tsx; real shapes, taken from the live probes): the
     // latched page has all six reads; the idle page none of the routes (a server that predates them — each block
     // says so in a designed sentence)
@@ -5071,6 +5083,83 @@ async function main() {
                   if (sc.check.say !== "the bot's self-check is not on this server yet" || !sc.check.disabled) scFail(`without the route the self-check reads "${sc.check.say}" (disabled ${sc.check.disabled})`);
                   if (sc.alerts.title !== "Alerts" || sc.alerts.say !== "No alerts since the server last restarted." || !sc.alerts.disabled) scFail(`with an empty list the alerts block reads "${sc.alerts.title}" / "${sc.alerts.say}" (disabled ${sc.alerts.disabled})`);
                 }
+              }
+            }
+            // ── SAFETY LIMITS ([PRODUCT] 2026-11-20; client/src/bot/selfCheck.tsx SafetyLimits over GET
+            // /api/bot/safety-limits): one line under the Issues list naming what is tripped or near and the three
+            // headline readings; opened, one row per guard: its name, a bar of the share of its limit used, the guard's
+            // own reading and limit, what it does at the limit; then the limits with no reading, the kill history and
+            // the source line. The bars are proportional to the served figures; nothing leaves the panel or the window.
+            {
+              const lmFail = (m) => checks.failures.push("safety limits: " + m);
+              const lmSel = '.vt-sc[data-sc="limits"]';
+              for (let i = 0; i < 50; i++) { const t = await page.evaluate((s) => (document.querySelector(`${s} .vt-sc-s`)?.textContent || ""), lmSel); if (t && !/^Reading /.test(t)) break; await page.waitForTimeout(100); }
+              const readLm = () => page.evaluate((s) => {
+                const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+                const el = document.querySelector(s);
+                if (!el) return null;
+                const btn = el.querySelector(".vt-sc-h > button:not(.vt-help)"); const br = btn?.getBoundingClientRect();
+                const panel = el.closest('section.vt-bot-panel[data-panel="issues"]'); const pr = panel?.getBoundingClientRect();
+                return { title: txt(btn?.querySelector(".t")), say: txt(el.querySelector(".vt-sc-s")), cls: el.querySelector(".vt-sc-s")?.className || "", open: el.getAttribute("data-open") === "true", disabled: !!btn?.disabled,
+                  btnH: br ? Math.round(br.height) : 0, inIssues: !!panel, help: !!el.querySelector("button.vt-help"), body: txt(el.querySelector(".vt-sc-b")),
+                  rows: [...el.querySelectorAll(".vt-sc-lim")].map((r) => { const bar = r.querySelector(".bar"), fill = r.querySelector(".bar i"); const rr = r.getBoundingClientRect();
+                    return { id: r.getAttribute("data-limit"), state: r.getAttribute("data-state"), n: txt(r.querySelector(".n")), u: txt(r.querySelector(".u")), r: txt(r.querySelector(".r")), e: txt(r.querySelector(".e")),
+                      fill: bar && fill ? Math.round(fill.getBoundingClientRect().width / Math.max(1, bar.getBoundingClientRect().width) * 100) : -1, barH: bar ? Math.round(bar.getBoundingClientRect().height) : 0,
+                      over: Math.round(rr.right - window.innerWidth), outOfPanel: pr ? Math.round(rr.right - pr.right) : 0, uColor: getComputedStyle(r.querySelector(".u")).color, nColor: getComputedStyle(r.querySelector(".n")).color,
+                      nameCut: r.querySelector(".n").scrollWidth > r.querySelector(".n").clientWidth + 1, tColor: r.querySelector(".r .t") ? getComputedStyle(r.querySelector(".r .t")).color : null }; }),
+                  others: [...el.querySelectorAll('.vt-sc-l[data-list="others"] li')].map(txt), peaks: txt(el.querySelector('[data-lim="peaks"]')), events: txt(el.querySelector('[data-lim="events"]')), src: txt(el.querySelector(".vt-sc-src")),
+                  pageOver: Math.max(0, document.documentElement.scrollWidth - window.innerWidth) };
+              }, lmSel);
+              let lm = await readLm();
+              if (!lm) lmFail("the Issues panel lacks the safety-limits block");
+              else {
+                console.log(`  safety limits ${vp.w}px: "${lm.say.slice(0, 110)}"`);
+                if (!lm.inIssues) lmFail("the block is not inside the Issues panel");
+                if (!lm.help || lm.title !== "Safety limits") lmFail(`the block's head reads "${lm.title}" (help glyph ${lm.help})`);
+                if (name === "bot") {
+                  if (lm.say !== "Tripped: drawdown kill · drawdown −9.53% of −10% · worst today −2.41% of −3% · losing streak 2 of 5") lmFail(`the line reads "${lm.say}"`);
+                  if (!/vt-bot-r/.test(lm.cls)) lmFail(`a tripped guard is not shown in the alarm colour (${lm.cls})`);
+                  if (vp.touch && lm.btnH < 44) lmFail(`the control is ${lm.btnH}px tall on touch (44)`);
+                  const lmBtn = page.locator(`${lmSel} .vt-sc-h > button:not(.vt-help)`).first();
+                  await lmBtn.scrollIntoViewIfNeeded(); await pressQ(lmBtn); await settle();
+                  lm = await readLm();
+                  const want = [
+                    ["kill", "hit", "Drawdown kill", "tripped", "−9.53% from its $110,727 peak · limit −10% ($99,654) · Max drawdown -10.0% from peak", 95],
+                    ["engineKill", "ok", "Engine kill switch", "48% of the way", "−9.53% from its $110,727 peak · limit −20% ($88,582)", 48],
+                    ["engineHalt", "ok", "Engine drawdown halt", "50% of the way", "−8.93% from its $110,000 peak · limit −18% ($90,200)", 50],
+                    ["day", "near", "Daily loss", "80% of the way", "worst today −2.41% · limit −3%", 80],
+                    ["streak", "ok", "Losing streak", "40% of the way", "2 losses in a row (last 2026-11-19) · limit 5 in a row", 40],
+                  ];
+                  if (!lm.open || lm.rows.length !== want.length) lmFail(`opened, the block lists ${lm.rows.length} guards (${want.length} served)`);
+                  else want.forEach((w, i) => {
+                    const r = lm.rows[i];
+                    if (r.id !== w[0] || r.state !== w[1] || r.n !== w[2] || r.u !== w[3] || r.r !== w[4]) lmFail(`guard ${i + 1} reads ${JSON.stringify([r.id, r.state, r.n, r.u, r.r])}`);
+                    // the bar is the share of the limit used, drawn from the served reading (±2 points of rounding)
+                    if (Math.abs(r.fill - w[5]) > 2) lmFail(`${w[2]}: the bar is ${r.fill}% full for ${w[5]}% of the limit`);
+                    if (r.barH < 3) lmFail(`${w[2]}: the bar is ${r.barH}px tall`);
+                    if (r.over > 1 || r.outOfPanel > 1) lmFail(`${w[2]}: the row leaves the ${r.over > 1 ? "window" : "panel"} by ${Math.max(r.over, r.outOfPanel)}px`);
+                    if (!/^at the limit: /.test(r.e)) lmFail(`${w[2]}: no line for what the guard does ("${r.e}")`);
+                    // first run, 1440px: "Engine drawdown halt" was cut to "Engine drawdown …" in the narrow column
+                    if (r.nameCut) lmFail(`${w[2]}: the guard's name is cut with an ellipsis`);
+                  });
+                  if (lm.rows.length === want.length) {
+                    if (lm.rows[0].e !== "at the limit: no new entries · protective exits keep running (stops, option exits; the floor may only reduce) · open orders cancelled") lmFail(`the kill's consequence reads "${lm.rows[0].e}" (it must be the shared halt wording)`);
+                    if (lm.rows[3].e !== "at the limit: blocks new entries for the rest of the day · closes nothing") lmFail(`the daily limit's consequence reads "${lm.rows[3].e}"`);
+                    // first run: the tripped guard's own reason was drawn in the body's bold white; it is the alarm colour
+                    if (lm.rows[0].tColor !== lm.rows[0].uColor) lmFail(`the tripped guard's reason is ${lm.rows[0].tColor}, its "tripped" label ${lm.rows[0].uColor}`);
+                    // state is carried by colour as well as words: the near and tripped rows differ from a calm one
+                    if (lm.rows[0].uColor === lm.rows[1].uColor || lm.rows[3].uColor === lm.rows[1].uColor || lm.rows[0].uColor === lm.rows[3].uColor) lmFail(`tripped / near / calm share a colour: ${lm.rows[0].uColor} / ${lm.rows[3].uColor} / ${lm.rows[1].uColor}`);
+                  }
+                  if (lm.others.length !== 4 || lm.others[0] !== "Volatility stop: tiers 2 to 4 take no new entries while the VXX ratio is 1.40 or higher.") lmFail(`the limits without a reading read ${JSON.stringify(lm.others)}`);
+                  if (lm.peaks !== "The drawdown guards disagree by 0.6 points: each measures from its own peak.") lmFail(`the differing-peaks note reads "${lm.peaks}"`);
+                  if (lm.events !== "Kill switch history: 2026-11-06 drawdown kill at $89,371 (−20.02%)") lmFail(`the history line reads "${lm.events}"`);
+                  if (!/^each guard's own record, measured against one account value \(\$100,172\) · read \d+[smh] ago · the limits are settings: shown here, never changed from this page$/.test(lm.src)) lmFail(`the source line reads "${lm.src}"`);
+                  if (/NaN|undefined|\bnull\b|Infinity/.test(lm.body + lm.say)) lmFail("a bare NaN / undefined / null in the block");
+                  if (lm.pageOver > 1) lmFail(`the page scrolls sideways by ${lm.pageOver}px with the block open`);
+                  try { const el = page.locator(lmSel).first(); await el.scrollIntoViewIfNeeded(); await el.screenshot({ path: path.join(OUT, `${name}-evidence-limits-${vp.w}.png`), animations: "disabled" }); } catch { /* the assertions above are the gate */ }
+                  await pressQ(lmBtn); await settle();
+                  if ((await readLm()).open) lmFail("the block does not close again");
+                } else if (lm.say !== "the safety-limits read is not on this server yet" || !lm.disabled) lmFail(`without the route the block reads "${lm.say}" (disabled ${lm.disabled})`);
               }
             }
             // ── DAILY LINE CARD ([PRODUCT] 2026-11-06; server/dailyLine.ts via GET /api/bot/daily-line, overview.tsx
