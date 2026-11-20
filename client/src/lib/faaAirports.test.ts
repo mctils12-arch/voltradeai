@@ -4,7 +4,7 @@
 // npx tsx --test client/src/lib/faaAirports.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AIRPORT_COORDS, FAA_EVENT_COLOR, FAA_EVENT_LABEL, faaEventColor, faaEventLabel } from "./faaAirports.ts";
+import { AIRPORT_COORDS, FAA_EVENT_COLOR, FAA_EVENT_LABEL, faaEventColor, faaEventLabel, compactDelay, faaCardStats } from "./faaAirports.ts";
 
 test("every airport entry carries a plausible US-region lat/lon (no fabricated/zero coordinates)", () => {
   const codes = Object.keys(AIRPORT_COORDS);
@@ -48,4 +48,27 @@ test("faaEventColor/faaEventLabel: unknown/missing type degrades honestly, never
   assert.equal(faaEventColor("something_new"), "#94a3b8");
   assert.equal(faaEventLabel(null), "unknown");
   assert.equal(faaEventLabel("something_new"), "something_new");
+});
+
+test("compactDelay: the feed's duration sentences are shortened, anything else is left as sent", () => {
+  assert.equal(compactDelay("1 hour and 37 minutes"), "1 h 37 min");
+  assert.equal(compactDelay("1 hour and 1 minute"), "1 h 1 min");
+  assert.equal(compactDelay("2 hours and 30 minutes"), "2 h 30 min");
+  assert.equal(compactDelay("1 hour 5 minutes"), "1 h 5 min");
+  assert.equal(compactDelay("25 minutes"), "25 min");
+  assert.equal(compactDelay("1 hour"), "1 h");
+  assert.equal(compactDelay("—"), "—");
+  assert.equal(compactDelay(""), "");
+  assert.equal(compactDelay(null), "");
+  assert.equal(compactDelay("15 minutes or less"), "15 minutes or less");
+  assert.equal(compactDelay("about an hour"), "about an hour");
+});
+
+test("faaCardStats: the Event chip is dropped (the subtitle says it), delays are shortened, the trend is untouched", () => {
+  const stats = [{ label: "Event", value: "Ground Delay Program" }, { label: "Avg delay", value: "31 minutes" }, { label: "Max delay", value: "1 hour and 5 minutes" }, { label: "Trend", value: "Increasing" }];
+  assert.deepEqual(faaCardStats(stats), [{ label: "Avg delay", value: "31 min" }, { label: "Max delay", value: "1 h 5 min" }, { label: "Trend", value: "Increasing" }]);
+  assert.deepEqual(faaCardStats([{ label: "Avg delay", value: "—" }, { label: "Trend", value: "—" }]), [{ label: "Avg delay", value: "—" }, { label: "Trend", value: "—" }]);
+  assert.deepEqual(faaCardStats(null), []);
+  // the input is not modified
+  assert.equal(stats[2].value, "1 hour and 5 minutes");
 });

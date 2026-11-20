@@ -8028,7 +8028,9 @@ async function main() {
       const lineEls = [...r.querySelectorAll("[data-vt-airport-traffic-headline] > div")];
       const lines = lineEls.map(txt);
       const headCut = lineEls[0] ? lineEls[0].scrollWidth > lineEls[0].clientWidth + 1 : false;
-      return { lines, headCut, open: r.getAttribute("data-open") === "true", disabled: btn.disabled, btnH: Math.round(bb.height), covered: !(top && (top === btn || btn.contains(top))),
+      const chips = [...card.querySelectorAll(".vt-card-stat")].map((c) => { const l = c.querySelector(".vt-card-stat-l"), v = c.querySelector(".vt-card-stat-v");
+        return { l: txt(l), v: txt(v), cut: (v.scrollWidth > v.clientWidth + 1) || (l.scrollWidth > l.clientWidth + 1) }; });
+      return { lines, headCut, chips, open: r.getAttribute("data-open") === "true", disabled: btn.disabled, btnH: Math.round(bb.height), covered: !(top && (top === btn || btn.contains(top))),
         right: Math.round(rb.right - window.innerWidth), outOfCard: Math.round(rb.right - cb.right), cardTitle: txt(card.querySelector("h3, .vt-site-card-title, [data-testid='detail-title']")),
         programs: list ? [...list.querySelectorAll("[data-vt-traffic-program]")].map(txt) : [], restrictions: list ? [...list.querySelectorAll("[data-vt-traffic-restriction]")].map(txt) : [],
         config: txt(list?.querySelector("[data-vt-traffic-config]")), source: txt(list?.querySelector("[data-vt-airport-traffic-source]")), listText: txt(list),
@@ -8047,6 +8049,11 @@ async function main() {
       // first run, 1440px: the first line was cut to "Ground delay program · volume · u…": the end time was not readable
       if (r.headCut) fail("the first line is cut: the program's end time must be readable without opening the list");
       if (r.disabled) fail("the control is disabled although there is a list to open");
+      // THE CARD'S CHIPS ([PRODUCT] 2026-11-20): seen in this battery's own screenshot, all four were cut ("Ground…",
+      // "31 min…", "1 hour…", "Increa…"). Now three, the delays shortened, none cut at any width.
+      const wantChips = [["AVG DELAY", "31 min"], ["MAX DELAY", "1 h 5 min"], ["TREND", "Increasing"]];
+      if (JSON.stringify(r.chips.map((c) => [c.l.toUpperCase(), c.v])) !== JSON.stringify(wantChips)) fail(`the card's chips read ${JSON.stringify(r.chips.map((c) => [c.l, c.v]))}`);
+      if (r.chips.some((c) => c.cut)) fail(`a chip is cut with an ellipsis: ${JSON.stringify(r.chips.filter((c) => c.cut).map((c) => c.l + " " + c.v))}`);
       if (r.covered) fail("another element covers the Traffic control");
       if (r.right > 1 || r.outOfCard > 1) fail(`the row leaves the ${r.right > 1 ? "window" : "card"} by ${Math.max(r.right, r.outOfCard)}px`);
       if (w < 640 && r.btnH < 44) fail(`the control is ${r.btnH}px tall on a phone (44)`);
