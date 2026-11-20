@@ -1,0 +1,557 @@
+{
+ "_about": "Hand classification for scripts/ui_coverage.py: backend items the client does not reference directly. [status, note]. status: surfaced | partial | missing | plumbing | legacy. Regenerate UI_COVERAGE.md with: python3 scripts/ui_coverage.py --write",
+ "routes": {
+  "GET /api/_admin/security-stats": [
+   "plumbing",
+   "operator token only; not a user feature"
+  ],
+  "GET /api/_admin/analytics": [
+   "plumbing",
+   "operator token only; the owner's /admin page reads /api/admin/site-report instead"
+  ],
+  "GET /api/data/aircraft/estimate/:hex": [
+   "missing",
+   "Server-side position ESTIMATE for a plane that stopped reporting (2026-11-17). The selected plane's card estimates in the browser (planeMotion.ts) and does not read this. Placement: the flight card's 'estimate' line should state the server's estimate and its limits for planes not in the live feed (watch list, search result)."
+  ],
+  "GET /api/data/aircraft/fleet": [
+   "missing",
+   "Fleet / operator data for an aircraft (2026-11-17). Placement: a 'Fleet' block on the existing flight card (DetailCard), under registration and type."
+  ],
+  "GET /api/data/archive/offload-status": [
+   "partial",
+   "Archive off-site copy status. The Data quality panel shows archive growth, not the off-site copy. Placement: one row in the Data quality panel."
+  ],
+  "POST /api/auth/reset-request": [
+   "legacy",
+   "Legacy stub that tells callers to use /api/auth/reset (which the login page uses). Removal candidate; auth.ts is a FROZEN PATH, so the human removes it."
+  ],
+  "GET /api/billing/status": [
+   "plumbing",
+   "Billing is not switched on (MONETIZATION TRIPWIRE); no account page reads it yet. Becomes user-relevant the day billing is enabled."
+  ],
+  "POST /api/admin/users/:email/tier": [
+   "plumbing",
+   "operator action; billing.ts is a FROZEN PATH"
+  ],
+  "GET /api/bot/stream": [
+   "missing",
+   "Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh."
+  ],
+  "GET /api/bot/history": [
+   "missing",
+   "The last 50 closed orders from the broker. The AI Engine Overview shows results by sleeve, not the list. Placement: a 'Closed trades' table in the Book, next to open positions."
+  ],
+  "GET /api/bot/notifications": [
+   "missing",
+   "The bot's notifications (fills, halts, alarms), kept in memory. No page reads them. Placement: a notifications list on the AI Engine page (no bell exists today; use the page's existing card pattern)."
+  ],
+  "POST /api/bot/notifications/read": [
+   "missing",
+   "Marks notifications read. Placement: ships with the notifications list in the row above."
+  ],
+  "GET /api/bot/export-trades": [
+   "missing",
+   "CSV export of trades. Placement: an 'Export' button on the Book's closed-trades table."
+  ],
+  "POST /api/bot/backup": [
+   "plumbing",
+   "operator action (state backup)"
+  ],
+  "GET /api/system/snapshot": [
+   "plumbing",
+   "operator diagnostics"
+  ],
+  "GET /api/system/health-check": [
+   "plumbing",
+   "operator diagnostics; /api/health is the public form"
+  ],
+  "POST /api/system/verify-change": [
+   "plumbing",
+   "operator diagnostics"
+  ],
+  "POST /api/bot/circuit-breaker/reset": [
+   "missing",
+   "Owner action: clear a tripped circuit breaker. The AI Engine page shows the kill state but offers no reset. Placement: beside the kill-state banner, owner only, with a confirm step. A risk control: needs the human's go-ahead before it is exposed."
+  ],
+  "GET /api/diag/:probe": [
+   "plumbing",
+   "token-gated diagnostics for sessions; each probe is listed below"
+  ],
+  "POST /api/bot/trade": [
+   "missing",
+   "Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner)."
+  ],
+  "POST /api/bot/close": [
+   "missing",
+   "Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above."
+  ],
+  "GET /api/daemon/health": [
+   "plumbing",
+   "process health; folded into /api/health"
+  ],
+  "GET /api/monitoring/overview": [
+   "missing",
+   "Pre-refocus monitoring summary (tiers, drawdown, caches). Not read by any page. Check against the AI Engine Overview first: where it duplicates, remove the route; where it adds (drawdown path), surface it there."
+  ],
+  "GET /api/monitoring/tier-pnl": [
+   "missing",
+   "as above (P&L by tier)"
+  ],
+  "GET /api/monitoring/drawdown": [
+   "missing",
+   "as above (drawdown from peak). The Overview shows the kill distance but not the drawdown path."
+  ],
+  "GET /api/monitoring/caches": [
+   "plumbing",
+   "cache sizes; operator diagnostics"
+  ],
+  "POST /api/bot/refresh-signals": [
+   "plumbing",
+   "operator action"
+  ],
+  "POST /api/bot/backtest": [
+   "legacy",
+   "runs the backtest CLI from the server; no page calls it. Removal candidate (STALENESS AUDIT)."
+  ],
+  "POST /api/bot/run-now": [
+   "missing",
+   "Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only."
+  ],
+  "GET /api/bot/diagnostics": [
+   "partial",
+   "The bot's hourly self-diagnostics. The Overview's 'why we are losing' card carries the conclusions, not the diagnostics. Placement: a collapsible 'Diagnostics' section under it."
+  ],
+  "GET /api/bot/ml-status": [
+   "legacy",
+   "duplicate of /api/ml/status, which the page reads. Removal candidate."
+  ],
+  "GET /api/data/aircraft/plan-history/:hex": [
+   "missing",
+   "Flight-plan versions for a plane (2026-11-17): every filed plan and amendment. No UI. Placement: a 'Plan history' section on the flight card, beside the route."
+  ],
+  "GET /api/data/aircraft/plan-status": [
+   "plumbing",
+   "flight-plan pipeline status; belongs in Pipeline health if anywhere"
+  ],
+  "GET /api/data/aircraft/intent-coverage": [
+   "plumbing",
+   "coverage counters for the intent join"
+  ],
+  "GET /api/data/procedures/status": [
+   "plumbing",
+   "procedures loader status"
+  ],
+  "GET /robots.txt": [
+   "plumbing",
+   "crawler file"
+  ],
+  "GET /api/data/aircraft/global_scopes": [
+   "plumbing",
+   "internal scope list for the world feed"
+  ],
+  "GET /api/data/archive/stats": [
+   "partial",
+   "Archive row counts and sizes. The Data quality panel shows growth for some archives. Placement: complete that panel from this route."
+  ],
+  "GET /api/data/plants-under-alerts": [
+   "missing",
+   "Power plants inside an active NWS alert polygon (a cross-stream join; RAW, the hypothesis built on it is gated). No UI. Placement: a /data panel like 'Facilities near active fires', labelled RAW, and a badge on the plant's card."
+  ],
+  "GET /api/data/3dtiles/status": [
+   "plumbing",
+   "3D tiles proxy status (key-gated provider, not enabled)"
+  ],
+  "GET /api/data/3dtiles/root": [
+   "plumbing",
+   "as above"
+  ],
+  "GET /api/data/3dtiles/proxy": [
+   "plumbing",
+   "as above"
+  ],
+  "GET /api/data/aircraft/hexes": [
+   "plumbing",
+   "internal lookup"
+  ],
+  "GET /api/data/query": [
+   "partial",
+   "The query engine (console W4). The analyst pane uses it on the server; there is no direct query box. Placement: none proposed until the analyst pane's use shows a need."
+  ],
+  "GET /api/data/satellites": [
+   "partial",
+   "Server-side satellite catalog (relay-gated: CelesTrak blocks Railway). The map reads CelesTrak from the browser instead. Nothing to place until the relay decision."
+  ],
+  "GET /api/data/rail-traffic": [
+   "missing",
+   "Class I railroad weekly carloads (STB EP 724). Served on the keyed API and listed on /developers; no /data panel. Placement: a /data panel beside 'US port imports'."
+  ],
+  "GET /api/data/crop-conditions/history": [
+   "missing",
+   "History behind the crop-conditions panel, which shows the latest week only. Placement: a history chart inside that panel."
+  ],
+  "GET /api/data/appstore-rankings/history": [
+   "missing",
+   "History behind the App Store rankings panel (latest day only today). Placement: a rank-over-time chart in that panel."
+  ],
+  "GET /api/data/github-activity/history": [
+   "missing",
+   "History behind the GitHub activity panel. Placement: a history chart in that panel."
+  ],
+  "GET /api/debug/finnhub-insider/:ticker": [
+   "plumbing",
+   "debug route for one data provider"
+  ],
+  "GET /api/debug/ml-diagnostics": [
+   "plumbing",
+   "debug route for the model"
+  ],
+  "GET /api/bot/system-status": [
+   "legacy",
+   "pre-refocus status route; the page reads /api/bot/status. Removal candidate."
+  ],
+  "GET /api/market-snapshot": [
+   "legacy",
+   "pre-refocus route; no page reads it. Removal candidate."
+  ],
+  "GET /api/trades/today": [
+   "legacy",
+   "pre-refocus route. Removal candidate (its content belongs to the closed-trades table above)."
+  ],
+  "GET /api/positions": [
+   "legacy",
+   "pre-refocus route; the Book reads /api/bot/positions. Removal candidate."
+  ],
+  "GET /api/shorts/dashboard": [
+   "legacy",
+   "pre-refocus route; no page reads it. Removal candidate."
+  ],
+  "GET /api/trades/history": [
+   "legacy",
+   "pre-refocus route. Removal candidate."
+  ],
+  "POST /api/ml/toggle": [
+   "plumbing",
+   "operator action"
+  ],
+  "POST /api/ml/retrain": [
+   "plumbing",
+   "operator action; retrain runs on schedule"
+  ],
+  "GET /api/data/swim/products": [
+   "missing",
+   "FAA SWIM feed: products received. No UI. Placement: one row per product in the Streams inventory."
+  ],
+  "GET /api/data/swim/tfms/active": [
+   "missing",
+   "Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards."
+  ],
+  "GET /api/data/swim/notam/tfrs": [
+   "missing",
+   "Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry)."
+  ],
+  "GET /api/data/swim/samples": [
+   "plumbing",
+   "raw message samples for debugging"
+  ],
+  "GET /api/legal/terms": [
+   "plumbing",
+   "terms text; the marketing pages carry their own copy"
+  ]
+ },
+ "probes": {
+  "audit": [
+   "surfaced",
+   "AI Engine activity log (/api/bot/audit)"
+  ],
+  "ml": [
+   "surfaced",
+   "model status (/api/ml/status)"
+  ],
+  "daemon": [
+   "plumbing",
+   "process health"
+  ],
+  "positions": [
+   "surfaced",
+   "the Book (open positions)"
+  ],
+  "positions-detail": [
+   "surfaced",
+   "Book (exit levels)"
+  ],
+  "book": [
+   "surfaced",
+   "Book: the same body as /api/bot/positions"
+  ],
+  "lots": [
+   "missing",
+   "Closed-lot ledger: every closed lot with basis, P&L, entry and exit. The Overview shows totals by sleeve. Placement: the Book's closed-trades table (with /api/bot/history above)."
+  ],
+  "attribution": [
+   "surfaced",
+   "Overview: loss attribution"
+  ],
+  "decisions": [
+   "surfaced",
+   "Overview: decision journal"
+  ],
+  "option_bars": [
+   "plumbing",
+   "session-only price lookup for up to 10 contracts"
+  ],
+  "benchmark": [
+   "surfaced",
+   "Overview: account vs SPY, after tax"
+  ],
+  "daily_line": [
+   "surfaced",
+   "Overview: daily line"
+  ],
+  "regime": [
+   "surfaced",
+   "regime card"
+  ],
+  "flows": [
+   "surfaced",
+   "flows estimate card"
+  ],
+  "regime_counterfactual": [
+   "missing",
+   "What the regime engine changed versus the old rule, in P&L. No UI. Placement: one line on the regime card."
+  ],
+  "tax": [
+   "surfaced",
+   "tax card"
+  ],
+  "sleeves": [
+   "surfaced",
+   "expectancy by sleeve"
+  ],
+  "floor_tracking": [
+   "missing",
+   "How closely the base holding tracks its target exposure, and what the gap cost. No UI. Placement: a 'Base' card on the Overview: target, actual, drift, cost of drift."
+  ],
+  "account": [
+   "surfaced",
+   "account tiles"
+  ],
+  "equity_curve": [
+   "surfaced",
+   "scoreboard / equity curve"
+  ],
+  "reconstruct_pnl": [
+   "plumbing",
+   "reconciliation diagnostic"
+  ],
+  "orders": [
+   "partial",
+   "Open and recent orders. The Book lists working orders; filled and cancelled orders (the price ladder's steps) are not shown. Placement: an 'Orders' tab in the Book."
+  ],
+  "scanner": [
+   "plumbing",
+   "scan health"
+  ],
+  "timings": [
+   "plumbing",
+   "stage timings"
+  ],
+  "archive": [
+   "partial",
+   "Archive health per stream. The Data quality panel shows growth for some archives. Placement: complete that panel (see /api/data/archive/stats)."
+  ],
+  "gnss_integrity": [
+   "surfaced",
+   "/data GNSS integrity panel"
+  ],
+  "gnss_integrity_daily": [
+   "surfaced",
+   "same panel"
+  ],
+  "shadow": [
+   "missing",
+   "Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority."
+  ],
+  "ml_v3": [
+   "missing",
+   "The candidate model's out-of-sample readings. No UI. Placement: the Brain page, beside the live model's verdicts."
+  ],
+  "shadow_bands": [
+   "missing",
+   "Score-band outcomes from shadow logging. No UI. Placement: the Brain page."
+  ],
+  "shadow_bands_dedup": [
+   "missing",
+   "as above, de-duplicated (the honest version)"
+  ],
+  "source_validation": [
+   "missing",
+   "Per-source validation of the scoring inputs. No UI. Placement: the Brain page's signal table (a 'validated' column)."
+  ],
+  "signals": [
+   "surfaced",
+   "signals list"
+  ],
+  "portdwell_window": [
+   "surfaced",
+   "/data port dwell"
+  ],
+  "portdwell_weekly_captured": [
+   "surfaced",
+   "/data port dwell"
+  ],
+  "midas_quarter": [
+   "surfaced",
+   "/data MIDAS"
+  ],
+  "shadowfleet_gate1": [
+   "partial",
+   "gate result; the Signal strength panel shows each root's ladder position, not the gate's numbers. Placement: expandable evidence row in Signal strength."
+  ],
+  "fdic_gate2": [
+   "partial",
+   "as above"
+  ],
+  "insider_cusum_gate2": [
+   "partial",
+   "as above"
+  ],
+  "github_gate2": [
+   "partial",
+   "as above"
+  ],
+  "earnings_qoq": [
+   "partial",
+   "as above"
+  ],
+  "lazy_prices": [
+   "partial",
+   "as above (backfill progress and gate reading)"
+  ],
+  "spaceweather_storm": [
+   "surfaced",
+   "space weather layer"
+  ],
+  "github_activity_poll_health": [
+   "surfaced",
+   "/data Pipeline health"
+  ],
+  "signups": [
+   "surfaced",
+   "owner /admin page"
+  ],
+  "chain_iv30": [
+   "partial",
+   "Option-chain archive readings. The Trade page shows a live IV figure; the archive's history is not shown. Placement: Trade page IV chart, once the archive has enough days."
+  ],
+  "chain_csp_entry": [
+   "plumbing",
+   "research diagnostic for put entries"
+  ],
+  "chain_vs": [
+   "plumbing",
+   "research diagnostic"
+  ],
+  "options_entitlements": [
+   "missing",
+   "Which options data the account is entitled to (today: indicative only; the full feed returns 'not entitled'). No UI. Placement: a line on the AI Engine page's data-source footer, so every option price is labelled indicative. Also an execution-layer Phase 0 fact."
+  ],
+  "kill_state": [
+   "surfaced",
+   "kill-state banner"
+  ],
+  "gate_counterfactuals": [
+   "missing",
+   "What each rule that blocked a trade prevented, in P&L (the RULE REVIEW evidence). No UI. Placement: a 'Rules' table on the Overview: rule, trades blocked, P&L prevented."
+  ],
+  "volume": [
+   "plumbing",
+   "disk volume"
+  ],
+  "bars_coverage": [
+   "plumbing",
+   "price-bar coverage"
+  ],
+  "price_panel": [
+   "plumbing",
+   "price panel build"
+  ],
+  "walkforward": [
+   "partial",
+   "Walk-forward reads. The 'why we are losing' card cites them in words. Placement: the Brain page, as a dated table."
+  ],
+  "edge_p2": [
+   "surfaced",
+   "lookup ledger (ticker dossier)"
+  ],
+  "form4_completeness": [
+   "partial",
+   "Per-day completeness of the Form 4 archive. The 13F page shows completeness by filed day (#1845); Form 4's page does not yet. Placement: the same header on the Form 4 page."
+  ],
+  "filings13f_completeness": [
+   "surfaced",
+   "13F page, by filed day (#1845, API); the page itself still reads by archive day: PARTIAL in the UI"
+  ],
+  "edgar_poll": [
+   "partial",
+   "EDGAR poller failures. Placement: Pipeline health."
+  ],
+  "event_study": [
+   "surfaced",
+   "ticker dossier"
+  ],
+  "heartbeats": [
+   "missing",
+   "Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel."
+  ],
+  "squeeze_gex": [
+   "partial",
+   "Dealer-gamma readings. The Analyze page shows a GEX figure; the condor filter's decisions are in the decision journal. Placement: none further."
+  ],
+  "gamma": [
+   "partial",
+   "as above (dealer-gamma readings; the Analyze page shows a GEX figure)"
+  ]
+ },
+ "strategies": {
+  "strategies/momentum.py": [
+   "partial",
+   "scoring module; its results show under its sleeve in expectancy-by-sleeve, not by strategy name"
+  ],
+  "strategies/mean_reversion.py": [
+   "partial",
+   "as above: results show under its sleeve, not by strategy name"
+  ],
+  "strategies/squeeze.py": [
+   "partial",
+   "as above: results show under its sleeve, not by strategy name"
+  ],
+  "volatility-managed base (floor_vol_managed.py)": [
+   "missing",
+   "The largest holding. Decisions are in the audit log; there is no card for it (see floor_tracking)."
+  ],
+  "cash-secured puts (options_execution.py)": [
+   "partial",
+   "positions in the Book; the price ladder's steps are not shown (see orders)"
+  ],
+  "regime risk budget (regime_engine)": [
+   "surfaced",
+   "regime card"
+  ],
+  "flows / calendar estimate": [
+   "surfaced",
+   "flows card, labelled an estimate"
+  ],
+  "tax filter, long-term hold, harvesting": [
+   "surfaced",
+   "tax card"
+  ],
+  "scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)": [
+   "partial",
+   "visible as decisions in the journal; no state view (how much reserve, what is queued)"
+  ],
+  "LightGBM model (ml_model_v2.py)": [
+   "surfaced",
+   "model status and Brain page; input held neutral in the score (#1660)"
+  ]
+ }
+}
