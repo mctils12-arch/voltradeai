@@ -18,7 +18,7 @@
  * run and review the screenshots against DESIGN.md before opening.
  */
 import { createServer } from "http";
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pngjs from "pngjs";
@@ -6493,6 +6493,21 @@ async function main() {
     results.push({ page: "data-all-off", width: 1440, label: "zero-cost", screenshot: "-", tti: ttiOff,
                    failures, warnings: [], info: { disallowed: disallowed.length } });
     await ctx.close();
+  }
+
+  // ── DEPLOY-STABLE VENDOR CHUNKS (map speed, 2026-11-19): the built
+  // maplibre-gl chunk must not import the entry chunk, or every deploy
+  // renames a byte-identical 1 MB library and every returning visitor
+  // downloads it again on the way to the first map frame. Static check on
+  // the build this run serves (scripts/chunkStability.mjs has the rule).
+  if (!only || only === "data") {
+    const { vendorChunkViolations } = await import("./chunkStability.mjs");
+    const assetsDir = path.join(DIST, "assets");
+    const chunks = readdirSync(assetsDir).filter((f) => f.endsWith(".js"))
+      .map((name) => ({ name, code: readFileSync(path.join(assetsDir, name), "utf8") }));
+    const failures = vendorChunkViolations({ indexHtml: readFileSync(path.join(DIST, "index.html"), "utf8"), chunks });
+    results.push({ page: "data-chunks", width: 1440, label: "deploy-stable vendor chunks", screenshot: "-", tti: null,
+                   failures, warnings: [], info: { chunks: chunks.length } });
   }
 
   // ── LAYER-SCALE SYNTHETIC HARNESS (BUILD ORDER 4 #2, GIP Part 4 UI
