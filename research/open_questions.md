@@ -24488,3 +24488,8 @@ OPEN, ranked by the measurement:
 - [ONE-LINE FIX, shared file] datacore/layers.json describes the `powergrid` US master as "tiled to z9"; the served file's own header says z7.
 - [NOT MEASURED] Canada / South America / Europe / Asia could take the same all-on control with one line each; their all-on cost has not been measured, so they were left alone.
 - [EXISTING] at 390 px the floating legend overlaps the bottom of the open layers panel.
+
+## 2026-11-19 — /data aircraft motion: what the selected-plane repair left open
+- [NEXT, own PR, T-CLIENT] Every plane that is NOT selected still glides 25 s from each feed answer and takes the next answer in one step (airLayer shader glide reset on each payload; the 2D path's 300 ms setData). The selected plane now runs on one motion model (client/src/lib/air/planeMotion.ts: reckon from the fix's own time, ease to a new fix, never reverse). Bringing the rest onto it needs a per-plane carried anchor and a blend offset in the airLayer instance buffer, the same in the 2D path without making the 300 ms re-ship heavier, and the server sending its own "now" with area rows so each row's age is honest (today area rows are stamped with the snapshot's time). Rendering Law I applies to all of them ("interpolate ... not snap on arrival").
+- [KNOWN, visible] Selecting a plane whose feed row is stale makes it slide forward to its reckoned position over up to about 4 s. It disappears once the item above is done.
+- [NOT TESTED ON A REAL DEVICE] the every-frame path at close zoom, 60 fps on an S24, real provider timing and device-vs-server clock skew.

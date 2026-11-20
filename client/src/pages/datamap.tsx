@@ -112,7 +112,7 @@ import { ArcLayer } from "@/lib/orbital/arcLayer";
 // ground trace draped on terrain, THE CURTAIN (40m below-terrain drape,
 // 34% alpha, double-sided, depth-test-no-write), altitude line on the
 // teal→blue→violet ramp, and the selected-flight marker/drop-line/tag.
-import { FlightTrackLayer, FT_MAX_FEATURES, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
+import { FlightTrackLayer, FT_MAX_FEATURES, TRACK_ESTIMATED_ALPHA, type TrackGeomInput } from "@/lib/air/flightTrackLayer";
 import { holdGroundZ, resolveGroundDisplayZ } from "@/lib/air/groundDatum";
 import {
   buildTrackSamples, trimToCurrentFlight, trimToCurrentFlightWithAirborne, sampleAt as trackSampleAt, headingAt as trackHeadingAt,
@@ -149,7 +149,9 @@ import { AirLayer, buildAircraftInstances, pickNearestAircraft, pickNearestAircr
 // DEAD-RECKONING GLIDE (2026-07-18 "planes stopped moving"): between-poll
 // extrapolation along the BROADCAST track/speed, capped then frozen — the
 // satellite SMOOTH SKY honesty model applied to the 15s aircraft poll.
-import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, airGlideDtSec, tailGlideDtSec } from "@/lib/air/airGlide";
+import { MAX_AIR_GLIDE_SEC, AIR_GLIDE_2D_MIN_ZOOM, AIR_GLIDE_STEP_MS, glideDegPerSec, shouldGlidePerFrame } from "@/lib/air/airGlide";
+import { createPlaneMotion, retargetPlaneMotion, stepPlaneMotion, planeMotionNote, selectedPlaneCadenceMs, feedRowAgeMs, feedRowFixTimeSec, motionFixFromRow, type PlaneMotion, type MotionFix } from "@/lib/air/planeMotion";
+import { frameCore, PRIORITY } from "@/render/frameCore";
 import { createAircraftFeed, feedFixTimeSec, STALE_ALT_COLOR, STALE_BAND_COLORS } from "@/lib/air/globalFeed";
 // SESSION BREADCRUMBS (2026-07-18 "the data is cut off"): while a plane's
 // card is open, each live poll appends its REAL fix so the 3D trail +
@@ -199,7 +201,7 @@ import { STARLINK_MIN_ELEV_DEG } from "@/lib/orbital/geometry";
 // (pure, tested). orbital_sats is the first consumer: the population fades
 // out near the ground and pauses its worker (zero cost), returning on zoom
 // out — a render choice, always reversible, surfaced on-panel, never silent.
-import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, type LodEnvelope } from "@/lib/lod";
+import { cameraAltitudeKmFromMap, zoomForCameraAltitudeKm, lodOpacity, metersPerPixel, type LodEnvelope } from "@/lib/lod";
 // EARTH TWIN E2-1 ("drain the ocean" v1): the bathymetry depth palette — one
 // source of truth shared by the map's color-relief ramp and the legend chips.
 import { BATHYMETRY_STOPS, bathymetryColorRelief } from "@/lib/bathymetry";
@@ -1599,6 +1601,7 @@ const LegendPanel = memo(function LegendPanel({
                     <span className="vt-legend-chip"><i style={{ background: "#4da3ff" }} /> Track: mid</span>
                     <span className="vt-legend-chip"><i style={{ background: "#a06bff" }} /> Track: high</span>
                     <span className="vt-legend-chip"><i style={{ background: "#1e5fd6" }} /> Ground trace</span>
+                    <span className="vt-legend-chip"><i style={{ background: "#8fd0ff", opacity: TRACK_ESTIMATED_ALPHA }} /> Faded plane + last stretch: estimated position (no fix for 30 s+)</span>
                     <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain. Click a plane: its archived track draws in 3D — an altitude line and translucent curtain colored teal→blue→violet across that flight's own recorded altitude range, plus a ground trace draped on the terrain; the bottom ALTITUDE/TIME panel replays the same track (gaps where altitude wasn't broadcast)</span>
                     {/* O6-4: operator filter — broadcast callsign prefixes (ICAO
                         telephony codes), one airline's sky at a time */}
@@ -4007,14 +4010,22 @@ export default function DataMapPage() {
   // repaint the merged trail WITHOUT hitting the track endpoint.
   const airCrumbsRef = useRef<{ id: string | null; crumbs: Crumb[] }>({ id: null, crumbs: [] });
   const archivedTrackRef = useRef<{ kind: string; id: string; raw: TrackPoint[] } | null>(null);
-  // The followed plane's latest REAL fix + its broadcast dead-reckoning
-  // rate + the receipt anchor — lets the curtain tail meet the plane where
-  // it is DRAWN between polls (the same glide the plane renders with).
-  const airFollowLiveRef = useRef<{ id: string; fix: Crumb; vel: { dLon: number; dLat: number } | null; anchorMs: number } | null>(null);
+  // The followed plane's latest REAL fix and the model that draws it.
+  // `motion` (2026-11-19) is the ONE model of where this plane is DRAWN
+  // (lib/air/planeMotion.ts): the tail's end, the plane, its tag and the
+  // follow camera all read it, so the line can never run ahead of the plane.
+  const airFollowLiveRef = useRef<{ id: string; fix: Crumb; motion: PlaneMotion } | null>(null);
+  // the last feed answer's own clock (area snapshot `time` / worldwide flag)
+  // and when it arrived: a row's position is as old as the feed says, never
+  // "true now" (feedRowAgeMs)
+  const airPayloadMetaRef = useRef<{ global: boolean; time: unknown; at: unknown; recvWallMs: number } | null>(null);
+  // seconds of display glide the feed renderers are applying right now, so a
+  // newly selected plane starts where its icon is drawn (set by the layer)
+  const airDrawnGlideSecRef = useRef<() => number>(() => 0);
   // A live fix the watched-plane lookup found OUTSIDE the viewport feed
   // (worldwide snapshot / tracked registry — 2026-09-30 N843S): the curtain
   // seed below uses it when the clicked row is not in airPayloadRef yet.
-  const watchedSeedRef = useRef<{ id: string; callsign: string | null; fix: Crumb; vel: { dLon: number; dLat: number } | null } | null>(null);
+  const watchedSeedRef = useRef<{ id: string; callsign: string | null; fix: Crumb; mfix: MotionFix } | null>(null);
   // The selected plane's last REAL callsign seen in any feed row this
   // selection — the plan query keeps sending it after the row leaves the
   // viewport feed (a NONE plan was the symptom of sending none).
@@ -4390,11 +4401,26 @@ export default function DataMapPage() {
   // the plane and its label can never disagree (owner report: "the line is
   // not following the plane ... it's not up to the plane"). altDisp is the
   // display-datum altitude (displayAltReal), NaN = altitude gap.
-  const liveTailEndRef = useRef<{ lon: number; lat: number; altDisp: number } | null>(null);
+  // 2026-11-19: it IS the selected plane's drawn position (planeMotion), with
+  // its eased heading and whether it is an estimate (drawn faded).
+  const liveTailEndRef = useRef<{ lon: number; lat: number; altDisp: number; headingDeg: number | null; estimated: boolean } | null>(null);
+  // the flight card's sentence about the drawn position (null while live);
+  // state changes only when the sentence does
+  const [planeNote, setPlaneNote] = useState<string | null>(null);
+  const planeNoteRef = useRef<string | null>(null);
+  const syncPlaneNote = (n: string | null) => {
+    if (planeNoteRef.current === n) return;
+    planeNoteRef.current = n;
+    setPlaneNote(n);
+  };
+  // the tail's terrain-following interior points, rebuilt at the glide step
+  // cadence and reused by the per-frame tail in between
+  const tailInnerCacheRef = useRef<{ atMs: number; li: number; inner: { mercX: number; mercY: number; altM: number; groundZ: number }[] | undefined } | null>(null);
   // the tracked plane's 2D icon is hidden while its 3D marker draws it
   // (below AIR_3D_MIN_ZOOM) — one representation, never two
   const hiddenIconHexRef = useRef<string | null>(null);
   const iconFilterWarnedRef = useRef(false);
+  const tailWarnedRef = useRef(false);
   // the selected plane's latest BROADCAST rates (real feed values — the
   // live card prefers them over derivation; replay derives from fixes)
   const lastLiveKtsRef = useRef<number | null>(null);
@@ -4866,22 +4892,37 @@ export default function DataMapPage() {
   /** ONE live path for the selected plane's newest REAL fix — fed by the
    *  viewport/worldwide poll AND the selected-aircraft fast lane (2026-09-30:
    *  "optimize for the plane you have clicked on"). Newest fix wins: an
-   *  older fix never moves the tail backwards. `ageMs` anchors the glide at
-   *  the fix's own age (0 for the poll path — the drawn icon glides from the
-   *  same instant); `glide` false = no dead-reckoning (worldwide icons are
-   *  drawn at their raw position). Returns true when the fix was taken. */
+   *  older fix never moves the tail backwards. `ageMs` is the fix's OWN age:
+   *  the plane is reckoned from when the fix was true, whichever source
+   *  delivered it. A new fix is a new TARGET for the drawn position
+   *  (planeMotion), never an assignment: the plane does not jump. Returns
+   *  true when the fix was taken. */
   const ingestSelectedLiveFix = (
     fid: string,
     fix: Crumb,
     row: { lat: number; heading: number | null; velocity_ms: number | null; on_ground: boolean },
-    opts: { glide: boolean; ageMs: number; vsFpm?: number | null },
+    opts: { ageMs: number; vsFpm?: number | null },
   ): boolean => {
     const cur = airFollowLiveRef.current;
     if (cur && cur.id === fid && fix.t < cur.fix.t - 0.5) return false;
-    airFollowLiveRef.current = {
-      id: fid, fix, anchorMs: performance.now() - Math.max(0, opts.ageMs),
-      vel: opts.glide ? glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground) : null,
+    const nowMs = performance.now();
+    const anchorMs = nowMs - Math.max(0, opts.ageMs);
+    const mfix: MotionFix = {
+      lon: fix.lo, lat: fix.la, altM: fix.al, headingDeg: row.heading ?? null,
+      speedMs: row.velocity_ms ?? null, onGround: !!row.on_ground,
     };
+    if (cur && cur.id === fid) {
+      // the SAME fix of a moving plane re-delivered (another source, an
+      // unchanged feed row): keep its first anchor — re-anchoring it as newer
+      // would drag the plane back to where it already was
+      const sameFix = cur.motion.vel != null && fix.lo === cur.fix.lo && fix.la === cur.fix.la;
+      if (!sameFix) {
+        retargetPlaneMotion(cur.motion, mfix, anchorMs, nowMs);
+        airFollowLiveRef.current = { id: fid, fix, motion: cur.motion };
+      }
+    } else {
+      airFollowLiveRef.current = { id: fid, fix, motion: createPlaneMotion(mfix, anchorMs, nowMs) };
+    }
     // flight-card readouts: the BROADCAST rates (real feed values; the card
     // prefers them over derivation while live)
     lastLiveKtsRef.current = row.velocity_ms == null ? null : row.velocity_ms * 1.94384;
@@ -4925,9 +4966,11 @@ export default function DataMapPage() {
     });
   };
 
-  /** Hide ONE aircraft's 2D icon (the tracked plane while its 3D marker
-   *  draws it), or none. Filter writes only when the hidden hex CHANGES,
-   *  never per tick. The low-zoom layer keeps its rank thinning. */
+  /** Hide ONE aircraft's 2D icon AND its 3D silhouette instance (the
+   *  tracked plane while the track layer's own marker draws it, at every
+   *  zoom since 2026-11-19), or none. Filter writes and the instance rebuild
+   *  run only when the hidden hex CHANGES, never per tick. The low-zoom
+   *  layer keeps its rank thinning. */
   const syncHiddenAircraftIcon = (map: maplibregl.Map, hex: string | null) => {
     if (hiddenIconHexRef.current === hex) return;
     try {
@@ -4938,6 +4981,9 @@ export default function DataMapPage() {
         map.setFilter("aircraft-sym-lo", not ? ["all", rank, not] : rank);
       }
       hiddenIconHexRef.current = hex;
+      // the 3D instance buffer drops / regains the same aircraft (rebuild
+      // from the held payload; its glide anchor is untouched)
+      airRebuildRef.current?.();
     } catch (e) {
       // style mid-reload: the ref is NOT updated, so the next tick retries;
       // said once, never silent
@@ -4948,7 +4994,7 @@ export default function DataMapPage() {
     }
   };
 
-  const updateFlightTail = () => {
+  const updateFlightTail = (frameNowMs?: number) => {
     const map = mapRef.current;
     const layer = flightTrackRef.current;
     const st = trackSamplesRef.current;
@@ -4956,27 +5002,48 @@ export default function DataMapPage() {
     try {
       const fid = airCrumbsRef.current.id;
       const lv = airFollowLiveRef.current;
-      if (!st || !fid || !lv || lv.id !== fid || st.samples.length === 0) {
+      if (!fid || !lv || lv.id !== fid) {
         layer.setTail(null);
         liveTailEndRef.current = null;
+        syncPlaneNote(null);
         updateFlightMarker();
         return;
       }
-      // dt matches what the PLANE renderer shows (repair 2026-08-05): in
-      // the 2D band under the terrain-saturation gate the icons are frozen
-      // at raw poll positions — the tail must freeze with them or it
-      // glides ahead of its own plane.
-      const frozen2d = map.getZoom() < AIR_3D_MIN_ZOOM && isOverloaded() && !!map.getTerrain();
-      const dt = tailGlideDtSec(performance.now(), lv.anchorMs, !!lv.vel, frozen2d);
-      const lo = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
-      const la = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
-      const li = st.samples.length - 1;
+      // ONE drawn position (owner 2026-11-19: "the bluish line runs in front
+      // of the plane"): the tail ends where planeMotion draws the plane, and
+      // the plane IS this layer's marker at that same point, at every zoom.
+      // The old per-renderer glide clocks (and the frozen-2D special case
+      // that kept two of them in step) are gone with the second renderer.
+      const out = stepPlaneMotion(lv.motion, frameNowMs ?? performance.now());
+      const lo = out.lon, la = out.lat;
+      const estimated = out.phase !== "live";
+      syncPlaneNote(planeMotionNote(out));
+      const li = st ? st.samples.length - 1 : -1;
+      // ALTITUDE HOLD (2026-07-31): a live fix without altitude reuses the
+      // track's last display altitude; NaN (an honest gap) with no track
+      const toAlt = out.altM == null ? (st && li >= 0 ? st.altDisp[li] : NaN) : displayAltReal(map, out.altM, lo, la);
+      liveTailEndRef.current = { lon: lo, lat: la, altDisp: toAlt, headingDeg: out.headingDeg, estimated };
+      if (!st || li < 0) {
+        // no recorded track yet: the plane is still drawn, at the same point
+        layer.setTail(null);
+        updateFlightMarker();
+        return;
+      }
       const m = lonLatToMercator(lo, la);
       const terrainOn = !!map.getTerrain();
       const fromAlt = st.altDisp[li];
-      const toAlt = lv.fix.al == null ? st.altDisp[li] : displayAltReal(map, lv.fix.al, lo, la);
-      liveTailEndRef.current = { lon: lo, lat: la, altDisp: toAlt };
-      const inner = terrainOn ? tailInnerOnGround(map, st, li, lo, la, fromAlt, toAlt) : undefined;
+      // interior ground points: rebuilt at the step cadence, reused between
+      // (a per-frame tail must not issue a terrain query per point per frame)
+      let inner: { mercX: number; mercY: number; altM: number; groundZ: number }[] | undefined;
+      if (terrainOn) {
+        const nowMs = frameNowMs ?? performance.now();
+        const c = tailInnerCacheRef.current;
+        if (c && c.li === li && nowMs - c.atMs < AIR_GLIDE_STEP_MS) inner = c.inner;
+        else {
+          inner = tailInnerOnGround(map, st, li, lo, la, fromAlt, toAlt);
+          tailInnerCacheRef.current = { atMs: nowMs, li, inner };
+        }
+      }
       layer.setTail({
         inner,
         fromMercX: st.merc[li * 2], fromMercY: st.merc[li * 2 + 1],
@@ -4984,19 +5051,23 @@ export default function DataMapPage() {
         // tail visibly stepped at the seam on the flat map (AGL datum)
         fromAltM: st.altDisp[li], fromGroundZ: st.groundZ[li],
         toMercX: m.x, toMercY: m.y,
-        // ALTITUDE HOLD (2026-07-31): a live fix without altitude no longer
-        // NaN-gaps the bridge — reuse the track's last display altitude (a
-        // level continuation, the same held-altitude policy this tail has
-        // always applied to the glide; the merged track's own hold feeds
-        // that vertex, so the wall stays continuous). Still NaN — an honest
-        // gap — when the track has no altitude anywhere to hold.
         toAltM: toAlt,
         toGroundZ: terrainOn ? groundZAt(map, lo, la, st.groundZ[li]) : 0,
         altMin: st.altMin, altMax: st.altMax,
         drapeBelowM: terrainOn ? CURTAIN_BELOW_TERRAIN_M * (terrainExagRef.current > 0 ? terrainExagRef.current : 1) : 0,
+        // past 30 s without a real fix the stretch to the plane is an estimate
+        estimated,
       });
       updateFlightMarker();
-    } catch { /* tail continuity must never break the tick */ }
+    } catch (e) {
+      // tail continuity must never break the tick — but a failure here is the
+      // plane and its line standing still, so it is said once, never silent
+      if (!tailWarnedRef.current) {
+        tailWarnedRef.current = true;
+        console.warn("[datamap] selected-plane tail update failed:", e instanceof Error ? e.message : String(e));
+        bmark("tail-error", { err: String((e as Error)?.message ?? e).slice(0, 120) });
+      }
+    }
   };
 
   /** ONE update for everything anchored to the flight clock: the replay
@@ -5011,7 +5082,12 @@ export default function DataMapPage() {
     const st = trackSamplesRef.current;
     const det = detailRef.current;
     if (!map || !layer) return;
-    if (!st || !det || det.trailKind !== "aircraft" || st.samples.length === 0) {
+    const hasTrack = !!st && st.samples.length > 0;
+    const lvSel = airFollowLiveRef.current;
+    // live: the plane is drawn from its motion model even before a recorded
+    // track exists (a plane first seen now); replay needs the track
+    const liveOk = flightClockRef.current.live && !!lvSel && lvSel.id === airCrumbsRef.current.id;
+    if (!det || det.trailKind !== "aircraft" || (!hasTrack && !liveOk)) {
       try { layer.setMarker(null); } catch {}
       syncHiddenAircraftIcon(map, null);
       if (tag) tag.style.display = "none";
@@ -5024,41 +5100,36 @@ export default function DataMapPage() {
       let headingDeg: number | null;
       let gsKt: number | null;
       let vsFpm: number | null;
-      const end = st.samples[st.samples.length - 1];
+      const end = hasTrack ? st!.samples[st!.samples.length - 1] : null;
       if (clock.live) {
         const lv = airFollowLiveRef.current;
         const tailEnd = liveTailEndRef.current;
         if (lv && lv.id === airCrumbsRef.current.id) {
-          if (tailEnd) {
-            // the SAME point the tail ends at (same dt + frozen gate)
-            lon = tailEnd.lon; lat = tailEnd.lat;
-          } else {
-            const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
-            lon = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
-            lat = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
-          }
-          alt = lv.fix.al == null ? NaN : lv.fix.al;
-          headingDeg = lastLiveHeadingRef.current;
+          // the SAME point the tail ends at: the motion model's drawn position
+          lon = tailEnd ? tailEnd.lon : lv.motion.lon;
+          lat = tailEnd ? tailEnd.lat : lv.motion.lat;
+          alt = lv.fix.al == null ? NaN : lv.fix.al; // the card reads the REAL last altitude
+          headingDeg = tailEnd?.headingDeg ?? lastLiveHeadingRef.current; // eased toward the broadcast track
           gsKt = lastLiveKtsRef.current; // broadcast (real feed value)
           // broadcast rate (fast lane) while it belongs to the current fix,
           // else derived from recorded fixes
           const bv = lastLiveVsRef.current;
-          vsFpm = bv && Math.abs(bv.t - lv.fix.t) < 1 ? bv.fpm : (end.gap ? null : end.vsFpm);
-        } else {
+          vsFpm = bv && Math.abs(bv.t - lv.fix.t) < 1 ? bv.fpm : (end && !end.gap ? end.vsFpm : null);
+        } else if (end) {
           lon = end.lon; lat = end.lat; alt = end.altM;
-          headingDeg = trackHeadingAt(st.samples, end.t);
+          headingDeg = trackHeadingAt(st!.samples, end.t);
           gsKt = end.gap ? null : end.gsKt;
           vsFpm = end.gap ? null : end.vsFpm;
-        }
-        // LIVE (2026-10-14): at/above AIR_3D_MIN_ZOOM the airLayer mesh IS
-        // the plane. Below it the plane used to be a flat 2D icon on the
-        // GROUND while its trail ended at ALTITUDE — in a tilted view the
-        // trail visibly stopped short of the plane. Now the tracked plane is
-        // drawn as the 3D marker at the tail's own end point (altitude
-        // included) and its 2D icon is hidden: one plane, joined to its line.
-        const below3d = map.getZoom() < AIR_3D_MIN_ZOOM;
+        } else return;
+        // LIVE: the tracked plane is THIS layer's marker at the tail's own end
+        // point (altitude included), and its 2D icon and 3D feed instance are
+        // hidden: one plane, joined to its line. Below the 3D zoom since
+        // 2026-10-14; at EVERY zoom since 2026-11-19 (owner: "the bluish line
+        // runs in front of the plane") — above it the feed's instance was a
+        // second renderer with its own older fix and its own clock, so the
+        // line's head and the plane were two different points.
         const fid = airCrumbsRef.current.id;
-        if (below3d && lv && lv.id === fid) {
+        if (lv && lv.id === fid) {
           const mm = lonLatToMercator(lon, lat);
           const terrOn = !!map.getTerrain();
           layer.setMarker({
@@ -5068,18 +5139,19 @@ export default function DataMapPage() {
             headingDeg: headingDeg ?? 0,
             climb: climbRatio(vsFpm == null ? null : vsFpm * 0.00508, gsKt == null ? null : gsKt * 0.5144),
             shape: flightShapeRef.current,
+            estimated: !!tailEnd?.estimated,
           });
           syncHiddenAircraftIcon(map, fid);
         } else {
-          layer.setMarker(null); // the airLayer mesh is the plane
+          layer.setMarker(null); // no live fix for it: the feed renderers draw the plane
           syncHiddenAircraftIcon(map, null);
         }
       } else {
         syncHiddenAircraftIcon(map, null); // replay: the live icon stays visible
-        const s = trackSampleAt(st.samples, clock.t);
+        const s = trackSampleAt(st!.samples, clock.t);
         if (!s) return;
         lon = s.lon; lat = s.lat; alt = s.altM;
-        headingDeg = trackHeadingAt(st.samples, clock.t);
+        headingDeg = trackHeadingAt(st!.samples, clock.t);
         gsKt = s.gsKt; // derived from recorded fixes (replay)
         vsFpm = s.gap ? null : s.vsFpm;
         const mm = lonLatToMercator(lon, lat);
@@ -5125,7 +5197,8 @@ export default function DataMapPage() {
           tag.style.left = `${p.x}px`;
           tag.style.top = `${p.y - 14}px`;
           const altEl = tag.querySelector<HTMLElement>(".alt");
-          if (altEl) altEl.textContent = Number.isNaN(alt) ? "alt n/a" : fmtMeters(alt);
+          const altTxt = Number.isNaN(alt) ? "alt n/a" : fmtMeters(alt);
+          if (altEl && altEl.textContent !== altTxt) altEl.textContent = altTxt;
         } else {
           tag.style.display = "none"; // behind the camera / far side
         }
@@ -5134,8 +5207,11 @@ export default function DataMapPage() {
       const grid = flightGridRef.current;
       if (grid) {
         const set = (k: string, num: string, unit: string | null) => {
-          const el = grid.querySelector(`[data-flight-stat="${k}"]`);
-          if (el) el.innerHTML = unit ? `${num} <small>${unit}</small>` : num;
+          // written only when the text changes: this runs every frame at
+          // close zoom (the cells' React children are a constant dash)
+          const el = grid.querySelector(`[data-flight-stat="${k}"]`) as (HTMLElement & { __vtHtml?: string }) | null;
+          const html = unit ? `${num} <small>${unit}</small>` : num;
+          if (el && el.__vtHtml !== html) { el.innerHTML = html; el.__vtHtml = html; }
         };
         if (Number.isNaN(alt)) {
           set("alt", "—", null);
@@ -5348,7 +5424,7 @@ export default function DataMapPage() {
       watchedSeedRef.current = {
         id: hex, callsign: String(row.callsign || "").trim() || null,
         fix: { lo: row.lon, la: row.lat, al: row.on_ground ? 0 : (row.altitude_m ?? null), t: Date.now() / 1000 - (row.seen_pos ?? 0) },
-        vel: glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground),
+        mfix: motionFixFromRow(row),
       };
     }
     void airClickRef.current?.({
@@ -5457,21 +5533,29 @@ export default function DataMapPage() {
         // tail meets the plane on the very first tick; the next real poll
         // replaces the seed with a fresh fix.
         const row = airPayloadRef.current.find((x: any) => x?.icao24 === detailTrailId);
+        const nowMs = performance.now();
         if (row && row.lat != null && row.lon != null) {
-          airFollowLiveRef.current = {
-            id: detailTrailId,
-            fix: { lo: row.lon, la: row.lat, al: row.on_ground ? 0 : (row.altitude_m ?? null), t: Date.now() / 1000 },
-            vel: glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground),
-            anchorMs: performance.now(),
-          };
+          // 2026-11-19: the row is as OLD as the feed says (it used to be
+          // stamped "true now", so a 40 s old row put the plane 40 s behind
+          // its own track). The model reckons from the fix's own time, and
+          // STARTS where the feed draws the plane this instant, so selecting
+          // it never moves it in one step.
+          const meta = airPayloadMetaRef.current;
+          const ageMs = (meta ? feedRowAgeMs(meta, row, Date.now()) : null) ?? 0;
+          const tFeed = meta ? feedRowFixTimeSec(meta, row) : null;
+          const fix: Crumb = { lo: row.lon, la: row.lat, al: row.on_ground ? 0 : (row.altitude_m ?? null), t: tFeed ?? (Date.now() - ageMs) / 1000 };
+          const v = glideDegPerSec(row.lat, row.heading, row.velocity_ms, row.on_ground);
+          const g = v ? airDrawnGlideSecRef.current() : 0;
+          const motion = createPlaneMotion(motionFixFromRow(row), nowMs - ageMs, nowMs,
+            { lon: row.lon + (v?.dLon ?? 0) * g, lat: row.lat + (v?.dLat ?? 0) * g });
+          airFollowLiveRef.current = { id: detailTrailId, fix, motion };
         } else if (watchedSeedRef.current && watchedSeedRef.current.id === String(detailTrailId).toLowerCase()) {
           // opened from the watch/tracked list while outside the viewport
-          // feed — the lookup's fresh snapshot/registry fix seeds the tail
+          // feed — the lookup's fresh snapshot/registry fix seeds the tail,
+          // anchored at the fix's own age
           const ws = watchedSeedRef.current;
-          // anchored at the fix's own age: the glide covers the real elapsed
-          // time (still capped by MAX_AIR_GLIDE_SEC), never restarts it
           const ageMs = Math.max(0, Date.now() - ws.fix.t * 1000);
-          airFollowLiveRef.current = { id: detailTrailId, fix: ws.fix, vel: ws.vel, anchorMs: performance.now() - ageMs };
+          airFollowLiveRef.current = { id: detailTrailId, fix: ws.fix, motion: createPlaneMotion(ws.mfix, nowMs - ageMs, nowMs) };
         } else {
           airFollowLiveRef.current = null;
         }
@@ -5486,7 +5570,9 @@ export default function DataMapPage() {
     } else {
       airCrumbsRef.current = { id: null, crumbs: [] };
       airFollowLiveRef.current = null;
+      syncPlaneNote(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailTrailId, detailTrailKind]);
   // SELECTED-AIRCRAFT FAST LANE (human 2026-09-30: "optimize for the plane
   // you have clicked on … I don't want it to lag if there is data"): while
@@ -5519,7 +5605,7 @@ export default function DataMapPage() {
         const cs = String(r.callsign || "").trim();
         if (cs) selectedCallsignRef.current = { id: String(fid).toLowerCase(), callsign: cs };
         const fix: Crumb = { lo: r.lon, la: r.lat, al: r.on_ground ? 0 : (r.altitude_m ?? null), t: f.fixMs / 1000 };
-        ingestSelectedLiveFix(fid, fix, r, { glide: true, ageMs: Math.max(0, Date.now() - f.fixMs), vsFpm: f.baroRateFpm });
+        ingestSelectedLiveFix(fid, fix, r, { ageMs: Math.max(0, Date.now() - f.fixMs), vsFpm: f.baroRateFpm });
       },
     });
     return () => {
@@ -9373,7 +9459,11 @@ export default function DataMapPage() {
           }
         } catch {}
         const rebuild = (rowsNow: any[]) => {
-          const built = buildAircraftInstances(rowsNow, worldwide ? undefined : {
+          // the selected plane is drawn by the track layer's marker, at the
+          // head of its own track — never a second time from this buffer
+          const hide = hiddenIconHexRef.current;
+          const shown = hide ? rowsNow.filter((a) => a?.icao24 !== hide) : rowsNow;
+          const built = buildAircraftInstances(shown, worldwide ? undefined : {
             displayAlt: (altM, lon, lat, onGround) => displayAltReal(map, altM, lon, lat, onGround),
           });
           airRows = built.rows;
@@ -9381,6 +9471,7 @@ export default function DataMapPage() {
           return built;
         };
         airPayloadRef.current = rowsIn; // terrain toggles re-datum without waiting a poll
+        airPayloadMetaRef.current = { global: worldwide, time: d.time, at: d.at, recvWallMs: Date.now() };
         airRebuildRef.current = () => { try { rebuild(airPayloadRef.current); } catch {} };
         rebuild(rowsIn);
         airLayer.setTickTime(); // glide anchor: these positions are true NOW
@@ -9407,15 +9498,16 @@ export default function DataMapPage() {
             // stale rows are still never stamped (feedFixTimeSec → null).
             const t = live && live.lat != null && live.lon != null ? feedFixTimeSec(d, live, Date.now()) : null;
             if (live && t != null) {
+              // 2026-11-19: stamped at the row's OWN fix time and age (an
+              // area row is `seen_pos` older than its snapshot, and the
+              // snapshot can be seconds old) — as "true now" it outranked the
+              // one-plane lookup's fresher fixes and pulled the plane back.
+              const meta = airPayloadMetaRef.current!;
               const fix: Crumb = {
                 lo: live.lon, la: live.lat,
-                al: live.on_ground ? 0 : (live.altitude_m ?? null), t,
+                al: live.on_ground ? 0 : (live.altitude_m ?? null), t: feedRowFixTimeSec(meta, live) ?? t,
               };
-              // tail anchor: the same fresh-fix instant the plane's own
-              // glide anchors at (setTickTime above). Worldwide icons are
-              // drawn at their raw position (no 2D glide at that zoom), so
-              // the tail must not glide past its own plane: no glide.
-              ingestSelectedLiveFix(fid, fix, live, { glide: !worldwide, ageMs: 0 });
+              ingestSelectedLiveFix(fid, fix, live, { ageMs: feedRowAgeMs(meta, live, Date.now()) ?? 0 });
             }
           }
         } catch { /* trail continuity must never break the tick */ }
@@ -9595,6 +9687,22 @@ export default function DataMapPage() {
       return pickNearestAircraft(airLayer.getInstances(), merc.x, merc.y, pixelToleranceToMercUnits(tolPx, map.getZoom()), dtSec);
     };
     const onAir3dClick = (e: any) => {
+      // the selected plane is the track layer's marker, not an instance of
+      // this buffer: a click ON it claims the click (the selection stays)
+      // instead of falling through to the click-off deselect
+      // (guarded like the other click claims: this must never break a click)
+      try {
+        const te = liveTailEndRef.current, ft = flightTrackRef.current;
+        if (te && ft && airFollowLiveRef.current && flightClockRef.current.live) {
+          const mm = lonLatToMercator(te.lon, te.lat);
+          const cv = map.getCanvas();
+          const sp = ft.projectToScreen(mm.x, mm.y, te.altDisp, cv.clientWidth || 1, cv.clientHeight || 1);
+          if (sp && Math.hypot(sp.x - e.point.x, sp.y - e.point.y) <= 16) {
+            if (e.originalEvent) (e.originalEvent as any).__vtAirClaim = true;
+            return;
+          }
+        }
+      } catch {}
       if (map.getZoom() < AIR_3D_MIN_ZOOM) return;
       // NO feature-precedence guard (live report 2026-07-20 round 2: "at
       // extreme angles you try to click on a plane and it will not
@@ -9659,31 +9767,43 @@ export default function DataMapPage() {
     // 3D glide low-rate repaint (~3.3Hz): re-evaluates u_dtSec between polls
     // at z8+ where the silhouettes own the map; the layer upgrades itself to
     // per-frame self-repaint at close zooms (shouldGlidePerFrame) and stops
-    // at the honesty cap. No-op below the hand-off or with no planes. The
-    // same tick keeps the followed plane's curtain TAIL meeting the drawn
-    // (glided) plane — a ≤3-quad setTail buffer update, only while a card
-    // is open (the full track geometry rebuilds only on real fixes), plus
-    // the marker/tag/readout refresh anchored to the same clock.
-    let tailGateParity = 0;
-    const glideRepaintIv = window.setInterval(() => {
-      airLayer.glideRepaintTick();
-      try {
-        if (!document.hidden && airFollowLiveRef.current) {
-          // paced followed-plane exemption (repair 2026-08-05): setTail's
-          // repaint was silently defeating the terrain-saturation gate at
-          // full 3.3Hz whenever a flight card was open. Under the gate the
-          // tail runs at ~1.1Hz — an EXPLICIT, bounded exemption: one
-          // plane's ≤3-quad tail + one forced frame per second, in which
-          // the silhouette's u_dtSec re-evaluates too, so tail and plane
-          // advance together. Ungated cadence is unchanged.
-          const gated = isOverloaded() && !!(map as any).getTerrain?.();
-          if (!gated || (tailGateParity = (tailGateParity + 1) % 3) === 0) updateFlightTail();
-        }
-      } catch {}
-    }, AIR_GLIDE_STEP_MS);
+    // at the honesty cap. No-op below the hand-off or with no planes.
+    const glideRepaintIv = window.setInterval(() => { airLayer.glideRepaintTick(); }, AIR_GLIDE_STEP_MS);
+    airDrawnGlideSecRef.current = () => {
+      try { return map.getZoom() >= AIR_GLIDE_2D_MIN_ZOOM ? airLayer.getGlideDtSec() : 0; } catch { return 0; }
+    };
+    // THE SELECTED PLANE (2026-11-19) advances on the shared frame loop (Law
+    // I): its drawn position, the tail that ends there, the tag and the card
+    // readouts. Every frame only where a 300 ms step would be seen (close
+    // zoom, or while a new fix is being blended in); otherwise at the old
+    // 300 ms step. PACED EXEMPTION KEPT (repair 2026-08-05): under the
+    // terrain-saturation gate it runs at ~1.1 Hz — one plane's small tail
+    // buffer and one forced frame per second, never a per-frame repaint on a
+    // drowning renderer.
+    let planeTickMs = 0;
+    const offPlaneFrame = frameCore().register((_dtMs, nowMs) => {
+      const lv = airFollowLiveRef.current;
+      if (!lv) {
+        // deselected: hand the plane back to the feed renderers once
+        if (hiddenIconHexRef.current) updateFlightTail(nowMs);
+        return;
+      }
+      // (a throw here is caught, counted and named by frameCore itself)
+      const z = map.getZoom();
+      const stepVisible = shouldGlidePerFrame(lv.motion.lat, z);
+      const terrain = !!(map as any).getTerrain?.();
+      // a correction counts while it is still a visible part of a pixel
+      const correcting = Math.hypot(lv.motion.offE, lv.motion.offN) > 0.25 * metersPerPixel(lv.motion.lat, z);
+      const every = selectedPlaneCadenceMs({ stepVisible, terrain, overloaded: isOverloaded(), correcting }, AIR_GLIDE_STEP_MS);
+      if (nowMs - planeTickMs < every) return;
+      planeTickMs = nowMs;
+      updateFlightTail(nowMs);
+    }, PRIORITY.SIM, { label: "selected-plane" });
     return () => {
       stopWire();
       window.clearInterval(glideRepaintIv);
+      offPlaneFrame();
+      airDrawnGlideSecRef.current = () => 0;
       try { map.off("click", onAir3dClick); } catch {}
       try { map.off("mousemove", onAir3dMove); } catch {}
       try { map.off("mouseout", hideHoverTip); } catch {}
@@ -15244,10 +15364,10 @@ export default function DataMapPage() {
           if (clock.live) {
             const lv = airFollowLiveRef.current;
             if (lv && lv.id === airCrumbsRef.current.id) {
-              const dt = lv.vel ? airGlideDtSec(performance.now(), lv.anchorMs) : 0;
-              const lng = lv.fix.lo + (lv.vel?.dLon ?? 0) * dt;
-              const lat = lv.fix.la + (lv.vel?.dLat ?? 0) * dt;
-              return { lng, lat, elevM: elevOf(lv.fix.al, lng, lat) };
+              // the plane's DRAWN position (planeMotion), advanced to this
+              // frame — the camera follows what is on screen, eased like it
+              const o = stepPlaneMotion(lv.motion, performance.now());
+              return { lng: o.lon, lat: o.lat, elevM: elevOf(o.altM, o.lon, o.lat) };
             }
             const end = st.samples[st.samples.length - 1];
             return { lng: end.lon, lat: end.lat, elevM: elevOf(end.altM, end.lon, end.lat) };
@@ -16487,6 +16607,14 @@ export default function DataMapPage() {
               <span className="vt-trail-freshness" data-testid="trail-freshness" data-tick={freshTick}>
                 last position {formatAge(detail.trailLastT)}
               </span>
+            </p>
+          )}
+          {/* the plane keeps moving between fixes; once the last real fix is
+              over 30 s old the card says the drawn position is an estimate,
+              and past 2 min that it is held (lib/air/planeMotion.ts) */}
+          {detail.kind === "aircraft" && planeNote && (
+            <p className="vt-card-fresh" style={{ paddingTop: 4 }}>
+              <span data-testid="plane-estimate">{planeNote}</span>
             </p>
           )}
           {/* actions + source tag — always visible without scrolling */}
