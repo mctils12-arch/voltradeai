@@ -18,25 +18,23 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 251 | 5 | 23 | 27 | 9 |
-| Diagnostic probes (token-gated) | 28 | 14 | 11 | 10 | 0 |
-| Strategies and decision stages | 4 | 5 | 1 | 0 | 0 |
+| HTTP routes | 258 | 5 | 21 | 27 | 10 |
+| Diagnostic probes (token-gated) | 33 | 14 | 6 | 10 | 0 |
+| Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, the legend and
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (35)
+## Missing: user-relevant, no UI yet (27)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
 | route | `GET /api/data/aircraft/estimate/:hex` | `server/aircraftEstimate.ts` | Server-side position ESTIMATE for a plane that stopped reporting (2026-11-17). The selected plane's card estimates in the browser (planeMotion.ts) and does not read this. Placement: the flight card's 'estimate' line should state the server's estimate and its limits for planes not in the live feed (watch list, search result). |
 | route | `GET /api/data/aircraft/fleet` | `server/aircraftTrackData.ts` | Fleet / operator data for an aircraft (2026-11-17). Placement: a 'Fleet' block on the existing flight card (DetailCard), under registration and type. |
 | route | `GET /api/bot/stream` | `server/bot.ts` | Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh. |
-| route | `GET /api/bot/history` | `server/bot.ts` | The last 50 closed orders from the broker. The AI Engine Overview shows results by sleeve, not the list. Placement: a 'Closed trades' table in the Book, next to open positions. |
 | route | `GET /api/bot/notifications` | `server/bot.ts` | The bot's notifications (fills, halts, alarms), kept in memory. No page reads them. Placement: a notifications list on the AI Engine page (no bell exists today; use the page's existing card pattern). |
 | route | `POST /api/bot/notifications/read` | `server/bot.ts` | Marks notifications read. Placement: ships with the notifications list in the row above. |
-| route | `GET /api/bot/export-trades` | `server/bot.ts` | CSV export of trades. Placement: an 'Export' button on the Book's closed-trades table. |
 | route | `POST /api/bot/circuit-breaker/reset` | `server/bot.ts` | Owner action: clear a tripped circuit breaker. The AI Engine page shows the kill state but offers no reset. Placement: beside the kill-state banner, owner only, with a confirm step. A risk control: needs the human's go-ahead before it is exposed. |
 | route | `POST /api/bot/trade` | `server/bot.ts` | Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner). |
 | route | `POST /api/bot/close` | `server/bot.ts` | Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above. |
@@ -53,20 +51,14 @@ layers are not listed one by one here.
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | FAA SWIM feed: products received. No UI. Placement: one row per product in the Streams inventory. |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards. |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
-| probe | `lots` | `server/bot.ts /api/diag/lots` | Closed-lot ledger: every closed lot with basis, P&L, entry and exit. The Overview shows totals by sleeve. Placement: the Book's closed-trades table (with /api/bot/history above). |
-| probe | `regime_counterfactual` | `server/bot.ts /api/diag/regime_counterfactual` | What the regime engine changed versus the old rule, in P&L. No UI. Placement: one line on the regime card. |
-| probe | `floor_tracking` | `server/bot.ts /api/diag/floor_tracking` | How closely the base holding tracks its target exposure, and what the gap cost. No UI. Placement: a 'Base' card on the Overview: target, actual, drift, cost of drift. |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
 | probe | `ml_v3` | `server/bot.ts /api/diag/ml_v3` | The candidate model's out-of-sample readings. No UI. Placement: the Brain page, beside the live model's verdicts. |
 | probe | `shadow_bands` | `server/bot.ts /api/diag/shadow_bands` | Score-band outcomes from shadow logging. No UI. Placement: the Brain page. |
 | probe | `shadow_bands_dedup` | `server/bot.ts /api/diag/shadow_bands_dedup` | as above, de-duplicated (the honest version) |
 | probe | `source_validation` | `server/bot.ts /api/diag/source_validation` | Per-source validation of the scoring inputs. No UI. Placement: the Brain page's signal table (a 'validated' column). |
-| probe | `options_entitlements` | `server/bot.ts /api/diag/options_entitlements` | Which options data the account is entitled to (today: indicative only; the full feed returns 'not entitled'). No UI. Placement: a line on the AI Engine page's data-source footer, so every option price is labelled indicative. Also an execution-layer Phase 0 fact. |
-| probe | `gate_counterfactuals` | `server/bot.ts /api/diag/gate_counterfactuals` | What each rule that blocked a trade prevented, in P&L (the RULE REVIEW evidence). No UI. Placement: a 'Rules' table on the Overview: rule, trades blocked, P&L prevented. |
 | probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel. |
-| strategy | `volatility-managed base (floor_vol_managed.py)` | `volatility-managed base (floor_vol_managed.py)` | The largest holding. Decisions are in the audit log; there is no card for it (see floor_tracking). |
 
-## Partial (24)
+## Partial (23)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -75,12 +67,12 @@ layers are not listed one by one here.
 | route | `GET /api/data/archive/stats` | `server/routes.ts` | Archive row counts and sizes. The Data quality panel shows growth for some archives. Placement: complete that panel from this route. |
 | route | `GET /api/data/query` | `server/routes.ts` | The query engine (console W4). The analyst pane uses it on the server; there is no direct query box. Placement: none proposed until the analyst pane's use shows a need. |
 | route | `GET /api/data/satellites` | `server/routes.ts` | Server-side satellite catalog (relay-gated: CelesTrak blocks Railway). The map reads CelesTrak from the browser instead. Nothing to place until the relay decision. |
-| probe | `orders` | `server/bot.ts /api/diag/orders` | Open and recent orders. The Book lists working orders; filled and cancelled orders (the price ladder's steps) are not shown. Placement: an 'Orders' tab in the Book. |
 | probe | `archive` | `server/bot.ts /api/diag/archive` | Archive health per stream. The Data quality panel shows growth for some archives. Placement: complete that panel (see /api/data/archive/stats). |
 | probe | `shadowfleet_gate1` | `server/bot.ts /api/diag/shadowfleet_gate1` | gate result; the Signal strength panel shows each root's ladder position, not the gate's numbers. Placement: expandable evidence row in Signal strength. |
 | probe | `fdic_gate2` | `server/bot.ts /api/diag/fdic_gate2` | as above |
 | probe | `insider_cusum_gate2` | `server/bot.ts /api/diag/insider_cusum_gate2` | as above |
 | probe | `chain_iv30` | `server/bot.ts /api/diag/chain_iv30` | Option-chain archive readings. The Trade page shows a live IV figure; the archive's history is not shown. Placement: Trade page IV chart, once the archive has enough days. |
+| probe | `options_entitlements` | `server/bot.ts /api/diag/options_entitlements` | Which options data the account is entitled to. Since 2026-11-20 the Book says which QUOTE feed applies (indicative today) under its options, through /api/bot/options-feed. The rest of the report (historical trades, bars, open interest per vendor) has no UI; it is an execution-layer Phase 0 fact. |
 | probe | `walkforward` | `server/bot.ts /api/diag/walkforward` | Walk-forward reads. The 'why we are losing' card cites them in words. Placement: the Brain page, as a dated table. |
 | probe | `lazy_prices` | `server/bot.ts /api/diag/lazy_prices` | as above (backfill progress and gate reading) |
 | probe | `earnings_qoq` | `server/bot.ts /api/diag/earnings_qoq` | as above |
@@ -92,14 +84,14 @@ layers are not listed one by one here.
 | strategy | `strategies/momentum.py` | `strategies/momentum.py` | scoring module; its results show under its sleeve in expectancy-by-sleeve, not by strategy name |
 | strategy | `strategies/mean_reversion.py` | `strategies/mean_reversion.py` | as above: results show under its sleeve, not by strategy name |
 | strategy | `strategies/squeeze.py` | `strategies/squeeze.py` | as above: results show under its sleeve, not by strategy name |
-| strategy | `cash-secured puts (options_execution.py)` | `cash-secured puts (options_execution.py)` | positions in the Book; the price ladder's steps are not shown (see orders) |
 | strategy | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | visible as decisions in the journal; no state view (how much reserve, what is queued) |
 
-## Legacy: removal candidates, not UI gaps (9)
+## Legacy: removal candidates, not UI gaps (10)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
 | route | `POST /api/auth/reset-request` | `server/auth.ts` | Legacy stub that tells callers to use /api/auth/reset (which the login page uses). Removal candidate; auth.ts is a FROZEN PATH, so the human removes it. |
+| route | `GET /api/bot/history` | `server/bot.ts` | The last 50 closed orders from the broker. Superseded 2026-11-20 by /api/bot/order-history (every status, the price ladder's steps), which the Orders panel reads, and by /api/bot/lots for closed trades. Nothing reads this one. Removal candidate. |
 | route | `POST /api/bot/backtest` | `server/bot.ts` | runs the backtest CLI from the server; no page calls it. Removal candidate (STALENESS AUDIT). |
 | route | `GET /api/bot/ml-status` | `server/bot.ts` | duplicate of /api/ml/status, which the page reads. Removal candidate. |
 | route | `GET /api/bot/system-status` | `server/routes.ts` | pre-refocus status route; the page reads /api/bot/status. Removal candidate. |
@@ -151,7 +143,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (283)
+## Surfaced (297)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -186,6 +178,13 @@ layers are not listed one by one here.
 | route | `GET /api/bot/tax` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/decisions` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/attribution` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/export-trades` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/lots` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/order-history` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/floor-tracking` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/rule-counterfactuals` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/regime-counterfactual` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/options-feed` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/status` | `server/bot.ts` | a page calls it |
 | route | `POST /api/bot/start` | `server/bot.ts` | a page calls it |
 | route | `POST /api/bot/stop` | `server/bot.ts` | a page calls it |
@@ -411,16 +410,20 @@ layers are not listed one by one here.
 | probe | `positions` | `server/bot.ts /api/diag/positions` | the Book (open positions) |
 | probe | `positions-detail` | `server/bot.ts /api/diag/positions-detail` | Book (exit levels) |
 | probe | `book` | `server/bot.ts /api/diag/book` | Book: the same body as /api/bot/positions |
+| probe | `lots` | `server/bot.ts /api/diag/lots` | Closed-lot ledger. Since 2026-11-20 the Book's 'Closed trades' table and its CSV read the same rows through the owner route /api/bot/lots. |
 | probe | `attribution` | `server/bot.ts /api/diag/attribution` | Overview: loss attribution |
 | probe | `decisions` | `server/bot.ts /api/diag/decisions` | Overview: decision journal |
 | probe | `benchmark` | `server/bot.ts /api/diag/benchmark` | Overview: account vs SPY, after tax |
 | probe | `daily_line` | `server/bot.ts /api/diag/daily_line` | Overview: daily line |
 | probe | `regime` | `server/bot.ts /api/diag/regime` | regime card |
 | probe | `flows` | `server/bot.ts /api/diag/flows` | flows estimate card |
+| probe | `regime_counterfactual` | `server/bot.ts /api/diag/regime_counterfactual` | What the regime engine changed versus the old rule (counts, no P&L). Since 2026-11-20 a line in the Why panel's regime section, through /api/bot/regime-counterfactual. |
 | probe | `tax` | `server/bot.ts /api/diag/tax` | tax card |
 | probe | `sleeves` | `server/bot.ts /api/diag/sleeves` | expectancy by sleeve |
+| probe | `floor_tracking` | `server/bot.ts /api/diag/floor_tracking` | The base holding against its own rule. Since 2026-11-20 the Why panel's 'Base holding' section shows the sentence, the per-session table, the rollback line and turnover, through /api/bot/floor-tracking. |
 | probe | `account` | `server/bot.ts /api/diag/account` | account tiles |
 | probe | `equity_curve` | `server/bot.ts /api/diag/equity_curve` | scoreboard / equity curve |
+| probe | `orders` | `server/bot.ts /api/diag/orders` | Open and recent orders. Since 2026-11-20 the Orders panel's 'Order history' lists every order with its price-ladder step, through the owner route /api/bot/order-history. |
 | probe | `gnss_integrity` | `server/bot.ts /api/diag/gnss_integrity` | /data GNSS integrity panel |
 | probe | `signals` | `server/bot.ts /api/diag/signals` | signals list |
 | probe | `portdwell_window` | `server/bot.ts /api/diag/portdwell_window` | /data port dwell |
@@ -431,9 +434,12 @@ layers are not listed one by one here.
 | probe | `gnss_integrity_daily` | `server/bot.ts /api/diag/gnss_integrity_daily` | same panel |
 | probe | `signups` | `server/bot.ts /api/diag/signups` | owner /admin page |
 | probe | `kill_state` | `server/bot.ts /api/diag/kill_state` | kill-state banner |
+| probe | `gate_counterfactuals` | `server/bot.ts /api/diag/gate_counterfactuals` | What each blocking rule prevented. Since 2026-11-20 the Why panel's 'Rules that blocked trades' section shows one row per rule, tier and action with its caveats, through /api/bot/rule-counterfactuals. |
 | probe | `edge_p2` | `server/bot.ts /api/diag/edge_p2` | lookup ledger (ticker dossier) |
 | probe | `filings13f_completeness` | `server/bot.ts /api/diag/filings13f_completeness` | 13F page, by filed day (#1845, API); the page itself still reads by archive day: PARTIAL in the UI |
 | probe | `event_study` | `server/bot.ts /api/diag/event_study` | ticker dossier |
+| strategy | `volatility-managed base (floor_vol_managed.py)` | `volatility-managed base (floor_vol_managed.py)` | The largest holding. Since 2026-11-20 the Why panel's 'Base holding' section shows it against its own rule (see floor_tracking). |
+| strategy | `cash-secured puts (options_execution.py)` | `cash-secured puts (options_execution.py)` | Positions in the Book; since 2026-11-20 the Orders panel's 'Order history' shows each price-ladder step (see orders). |
 | strategy | `regime risk budget (regime_engine)` | `regime risk budget (regime_engine)` | regime card |
 | strategy | `flows / calendar estimate` | `flows / calendar estimate` | flows card, labelled an estimate |
 | strategy | `tax filter, long-term hold, harvesting` | `tax filter, long-term hold, harvesting` | tax card |

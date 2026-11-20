@@ -224,6 +224,20 @@ export interface BotData {
   signals: UseQueryResult<unknown>;
   /** /api/bot/daily-line ([PRODUCT] 2026-11-06): the daily lines as the job wrote them, parsed by dailyLineView.ts */
   dailyLine: UseQueryResult<unknown>;
+  // EVIDENCE ([PRODUCT] 2026-11-20, UI coverage batch A): the owner's views of six reads the sessions had behind the
+  // diag token, parsed tolerantly by evidenceView.ts (a server that predates a route is a designed sentence)
+  /** /api/bot/lots: the sleeve ledger's closed lots, the newest 200 (the CSV asks for all of them) */
+  closedLots: UseQueryResult<unknown>;
+  /** /api/bot/order-history: every order sent, any status, the newest 60 */
+  orderHistory: UseQueryResult<unknown>;
+  /** /api/bot/floor-tracking: the base holding against its own rule, per session and over the rolling window */
+  floorTracking: UseQueryResult<unknown>;
+  /** /api/bot/rule-counterfactuals: what each blocking rule prevented */
+  ruleCounterfactuals: UseQueryResult<unknown>;
+  /** /api/bot/regime-counterfactual: what the regime engine changed against the old rule (counts) */
+  regimeCounterfactual: UseQueryResult<unknown>;
+  /** /api/bot/options-feed: which option quote feed the account may read */
+  optionsFeed: UseQueryResult<unknown>;
 }
 /** the attribution windows the Why panel offers (days) */
 export const ATTRIBUTION_WINDOWS = [7, 30, 90] as const;
@@ -260,7 +274,15 @@ export function useBotData(opts: { overview?: boolean; attributionDays?: number 
   const regime = useQuery<unknown>({ queryKey: ["/api/bot/regime"], queryFn: () => getJson<unknown>("/api/bot/regime"), refetchInterval: 10 * 60_000, enabled: overview });
   // one line a trading day, written after the close: every 10 min is plenty (the card says how old the newest is)
   const dailyLine = useQuery<unknown>({ queryKey: ["/api/bot/daily-line"], queryFn: () => getJson<unknown>("/api/bot/daily-line?days=10"), refetchInterval: 10 * 60_000, enabled: overview });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime, dailyLine };
+  // EVIDENCE (2026-11-20): the Book and Orders blocks are on both views; the Why panel's two sections and the regime
+  // line only on the overview. The server keeps each computed body (30 s orders, 5 min base, 10 min rules, 6 h feed).
+  const closedLots = useQuery<unknown>({ queryKey: ["/api/bot/lots"], queryFn: () => getJson<unknown>("/api/bot/lots?limit=200"), refetchInterval: (q) => ((q.state.data as { pending?: boolean } | undefined)?.pending ? 20_000 : 10 * 60_000) });
+  const orderHistory = useQuery<unknown>({ queryKey: ["/api/bot/order-history"], queryFn: () => getJson<unknown>("/api/bot/order-history?limit=60"), refetchInterval: 60_000 });
+  const floorTracking = useQuery<unknown>({ queryKey: ["/api/bot/floor-tracking"], queryFn: () => getJson<unknown>("/api/bot/floor-tracking", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 10 * 60_000, enabled: overview });
+  const ruleCounterfactuals = useQuery<unknown>({ queryKey: ["/api/bot/rule-counterfactuals"], queryFn: () => getJson<unknown>("/api/bot/rule-counterfactuals", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 15 * 60_000, enabled: overview });
+  const regimeCounterfactual = useQuery<unknown>({ queryKey: ["/api/bot/regime-counterfactual"], queryFn: () => getJson<unknown>("/api/bot/regime-counterfactual?days=14"), refetchInterval: 15 * 60_000, enabled: overview });
+  const optionsFeed = useQuery<unknown>({ queryKey: ["/api/bot/options-feed"], queryFn: () => getJson<unknown>("/api/bot/options-feed", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 60 * 60_000, staleTime: 30 * 60_000 });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime, dailyLine, closedLots, orderHistory, floorTracking, ruleCounterfactuals, regimeCounterfactual, optionsFeed };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {

@@ -62,7 +62,7 @@ import { readArchiveDay, oldestRawHour, archiveDayFiles, archiveFileTimestampRan
 import { listChainDays, iv30ForDays, IV30_MAX_COMPUTE_PER_CALL } from "./chainIv";
 import { cspEntryForDays, CSP_ENTRY_MAX_COMPUTE_PER_CALL } from "./chainCspEntry";
 import { vsForDays, vsGate1Summary, VS_MAX_COMPUTE_PER_CALL } from "./chainVs";
-import { cachedOptionsEntitlements, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
+import { cachedOptionsEntitlements, optionsFeedView, type FetchLike as OptionsEntitlementsFetch } from "./optionsEntitlements";
 import { cachedBarsCoverage } from "./barsCoverage";
 import { pricePanelStatus } from "./pricePanel";
 import { brainBody, BRAIN_CACHE_MS, BRAIN_EVIDENCE_CMD, type EvidencePayload } from "./brain";
@@ -3307,6 +3307,101 @@ print(out.getvalue())
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
+  });
+
+  // ── OWNER VIEWS OF THE EVIDENCE PROBES ([PRODUCT] 2026-11-20, UI coverage
+  // batch A — CLAUDE.md UI INTEGRATION AND ONE ORDER PATH). Six reads the
+  // sessions already had behind the diag token and the owner's page did not:
+  // the closed-lot ledger, the order history (the price ladder's steps), the
+  // base holding's tracking report, what each blocking rule prevented, what
+  // the regime engine changed against the old rule, and which option quote
+  // feed the account is entitled to. Each serves what its `/api/diag/<probe>`
+  // case serves: floor tracking, the regime counterfactual and the feed call
+  // the probe's own body function; lots, orders and the rule report repeat
+  // the probe's few lines (those cases are source-pinned by diag.test.ts and
+  // gateCounterfactuals.test.ts, so they stay as written) and
+  // ownerEvidenceWiring.test.ts pins both copies to the same expressions.
+  // Read-only; owner-gated like every bot route; nothing here places,
+  // changes or cancels an order.
+  const ownerViewMemo = new Map<string, { at: number; body: unknown }>();
+  const ownerViewFlight = new Map<string, Promise<unknown>>();
+  /** One computation per key per `ttlMs`, and one in flight at a time: the page polls, the broker is not asked twice. */
+  async function ownerView<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+    const hit = ownerViewMemo.get(key);
+    if (hit && Date.now() - hit.at < ttlMs) return hit.body as T;
+    const flying = ownerViewFlight.get(key);
+    if (flying) return flying as Promise<T>;
+    const run = fn().then((body) => { ownerViewMemo.set(key, { at: Date.now(), body }); return body; }).finally(() => { ownerViewFlight.delete(key); });
+    ownerViewFlight.set(key, run);
+    return run;
+  }
+  const ownerViewError = (res: { status: (code: number) => { json: (body: unknown) => unknown } }, what: string, e: unknown) => {
+    const msg = String(e instanceof Error ? e.message : e).slice(0, 300);
+    console.error(`[bot] ${what} error:`, msg);
+    res.status(500).json({ error: msg });
+  };
+  // the sleeve ledger's closed lots, the NEWEST `limit`, oldest first (the `lots` probe's rows): the page asks for
+  // the newest 200 and, for the CSV, the whole ledger; the ledger itself is the sleeve cache, never a second fetch
+  app.get("/api/bot/lots", requireOwner, async (req, res) => {
+    try {
+      await sleevesBody();
+      const events = sleeveCache?.taxInputs.events ?? [];
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || "200"), 10) || 200, 1), 5000);
+      const rows = events.slice(-limit).map((e) => sanitizeDiag(lotRow(e)));
+      res.json({
+        count: events.length, truncated: events.length > limit,
+        since: sleeveCache ? new Date(sleeveCache.taxInputs.windowStartMs).toISOString() : null,
+        fetchedAt: sleeveCache ? new Date(sleeveCache.at).toISOString() : null,
+        pending: !sleeveCache, lastError: sleeveError, rows,
+      });
+    } catch (e: unknown) { ownerViewError(res, "/api/bot/lots", e); }
+  });
+  // Alpaca's orders, newest first, every status (the `orders` probe's rows through orderRow's whitelist); one
+  // broker read per 30 s however many windows poll
+  app.get("/api/bot/order-history", requireOwner, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || "60"), 10) || 60, 1), 200);
+      res.json(await ownerView(`orders:${limit}`, 30_000, async () => {
+        const orders = await alpaca(`/v2/orders?status=all&limit=${limit}&direction=desc`);
+        const arr = Array.isArray(orders) ? orders : [];
+        return sanitizeDiag({ count: arr.length, orders: arr.map(orderRow) });
+      }));
+    } catch (e: unknown) { ownerViewError(res, "/api/bot/order-history", e); }
+  });
+  // recomputed from the daily lines, the floor's orders and daily closes: once per 5 min is plenty for a daily report
+  app.get("/api/bot/floor-tracking", requireOwner, async (_req, res) => {
+    try { res.json(await ownerView("floor", 5 * 60_000, async () => sanitizeDiag({ ...(await floorTrackingBody()) }))); } catch (e: unknown) { ownerViewError(res, "/api/bot/floor-tracking", e); }
+  });
+  // what each blocking rule prevented (gate_counterfactuals_probe.py over the shadow log; daemon first, python3 -c
+  // fallback, like the probe); aggregates only, kept 10 min
+  app.get("/api/bot/rule-counterfactuals", requireOwner, async (_req, res) => {
+    try {
+      res.json(await ownerView("gates", 10 * 60_000, async () => {
+        const r = await pythonCall(
+          "gate_counterfactuals",
+          {},
+          `python3 -c "import json; from gate_counterfactuals_probe import gate_counterfactuals_report; print(json.dumps(gate_counterfactuals_report(), default=str))"`,
+          { timeout: 60000 },
+          45000,
+        );
+        return sanitizeDiag({
+          via: r.via,
+          ...(r.success ? r.result : { error: String(r.result?.error || "gate_counterfactuals_probe failed").slice(0, 300) }),
+        });
+      }));
+    } catch (e: unknown) { ownerViewError(res, "/api/bot/rule-counterfactuals", e); }
+  });
+  app.get("/api/bot/regime-counterfactual", requireOwner, (req, res) => {
+    try { res.json(sanitizeDiag({ ...regimeCounterfactualBody(regimeDataDir(process.env), new Date(), req.query.days) })); } catch (e: unknown) { ownerViewError(res, "/api/bot/regime-counterfactual", e); }
+  });
+  // which option quote feed the account may read (server/optionsEntitlements.ts: status and field-name booleans
+  // only). The report makes one GET per vendor endpoint, so the page's copy is kept 6 h.
+  app.get("/api/bot/options-feed", requireOwner, async (_req, res) => {
+    try {
+      res.json(await ownerView("optfeed", 6 * 3600_000, async () => sanitizeDiag(optionsFeedView(await cachedOptionsEntitlements({
+        env: process.env, fetch: fetch as unknown as OptionsEntitlementsFetch, tradingBase: ALPACA_BASE, underlying: "SPY",
+      }, { fresh: false })))));
+    } catch (e: unknown) { ownerViewError(res, "/api/bot/options-feed", e); }
   });
 
   // ── Data Backup Endpoint (manual trigger or cron) ──────────────────────────

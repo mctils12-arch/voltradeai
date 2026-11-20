@@ -38,8 +38,8 @@
    "Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh."
   ],
   "GET /api/bot/history": [
-   "missing",
-   "The last 50 closed orders from the broker. The AI Engine Overview shows results by sleeve, not the list. Placement: a 'Closed trades' table in the Book, next to open positions."
+   "legacy",
+   "The last 50 closed orders from the broker. Superseded 2026-11-20 by /api/bot/order-history (every status, the price ladder's steps), which the Orders panel reads, and by /api/bot/lots for closed trades. Nothing reads this one. Removal candidate."
   ],
   "GET /api/bot/notifications": [
    "missing",
@@ -48,10 +48,6 @@
   "POST /api/bot/notifications/read": [
    "missing",
    "Marks notifications read. Placement: ships with the notifications list in the row above."
-  ],
-  "GET /api/bot/export-trades": [
-   "missing",
-   "CSV export of trades. Placement: an 'Export' button on the Book's closed-trades table."
   ],
   "POST /api/bot/backup": [
    "plumbing",
@@ -284,8 +280,8 @@
    "Book: the same body as /api/bot/positions"
   ],
   "lots": [
-   "missing",
-   "Closed-lot ledger: every closed lot with basis, P&L, entry and exit. The Overview shows totals by sleeve. Placement: the Book's closed-trades table (with /api/bot/history above)."
+   "surfaced",
+   "Closed-lot ledger. Since 2026-11-20 the Book's 'Closed trades' table and its CSV read the same rows through the owner route /api/bot/lots."
   ],
   "attribution": [
    "surfaced",
@@ -316,8 +312,8 @@
    "flows estimate card"
   ],
   "regime_counterfactual": [
-   "missing",
-   "What the regime engine changed versus the old rule, in P&L. No UI. Placement: one line on the regime card."
+   "surfaced",
+   "What the regime engine changed versus the old rule (counts, no P&L). Since 2026-11-20 a line in the Why panel's regime section, through /api/bot/regime-counterfactual."
   ],
   "tax": [
    "surfaced",
@@ -328,8 +324,8 @@
    "expectancy by sleeve"
   ],
   "floor_tracking": [
-   "missing",
-   "How closely the base holding tracks its target exposure, and what the gap cost. No UI. Placement: a 'Base' card on the Overview: target, actual, drift, cost of drift."
+   "surfaced",
+   "The base holding against its own rule. Since 2026-11-20 the Why panel's 'Base holding' section shows the sentence, the per-session table, the rollback line and turnover, through /api/bot/floor-tracking."
   ],
   "account": [
    "surfaced",
@@ -344,8 +340,8 @@
    "reconciliation diagnostic"
   ],
   "orders": [
-   "partial",
-   "Open and recent orders. The Book lists working orders; filled and cancelled orders (the price ladder's steps) are not shown. Placement: an 'Orders' tab in the Book."
+   "surfaced",
+   "Open and recent orders. Since 2026-11-20 the Orders panel's 'Order history' lists every order with its price-ladder step, through the owner route /api/bot/order-history."
   ],
   "scanner": [
    "plumbing",
@@ -452,16 +448,16 @@
    "research diagnostic"
   ],
   "options_entitlements": [
-   "missing",
-   "Which options data the account is entitled to (today: indicative only; the full feed returns 'not entitled'). No UI. Placement: a line on the AI Engine page's data-source footer, so every option price is labelled indicative. Also an execution-layer Phase 0 fact."
+   "partial",
+   "Which options data the account is entitled to. Since 2026-11-20 the Book says which QUOTE feed applies (indicative today) under its options, through /api/bot/options-feed. The rest of the report (historical trades, bars, open interest per vendor) has no UI; it is an execution-layer Phase 0 fact."
   ],
   "kill_state": [
    "surfaced",
    "kill-state banner"
   ],
   "gate_counterfactuals": [
-   "missing",
-   "What each rule that blocked a trade prevented, in P&L (the RULE REVIEW evidence). No UI. Placement: a 'Rules' table on the Overview: rule, trades blocked, P&L prevented."
+   "surfaced",
+   "What each blocking rule prevented. Since 2026-11-20 the Why panel's 'Rules that blocked trades' section shows one row per rule, tier and action with its caveats, through /api/bot/rule-counterfactuals."
   ],
   "volume": [
    "plumbing",
@@ -526,12 +522,12 @@
    "as above: results show under its sleeve, not by strategy name"
   ],
   "volatility-managed base (floor_vol_managed.py)": [
-   "missing",
-   "The largest holding. Decisions are in the audit log; there is no card for it (see floor_tracking)."
+   "surfaced",
+   "The largest holding. Since 2026-11-20 the Why panel's 'Base holding' section shows it against its own rule (see floor_tracking)."
   ],
   "cash-secured puts (options_execution.py)": [
-   "partial",
-   "positions in the Book; the price ladder's steps are not shown (see orders)"
+   "surfaced",
+   "Positions in the Book; since 2026-11-20 the Orders panel's 'Order history' shows each price-ladder step (see orders)."
   ],
   "regime risk budget (regime_engine)": [
    "surfaced",

@@ -19,6 +19,8 @@ import { Help } from "./help";
 import type { GlossaryKey } from "./glossary";
 import { St, NotRecorded } from "./panels";
 import type { BotMode } from "./zoneModel";
+import { parseFloorTracking, floorSentence, parseRuleCounterfactuals, rulesSentence, parseRegimeCounterfactual, regimeCfSentence } from "./evidenceView";
+import { BaseBody, RulesBody, RegimeCfLine } from "./evidence";
 
 const tone = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "vt-bot-t3" : v < 0 ? "vt-bot-r" : v > 0 ? "vt-bot-g" : "vt-bot-t2");
 const asOfWords = (iso: string | null | undefined, updatedAt: number, nowMs: number) => (iso && Number.isFinite(Date.parse(iso)) ? `as of ${fmtMonDay(iso)} ${fmtClockET(iso).slice(0, 5)} ET` : updatedAt ? `fetched ${fmtAge(nowMs - updatedAt)} ago` : "not fetched yet");
@@ -267,11 +269,13 @@ function MiniBars({ rows, kind }: { rows: Array<{ label: string; value: number; 
   const max = Math.max(1e-9, ...rows.map((r) => Math.abs(r.value)));
   return <div className="vt-why-bars" data-kind={kind} role="img" aria-label={rows.map((r) => `${r.label} ${r.value.toFixed(2)}`).join(", ")}>{rows.map((r, i) => <i key={i} data-tone={r.tone} title={`${r.label} · ${r.value.toFixed(2)}`} style={{ height: `${Math.max(8, (Math.abs(r.value) / max) * 100)}%` }} />)}</div>;
 }
-export function WhyBody({ attrQ, days, onDays, sleeves, flowsQ, taxQ, signalsQ, regimeQ, nowMs }: {
+export function WhyBody({ attrQ, days, onDays, sleeves, flowsQ, taxQ, signalsQ, regimeQ, floorQ, rulesQ, regimeCfQ, nowMs }: {
   attrQ: UseQueryResult<unknown>; days: number; onDays: (d: number) => void; sleeves: Sleeves | undefined;
   flowsQ: UseQueryResult<unknown>; taxQ: UseQueryResult<unknown>; signalsQ: UseQueryResult<unknown>;
   /** /api/bot/regime: its risk_budget block (the pipeline's first stage), when the server has it */
-  regimeQ: UseQueryResult<unknown>; nowMs: number;
+  regimeQ: UseQueryResult<unknown>;
+  /** EVIDENCE (2026-11-20): the base holding against its rule, what each blocking rule prevented, the engine vs the old rule */
+  floorQ: UseQueryResult<unknown>; rulesQ: UseQueryResult<unknown>; regimeCfQ: UseQueryResult<unknown>; nowMs: number;
 }) {
   const journal = useMemo(() => parseAttribution(attrQ.data, days), [attrQ.data, days]);
   const fallback = useMemo(() => (journal ? null : attributionFromSleeves(sleeves)), [journal, sleeves]);
@@ -280,6 +284,9 @@ export function WhyBody({ attrQ, days, onDays, sleeves, flowsQ, taxQ, signalsQ, 
   const tax = useMemo(() => parseTax(taxQ.data), [taxQ.data]);
   const sig = useMemo(() => parseSignals(signalsQ.data), [signalsQ.data]);
   const risk = useMemo(() => parseRiskBudget(regimeQ.data), [regimeQ.data]);
+  const floor = useMemo(() => parseFloorTracking(floorQ.data), [floorQ.data]);
+  const rules = useMemo(() => parseRuleCounterfactuals(rulesQ.data), [rulesQ.data]);
+  const regimeCf = useMemo(() => parseRegimeCounterfactual(regimeCfQ.data), [regimeCfQ.data]);
   const max = view ? Math.max(1, ...view.groups.flatMap((g) => g.rows.map((r) => Math.abs(r.pnl)))) : 1;
   const why = attrQ.isLoading && !view ? (
     <div className="vt-why-top" aria-busy="true"><i className="vt-score-skel" style={{ width: "90%", height: 14 }} /><i className="vt-score-skel" style={{ width: "70%", height: 14 }} /></div>
@@ -310,6 +317,7 @@ export function WhyBody({ attrQ, days, onDays, sleeves, flowsQ, taxQ, signalsQ, 
             {risk.drivers.length ? <ul>{risk.drivers.map((d, i) => <li key={i}><b>{d.label}</b>{d.cut !== null && d.cut !== 0 ? ` ${fmtSigned(d.cut, 2)}` : ""}{d.reason ? ` — ${d.reason}` : ""}</li>)}</ul> : null}
             {risk.missing.length ? <div className="vt-bot-o">inputs missing: {risk.missing.join(", ")}</div> : null}
             {risk.history.length > 1 ? <MiniBars kind="budget" rows={risk.history.slice(-30).map((h) => ({ label: dayWords(h.asOf), value: h.budget, tone: h.band === "full" ? "pos" : h.band === "reduced" ? "zero" : "neg" }))} /> : null}
+            {regimeCf ? <RegimeCfLine v={regimeCf} sentence={regimeCfSentence(regimeCf)} /> : null}
             <div className="vt-why-src"><span>regime engine · as of {dayWords(risk.asOf)}{risk.ageMarketDays !== null ? ` (${risk.ageMarketDays} market day${risk.ageMarketDays === 1 ? "" : "s"} old)` : ""} · {asOfWords(null, regimeQ.dataUpdatedAt, nowMs)}</span>{risk.note ? <span>{risk.note}</span> : null}</div>
           </>
         ) : null}
@@ -343,6 +351,14 @@ export function WhyBody({ attrQ, days, onDays, sleeves, flowsQ, taxQ, signalsQ, 
             <div className="vt-why-src"><span>signal audit · {asOfWords(sig.asOf, signalsQ.dataUpdatedAt, nowMs)}</span>{sig.notes.map((t, i) => <span key={i}>{t}</span>)}</div>
           </>
         ) : null}
+      </Sect>
+      {/* EVIDENCE (2026-11-20): after the pipeline's four stages, the two measured records behind them — the largest
+          holding against its own rule, and what the rules that block entries prevented */}
+      <Sect id="base" title="Base holding · against its own rule" help="baseHolding" summary={floor ? floorSentence(floor) : floorQ.isLoading ? "Reading the base holding's tracking report…" : unavailableWords(floorQ.isError ? floorQ.error : null, "the base holding's tracking report")} cls={floor ? (floor.trigger?.status === "met" ? "vt-bot-r" : undefined) : "vt-bot-t3"}>
+        {floor && (floor.sessions.length || floor.trigger) ? <BaseBody f={floor} updatedAt={floorQ.dataUpdatedAt} nowMs={nowMs} /> : null}
+      </Sect>
+      <Sect id="rules" title="Rules that blocked trades" help="ruleCounterfactuals" summary={rules ? rulesSentence(rules) : rulesQ.isLoading ? "Reading what each rule blocked…" : unavailableWords(rulesQ.isError ? rulesQ.error : null, "the rule report")} cls={rules ? (rules.ok ? undefined : "vt-bot-o") : "vt-bot-t3"}>
+        {rules && rules.ok && rules.rules.length ? <RulesBody v={rules} updatedAt={rulesQ.dataUpdatedAt} nowMs={nowMs} /> : null}
       </Sect>
     </div>
   );
