@@ -373,6 +373,10 @@ function botFixtures({ latched, between = false }) {
     // Orders-panel shape bug (audit §8.2 D4) from this harness.
     "/api/orders/open": { orders: [{ id: "ord-1", symbol: "NVDA", side: "buy", qty: "12", type: "limit", limit_price: "181.20", status: "new", submitted_at: ago(4) }] },
     "/api/bot/notifications": [],
+    // EVIDENCE ([PRODUCT] 2026-11-20, client/src/bot/evidence.tsx; real shapes, taken from the live probes): the
+    // latched page has all six reads; the idle page none of the routes (a server that predates them — each block
+    // says so in a designed sentence)
+    ...(latched ? evidenceFixtures({ now, ago }) : {}),
     // OVERVIEW routes (2026-11-06, see above): the journal (empty on the idle page), attribution by the request's
     // ?days= (404 on the idle page: the fill-ledger fallback), flows, tax (absent on the idle page) and signals
     // (the old per-ticker list on the idle page)
@@ -460,6 +464,69 @@ function botFixtures({ latched, between = false }) {
  *  Idle page: the one line the live server held on 2026-11-06 (no previous line, so its option total is not
  *  computable — the designed note; written before the close reading, so its account cell is marked "*"). Both: today's
  *  line due after the close, 2 h 22 min from now (the fixture's close is 2 h 02 min away). */
+/** The owner's evidence routes ([PRODUCT] 2026-11-20; server/bot.ts OWNER VIEWS OF THE EVIDENCE PROBES): the closed
+ *  lots (12, so "show 12" has something to show), the order history with a two-step price ladder, the base holding's
+ *  tracking report, the rule counterfactuals, the regime engine against the old rule, and the option quote feed. */
+function evidenceFixtures({ now, ago }) {
+  const iso = (minAgo) => new Date(now - minAgo * 60_000).toISOString();
+  const dayAgo = (d) => new Date(now - d * 86_400_000).toISOString().slice(0, 10);
+  const minAgoOf = (isoTime) => (now - Date.parse(isoTime)) / 60_000;
+  const lot = (i, symbol, option, side, qty, entry, exit) => { const mult = option ? 100 : 1; const basis = +(qty * entry * mult).toFixed(2); const pnl = +((exit - entry) * qty * mult * (side === "long" ? 1 : -1)).toFixed(2); return { symbol, option, side, qty, closeDir: side === "short" ? 1 : -1, openedAt: i === 5 ? null : iso(1440 * (i + 3)), closedAt: iso(1440 * i + 95), basis, pnl, returnPct: +((pnl / basis) * 100).toFixed(2), entryPrice: entry, exitPrice: exit }; };
+  const lots = [
+    lot(11, "IREN261204C00023000", true, "short", 3, 2.61, 2.64), lot(10, "IREN261204P00021000", true, "short", 3, 2.75, 2.72), lot(9, "QQQ", false, "long", 14, 612.4, 598.15),
+    lot(8, "SMH", false, "long", 22, 301.2, 296.84), lot(7, "KWEB", false, "long", 388, 25.1, 24.54), lot(6, "VXUS", false, "long", 120, 71.3, 70.92), lot(5, "GLD", false, "long", 12, 377.47, 370.68),
+    lot(4, "T261218P00022000", true, "short", 2, 0.44, 0.21), lot(3, "JD261218P00025000", true, "short", 1, 0.62, 0.9), lot(2, "NVDA261120C00190000", true, "long", 1, 3.6, 5.05),
+    lot(1, "AMD", false, "long", 40, 162.7, 158.2), lot(0, "CMCSA261218P00024000", true, "short", 1, 0.79, 0.38),
+  ];
+  const ord = (id, symbol, cls, side, type, qty, limit, status, minAgo, filledPx = null, endAfterMin = null) => ({ id, symbol, asset_class: cls, side, type, qty, notional: null, filled_qty: status === "filled" ? qty : 0, filled_avg_price: filledPx, limit_price: limit, status, submitted_at: iso(minAgo), filled_at: status === "filled" ? iso(minAgo - (endAfterMin ?? 0)) : null, canceled_at: status === "canceled" ? iso(minAgo - (endAfterMin ?? 12)) : null });
+  const orders = [
+    ord("eo-1", "NVDA", "us_equity", "buy", "limit", 12, 181.2, "new", 4),
+    // the price ladder: three orders for one contract on ONE ET day (fixed UTC clock times two days back, so a run
+    // near midnight ET cannot split the day): 0.29 cancelled, 0.30 cancelled, 0.31 filled
+    ord("eo-2", "AAL261231P00011500", "us_option", "sell", "limit", 1, 0.31, "filled", minAgoOf(`${dayAgo(2)}T15:54:00Z`), 0.31, 2),
+    ord("eo-3", "AAL261231P00011500", "us_option", "sell", "limit", 1, 0.3, "canceled", minAgoOf(`${dayAgo(2)}T15:32:00Z`), null, 20),
+    ord("eo-4", "AAL261231P00011500", "us_option", "sell", "limit", 1, 0.29, "canceled", minAgoOf(`${dayAgo(2)}T15:10:00Z`), null, 20),
+    ord("eo-5", "CMCSA261218P00024000", "us_option", "buy", "limit", 1, 0.38, "filled", 1440 * 3 + 20, 0.38, 0),
+    ord("eo-6", "SPY", "us_equity", "buy", "limit", 82, 740.5, "filled", 1440 * 13, 740.13, 0),
+    ord("eo-7", "VXUS", "us_equity", "sell", "market", 120, null, "filled", 1440 * 14, null, 0),
+  ];
+  const sess = (d, spy, target, held, reb = false) => { const rule = +(target * spy).toFixed(4), floor = +(held * spy).toFixed(4); return { day: dayAgo(d), prev_day: dayAgo(d + 1), entry: false, spy_pct: spy, capital: 75472.55, target_exposure: target, held_exposure: held, drift: +Math.abs(target - held).toFixed(4), rule_pnl: 0, rule_pct: rule, floor_pnl: 0, floor_pct: floor, tracking_pp: +(floor - rule).toFixed(4), exposure_pp: +(floor - rule).toFixed(4), other_pp: 0, rebalance: reb, legs: [], reason: null }; };
+  const sessions = [sess(1, -1.984, 0.7039, 0.7935), sess(2, -0.284, 0.6992, 0.7941), sess(3, 0.612, 0.7104, 0.7938), sess(4, -0.905, 0.7421, 0.7933), sess(5, 0.33, 0.7688, 0.7929)];
+  const cell = (labeled, mean, baseMean, baseN, pending, sized = 0, prevention = 0) => ({ labeled, pending, unlabelable: 0, win_rate_pct: labeled ? 50 : undefined, ...(mean === null ? {} : { return_pct: { mean, median: mean } }), base_scanned_same_days: baseMean === null ? { n: 0 } : { n: baseN, win_rate_pct: 55, mean_return_pct: baseMean }, dollars: { estimate: true, positions: labeled, sized_positions: sized, cut_dollars: 0, prevention_pnl_dollars: prevention } });
+  const day = (d, sel, opt, t1) => ({ date: dayAgo(d), sizing: t1 ? { tier1: { n: 14, applied: 14, stale: 0, mean_legacy_multiplier: t1, mean_engine_multiplier: 0.5 } } : {}, selection: sel, options: opt, label: { n: 26, differs: 26, applied: 26, pairs: { "NEUTRAL>BULL": 26 } }, composites: { CALM_BULL: 300 } });
+  return {
+    "/api/bot/lots": { count: 2141, truncated: true, since: "2026-05-07T00:00:00.000Z", fetchedAt: iso(6), pending: false, lastError: null, rows: lots },
+    "/api/bot/order-history": { count: orders.length, orders },
+    "/api/bot/floor-tracking": { version: 1, generated_at: iso(3), status: "ok", reason: null, mode: "vol_managed_spy", config: { base: "SPY", levered: "SSO", cash_fund: "BOXX", capital_pct: 0.85, band: 0.1 },
+      definitions: { tracking_pp: "floor_pct - rule_pct, in percentage points of the floor's capital" },
+      entry: { day: dayAgo(14), shortfall_pp: -0.7225, note: "floor_pnl runs from the fills to the close" }, latest: sessions[0],
+      rolling: { sessions: 9, from: dayAgo(11), to: dayAgo(1), floor_pct: -2.1184, rule_pct: -1.6541, tracking_pp: -0.4644, window_sessions: 20, complete: false, missing: [] },
+      rollback_trigger: { text: "rollback trigger: live floor tracking vs its own rule > 3 pp over any 20 sessions, or account drawdown beyond the backtest's 95th-percentile 3-month drawdown", source: "research/floor_study_2026-11-05.md, Pre-registration", status: "undetermined", summary: "tracking: 9 measured sessions, a window needs 20 in a row; -0.46pp so far; drawdown leg not evaluated (the study recorded no limit)", tracking: { status: "not_enough_history", limit_pp: 3, window_sessions: 20, sessions_measured: 9 } },
+      turnover: { window: { sessions: 9, core: { orders: 0, filled: 0, dollars: 0 }, cash_fund: { orders: 0, filled: 0, dollars: 0 }, rebalance_sessions: 0, outside_band_no_trade: 0 } },
+      sessions, message: "fixture" },
+    "/api/bot/rule-counterfactuals": { via: "daemon", generated_at: iso(8), min_n: 5, log: { records: 20000, first_day: "2026-09-03", last_day: dayAgo(0), gate_rows: 503, taken_rows: 3555 },
+      dollar_basis: "ESTIMATE. cut dollars x the stock price-path label's return (long the underlying, +2% target / -4% stop / N-day timeout). Not option P&L.",
+      limits: ["Outcomes are shadow_portfolio's path labels of the UNDERLYING stock, long. A blocked cash-secured put is bullish, so the sign is right; the size of its P&L is not.", "Records from before the 2026-11-12 change carry no tier and no size.", "A third limit the page does not print."],
+      gates: {
+        exposure_ceiling: { what: "the regime's MAX_TOTAL_EXPOSURE", rows: 378, name_days: 45, names: 28, groups: [
+          { tier: "1", action: "dropped", rows: 375, name_days: 45, names: 28, first_day: "2026-10-29", last_day: dayAgo(3), "+5d": cell(14, -1, -0.623, 131, 19) },
+          { tier: "1", action: "scaled", rows: 3, name_days: 3, names: 3, first_day: dayAgo(3), last_day: dayAgo(3), "+5d": cell(0, null, null, 0, 3) }] },
+        daily_loss: { what: "the tier engine's daily loss limit", rows: 68, name_days: 15, names: 14, groups: [{ tier: "1", action: "dropped", rows: 68, name_days: 15, names: 14, first_day: "2026-10-29", last_day: "2026-11-05", "+5d": cell(13, -2.154, -2.026, 41, 0) }] },
+        drawdown: { what: "the tier engine's portfolio drawdown kill", rows: 0, name_days: 0, names: 0, groups: [] },
+        cash_reserve: { what: "the regime's cash reserve", rows: 57, name_days: 16, names: 15, groups: [
+          { tier: "scanner", action: "dropped", rows: 21, name_days: 9, names: 9, first_day: "2026-11-09", last_day: "2026-11-13", "+5d": cell(8, 1.5, -1, 20, 1, 4, -312.4) },
+          { tier: "unrecorded", action: "dropped", rows: 36, name_days: 7, names: 6, first_day: "2026-11-06", last_day: dayAgo(2), "+5d": cell(3, 2, 0.838, 32, 4) }] },
+      } },
+    "/api/bot/regime-counterfactual": { days: 14, since: dayAgo(13), rows: 3112, note: "legacy = what the pre-engine system would have done at the same decision point; engine = what the regime engine did.",
+      by_day: [
+        day(2, { n: 32, differs: 6, decisions: { block: 6, take: 26 }, blocks_by_guard: { knife: 6, rs: 1 }, size_cut: 0 }, { n: 15, differs: 9, decisions: { take: 15 }, blocks_by_guard: {}, size_cut: 9 }, 0.8607),
+        day(1, { n: 18, differs: 9, decisions: { take: 9, block: 9 }, blocks_by_guard: { knife: 2, rs: 9 }, size_cut: 0 }, { n: 10, differs: 10, decisions: { take: 10 }, blocks_by_guard: {}, size_cut: 10 }, 0.6643),
+        day(0, { n: 0, differs: 0, decisions: {}, blocks_by_guard: {}, size_cut: 0 }, { n: 0, differs: 0, decisions: {}, blocks_by_guard: {}, size_cut: 0 }, null),
+      ] },
+    "/api/bot/options-feed": { feed: "indicative", opra: "not_entitled", indicative: "entitled", checked_at: iso(40) },
+  };
+}
+
 function dailyLineFixture({ latched, now }) {
   const r2 = (x) => Math.round(x * 100) / 100;
   const et = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -4337,7 +4404,8 @@ async function main() {
               if (JSON.stringify(ov.why.win) !== JSON.stringify([["7d", "false"], ["30d", "true"], ["90d", "false"]])) ovFail(`the window control reads ${JSON.stringify(ov.why.win)}`);
               if (!/^Next 10 days: big funds are expected to be net sellers of stocks \(pressure −0\.42, confidence 60%\) — stocks ran ahead of bonds.* Flowing in: XLU, XLP; out: XLK\. The floor runs at ×0\.94 of its target because of it\.$/.test(ov.why.secs.flows || "")) ovFail(`the flows line reads "${ov.why.secs.flows}"`);
               if (ov.why.secs.regime !== "Risk budget 0.56 (reduced): VIX term structure inverted (1.04) −0.21; breadth 38% −0.12. Applied to: the tier engine's exposure cap.") ovFail(`the regime line reads "${ov.why.secs.regime}"`);
-              if (Object.keys(ov.why.secs).join(",") !== "regime,flows,tax,signals") ovFail(`the context sections are ${Object.keys(ov.why.secs).join(",")} (expected the pipeline's order: regime, flows, tax, signals)`);
+              // re-pinned 2026-11-20 ([PRODUCT] the evidence sections): + base, rules after the pipeline's four (was "regime,flows,tax,signals")
+              if (Object.keys(ov.why.secs).join(",") !== "regime,flows,tax,signals,base,rules") ovFail(`the context sections are ${Object.keys(ov.why.secs).join(",")} (expected the pipeline's order: regime, flows, tax, signals; then base, rules)`);
               if (ov.why.secs.tax !== "Tax filter: 1 of 3 trades checked in the last 7 days was skipped — the edge did not survive short-term tax (24%) against holding SPY. 1 loss could be harvested.") ovFail(`the tax line reads "${ov.why.secs.tax}"`);
               if (ov.why.secs.signals !== "Of 6 signals measured: 2 add return, 2 look like noise, 1 hurt, 1 unclear.") ovFail(`the signals line reads "${ov.why.secs.signals}"`);
               const w7 = page.locator(".vt-why-win button", { hasText: /^7d$/ });
@@ -4385,6 +4453,142 @@ async function main() {
               if (!/old per-ticker feed/.test(ov.why.secs.signals || "")) ovFail(`the idle signals line reads "${ov.why.secs.signals}"`);
               if (ov.why.secs.flows !== "No flows estimate: the daily estimate has not been computed yet. Tier 3 computes it once per completed session.") ovFail(`the idle flows line (no estimate yet) reads "${ov.why.secs.flows}"`);
               if (ov.why.secs.regime !== "the regime risk budget is not on this server yet") ovFail(`the idle regime line reads "${ov.why.secs.regime}"`);
+            }
+            // ── EVIDENCE BLOCKS ([PRODUCT] 2026-11-20, UI coverage batch A; client/src/bot/evidence.tsx over six owner
+            // routes): the closed trades and their CSV under the Book, the order history with each price-ladder step in
+            // the Orders panel, the base holding against its own rule and what each blocking rule prevented as sections
+            // of the Why panel, the engine-vs-old-rule line in the regime section, and the option-quote-feed line under
+            // the Book's options. Every cell is checked against this page's fixtures; the idle page has none of the
+            // routes, and each block must say so in words. Nothing may leak NaN / undefined / null or widen the page.
+            {
+              const evFail = (m) => checks.failures.push("evidence: " + m);
+              const M = "−";
+              const lotsFx = PAGE_FIXTURES["/api/bot/lots"], ordFx = PAGE_FIXTURES["/api/bot/order-history"], floorFx = PAGE_FIXTURES["/api/bot/floor-tracking"], rulesFx = PAGE_FIXTURES["/api/bot/rule-counterfactuals"];
+              for (let i = 0; i < 40; i++) { if (await page.locator('.vt-ev[data-ev="lots"]:not([data-state="loading"])').count()) break; await page.waitForTimeout(100); }
+              const read = () => page.evaluate(() => {
+                const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+                const lots = document.querySelector('.vt-ev[data-ev="lots"]');
+                const orders = document.querySelector('.vt-ev[data-ev="orders"]');
+                const wrapOver = (el) => (el ? [...el.querySelectorAll(".vt-exp-wrap")].map((w) => Math.round(w.getBoundingClientRect().right - window.innerWidth)).filter((v) => v > 1) : []);
+                return {
+                  lots: lots ? { state: lots.getAttribute("data-state"), text: txt(lots), rows: [...lots.querySelectorAll("tbody tr")].map((r) => [...r.querySelectorAll("td")].map(txt)), help: !!lots.querySelector('button.vt-help[data-help="closedLots"]'), btns: [...lots.querySelectorAll(".vt-ev-act .vt-bot-wbtn")].map(txt), wrapOver: wrapOver(lots), inBook: !!lots.closest('section.vt-bot-panel[data-panel="book"]') } : null,
+                  orders: orders ? { state: orders.getAttribute("data-state"), text: txt(orders), rows: [...orders.querySelectorAll(".vt-ev-or")].map((r) => ({ sym: txt(r.querySelector(".sym")), ask: txt(r.querySelector(".ask")), out: txt(r.querySelector(".out")), step: txt(r.querySelector(".step")), over: Math.round(r.getBoundingClientRect().right - window.innerWidth) })), help: !!orders.querySelector('button.vt-help[data-help="orderHistory"]') } : null,
+                  feed: (() => { const f = document.querySelector('[data-ev="options-feed"]'); return f ? { feed: f.getAttribute("data-feed"), text: txt(f), inBook: !!f.closest('section.vt-bot-panel[data-panel="book"]') } : null; })(),
+                  openBtn: !!document.querySelector('[data-ev="orders-open"]'),
+                  pageOver: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+                };
+              });
+              // the two Why sections' sentences, once their routes have answered (never the "Reading…" placeholder)
+              const evSecs = async () => { let m = {}; for (let i = 0; i < 50; i++) { m = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll(".vt-why-sec")].map((x) => [x.getAttribute("data-sec"), (x.querySelector(".vt-why-ss")?.textContent || "").trim()]))); if (!/^Reading /.test(m.base || "") && !/^Reading /.test(m.rules || "")) break; await page.waitForTimeout(100); } return m; };
+              const evShot = async (sel, tag) => { try { const el = page.locator(sel).first(); if (await el.count()) { await el.scrollIntoViewIfNeeded(); await el.screenshot({ path: path.join(OUT, `${name}-evidence-${tag}-${vp.w}.png`), animations: "disabled" }); } } catch (e) { console.log(`  (evidence screenshot ${tag} skipped: ${String(e.message || e).slice(0, 80)})`); } };
+              await evShot('.vt-ev[data-ev="lots"]', "lots");
+              let ev = await read();
+              if (!ev.lots) evFail("no closed-trades block on the page");
+              else if (name === "bot") {
+                const want = [...lotsFx.rows].sort((a, b) => Date.parse(b.closedAt) - Date.parse(a.closedAt));
+                console.log(`  evidence ${vp.w}px: lots ${ev.lots.state} · ${ev.lots.rows.length} rows · orders ${ev.orders ? ev.orders.state + " " + ev.orders.rows.length : "folded"} · feed ${ev.feed?.feed ?? "none"}`);
+                if (ev.lots.state !== "ready" || ev.lots.rows.length !== 8) evFail(`the closed-trades block reads "${ev.lots.state}" with ${ev.lots.rows.length} rows (the route served ${want.length}; 8 show first)`);
+                if (!ev.lots.inBook) evFail("the closed-trades block is not inside the Book panel");
+                if (!ev.lots.help) evFail("no help glyph on the closed-trades block");
+                if (/NaN|undefined|\bnull\b|Infinity/.test(ev.lots.text)) evFail(`a bare NaN / undefined / null in "${ev.lots.text.slice(0, 200)}"`);
+                if (ev.lots.wrapOver.length) evFail(`the closed-trades table leaves the window by ${ev.lots.wrapOver.join(", ")}px (its wrapper must scroll instead)`);
+                // the newest lot: CMCSA put sold at 0.79, bought back at 0.38 — +$41.00, +51.9 %
+                const r0 = ev.lots.rows[0] || [];
+                if (r0[0] !== "CMCSA 24P 18-Dec" || r0[1] !== "+$41.00" || r0[2] !== "+51.9%" || r0[5] !== "$0.79" || r0[6] !== "$0.38" || r0[7] !== "sold 1 ct, bought back") evFail(`the newest lot reads ${JSON.stringify(r0)}`);
+                // a losing long: AMD 40 sh 162.70 -> 158.20 = -$180.00, -2.77 %
+                const amd = ev.lots.rows.find((r) => r[0] === "AMD") || [];
+                if (amd[7] !== "bought 40, sold" || amd[1] !== `${M}$180.00` || amd[2] !== `${M}2.8%`) evFail(`the AMD lot reads ${JSON.stringify(amd)}`);
+                if (!/the newest 8 of 2,141 closed lots since May 7/.test(ev.lots.text)) evFail(`the closed-trades caption reads "${ev.lots.text.slice(-220)}"`);
+                if (JSON.stringify(ev.lots.btns) !== JSON.stringify(["show 12", "download CSV · every lot", "bot log CSV"])) evFail(`the closed-trades controls read ${JSON.stringify(ev.lots.btns)}`);
+                // "show 12" shows the rest; the lot whose opening fill predates the history says so with a dash
+                const more = page.locator('.vt-ev[data-ev="lots"] .vt-ev-act button', { hasText: /^show 12$/ });
+                if (await more.count()) {
+                  await more.scrollIntoViewIfNeeded(); await pressQ(more); await settle();
+                  const ev2 = await read();
+                  if (ev2.lots.rows.length !== 12) evFail(`after "show 12" the table has ${ev2.lots.rows.length} rows`);
+                  const gld = ev2.lots.rows.find((r) => r[0] === "GLD") || [];
+                  if (gld[4] !== "—") evFail(`the lot opened before the fetched history shows held "${gld[4]}" (a dash: unknown, never 0)`);
+                  if (ev2.pageOver > 1) evFail(`the page scrolls sideways by ${ev2.pageOver}px with 12 lots shown`);
+                  const less = page.locator('.vt-ev[data-ev="lots"] .vt-ev-act button', { hasText: /^show 8$/ });
+                  if (await less.count()) { await pressQ(less); await settle(); }
+                }
+                // the quote-feed line sits in the Book because the fixture book holds options
+                if (!ev.feed || ev.feed.feed !== "indicative" || !/^option quotes are INDICATIVE: Alpaca's indicative feed/.test(ev.feed.text) || !ev.feed.inBook) evFail(`the option-quote-feed line reads ${JSON.stringify(ev.feed)}`);
+                // the order history: in the stack it follows the working orders; on the desktop the one-line slot keeps
+                // its height and the header's "history" control opens the panel
+                if (vp.w >= 1180) {
+                  if (ev.orders) evFail("the desktop Orders slot shows the history inline (it must stay one line)");
+                  if (!ev.openBtn) evFail('no "history" control on the desktop Orders panel');
+                  else { const ob = page.locator('[data-ev="orders-open"]').first(); await ob.scrollIntoViewIfNeeded(); await pressQ(ob); await settle(); for (let i = 0; i < 30; i++) { if (await page.locator('.vt-ev[data-ev="orders"][data-state="ready"]').count()) break; await page.waitForTimeout(100); } ev = await read(); }
+                }
+                if (!ev.orders || ev.orders.state !== "ready") evFail(`the order history reads "${ev.orders?.state ?? "absent"}"`);
+                else {
+                  if (ev.orders.rows.length !== ordFx.orders.length) evFail(`${ev.orders.rows.length} order rows (the route served ${ordFx.orders.length})`);
+                  if (!ev.orders.help) evFail("no help glyph on the order history");
+                  if (/NaN|undefined|\bnull\b|Infinity/.test(ev.orders.text)) evFail(`a bare NaN / undefined / null in "${ev.orders.text.slice(0, 200)}"`);
+                  const aal = ev.orders.rows.filter((r) => r.sym === "AAL 11.5P 31-Dec");
+                  // the ladder, newest first: filled at 0.31 (step 3), then the two cancelled steps before it
+                  if (JSON.stringify(aal.map((r) => [r.ask, r.out, r.step])) !== JSON.stringify([["sell 1 ct · limit $0.31", "filled at $0.31", "step 3 of 3 · +$0.01"], ["sell 1 ct · limit $0.30", "cancelled after 20m, unfilled", "step 2 of 3 · +$0.01"], ["sell 1 ct · limit $0.29", "cancelled after 20m, unfilled", "step 1 of 3"]])) evFail(`the AAL ladder reads ${JSON.stringify(aal)}`);
+                  const nv = ev.orders.rows.find((r) => r.sym === "NVDA");
+                  if (!nv || nv.out !== "working" || nv.step !== "") evFail(`the working NVDA order reads ${JSON.stringify(nv)}`);
+                  const vx = ev.orders.rows.find((r) => r.sym === "VXUS");
+                  if (!vx || vx.ask !== "sell 120 · market" || vx.out !== "filled") evFail(`the market order with no fill price reads ${JSON.stringify(vx)} (it must say "filled", never a made-up price)`);
+                  if (!/7 orders since [A-Z][a-z]{2} \d{1,2} · 4 filled · 3 not/.test(ev.orders.text)) evFail(`the order-history caption reads "${ev.orders.text.slice(-260)}"`);
+                  if (ev.orders.rows.some((r) => r.over > 1)) evFail("an order row leaves the window");
+                }
+                await evShot('.vt-ev[data-ev="orders"]', "orders");
+                if (vp.w >= 1180) { await page.keyboard.press("Escape"); await settle(); }
+                // the Why panel's two evidence sections: the sentence, then the table behind it
+                const secs = await evSecs();
+                const baseSay = secs.base || "";
+                const l = floorFx.latest;
+                const pc = (v) => `${v < 0 ? M : v > 0 ? "+" : ""}${Math.abs(v).toFixed(2)}%`;
+                if (baseSay !== `${new Date(l.day + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" })}: the SPY holding ${pc(l.floor_pct)} against ${pc(l.rule_pct)} for its rule (0.70× of SPY ${M}1.98%). It went in holding 0.79× against a target of 0.70×: inside the 0.10× band, where the rule does not trade. Over the last 9 sessions: ${M}0.46 pt against the rule.`) evFail(`the base-holding line reads "${baseSay}"`);
+                if (secs.rules !== `3 rules blocked 76 name-days since Sep 3. Best measured: exposure cap (tier 1 puts, dropped): the 14 judged so far returned ${M}1.0% on average over 5 trading days, worse than the ${M}0.6% of everything scanned those days.`) evFail(`the rules line reads "${secs.rules}"`);
+                const openSec = async (id) => { const b = page.locator(`.vt-why-sec[data-sec="${id}"] .vt-why-sh > button:not(.vt-help)`); if (!(await b.count())) return null; if ((await b.getAttribute("aria-expanded")) !== "true") { await b.scrollIntoViewIfNeeded(); await pressQ(b); await settle(); }
+                  return page.evaluate((sid) => { const sb = document.querySelector(`.vt-why-sec[data-sec="${sid}"] .vt-why-sb`); const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim(); return sb ? { text: txt(sb), rows: [...sb.querySelectorAll("tbody tr")].map((r) => [...r.querySelectorAll("td")].map(txt)), over: [...sb.querySelectorAll(".vt-exp-wrap")].map((w) => Math.round(w.getBoundingClientRect().right - window.innerWidth)).filter((v) => v > 1), cf: txt(sb.querySelector('[data-ev="regime-cf"]')), trigger: sb.querySelector("[data-trigger]")?.getAttribute("data-trigger") || null } : null; }, id); };
+                const bs = await openSec("base");
+                if (!bs) evFail("the base-holding section does not open");
+                else {
+                  if (bs.rows.length !== floorFx.sessions.length) evFail(`${bs.rows.length} session rows (the report has ${floorFx.sessions.length})`);
+                  const s0 = floorFx.sessions[0], row0 = bs.rows[0] || [];
+                  if (row0[1] !== pc(s0.floor_pct) || row0[2] !== pc(s0.rule_pct) || row0[3] !== `${M}0.18 pt` || row0[4] !== pc(s0.spy_pct) || row0[5] !== "0.70×" || row0[6] !== "0.79×") evFail(`the newest session row reads ${JSON.stringify(row0)}`);
+                  if (bs.trigger !== "wait" || !/Rollback line not yet testable: tracking: 9 measured sessions/.test(bs.text)) evFail(`the rollback line reads "${bs.text.slice(0, 200)}" (${bs.trigger})`);
+                  if (!/0 orders sent, 0 filled/.test(bs.text) || !/against the rule that day, from entering after the open/.test(bs.text)) evFail("the base-holding detail lacks its trading or entry line");
+                  if (/NaN|undefined|\bnull\b|Infinity/.test(bs.text)) evFail(`a bare NaN / undefined / null in the base-holding detail: "${bs.text.slice(0, 200)}"`);
+                  if (bs.over.length) evFail(`the base-holding table leaves the window by ${bs.over.join(", ")}px`);
+                }
+                await evShot('.vt-why-sec[data-sec="base"]', "base");
+                const rs = await openSec("rules");
+                if (!rs) evFail("the rules section does not open");
+                else {
+                  const groups = Object.values(rulesFx.gates).reduce((a, g) => a + g.groups.length, 0);
+                  if (rs.rows.length !== groups) evFail(`${rs.rows.length} rule rows (the report has ${groups} groups)`);
+                  const top = rs.rows[0] || [];
+                  if (!/^Exposure cap\s*tier 1 puts, dropped$/.test(top[0] || "") || top[1] !== `${M}1.0%` || !(top[2] || "").startsWith(`${M}0.6%`) || top[3] !== "worse than the rest" || top[4] !== "14" || top[5] !== "45" || top[6] !== "not sized") evFail(`the best-measured rule row reads ${JSON.stringify(top)}`);
+                  const sized = rs.rows.find((r) => /scanner picks, dropped/.test(r[0])) || [];
+                  if (sized[6] !== `${M}$312` || sized[3] !== "better than the rest") evFail(`the sized cash-reserve row reads ${JSON.stringify(sized)}`);
+                  if (!/Never fired in the logged period: drawdown kill \(tier engine\)\./.test(rs.text)) evFail("the rule that never fired is not named");
+                  if (!/It is not a statistical test/.test(rs.text) || !/ESTIMATE/.test(rs.text)) evFail("the rules detail lacks its estimate / not-a-test caveat");
+                  if (/A third limit the page does not print/.test(rs.text)) evFail("more than two of the report's limits are printed");
+                  if (/NaN|undefined|\bnull\b|Infinity/.test(rs.text)) evFail(`a bare NaN / undefined / null in the rules detail: "${rs.text.slice(0, 200)}"`);
+                  if (rs.over.length) evFail(`the rules table leaves the window by ${rs.over.join(", ")}px`);
+                }
+                await evShot('.vt-why-sec[data-sec="rules"]', "rules");
+                const rg2 = await openSec("regime");
+                if (!rg2 || rg2.cf !== "Against the old rule, the last 14 days: 34 of 75 entry decisions came out differently; 15 entries blocked (weak against the market 10, falling knife 8; one entry can trip several); 19 option entries cut in size; tier 1 sized at 0.50× against 0.66× under the old rule on " + new Date(PAGE_FIXTURES["/api/bot/regime-counterfactual"].by_day[1].date + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) + ". Counts only: what the blocked names went on to do is not in this report.") evFail(`the engine-vs-old-rule line reads "${rg2?.cf}"`);
+                const after = await read();
+                if (after.pageOver > 1) evFail(`the page scrolls sideways by ${after.pageOver}px with the evidence sections open`);
+              } else {
+                // idle: a server without the routes — each block is a designed sentence, the page is whole
+                if (ev.lots.state !== "absent" || !/the closed-lot ledger is not on this server yet/.test(ev.lots.text)) evFail(`without the route the closed-trades block reads "${ev.lots.state}": "${ev.lots.text.slice(0, 160)}"`);
+                if (ev.feed) evFail(`without the route an option-quote-feed line is shown: ${JSON.stringify(ev.feed)}`);
+                const secs = await evSecs();
+                if (secs.base !== "the base holding's tracking report is not on this server yet") evFail(`the idle base-holding line reads "${secs.base}"`);
+                if (secs.rules !== "the rule report is not on this server yet") evFail(`the idle rules line reads "${secs.rules}"`);
+                if (vp.w < 1180 && (!ev.orders || ev.orders.state !== "absent" || !/the order history is not on this server yet/.test(ev.orders.text))) evFail(`without the route the order history reads "${ev.orders?.state}": "${(ev.orders?.text || "").slice(0, 160)}"`);
+                if (ev.pageOver > 1) evFail(`the idle page scrolls sideways by ${ev.pageOver}px`);
+              }
             }
             // ── DAILY LINE CARD ([PRODUCT] 2026-11-06; server/dailyLine.ts via GET /api/bot/daily-line, overview.tsx
             // DailyLineBody): one row per stored line, newest first, every cell the line's own field — the account's day,

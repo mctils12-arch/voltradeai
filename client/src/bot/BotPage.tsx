@@ -34,6 +34,8 @@ import { fmtDay } from "./scoreView";
 import { ShadowBlock, ShadowChip } from "./shadow";
 import { ModeBar, PerfBody, PicksBody, WhyBody, DailyLineBody } from "./overview";
 import { parseAttribution, whyTitle } from "./whyView";
+import { ClosedLots, OrderHistory, OptionsFeedLine } from "./evidence";
+import { parseOptionsFeed } from "./evidenceView";
 
 const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY", perf: "Portfolio vs SPY", why: "Why we're losing money", picks: "Picks", daily: "Daily line" };
 /** the overview's own panels: a window popped out with one of them polls the overview's routes */
@@ -183,6 +185,8 @@ export default function BotPage() {
 
   // bodies (fresh), then hold snapshots
   const tpl = TEMPLATES[tier];
+  const optionsFeed = useMemo(() => parseOptionsFeed(d.optionsFeed.data), [d.optionsFeed.data]);
+  const hasOption = useMemo(() => (d.positions.data ?? []).some((p) => !!p.isOption || (p.asset_class ?? "").toLowerCase().includes("option")), [d.positions.data]);
   const ordersRoomy = flags.zoomed === "orders" || flags.floating.includes("orders") || pane === "orders";
   const ages = { status: d.status.dataUpdatedAt ? now - d.status.dataUpdatedAt : null, audit: d.audit.dataUpdatedAt ? now - d.audit.dataUpdatedAt : null, positions: d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null, insight: d.insight.dataUpdatedAt ? now - d.insight.dataUpdatedAt : null, orders: d.orders.dataUpdatedAt ? now - d.orders.dataUpdatedAt : null, perf: d.performance.dataUpdatedAt ? now - d.performance.dataUpdatedAt : null, lastScan: d.lastScan.dataUpdatedAt ? now - d.lastScan.dataUpdatedAt : null, score: d.scoreboard.dataUpdatedAt ? now - d.scoreboard.dataUpdatedAt : null,
     why: d.attribution.dataUpdatedAt ? now - d.attribution.dataUpdatedAt : d.sleeves.dataUpdatedAt ? now - d.sleeves.dataUpdatedAt : null, picks: d.decisions.dataUpdatedAt ? now - d.decisions.dataUpdatedAt : d.positions.dataUpdatedAt ? now - d.positions.dataUpdatedAt : null,
@@ -200,16 +204,21 @@ export default function BotPage() {
     // B2 (2026-11-03, client/src/bot/expectancyTable.tsx): the Expectancy tile's number split by sleeve follows the
     // tape and the P&L-by-sleeve block — its own block from the broker half of /api/bot/performance, so it renders
     // whether or not the sleeves query has answered
-    book: <><BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} /><ExpectancyBySleeve broker={perf?.broker ?? null} reason={perf?.brokerReason ?? null} /></>,
+    // EVIDENCE (2026-11-20, evidence.tsx): which quote feed the option prices above come from, when the Book holds an
+    // option; then the closed lots themselves (the rows the two tables above are computed from) with their CSV
+    book: <><BookBody positions={d.positions.data} focus={focusSym} onSelect={focus} sleeves={d.sleeves.data} rowFlash={rowFlash.current} nowMs={now} />{hasOption ? <OptionsFeedLine w={optionsFeed} /> : null}<ExpectancyBySleeve broker={perf?.broker ?? null} reason={perf?.brokerReason ?? null} /><ClosedLots q={d.closedLots} nowMs={now} /></>,
     // entry shadow mode (shadow.tsx): the full block where Orders has room (zoomed, a window, its own
     // window) or folded in the phone/tablet stack; in the desktop grid only the header chip, so the
     // one-line Orders slot never grows and squeezes the chart
-    orders: <>{ordersRoomy || tpl.scrolls ? <ShadowBlock status={status} mode={ordersRoomy ? "full" : "fold"} /> : null}<OrdersBody orders={d.orders.data} deploysToday={deploysToday} /></>,
+    // 2026-11-20: the order history (every order sent, each price-ladder step) follows the working orders wherever
+    // the panel has room — the same rule as the shadow block; the desktop slot stays one line and its header
+    // control opens the panel
+    orders: <>{ordersRoomy || tpl.scrolls ? <ShadowBlock status={status} mode={ordersRoomy ? "full" : "fold"} /> : null}<OrdersBody orders={d.orders.data} deploysToday={deploysToday} />{ordersRoomy || tpl.scrolls ? <OrderHistory q={d.orderHistory} nowMs={now} /> : null}</>,
     timeline: <TimelineBody audit={auditAll} nowMs={now} killSince={killSince} replayAt={replayAt} onReplay={setReplayAt} closed={market ? !market.isOpen : false} />,
     score: <ScoreBody q={d.scoreboard} nowMs={now} />,
     // OVERVIEW (2026-11-06): the after-tax chart vs SPY, why money is being lost, a plain-English card per pick
     perf: <PerfBody q={d.scoreboard} bench={d.benchmark.data} nowMs={now} fill={(overviewGrid && !flags.zoomed) || flags.zoomed === "perf" || flags.floating.includes("perf") || pane === "perf"} />,
-    why: <WhyBody attrQ={d.attribution} days={attrDays} onDays={setAttrDays} sleeves={d.sleeves.data} flowsQ={d.flows} taxQ={d.tax} signalsQ={d.signals} regimeQ={d.regime} nowMs={now} />,
+    why: <WhyBody attrQ={d.attribution} days={attrDays} onDays={setAttrDays} sleeves={d.sleeves.data} flowsQ={d.flows} taxQ={d.tax} signalsQ={d.signals} regimeQ={d.regime} floorQ={d.floorTracking} rulesQ={d.ruleCounterfactuals} regimeCfQ={d.regimeCounterfactual} nowMs={now} />,
     picks: <PicksBody positions={d.positions.data} decisionsQ={d.decisions} nowMs={now} />,
     // the daily line ([PRODUCT] 2026-11-06): the last sessions' lines, as the job wrote them after each close
     daily: <DailyLineBody q={d.dailyLine} nowMs={now} />,
@@ -248,7 +257,7 @@ export default function BotPage() {
       case "model": return <Panel {...common} title="Model" help="model" meta={insight?.recent?.window ? `shadow · last ${insight.recent.window}` : undefined} style={{ flex: "1 1 auto", ...extraStyle }} scroll>{body(id)}</Panel>;
       case "chart": return <Panel {...common} title="Chart" help="chart" meta={d.positions.data?.length ? `${d.positions.data.length} positions · entry · stop · thirds · target` : undefined} style={{ flex: "2.4 1 0", ...extraStyle }}>{body(id)}</Panel>;
       case "book": return <Panel {...common} title={`Book${d.positions.data ? ` · ${d.positions.data.length}` : ""}`} help="book" meta={account ? `cash ${account.cash != null ? `$${Math.round(Number(account.cash)).toLocaleString("en-US")}` : "—"}` : undefined} scroll style={{ flex: "1.1 1 0", ...extraStyle }}>{body(id)}</Panel>;
-      case "orders": return <Panel {...common} title="Orders" help="orders" status={ordersRoomy || tpl.scrolls ? undefined : <ShadowChip status={status} onOpen={() => onZoom("orders")} label="count" />} scroll={ordersRoomy} style={{ flex: ordersFlex, ...extraStyle }}>{body(id)}</Panel>;
+      case "orders": return <Panel {...common} title="Orders" help="orders" status={ordersRoomy || tpl.scrolls ? undefined : <><ShadowChip status={status} onOpen={() => onZoom("orders")} label="count" /><button type="button" className="vt-bot-wbtn vt-ev-open" data-ev="orders-open" onClick={() => onZoom("orders")} title="every order sent, with each price-ladder step">history</button></>} scroll={ordersRoomy} style={{ flex: ordersFlex, ...extraStyle }}>{body(id)}</Panel>;
       // the daily bot-vs-SPY scoreboard (2026-10-28, human-ordered): the slot carries the column share; the table scrolls inside
       case "score": return <Panel {...common} title="Daily vs SPY" help="scoreboard" meta={d.scoreboard.data?.summary ? `${d.scoreboard.data.rows.length} days · through ${fmtDay(d.scoreboard.data.summary.to)}` : "bot vs buy-and-hold SPY, per trading day"} scroll style={{ ...extraStyle, flex: "1 1 auto", minHeight: 0, maxHeight: undefined }}>{body(id)}</Panel>;
       case "timeline": return <Panel {...common} title={new Date(effNow).toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" })} help="timeline" status={replayAt !== null ? <span className="vt-bot-st vt-bot-o"><span className="vt-bot-dot" />replay<Help k="replay" /></span> : undefined} meta="RTH 09:30–16:00 ET · hatched = latched · drag to replay" style={{ height: tier === "s" ? 120 : "100%", ...extraStyle }}>{body(id)}</Panel>;

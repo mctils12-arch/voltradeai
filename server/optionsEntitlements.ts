@@ -433,3 +433,25 @@ export async function cachedOptionsEntitlements(
 export function _resetOptionsEntitlementsCacheForTests(): void {
   _cache = null;
 }
+
+/** What the owner's page needs from the report ([PRODUCT] 2026-11-20, GET /api/bot/options-feed): which Alpaca
+ *  option QUOTE feed this account may read. `feed` is "opra" when the exchange feed answers entitled, "indicative"
+ *  when only Alpaca's indicative feed does, "none" when neither does, "unknown" when either check was inconclusive
+ *  (rate limit, network) — never a guess. Verdict tokens only: no price, symbol, URL or key. */
+export interface OptionsFeedView {
+  feed: "opra" | "indicative" | "none" | "unknown";
+  opra: Verdict | null;
+  indicative: Verdict | null;
+  checked_at: string | null;
+}
+const FEED_INCONCLUSIVE: ReadonlySet<Verdict> = new Set<Verdict>(["rate_limited_inconclusive", "network_error_inconclusive", "http_other", "skipped"]);
+export function optionsFeedView(report: Pick<EntitlementsReport, "results" | "checked_at"> | null | undefined): OptionsFeedView {
+  const results = Array.isArray(report?.results) ? report.results : [];
+  const of = (id: string): Verdict | null => results.find((r) => r?.id === id)?.verdict ?? null;
+  const opra = of("alpaca_snapshot_opra");
+  const indicative = of("alpaca_snapshot_indicative");
+  const yes = (v: Verdict | null) => v === "entitled" || v === "entitled_delayed";
+  const unsure = (v: Verdict | null) => v === null || FEED_INCONCLUSIVE.has(v);
+  const feed: OptionsFeedView["feed"] = yes(opra) ? "opra" : unsure(opra) ? "unknown" : yes(indicative) ? "indicative" : unsure(indicative) ? "unknown" : "none";
+  return { feed, opra, indicative, checked_at: typeof report?.checked_at === "string" ? report.checked_at : null };
+}

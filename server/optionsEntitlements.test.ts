@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   runOptionsEntitlements, cachedOptionsEntitlements, _resetOptionsEntitlementsCacheForTests,
-  verdictFor, firstRecord, contractSymbolOf, type FetchLike,
+  verdictFor, firstRecord, contractSymbolOf, optionsFeedView, type FetchLike, type Verdict,
 } from "./optionsEntitlements";
 import { sanitizeDiag, DIAG_PROBES } from "./diag";
 
@@ -224,4 +224,28 @@ test("wiring: probe is whitelisted in diag.ts and served by bot.ts through the s
   const block = bot.slice(i, i + 1400);
   assert.ok(block.includes("cachedOptionsEntitlements("));
   assert.ok(block.includes("res.json(sanitizeDiag(report))"));
+});
+
+// ── the owner page's feed line ([PRODUCT] 2026-11-20, GET /api/bot/options-feed) ──
+test("optionsFeedView: OPRA when entitled, indicative when only that answers, none when neither, unknown when a check was inconclusive", () => {
+  const rep = (opra: Verdict | null, ind: Verdict | null) => ({
+    checked_at: "2026-11-20T10:04:54.963Z",
+    results: [
+      ...(opra ? [{ id: "alpaca_snapshot_opra", provider: "alpaca" as const, endpoint: "x", http: 0, verdict: opra, vendor_status: null, rows: null, fields: {} }] : []),
+      ...(ind ? [{ id: "alpaca_snapshot_indicative", provider: "alpaca" as const, endpoint: "x", http: 0, verdict: ind, vendor_status: null, rows: null, fields: {} }] : []),
+    ],
+  });
+  assert.deepEqual(optionsFeedView(rep("not_entitled", "entitled")), { feed: "indicative", opra: "not_entitled", indicative: "entitled", checked_at: "2026-11-20T10:04:54.963Z" });
+  assert.equal(optionsFeedView(rep("entitled", "entitled")).feed, "opra");
+  assert.equal(optionsFeedView(rep("entitled_delayed", "not_entitled")).feed, "opra");
+  assert.equal(optionsFeedView(rep("not_entitled", "not_entitled")).feed, "none");
+  assert.equal(optionsFeedView(rep("unauthorized_key", "unauthorized_key")).feed, "none");
+  // a rate limit or a network error on EITHER deciding check is never read as "not entitled"
+  assert.equal(optionsFeedView(rep("rate_limited_inconclusive", "entitled")).feed, "unknown");
+  assert.equal(optionsFeedView(rep("not_entitled", "network_error_inconclusive")).feed, "unknown");
+  assert.equal(optionsFeedView(rep(null, "entitled")).feed, "unknown");
+  assert.equal(optionsFeedView(rep("not_entitled", null)).feed, "unknown");
+  assert.deepEqual(optionsFeedView(null), { feed: "unknown", opra: null, indicative: null, checked_at: null });
+  // verdict tokens and a timestamp only: nothing else of the report leaves
+  assert.deepEqual(Object.keys(optionsFeedView(rep("not_entitled", "entitled"))).sort(), ["checked_at", "feed", "indicative", "opra"]);
 });
