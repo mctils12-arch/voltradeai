@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 258 | 5 | 21 | 27 | 10 |
+| HTTP routes | 256 | 5 | 22 | 27 | 11 |
 | Diagnostic probes (token-gated) | 33 | 14 | 6 | 10 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -26,11 +26,12 @@ Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, th
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (27)
+## Missing: user-relevant, no UI yet (28)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
 | route | `GET /api/data/aircraft/estimate/:hex` | `server/aircraftEstimate.ts` | Server-side position ESTIMATE for a plane that stopped reporting (2026-11-17). The selected plane's card estimates in the browser (planeMotion.ts) and does not read this. Placement: the flight card's 'estimate' line should state the server's estimate and its limits for planes not in the live feed (watch list, search result). |
+| route | `GET /api/data/aircraft/track/:hex` | `server/aircraftTrackData.ts` | A watched plane's stored track from the tracked-plane log (2026-11-17, built for the app contract). The flight card draws its track from the older /api/data/track route and does not read this one. It was counted as called by a page until 2026-11-20 because /api/data/aircraft/tracked starts the same way. Placement: with fleet and plan history on the flight card (batch B). |
 | route | `GET /api/data/aircraft/fleet` | `server/aircraftTrackData.ts` | Fleet / operator data for an aircraft (2026-11-17). Placement: a 'Fleet' block on the existing flight card (DetailCard), under registration and type. |
 | route | `GET /api/bot/stream` | `server/bot.ts` | Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh. |
 | route | `GET /api/bot/notifications` | `server/bot.ts` | The bot's notifications (fills, halts, alarms), kept in memory. No page reads them. Placement: a notifications list on the AI Engine page (no bell exists today; use the page's existing card pattern). |
@@ -86,7 +87,7 @@ layers are not listed one by one here.
 | strategy | `strategies/squeeze.py` | `strategies/squeeze.py` | as above: results show under its sleeve, not by strategy name |
 | strategy | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | visible as decisions in the journal; no state view (how much reserve, what is queued) |
 
-## Legacy: removal candidates, not UI gaps (10)
+## Legacy: removal candidates, not UI gaps (11)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -96,6 +97,7 @@ layers are not listed one by one here.
 | route | `GET /api/bot/ml-status` | `server/bot.ts` | duplicate of /api/ml/status, which the page reads. Removal candidate. |
 | route | `GET /api/bot/system-status` | `server/routes.ts` | pre-refocus status route; the page reads /api/bot/status. Removal candidate. |
 | route | `GET /api/market-snapshot` | `server/routes.ts` | pre-refocus route; no page reads it. Removal candidate. |
+| route | `GET /api/news` | `server/routes.ts` | Polygon news passthrough from before the refocus. No page reads it: the News tab reads /api/market/news. It was counted as called by a page until 2026-11-20 because /api/newsletter starts the same way. Removal candidate. |
 | route | `GET /api/trades/today` | `server/routes.ts` | pre-refocus route. Removal candidate (its content belongs to the closed-trades table above). |
 | route | `GET /api/positions` | `server/routes.ts` | pre-refocus route; the Book reads /api/bot/positions. Removal candidate. |
 | route | `GET /api/shorts/dashboard` | `server/routes.ts` | pre-refocus route; no page reads it. Removal candidate. |
@@ -143,14 +145,13 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (297)
+## Surfaced (295)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
 | route | `GET /tiles/aero/:chart/:z/:x/:y` | `server/aeroCharts.ts` | a page calls it |
 | route | `GET /api/data/aero/status` | `server/aeroCharts.ts` | a page calls it |
 | route | `GET /api/data/aircraft/find` | `server/aircraftFind.ts` | a page calls it |
-| route | `GET /api/data/aircraft/track/:hex` | `server/aircraftTrackData.ts` | a page calls it |
 | route | `POST /api/auth/login` | `server/auth.ts` | a page calls it |
 | route | `POST /api/auth/register` | `server/auth.ts` | a page calls it |
 | route | `POST /api/auth/logout` | `server/auth.ts` | a page calls it |
@@ -397,7 +398,6 @@ layers are not listed one by one here.
 | route | `POST /api/tax/estimate` | `server/routes.ts` | a page calls it |
 | route | `POST /api/plan` | `server/routes.ts` | a page calls it |
 | route | `GET /api/etf/:ticker` | `server/routes.ts` | a page calls it |
-| route | `GET /api/news` | `server/routes.ts` | a page calls it |
 | route | `GET /api/market/scanner` | `server/routes.ts` | a page calls it |
 | route | `GET /api/market/sectors` | `server/routes.ts` | a page calls it |
 | route | `GET /api/market/snapshots` | `server/routes.ts` | a page calls it |

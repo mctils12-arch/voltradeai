@@ -74,6 +74,21 @@ def route_base(path):
     return re.split(r"/:|\*", path)[0].rstrip("/")
 
 
+def page_calls(path, client):
+    """A page requests this route: its path up to the first parameter appears in
+    client/src AND ends there. Substring alone is not enough: /api/news is not
+    called by a page that reads /api/newsletter/issues, and /api/x/track/:hex is
+    not called by one that reads /api/x/tracked (both were counted as called
+    until 2026-11-20). After the matched part a route WITH a parameter may go on
+    with "/" (its value follows); a fixed route may not go on at all."""
+    base = route_base(path)
+    if not base:
+        return False
+    has_param = re.search(r"/:|\*", path) is not None
+    tail = r"(?![A-Za-z0-9_\-])" if has_param else r"(?![A-Za-z0-9_\-/])"
+    return re.search(re.escape(base) + tail, client) is not None
+
+
 def api_catalog(root=ROOT):
     out = set()
     for f in glob.glob(os.path.join(root, "server", "*.ts")):
@@ -110,7 +125,7 @@ def build(root=ROOT):
         # on every edit above a route, and the register is checked by a test
         where = f
         note = notes["routes"].get(key)
-        if route_base(path) and route_base(path) in client:
+        if page_calls(path, client):
             rows.append(("route", key, where, "surfaced", "a page calls it"))
             if note:
                 redundant.append(key)

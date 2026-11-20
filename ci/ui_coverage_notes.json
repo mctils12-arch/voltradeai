@@ -252,6 +252,14 @@
   "GET /api/legal/terms": [
    "plumbing",
    "terms text; the marketing pages carry their own copy"
+  ],
+  "GET /api/news": [
+   "legacy",
+   "Polygon news passthrough from before the refocus. No page reads it: the News tab reads /api/market/news. It was counted as called by a page until 2026-11-20 because /api/newsletter starts the same way. Removal candidate."
+  ],
+  "GET /api/data/aircraft/track/:hex": [
+   "missing",
+   "A watched plane's stored track from the tracked-plane log (2026-11-17, built for the app contract). The flight card draws its track from the older /api/data/track route and does not read this one. It was counted as called by a page until 2026-11-20 because /api/data/aircraft/tracked starts the same way. Placement: with fleet and plan history on the flight card (batch B)."
   ]
  },
  "probes": {
