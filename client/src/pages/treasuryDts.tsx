@@ -10,6 +10,7 @@
 // the generic .vt-filings-*/.vt-shortvol-* CSS — no new styles.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, Banknote } from "lucide-react";
+import { dtsCategoryLabel } from "@/lib/dtsLabel";
 
 interface DtsLine {
   record_date: string;
@@ -85,7 +86,7 @@ export default function TreasuryDtsView({ onBack }: { onBack: () => void }) {
               {rows.map((l) => (
                 <tr key={`${l.transaction_type}-${l.src_line}-${l.category}`}
                     style={isWithheldTax(l.category) ? { background: "var(--bg-card-hover)" } : undefined}>
-                  <td data-l="Category"><span className="vt-filings-ticker">{l.category}</span></td>
+                  <td data-l="Category"><span className="vt-filings-ticker">{dtsCategoryLabel(l.category)}</span></td>
                   <td data-l="Account">{l.account_type}</td>
                   <td data-l="Today" className="num">{fmtM(l.today_amt)}</td>
                   <td data-l="MTD" className="num">{fmtM(l.mtd_amt)}</td>
