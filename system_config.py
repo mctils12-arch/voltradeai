@@ -437,6 +437,29 @@ BASE_CONFIG = {
     # cadence. 1 = no debounce.
     "FLOOR_REGIME_CONFIRM_CYCLES": 3,
 
+    # TIER ENGINE: A FAILED VXX FETCH IS NOT A CALM MARKET (2026-11-20, REPAIR,
+    # tier_macro_guard.py). Reason: macro_data writes vxx_ratio 1.0 when its VXX
+    # fetch fails, and the tier engine and the kill switches read that as a
+    # reading (NEUTRAL, 95% cap, no Tier 2-4 kill at 1.40). Live
+    # 2026-11-17: the exposure cap blocked every scan of the day under
+    # CAUTION / BEAR except two that carried "vxx=1.00", and both sold a put.
+    # With the guard on, such a scan uses the last real reading while it is
+    # no older than TIER_VXX_HOLD_MAX_AGE_S; past that it proposes no new tier
+    # entry and logs a TIER-KILL row. Expected effect: no entry sized or
+    # admitted on the substitute. Prior, not measured: fewer than 1 scan in
+    # 20 held and almost none blocked (TIER-MACRO / TIER-KILL rows count
+    # them). No regime threshold, cap or kill level is changed.
+    # Off switch: False here, or env VOLTRADE_TIER_VXX_GUARD=off (no deploy).
+    # ROLLBACK TRIGGER: more than 10% of market-hours scans blocked on any
+    # day with Alpaca's bars reachable (the guard is then hiding a fetch
+    # defect: fix the fetch, and turn this off meanwhile).
+    "TIER_VXX_FALLBACK_GUARD": True,
+    # Bounds 300-23400 (one macro cache life to one session). 3600: on the
+    # two days read in the audit log the ratio moved 0.08 in 3 h 20 min
+    # (1.14 -> 1.22, 2026-11-19) and 0.08 in 4 h 45 min (1.29 -> 1.37,
+    # 2026-11-20); the steps it is compared with are 0.10 or more apart.
+    "TIER_VXX_HOLD_MAX_AGE_S": 3600,
+
     # ── DEFENSIVE FLOOR: BEAR-REGIME ROTATION (P1-1) ──────────────────
     # User ask: "switch from qqq to something in bear — not hold permanently".
     # GLD is the only defensive asset we tested that has POSITIVE expected
