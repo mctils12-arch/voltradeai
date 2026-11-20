@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ShieldCheck, RefreshCw, Database } from "lucide-react";
 import { firesCheckLines, type FiresCheck } from "@/lib/archiveChecks";
+import { archiveRows, fmtBytes, offsiteLines, type ArchiveStats, type OffloadStatus } from "@/lib/archiveView";
 
 interface StreamHealthSummary {
   total: number;
@@ -42,15 +43,12 @@ const HEALTH_LABEL: Record<"live" | "recent" | "stale" | "no_data", string> = {
   live: "live", recent: "recent", stale: "stale", no_data: "no data",
 };
 
-function fmtBytes(b: number): string {
-  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
-  if (b >= 1e6) return `${(b / 1e6).toFixed(1)} MB`;
-  if (b >= 1e3) return `${(b / 1e3).toFixed(0)} KB`;
-  return `${b} B`;
-}
 function pct(verified: number, total: number): number {
   return total > 0 ? Math.round((verified / total) * 1000) / 10 : 0;
 }
+
+/** archives listed before "show all": the largest, where the bytes are */
+const ARCHIVES_SHOWN = 12;
 
 export default function QualityDashboardView({ onBack }: { onBack: () => void }) {
   const [data, setData] = useState<QualityPayload | null>(null);
@@ -61,6 +59,19 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
   // depend on it.
   const [firesCheck, setFiresCheck] = useState<FiresCheck | null>(null);
   const [firesCheckError, setFiresCheckError] = useState(false);
+  // Archive files and the off-site copy (UI coverage batch C, second part):
+  // two more reads, each allowed to fail without taking the panel down.
+  const [stats, setStats] = useState<ArchiveStats | null>(null);
+  const [offload, setOffload] = useState<OffloadStatus | null>(null);
+  const [archiveError, setArchiveError] = useState({ stats: false, offload: false });
+  const [allArchives, setAllArchives] = useState(false);
+  const loadArchive = async () => {
+    const get = async (url: string) => { const r = await fetch(url); if (!r.ok) throw new Error(String(r.status)); return r.json(); };
+    const [st, off] = await Promise.allSettled([get("/api/data/archive/stats"), get("/api/data/archive/offload-status")]);
+    if (st.status === "fulfilled") setStats(st.value);
+    if (off.status === "fulfilled") setOffload(off.value);
+    setArchiveError({ stats: st.status === "rejected", offload: off.status === "rejected" });
+  };
   const loadChecks = async () => {
     try {
       const r = await fetch("/api/data/fires/completeness");
@@ -87,7 +98,9 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
       setRefreshing(false);
     }
   };
-  useEffect(() => { void load(); void loadChecks(); }, []);
+  useEffect(() => { void load(); void loadChecks(); void loadArchive(); }, []);
+  const rows = useMemo(() => archiveRows(stats, offload, Date.now()), [stats, offload]);
+  const shownRows = allArchives ? rows : rows.slice(0, ARCHIVES_SHOWN);
 
   const healthRows = useMemo(() => {
     if (!data) return [];
@@ -120,7 +133,7 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
               : error ? "dashboard unavailable — retry below" : "loading…"}
           </div>
         </div>
-        <button className="vt-icon-btn" aria-label="Refresh dashboard" onClick={() => { void load(); void loadChecks(); }}
+        <button className="vt-icon-btn" aria-label="Refresh dashboard" onClick={() => { void load(); void loadChecks(); void loadArchive(); }}
                 style={{ marginLeft: "auto" }} disabled={refreshing}>
           <RefreshCw size={15} className={refreshing ? "vt-spin" : undefined} />
         </button>
@@ -227,6 +240,67 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
                 )}
                 {data.archive.kinds.length === 0 && (
                   <div className="vt-filings-state">No archive activity recorded yet.</div>
+                )}
+              </div>
+            </section>
+
+            <section className="vt-quality-section" data-vt-quality-files>
+              <div className="vt-quality-section-head">
+                <span>Archive files</span>
+                <span className="vt-quality-section-sub">
+                  every archive on the volume: how many files, the first and the newest, and what is held off-site
+                </span>
+              </div>
+              {archiveError.stats && !stats && <div className="vt-filings-sub">The archive listing did not load. Refresh asks again.</div>}
+              {!archiveError.stats && !stats && <div className="vt-filings-sub">Loading…</div>}
+              {stats && rows.length === 0 && <div className="vt-filings-sub">No archive holds a file yet.</div>}
+              {rows.length > 0 && (
+                <>
+                  <div className="vt-filings-tablewrap vt-tablewrap-flow">
+                    <table className="vt-filings-table">
+                      <thead>
+                        <tr><th>Archive</th><th className="num">Files</th><th className="num">Size</th><th>First file</th><th>Newest file</th><th>Off-site</th></tr>
+                      </thead>
+                      <tbody>
+                        {shownRows.map((r) => (
+                          <tr key={r.kind} data-vt-archive={r.kind}>
+                            <td data-l="Archive">{r.kind}</td>
+                            <td data-l="Files" className="num">{r.files.toLocaleString("en-US")}</td>
+                            <td data-l="Size" className="num">{r.files ? fmtBytes(r.bytes) : "—"}</td>
+                            <td data-l="First file">{r.first}</td>
+                            <td data-l="Newest file">{r.newest}{r.age ? ` (${r.age})` : ""}</td>
+                            <td data-l="Off-site">{r.offsite || (offload ? "—" : archiveError.offload ? "not loaded" : "…")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {rows.length > ARCHIVES_SHOWN && (
+                    <button type="button" className="vt-pua-more" data-vt-archive-more onClick={() => setAllArchives((v) => !v)}>
+                      {allArchives ? `Show the ${ARCHIVES_SHOWN} largest only` : `Show all ${rows.length} archives`}
+                    </button>
+                  )}
+                  <div className="vt-filings-sub vt-streams-foot">
+                    The newest file's age is counted in UTC days from the date in its name. A source that publishes weekly or
+                    quarterly is not late because its newest file is days old: the streams inventory judges each stream against
+                    its own cadence. An archive with no file on the volume and files off-site has been moved there, not lost.
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="vt-quality-section" data-vt-quality-offsite>
+              <div className="vt-quality-section-head">
+                <span>Off-site copy</span>
+                <span className="vt-quality-section-sub">a second copy of the archive in object storage, checked against the volume</span>
+              </div>
+              <div className="vt-quality-check">
+                {archiveError.offload && !offload && <div className="vt-filings-sub">The off-site status did not load. Refresh asks again.</div>}
+                {!archiveError.offload && !offload && <div className="vt-filings-sub">Loading…</div>}
+                {offload && (
+                  <ul className="vt-quality-check-lines">
+                    {offsiteLines(offload, Date.now()).map((line) => <li key={line}>{line}</li>)}
+                  </ul>
                 )}
               </div>
             </section>

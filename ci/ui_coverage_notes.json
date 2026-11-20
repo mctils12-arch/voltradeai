@@ -17,10 +17,6 @@
    "missing",
    "Fleet / operator data for an aircraft (2026-11-17). Placement: a 'Fleet' block on the existing flight card (DetailCard), under registration and type."
   ],
-  "GET /api/data/archive/offload-status": [
-   "partial",
-   "Archive off-site copy status. The Data quality panel shows archive growth, not the off-site copy. Placement: one row in the Data quality panel."
-  ],
   "POST /api/auth/reset-request": [
    "legacy",
    "Legacy stub that tells callers to use /api/auth/reset (which the login page uses). Removal candidate; auth.ts is a FROZEN PATH, so the human removes it."
@@ -132,10 +128,6 @@
   "GET /api/data/aircraft/global_scopes": [
    "plumbing",
    "internal scope list for the world feed"
-  ],
-  "GET /api/data/archive/stats": [
-   "partial",
-   "Archive row counts and sizes. The Data quality panel shows growth for some archives. Placement: complete that panel from this route."
   ],
   "GET /api/data/3dtiles/status": [
    "plumbing",
@@ -329,7 +321,7 @@
   ],
   "archive": [
    "partial",
-   "Archive health per stream. The Data quality panel shows growth for some archives. Placement: complete that panel (see /api/data/archive/stats)."
+   "Archive health per stream. Since 2026-11-20 the Data quality panel lists every archive's files, size, first and newest file (/api/data/archive/stats) and the off-site copy (/api/data/archive/offload-status). What this probe reports beyond those two routes has not been compared field by field; do that before placing anything more."
   ],
   "gnss_integrity": [
    "surfaced",
