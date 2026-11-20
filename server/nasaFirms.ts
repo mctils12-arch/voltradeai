@@ -43,11 +43,11 @@ export function firmsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 // VIIRS 375m NRT, one satellite at a time. The module shipped asking for
-// Suomi NPP only. From 2026-11-03 NASA answered that request with a header and
-// no rows (its public 24 h, 48 h and 7 d files for Suomi NPP were header-only
-// on 2026-11-20, while NOAA-20 held 75,878 detections and NOAA-21 69,911 in
-// 24 h). A header with no rows parsed as "no fires", so the archive wrote
-// nothing for 18 days and nothing was logged. The poll now asks the sources in
+// Suomi NPP only. The archive's last day file is 2026-11-02; on 2026-11-20
+// NASA's public 24 h, 48 h and 7 d files for Suomi NPP were a header and no
+// rows, while NOAA-20 held 75,878 detections and NOAA-21 69,911 in 24 h. A
+// header with no rows parsed as "no fires", so the archive wrote nothing for
+// 18 days and nothing was logged. The poll now asks the sources in
 // this order and takes the first that returns rows. NOAA-20 leads: same
 // instrument, in service since 2018, and Suomi NPP (2011) is past its design
 // life, so a series led by it would break again. One source per poll keeps
