@@ -24380,7 +24380,7 @@ STILL OPEN, each its own PR:
 Unchanged and still open: (m) server `covered.from` on a truncated filed-day page, (n) filed-day index build time on a visitor's first request (18:08Z reading, not the first after a deploy: 1.10 s for the 30-day window, 1.9 MB), (g), (h), (i), (j), (k), (e).
 Ladder: gate 1 (DATA) for a RAW archive, product surface. No signal claim.
 
-## 2026-11-19 (second entry) — RESULT on "(i) 13F AND 8-K HISTORY BY FILED DAY": built for 13F (v1.0.1484); 8-K open
+## 2026-11-19 (second entry) — RESULT on "(i) 13F AND 8-K HISTORY BY FILED DAY": built for 13F (v1.0.1485); 8-K open
 
 MEASURED (production 2026-11-20 00:20Z, experiments.md 2026-11-19 19:10 ET [PRODUCT]): after the first recovery night `/api/data/filings13f/history?days=2` returned 640 filings, 600 of them filed on the 2026-11-16 deadline and sitting under archive day 2026-11-19. That is the defect (i) named, one day after the pass shipped.
 BUILT: `server/edgar13fFiledHistory.ts` behind `/api/data/filings13f/history` and `/api/v1/data/13f-holdings-history`: `?filed_from=&filed_to=` serves whole filed days with `filings`, `edgar_index`, `complete`, `checked_at` per day from the pass's ledger (null = not checked, the poll's sample). The archive-day window is unchanged and now says `window_by: "archive_day"`. The generic reader needed no change.
@@ -24483,3 +24483,8 @@ OPEN, ranked by the measurement:
 - [LOWER VALUE AFTER THE CHUNK FIX] One 2.1 MB entry chunk serves every route, compressed on the fly (TTFB 0.48 s): route-level code splitting and build-time brotli.
 - [DROP] SCALE S1(d) LayersPanel / DetailCard memo boundaries: React is not where the time goes (a layer toggle costs 11-18 ms of scheduler CPU, 3-5 commits); the numbers say under 20 ms saved per toggle. scale_program.md's RESUME STATE should say so.
 - [HARNESS] `npm run visual` could not complete a clean run on the shared sandbox at load 10-22 (timing gates, time-scrubber clicks, then "registered layer has no reachable panel row" once the scrubber panel stayed open). One clean run on a quiet machine is owed for the 11-19 client PRs.
+## 2026-11-19 — power grid layers: found while adding the "All states" control
+- [BAKE JOB, Rendering Law IV] "All states" turns on 51 tile sources (306 map layers; about 12,600 features and 316-414 draw calls per frame in a US-wide view; mean frame about 280-300 ms on software GL against about 43-105 ms for the one-source US master). The per-state layers declare no feature or VRAM budget. Re-baking power_us.pmtiles at z9 (it is z0-7, 26 MB; the state files are z0-9, 120 MB) would let ONE source stand in for the states at state detail; then "All states" could show the master honestly. Until then the control is labelled "the heavy option".
+- [ONE-LINE FIX, shared file] datacore/layers.json describes the `powergrid` US master as "tiled to z9"; the served file's own header says z7.
+- [NOT MEASURED] Canada / South America / Europe / Asia could take the same all-on control with one line each; their all-on cost has not been measured, so they were left alone.
+- [EXISTING] at 390 px the floating legend overlaps the bottom of the open layers panel.

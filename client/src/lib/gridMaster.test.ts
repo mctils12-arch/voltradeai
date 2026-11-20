@@ -4,7 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { GRID_MASTER_IDS, allGridsOn, setAllGrids } from './gridMaster.js';
+import {
+  GRID_MASTER_IDS, allGridsOn, setAllGrids,
+  isUsStateGridId, gridGroupState, countGridGroupOn, setGridGroup, toggleGridGroup,
+} from './gridMaster.js';
 
 const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..');
 const LAYERS_JSON = path.join(repoRoot, 'datacore', 'layers.json');
@@ -76,4 +79,96 @@ test('GRID_MASTER_IDS lists every live continental master in datacore/layers.jso
     if (layer && layer.status === 'live' && !masterSet.has(id)) missing.push(id);
   }
   assert.deepEqual(missing, [], `live continental master(s) missing from GRID_MASTER_IDS: ${missing.join(', ')}`);
+});
+
+// ── ALL STATES control (2026-11-19) — the tri-state rule over the panel's
+// own `enabled` map, and the registry facts it rests on. ──
+const STATES3 = ['powergrid_tx', 'powergrid_oh', 'powergrid_nd'];
+
+test('gridGroupState: all / some / none, derived from the per-state values only', () => {
+  assert.equal(gridGroupState({}, STATES3), 'none');
+  assert.equal(gridGroupState({ powergrid_tx: false, powergrid_oh: false }, STATES3), 'none');
+  assert.equal(gridGroupState({ powergrid_tx: true }, STATES3), 'some');
+  assert.equal(gridGroupState({ powergrid_tx: true, powergrid_oh: true }, STATES3), 'some');
+  assert.equal(gridGroupState({ powergrid_tx: true, powergrid_oh: true, powergrid_nd: true }, STATES3), 'all');
+  assert.equal(countGridGroupOn({ powergrid_tx: true, powergrid_oh: true }, STATES3), 2);
+  // the US master, HIFLD and other regions never move the states' control
+  assert.equal(gridGroupState({ powergrid: true, powergrid_hifld: true, powergrid_ca_ab: true }, STATES3), 'none',
+    'the US master on is not "all states on"');
+  assert.equal(gridGroupState({}, []), 'none', 'an empty group has nothing on');
+  assert.equal(gridGroupState({ powergrid_tx: true }, []), 'none');
+});
+
+test('setGridGroup: sets exactly the listed ids, leaves masters / other regions / unrelated layers alone', () => {
+  const before = { aircraft: true, powergrid: true, powergrid_hifld: true, powergrid_ca_ab: true, powergrid_tx: true };
+  const on = setGridGroup(before, STATES3, true);
+  for (const id of STATES3) assert.equal(on[id], true, `${id} on`);
+  assert.equal(gridGroupState(on, STATES3), 'all');
+  const off = setGridGroup(on, STATES3, false);
+  for (const id of STATES3) assert.equal(off[id], false, `${id} off`);
+  for (const s of [on, off]) {
+    assert.equal(s.aircraft, true, 'unrelated layer untouched');
+    assert.equal(s.powergrid, true, 'US master untouched — off here is NOT the whole-family off');
+    assert.equal(s.powergrid_hifld, true, 'HIFLD untouched');
+    assert.equal(s.powergrid_ca_ab, true, 'another region untouched');
+  }
+  assert.deepEqual(before, { aircraft: true, powergrid: true, powergrid_hifld: true, powergrid_ca_ab: true, powergrid_tx: true },
+    'input never mutated');
+});
+
+test('toggleGridGroup: none -> all, some -> all (the picks complete), all -> none', () => {
+  const s1 = toggleGridGroup({}, STATES3);
+  assert.equal(gridGroupState(s1, STATES3), 'all', 'none -> all');
+  const s2 = toggleGridGroup(s1, STATES3);
+  assert.equal(gridGroupState(s2, STATES3), 'none', 'all -> none');
+  const some = { powergrid_tx: true, powergrid_oh: false, powergrid_nd: true };
+  const s3 = toggleGridGroup(some, STATES3);
+  assert.equal(gridGroupState(s3, STATES3), 'all', 'some -> all');
+  assert.equal(gridGroupState(toggleGridGroup(s3, STATES3), STATES3), 'none', 'and the next press is a clean off');
+});
+
+test('a user\'s own state picks survive: they read "some" and stay on until the control is pressed', () => {
+  const picked = { powergrid_tx: true, powergrid_oh: true, powergrid_nd: true, powergrid_ak: false };
+  const all = [...STATES3, 'powergrid_ak'];
+  assert.equal(gridGroupState(picked, all), 'some');
+  assert.equal(countGridGroupOn(picked, all), 3);
+  // the whole-family master switch going ON leaves them exactly as they were
+  const afterMasterOn = setAllGrids(picked, true);
+  for (const id of STATES3) assert.equal(afterMasterOn[id], true);
+  assert.equal(gridGroupState(afterMasterOn, all), 'some');
+  // and its OFF (the whole-family clear) reads "none" here
+  assert.equal(gridGroupState(setAllGrids(afterMasterOn, false), all), 'none');
+});
+
+test('isUsStateGridId: a two-letter state code and nothing else', () => {
+  for (const id of ['powergrid_tx', 'powergrid_ca', 'powergrid_dc', 'powergrid_nd']) assert.equal(isUsStateGridId(id), true, id);
+  for (const id of ['powergrid', 'powergrid_canada', 'powergrid_hifld', 'powergrid_hifld_sub', 'powergrid_ca_ab',
+    'powergrid_eu_de', 'powergrid_as_gcc', 'powergrid_asia', 'powergrid_all', 'grid_demand', 'powergrid_TX', 'xpowergrid_tx']) {
+    assert.equal(isUsStateGridId(id), false, id);
+  }
+});
+
+// REGISTRY PARITY for the by-state drop-down: the panel builds the section
+// from the registry's `group: "grid"` and the All-states control from the
+// members whose id is a state id. Those two sets must be the same 51 live
+// layers — a non-state layer filed under "grid" would sit in the by-state
+// list without being a state, and a state filed elsewhere would be missed
+// by "all states".
+test('registry: group "grid" is exactly the 50 states + DC, every one a live state id', () => {
+  const registry = JSON.parse(fs.readFileSync(LAYERS_JSON, 'utf8')) as {
+    layers: Array<{ id: string; status?: string; group?: string }>;
+  };
+  const inGroup = registry.layers.filter((l) => l.group === 'grid').map((l) => l.id).sort();
+  const byShape = registry.layers.filter((l) => isUsStateGridId(l.id)).map((l) => l.id).sort();
+  assert.deepEqual(inGroup, byShape, 'group "grid" and the state-id shape name the same layers');
+  assert.equal(inGroup.length, 51, '50 states + DC');
+  assert.ok(inGroup.includes('powergrid_dc') && inGroup.includes('powergrid_tx'));
+  const notLive = registry.layers.filter((l) => l.group === 'grid' && l.status !== 'live').map((l) => l.id);
+  assert.deepEqual(notLive, [], 'every state layer is live (the control only switches live layers)');
+  // the non-state grid rows stay out of the by-state list
+  for (const id of ['powergrid', 'powergrid_hifld', 'powergrid_hifld_sub', 'powergrid_hifld_plants', 'grid_demand', 'grid_generation']) {
+    const l = registry.layers.find((x) => x.id === id);
+    assert.ok(l, `${id} is in the registry`);
+    assert.notEqual(l!.group, 'grid', `${id} is not filed in the by-state group`);
+  }
 });

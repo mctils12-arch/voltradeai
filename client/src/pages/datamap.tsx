@@ -183,7 +183,10 @@ import type { GpWorkerOutbound } from "@/lib/orbital/gpWorker";
 import { resolveOperator } from "@/lib/orbital/entityJoin";
 import type { SatWorkerOutbound } from "@/lib/orbital/satWorker";
 import { pickNearestSatellite, pickNearestSatelliteScreen, pickNearestSatelliteScreenMercator, pixelToleranceToMercUnits } from "@/lib/orbital/pick";
-import { GRID_MASTER_IDS, allGridsOn, setAllGrids } from "@/lib/gridMaster";
+import {
+  GRID_MASTER_IDS, allGridsOn, setAllGrids,
+  isUsStateGridId, gridGroupState, countGridGroupOn, toggleGridGroup,
+} from "@/lib/gridMaster";
 import { lonLatToMercator } from "@/lib/orbital/satBuffer";
 import { epochAgeDays, propagate } from "@/lib/orbital/propagate";
 import { readTerrainExag, TERRAIN_EXAG_KEY, TERRAIN_EXAG_MIN, TERRAIN_EXAG_MAX, TERRAIN_EXAG_DEFAULT } from "@/lib/terrainExag";
@@ -14627,7 +14630,83 @@ export default function DataMapPage() {
     );
   };
 
-  const renderPanelGroup = (id: string, label: string, members: LayerMeta[]) => {
+  // ── ALL STATES (human request 2026-11-19: "I want the option to have all
+  // power grids for states, but the way you have all the drop-downs"): the
+  // first row INSIDE the "Power grid — US (by state)" drop-down, above the
+  // 51 state rows and outside GROUP_ROW_CAP, so one press replaces 51.
+  // lib/gridMaster.ts holds the rule: the three positions are derived from
+  // the per-state `enabled` values (never parallel state), "some" completes
+  // to all, and off touches the state layers only.
+  // A tri-state control is a CHECKBOX to assistive tech (role="switch" has
+  // no "mixed"); it keeps the panel's switch look, a mid-track dash for some.
+  // HONESTY: this is not the US master. The master is one overview tile
+  // set; this is 51 separate state tile sets, more detail and more load.
+  // The row says so in words and the description gives the cheap option.
+  const renderAllStatesRow = (members: LayerMeta[]) => {
+    const ids = members
+      .filter((l) => isUsStateGridId(l.id) && toggleable(l) && l.id in LAYER_GROUP)
+      .map((l) => l.id);
+    if (ids.length === 0) return null;
+    const st = gridGroupState(enabled, ids);
+    const n = countGridGroupOn(enabled, ids);
+    const descKey = "powergrid_states_all";
+    return (
+      <div key="powergrid-states-all" data-vt-all-states={st}>
+        <div className="vt-layer-row" data-vt-control="powergrid_states_all">
+          <span className="vt-layer-ic">{layerIcon("powergrid")}</span>
+          <span className="vt-layer-name">
+            <button className="vt-layer-namebtn" aria-expanded={!!descOpen[descKey]}
+                    aria-label="About All states"
+                    onClick={() => setDescOpen((s) => ({ ...s, [descKey]: !s[descKey] }))}>
+              All states <Info size={11} aria-hidden style={{ opacity: 0.55 }} />
+            </button>
+            <span className="vt-kind-badge raw">RAW</span>
+            <span className="vt-layer-status">
+              <i style={{ background: st === "all" ? "var(--accent-green)" : st === "some" ? "var(--accent)" : "var(--text-tertiary)" }} />
+              {st === "all" ? `all ${ids.length} on` : st === "some" ? `${n} of ${ids.length} on` : "off"}
+            </span>
+            {st === "all" && (
+              <span className="vt-layer-covnote">
+                {ids.length} state tile sets at state detail — the heavy option; the one-source US master is under Facilities
+              </span>
+            )}
+          </span>
+          <button
+            role="checkbox"
+            aria-checked={st === "all" ? true : st === "some" ? "mixed" : false}
+            aria-label="Toggle all state power grids"
+            className={`vt-switch${st === "all" ? " on" : st === "some" ? " mixed" : ""}`}
+            onClick={() => setEnabled((s) => toggleGridGroup(s, ids))}
+          >
+            <i />
+          </button>
+        </div>
+        {!!descOpen[descKey] && (
+          <div className="vt-layer-desc" role="note">
+            Every US state grid in one switch: all 50 states + DC, each drawn
+            from its own state tile set ({ids.length} sources), with the
+            detail the single-state rows show. This is the heavy option:
+            with the whole country in view it is more than ten times the
+            drawing work of the master (measured 2026-11-19). For a light
+            national picture use "US Power Grid (all states)" under
+            Facilities: one overview tile set for the whole country, which
+            thins the densest lines that the state tiles keep. The two are
+            not the same picture.
+            With some states on, the switch shows a dash and a press turns
+            the rest on; the next press turns the states off. Off here leaves
+            the masters, HIFLD and other regions as they are.
+            <span className="vt-layer-desc-src">Source: OpenStreetMap power features (© OpenStreetMap contributors, ODbL) — vector tiles by scripts/build_power_tiles.sh</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // `lead`: an optional control row pinned above the member rows (inside the
+  // drop-down, shown only when it is open, never counted against
+  // GROUP_ROW_CAP). The header, the count and the collapse rule are the same
+  // for every group.
+  const renderPanelGroup = (id: string, label: string, members: LayerMeta[], lead?: React.ReactNode) => {
     if (members.length === 0) return null;
     const onCount = members.filter((l) => !!enabled[l.id] && toggleable(l)).length;
     // groups outside PANEL_GROUPS (the "_more" catch-all) have no entry in
@@ -14646,6 +14725,7 @@ export default function DataMapPage() {
         </button>
         {!isCollapsed && (
           <>
+            {lead}
             {shown.map((l) => renderLayerRow(l))}
             {!showAll && (
               <button className="vt-layer-showmore"
@@ -15531,7 +15611,10 @@ export default function DataMapPage() {
               <span className="vt-streams-launch-sub">imports/exports vs 6 major partners, monthly · RAW</span>
             </button>
             {PANEL_GROUPS.flatMap((g) => {
-              const grp = renderPanelGroup(g.id, g.label, layers.filter((l) => groupOf(l) === g.id));
+              const members = layers.filter((l) => groupOf(l) === g.id);
+              // the by-state drop-down opens on its ALL STATES control
+              const grp = renderPanelGroup(g.id, g.label, members,
+                g.id === "grid" ? renderAllStatesRow(members) : undefined);
               // ALL POWER GRIDS master pinned above the first per-region
               // grid group — one switch for everything mapped so far. Only
               // when a continental master is actually in the live registry:

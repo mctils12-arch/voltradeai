@@ -2390,6 +2390,14 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 }
 .vt-switch.on { background: rgba(77, 159, 255, 0.35); border-color: var(--accent); }
 .vt-switch.on i { transform: translateX(18px); background: var(--accent); }
+/* tri-state group control ("All states", 2026-11-19): some but not all
+   members on. The knob becomes a mid-track dash (the indeterminate mark);
+   the row's status line says how many. */
+.vt-switch.mixed { background: rgba(77, 159, 255, 0.18); border-color: rgba(77, 159, 255, 0.6); }
+.vt-switch.mixed i { /* the indeterminate dash, centred in the 38x20 track */
+  top: 8px; left: 12px; width: 14px; height: 4px; border-radius: 2px;
+  background: var(--accent-bright);
+}
 .vt-switch:disabled { cursor: not-allowed; }
 
 /* Open-tab version-skew notice (toggle-repair 2026-07-04) */
