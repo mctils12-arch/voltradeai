@@ -5472,6 +5472,31 @@ section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--exit { color: var(--t
 .vt-exp-src { font-size: 10.5px; line-height: 1.4; color: var(--text-tertiary); }
 .vt-exp-src .vt-bot-o { color: var(--accent-orange); }
 @media (max-width: 639px) { .vt-exp-t td { height: 26px; } }
+/* self-check and alerts ([PRODUCT] 2026-11-20, client/src/bot/selfCheck.tsx): two one-line blocks under the Issues
+   list that open to their detail — the Why panel's section pattern, under its own class */
+.vt-sc { border-top: 1px solid var(--border-subtle); margin-top: 6px; padding-top: 5px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vt-sc-h { display: flex; align-items: center; gap: 4px; }
+.vt-sc-h > button:not(.vt-help) { font: inherit; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-primary); background: none; border: 0; padding: 3px 4px 3px 0; min-height: 28px; cursor: pointer; border-radius: var(--radius-sm); }
+.vt-sc-h > button:not(.vt-help):hover:not(:disabled) { color: var(--accent-bright); }
+.vt-sc-h > button:not(.vt-help):disabled { cursor: default; }
+.vt-sc-h .chev { color: var(--text-tertiary); font-size: 11px; }
+.vt-bot-page[data-touch="true"] .vt-sc-h > button:not(.vt-help) { min-height: 44px; }
+.vt-sc-s { margin: 0; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.vt-sc-b { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; font-size: 12px; color: var(--text-secondary); line-height: 1.4; min-width: 0; }
+.vt-sc-b b { color: var(--text-primary); font-weight: 500; }
+.vt-sc-l { margin: 0; padding-left: 16px; }
+.vt-sc-l li { margin: 2px 0; overflow-wrap: anywhere; }
+.vt-sc-l .sev { font-style: normal; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); margin-left: 5px; }
+.vt-sc-l li[data-sev="high"] .sev { color: var(--accent-red); } .vt-sc-l li[data-sev="medium"] .sev { color: var(--accent-orange); }
+.vt-sc-l .fix { color: var(--text-tertiary); }
+.vt-sc-al { display: flex; flex-direction: column; }
+.vt-sc-ar { display: grid; grid-template-columns: 84px 52px minmax(0, 1fr); align-items: baseline; gap: 1px 8px; padding: 3px 0; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; }
+.vt-sc-ar .w { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10.5px; color: var(--text-tertiary); white-space: nowrap; }
+.vt-sc-ar .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.vt-sc-ar .m { color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
+.vt-sc-ar[data-unread="true"] .m { color: var(--text-primary); }
+.vt-sc-src { font-size: 10.5px; line-height: 1.4; color: var(--text-tertiary); }
+@media (max-width: 639px) { .vt-sc-ar { grid-template-columns: 84px minmax(0, 1fr); } .vt-sc-ar .m { grid-column: 1 / -1; } }
 /* evidence blocks ([PRODUCT] 2026-11-20, client/src/bot/evidence.tsx): closed trades, order history, the base
    holding and the rule table reuse the Book's mono table; a text column reads left, and where the pinned cell
    carries a second line (rule + which entries) it stacks so the pinned column stays narrow on a phone */

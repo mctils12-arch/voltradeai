@@ -238,6 +238,11 @@ export interface BotData {
   regimeCounterfactual: UseQueryResult<unknown>;
   /** /api/bot/options-feed: which option quote feed the account may read */
   optionsFeed: UseQueryResult<unknown>;
+  // SELF-CHECK + ALERTS (2026-11-20, selfCheckView.ts): two owner routes that existed and no page read
+  /** /api/bot/diagnostics: a fresh run of the bot's own diagnostics and the settings it derives */
+  selfCheck: UseQueryResult<unknown>;
+  /** /api/bot/notifications: the alerts the loop raised since the server last restarted (in memory) */
+  alerts: UseQueryResult<unknown>;
 }
 /** the attribution windows the Why panel offers (days) */
 export const ATTRIBUTION_WINDOWS = [7, 30, 90] as const;
@@ -282,7 +287,11 @@ export function useBotData(opts: { overview?: boolean; attributionDays?: number 
   const ruleCounterfactuals = useQuery<unknown>({ queryKey: ["/api/bot/rule-counterfactuals"], queryFn: () => getJson<unknown>("/api/bot/rule-counterfactuals", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 15 * 60_000, enabled: overview });
   const regimeCounterfactual = useQuery<unknown>({ queryKey: ["/api/bot/regime-counterfactual"], queryFn: () => getJson<unknown>("/api/bot/regime-counterfactual?days=14"), refetchInterval: 15 * 60_000, enabled: overview });
   const optionsFeed = useQuery<unknown>({ queryKey: ["/api/bot/options-feed"], queryFn: () => getJson<unknown>("/api/bot/options-feed", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 60 * 60_000, staleTime: 30 * 60_000 });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime, dailyLine, closedLots, orderHistory, floorTracking, ruleCounterfactuals, regimeCounterfactual, optionsFeed };
+  // the self-check is a Python run on the server (the loop's own run is every fifth scan): a page asks every 15 min;
+  // the alerts are an in-memory list, read as often as the working orders
+  const selfCheck = useQuery<unknown>({ queryKey: ["/api/bot/diagnostics"], queryFn: () => getJson<unknown>("/api/bot/diagnostics", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 15 * 60_000, staleTime: 5 * 60_000 });
+  const alerts = useQuery<unknown>({ queryKey: ["/api/bot/notifications"], queryFn: () => getJson<unknown>("/api/bot/notifications"), refetchInterval: 30_000 });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime, dailyLine, closedLots, orderHistory, floorTracking, ruleCounterfactuals, regimeCounterfactual, optionsFeed, selfCheck, alerts };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {

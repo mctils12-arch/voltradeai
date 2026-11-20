@@ -36,6 +36,7 @@ import { ModeBar, PerfBody, PicksBody, WhyBody, DailyLineBody } from "./overview
 import { parseAttribution, whyTitle } from "./whyView";
 import { ClosedLots, OrderHistory, OptionsFeedLine } from "./evidence";
 import { parseOptionsFeed } from "./evidenceView";
+import { SelfCheck, Alerts } from "./selfCheck";
 
 const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY", perf: "Portfolio vs SPY", why: "Why we're losing money", picks: "Picks", daily: "Daily line" };
 /** the overview's own panels: a window popped out with one of them polls the overview's routes */
@@ -196,7 +197,9 @@ export default function BotPage() {
   const freshBody: Record<PanelId, ReactNode> = {
     kpi: null,
     stages: <StagesBody rows={stages} />,
-    issues: <IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} />,
+    // 2026-11-20 (selfCheck.tsx): under what the PAGE derives from the audit log, what the BOT says about itself —
+    // its own diagnostics run with the settings it sets, and the alerts it raised since the last restart
+    issues: <><IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} /><SelfCheck q={d.selfCheck} appliedScoreBar={num(status?.minScoreThreshold)} nowMs={now} /><Alerts q={d.alerts} nowMs={now} /></>,
     state: shown === "scanning" ? <ScanStripBody elapsedMs={derived.scan.elapsedMs} lastScan={lastScan} /> : shown === "candidate" || shown === "placed" || shown === "exit" ? <DecisionBody lastScan={lastScan} audit={audit} nowMs={effNow} /> : shown === "incident" ? <IncidentBody state={derived} status={status} issues={issues} onAct={act} busy={busy} /> : shown === "closed" ? <DayReviewBody day={day} account={account} market={market} insight={insight} bench={d.benchmark.data} /> : null,
     watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} />,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,
