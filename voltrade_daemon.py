@@ -80,6 +80,106 @@ SOCKET_PATH = os.environ.get("VOLTRADE_DAEMON_SOCKET", "/tmp/voltrade_daemon.soc
 MAX_RSS_MB = int(os.environ.get("VOLTRADE_DAEMON_MAX_RSS_MB", "1024"))  # 1 GB
 REQUEST_TIMEOUT_SEC = 300  # DAEMON-TIMEOUT 2026-04-23: was 60s, too tight for full scan. scan_market can legitimately take 90-180s on 11,400 tickers.
 
+# ── Object allocator (2026-11-20, KNOWN BROKEN #55, EXPLORATORY) ─────────────
+# MEASURED on production 2026-11-20 16:12-16:22Z (research/open_questions.md
+# #55): every scan parses the shadow log (shadow_portfolio._SHADOW_CACHE, the
+# largest holder a mid-scan census names), which takes the interpreter from
+# 2.5 M to 4.7-5.2 M allocated blocks; the list is dropped two minutes later
+# and the blocks come back, but resident anonymous memory only moves from
+# 409 to 385 MB. The interpreter's own small-object allocator hands an arena
+# back to the OS only when every block in it is free, and the long-lived
+# objects are spread through all of them. bot_engine's deep-score guard
+# therefore reads 456 MB against its 400 MB trim line on every scan and
+# deep-scores 3 candidates instead of 5.
+#
+# With PYTHONMALLOC=malloc the same objects are allocated by glibc, whose
+# malloc_trim (bot_engine._release_freed_memory, already run before the
+# guard) returns freed memory page by page. The variable is read when the
+# interpreter starts, and run_with_daemon.sh is a frozen path, so the daemon
+# sets it and starts itself again once, in place: os.execve keeps the PID, so
+# the supervisor sees one process as before.
+#
+# OFF SWITCH (no deploy): VOLTRADE_DAEMON_ALLOCATOR=pymalloc. A PYTHONMALLOC
+# already set in the environment is someone's own choice and is left alone.
+# Kill date and rollback trigger: research/experiments.md 2026-11-20.
+ALLOCATOR_ENV = "VOLTRADE_DAEMON_ALLOCATOR"
+ALLOCATOR_DEFAULT = "malloc"
+_ALLOCATOR_REEXEC_MARK = "VOLTRADE_DAEMON_ALLOCATOR_REEXEC"
+
+
+def _allocator_requested(env):
+    """'malloc' or 'pymalloc' from the switch; anything unrecognised reads as
+    the default, and the off words read as pymalloc."""
+    raw = str(env.get(ALLOCATOR_ENV, ALLOCATOR_DEFAULT)).strip().lower()
+    if raw in ("pymalloc", "0", "false", "no", "off", "default"):
+        return "pymalloc"
+    return "malloc"
+
+
+def _allocator_reexec_env(env, platform=None):
+    """The environment to start again under, or None when this process should
+    simply carry on: not Linux (malloc_trim is glibc's), switched off,
+    PYTHONMALLOC already chosen, or this process is already the second start
+    (the mark makes a loop impossible whatever else happens)."""
+    platform = sys.platform if platform is None else platform
+    if not platform.startswith("linux"):
+        return None
+    if _allocator_requested(env) != "malloc":
+        return None
+    if env.get("PYTHONMALLOC") or env.get(_ALLOCATOR_REEXEC_MARK):
+        return None
+    new_env = dict(env)
+    new_env["PYTHONMALLOC"] = "malloc"
+    new_env[_ALLOCATOR_REEXEC_MARK] = "1"
+    return new_env
+
+
+def _reexec_on_requested_allocator(env=None, execve=None, platform=None):
+    """Start this daemon again, in place, with the requested allocator.
+    Returns False when it carried on in this process (nothing to do, or the
+    start failed: the daemon then runs as it always did). With the real
+    os.execve a successful call does not return."""
+    new_env = _allocator_reexec_env(os.environ if env is None else env, platform)
+    if new_env is None:
+        return False
+    exe = sys.executable
+    argv = list(getattr(sys, "orig_argv", None) or [exe] + sys.argv)
+    if not exe or not argv:
+        return False
+    try:
+        log.info("starting again in place with PYTHONMALLOC=malloc (#55; off: %s=pymalloc)", ALLOCATOR_ENV)
+        logging.shutdown()
+        (execve or os.execve)(exe, argv, new_env)
+    except OSError as e:
+        log.warning(f"allocator: could not start again ({e}); running on the interpreter's own allocator")
+        return False
+    return True
+
+
+def _allocator_in_use():
+    """What this interpreter allocates objects with, read from the interpreter
+    and not from the request: its own allocator counts its blocks, and with
+    PYTHONMALLOC=malloc the count stays 0."""
+    return "pymalloc" if sys.getallocatedblocks() > 0 else "malloc"
+
+
+def _allocator_state(env=None):
+    env = os.environ if env is None else env
+    return {
+        "in_use": _allocator_in_use(),
+        "requested": _allocator_requested(env),
+        "restarted_in_place": bool(env.get(_ALLOCATOR_REEXEC_MARK)),
+    }
+
+
+if __name__ == "__main__":
+    # Before any heavy import and before the startup memory readings.
+    _reexec_on_requested_allocator()
+if os.environ.get(_ALLOCATOR_REEXEC_MARK):
+    # The interpreter has read it; the Python children this daemon starts
+    # (the feedback seeder) keep the interpreter's default as before.
+    os.environ.pop("PYTHONMALLOC", None)
+
 
 def _effective_join_sec(timeout_sec):
     """How long RPCHandler waits on a dispatch thread (A6, 2026-11-03): the
@@ -823,6 +923,9 @@ class RPCDispatcher:
             "memory": _memory_snapshot(),
             # 2026-11-19 (#55): resident memory by kind of mapping.
             "memory_maps": _memory_maps(),
+            # 2026-11-20 (#55): which allocator holds the Python objects.
+            # With malloc, `memory.python_blocks` reads 0 by construction.
+            "allocator": _allocator_state(),
             "pid": os.getpid(),
         }
 

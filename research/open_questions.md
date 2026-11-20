@@ -8060,6 +8060,72 @@
     candidates instead of 5 (VOLTRADE_DEEP_SCORE_CAP), on 103 of 117
     scans today. Skips, which sent candidates through on quick_score
     alone, are 0.
+    READING TAKEN 2026-11-20 16:12-16:22Z (daily-midday routine; the NEXT
+    above; container 2.7 h old, 41-42 scans, market open 1.7 h, so short
+    of the "2+ hours" asked for by about 20 minutes; `memory_maps` every
+    15 s across one whole scan cycle, 26 reads):
+    - during a scan: python_blocks 4.66-5.20 M, anonymous 399-412 MB,
+      RSS 488-502 MB.
+    - blocks stay at 4.66 M for about a minute after the scan ends, then
+      fall to 2.50 M in one step (16:14:26Z); anonymous 408.9 -> 384.7 MB.
+    - idle: blocks 2.50 M, anonymous 385-387 MB, RSS 473-476 MB.
+    - next scan start, after the release: RSS 458 MB, the guard's reading
+      (trim line 400). [heap] 18.1 MB and libraries 64.7 MB throughout.
+    - guard this container: normal 11, trim 30 in a row, skip 0.
+    PRIOR JUDGED: RIGHT (the 65% branch). Anonymous is 385 MB or more and
+    falls 24 MB (6%) while blocks fall 2.2 M (46%). Libraries + files are
+    70 MB, so the floor did not move (the 20% branch is WRONG).
+    THE TRANSIENT IS NAMED (`census=1&force=1` at 19 s into the 16:21Z
+    scan, 1.99 s, 1,003,255 objects walked):
+    `shadow_portfolio._SHADOW_CACHE`, the parsed shadow log, is the
+    largest holder and is cut at the census's 300,000-object limit
+    (19.4 MB of shallow bytes counted before the cut; its real size was
+    not measured). It is absent from the idle census of 11-19. Its own
+    code comment says 20,000 records are about 134 MB of objects and it
+    drops the list after 120 s idle (VOLTRADE_SHADOW_LOG_CACHE_TTL_S),
+    which is the one-step fall above. So each scan parses the log, the
+    list dies two minutes later, and the memory stays resident.
+    Other holders mid-scan: vol_surface._surface_cache (cut at the same
+    limit, 14 MB counted), options_scanner._chain_cache 14.1 MB, then
+    nothing over 2.1 MB.
+    NOT SEPARATED: how much of the 385 MB is interpreter arenas and how
+    much is glibc's thread arenas (both are anonymous maps; glibc reports
+    175 MB of heap in all, 58-88 in use, about 93 free). The fix below
+    moves both under one allocator, so the after-reading answers it.
+    SESSION A/B 2 (2026-11-20, Python 3.11, glibc 2.39; the mechanism at
+    the log's scale, NOT production): a 52 MB JSON of 20,000 records
+    parsed on a new thread, a reference into every 7th record kept,
+    list dropped, gc.collect + malloc_trim, 8 cycles. Default allocator:
+    peak 143 MB, 114 MB after the release, flat from cycle 3.
+    PYTHONMALLOC=malloc: peak 147 MB, 48 MB after. Parse 0.70 s against
+    0.86 s (23% slower). The daemon itself, warmed up with no data: 172 MB
+    on the default, 175 MB on malloc.
+    FIX SHIPPED 2026-11-20 (candidate (c); EXPLORATORY, kill date
+    2026-12-04): the daemon starts itself again once, in place
+    (os.execve, same PID), with PYTHONMALLOC=malloc. Off switch, no
+    deploy: Railway variable VOLTRADE_DAEMON_ALLOCATOR=pymalloc. Health
+    key `allocator` {in_use, requested, restarted_in_place}; with malloc
+    `memory.python_blocks` reads 0 by construction.
+    PRIOR (before any production reading): 60% the guard reads under
+    400 MB on more than half of the scans from the second market hour
+    on; 25% RSS falls by 50 MB or more but the guard still trims (glibc
+    fragmentation across thread arenas); 15% no better or worse.
+    CHECK AFTER DEPLOY (first DAILY session 2+ hours into a market day):
+    `allocator.in_use` = malloc; `deep_guard.counts` and `last.rss_mb`;
+    `release.last` (before -> after); `memory_maps`; the `deep_score`
+    and `snapshot_fetch` phases in `/api/diag/timings` against today's
+    24.0 s and 5.3 s (deep_score ran 3 candidates today and runs 5 when
+    the guard is normal, so compare per candidate).
+    ROLLBACK TRIGGER (set the variable, then revert): RSS peak over
+    700 MB, or any scan skipped where today's count is 0, or a daemon
+    restart not after a requested stop, or `quick_scan` up by more than
+    0.5 s, or deep_score per candidate up by more than 25%.
+    STILL OPEN after this: (a) the shadow log is read whole (about
+    134 MB of objects, re-parsed every scan because the 120 s idle
+    release is shorter than the gap between scans) to append a few
+    records. Building it smaller is measurement code (its own PR,
+    MEASUREMENT INTEGRITY) and is worth doing only if the check above
+    leaves the guard trimming.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
@@ -24537,7 +24603,7 @@ OPEN, ranked by the measurement:
 - [EXISTING, not changed] Three pages (attention, cot, shortvol) each carry their own copy of a sparkline that joins across missing readings. HistoryChart.tsx breaks the line at a gap. Moving them to it changes what those pages draw, so it is its own PR.
 - [DATA AGE] The rail archive's newest week is 2026-10-28 (rebuilt 2026-11-02); the panel states the lag. The rebuild is a session-run script (scripts/stb_rail.py); the next PIPELINE session should run it.
 
-## 2026-11-20 — RESULT on "(h) the tier engine's regime label changes from scan to scan": two causes; the one that is a defect is fixed (v1.0.1497, tier_macro_guard.py)
+## 2026-11-20 — RESULT on "(h) the tier engine's regime label changes from scan to scan": two causes; the one that is a defect is fixed (v1.0.1498, tier_macro_guard.py)
 TRACED (experiments.md 2026-11-20 15:16 ET [REPAIR]; (h) was filed 2026-11-17 in the entry at "AUDIT LOG, SEEN WHILE CHECKING HEALTH", not traced):
 - CAUSE 1, A DEFECT. The "regime=NEUTRAL, vxx=1.00" Tier-1 rows of 2026-11-17 15:26Z and 16:10Z were not readings. macro_data.get_macro_snapshot() writes vxx_ratio 1.0 when its VXX fetch fails, and the tier engine and the kill-switch call read it as a calm market. Second source (Yahoo 5-minute and daily VXX bars, read by the session): the ratio was 1.09-1.12 at 15:20-15:30Z and 1.14 at 16:10Z that day, never near 1.00. Those two scans were the only ones of the day the exposure cap did not block (128 TIER-KILL rows 13:35Z-21:51Z), and both sold a put.
 - CAUSE 2, NOT A DEFECT. CAUTION <-> BEAR within minutes was the real ratio crossing 1.15 (Yahoo: 1.150 at 15:40Z, 1.181 at 15:50Z, 1.142 at 16:00Z, 1.156 at 16:20Z). Both callers passed the same inputs. /api/health's CALM_BULL is the regime engine's own composite as of the prior close, a different model by design.
