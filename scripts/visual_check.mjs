@@ -6627,6 +6627,153 @@ async function main() {
                    tti: null, perf: {}, failures: scaleFailures, warnings: [], info: { scaleResults } });
   }
 
+  // ── BY-STATE GRID DROP-DOWN + "ALL STATES" CONTROL (2026-11-19, human:
+  // "I want the option to have all power grids for states, but the way you
+  // have all the drop-downs"). The shared fixture carries ONE generic
+  // `powergrid` layer (see the R15 note on it), so the 51 per-state rows —
+  // and the control that switches them together — were never rendered by
+  // this harness. This battery serves the REAL registry's grid layers
+  // through a per-context route override (shared FIXTURES untouched, as the
+  // layer-scale battery above does) and checks, at all three widths, what
+  // the human checks: the states sit in ONE drop-down built like its
+  // siblings, collapsed by default; the All-states control is its first
+  // row; its three positions are derived from the per-state switches; and
+  // it is reachable by keyboard and by touch. Tile requests are answered
+  // 404 on purpose: this battery is about the panel, and lib/gridMaster.ts
+  // owns the state rule (unit-tested).
+  if (!only || only === "data" || only === "gridstates") {
+    const registryLayers = JSON.parse(readFileSync(path.join(ROOT, "datacore", "layers.json"), "utf8")).layers;
+    const gridFixture = [
+      ...FIXTURES["/api/data/layers"].layers.filter((l) => l.id === "imagery"),
+      // the US master + HIFLD (Facilities), the 51 states, and Canada's
+      // provinces as the sibling drop-down the by-state one must match
+      ...registryLayers.filter((l) => /^powergrid/.test(l.id) && ["facilities", "grid", "grid_ca"].includes(l.group)),
+    ];
+    const stateIds = gridFixture.filter((l) => l.group === "grid").map((l) => l.id);
+    for (const vp of WIDTHS) {
+      const fails = [];
+      const shot = (tag) => path.join(OUT, `data-gridstates-${vp.w}-${tag}.png`);
+      const ctx = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: 1, hasTouch: vp.touch });
+      const page = await ctx.newPage();
+      await page.route("**/*", (route) => {
+        const u = route.request().url();
+        if (u.startsWith(`http://127.0.0.1:${port}`)) return route.continue();
+        return route.abort();
+      });
+      await page.route("**/api/data/layers", (route) => route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ layers: gridFixture, server_version: "gridstates-harness" }),
+      }));
+      await page.route("**/tiles-r2/**", (route) => route.fulfill({ status: 404, body: "" }));
+      try {
+        await page.goto(`http://127.0.0.1:${port}${PAGES.data.route}`, { waitUntil: "load", timeout: 30000 });
+        for (let i = 0; i < 60; i++) {
+          if (await page.evaluate(() => !document.querySelector(".vt-map-skeleton"))) break;
+          await page.waitForTimeout(100);
+        }
+        await page.waitForTimeout(800);
+        if (!(await page.locator(".vt-layer-panel").count())) await page.click(".vt-map-fab", { timeout: 1500 }).catch(() => {});
+        await page.waitForTimeout(250);
+        // headless renders on software GL, so the page raises its device
+        // notice; close it the way a user would, or it sits on the phone shots
+        await page.locator('.vt-device-notice button[aria-label="Dismiss"]').click({ timeout: 800 }).catch(() => {});
+        const read = () => page.evaluate(() => {
+          const groups = [...document.querySelectorAll(".vt-layer-panel .vt-layer-group")];
+          const headOf = (g) => g.querySelector(":scope > .vt-layer-group-head");
+          const byText = (re) => groups.find((g) => re.test(headOf(g)?.textContent || ""));
+          const g = byText(/by state/i), sib = byText(/by province/i);
+          if (!g) return null;
+          const shape = (x) => x && headOf(x) ? [...headOf(x).children].map((c) => c.tagName + "." + String(c.className).replace(/ closed$/, "")).join(",") : null;
+          const ctlRow = g.querySelector('[data-vt-control="powergrid_states_all"]');
+          const sw = ctlRow?.querySelector('[role="checkbox"]');
+          const r = sw?.getBoundingClientRect();
+          const rowR = ctlRow?.getBoundingClientRect();
+          const panel = document.querySelector(".vt-layer-panel");
+          const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+          return {
+            head: headOf(g).textContent.replace(/\s+/g, " ").trim(), expanded: headOf(g).getAttribute("aria-expanded"),
+            headTag: headOf(g).tagName, shape: shape(g), sibShape: shape(sib), sibExpanded: sib ? headOf(sib).getAttribute("aria-expanded") : null,
+            ctl: !!ctlRow, ctlFirst: !!ctlRow && g.children[1]?.contains(ctlRow), tag: sw?.tagName, checked: sw?.getAttribute("aria-checked"),
+            // the control's derived position as the page states it (none | some | all)
+            hook: g.querySelector("[data-vt-all-states]")?.getAttribute("data-vt-all-states") ?? null,
+            label: sw?.getAttribute("aria-label"), status: ctlRow?.querySelector(".vt-layer-status")?.textContent.trim(),
+            note: ctlRow?.querySelector(".vt-layer-covnote")?.textContent || "",
+            rowIds: [...g.querySelectorAll("[data-vt-layer]")].map((x) => x.getAttribute("data-vt-layer")),
+            rowsOn: g.querySelectorAll('[data-vt-layer] [role="switch"][aria-checked="true"]').length,
+            more: !!g.querySelector(".vt-layer-showmore"),
+            inView: !!r && r.left >= -1 && r.right <= innerWidth + 1 && r.top >= -1 && r.bottom <= innerHeight + 1,
+            hitOk: !!hit && (hit === sw || sw.contains(hit)), rowH: rowR ? Math.round(rowR.height) : 0,
+            panelBottomOk: panel.getBoundingClientRect().bottom <= innerHeight + 2,
+            hscroll: document.documentElement.scrollWidth > innerWidth + 1,
+            load: document.querySelector(".vt-cost-note")?.textContent.trim() || "",
+            // (`powergrid_us` is the US master's SOURCE id — same shape as a state id, not a state)
+            stateSources: Object.keys(window.__vtMap?.getStyle?.().sources || {}).filter((x) => /^powergrid_[a-z]{2}$/.test(x) && x !== "powergrid_us").length,
+            usMasterSource: !!window.__vtMap?.getSource?.("powergrid_us"),
+            masterRowInGroup: !!g.querySelector('[data-vt-layer="powergrid"], [data-vt-layer="powergrid_hifld"]'),
+          };
+        });
+        const head = page.locator(".vt-layer-group-head", { hasText: /by state/i }).first();
+        const grp = page.locator(".vt-layer-group", { has: page.locator(".vt-layer-group-head", { hasText: /by state/i }) }).first();
+        const ctl = page.locator('[data-vt-control="powergrid_states_all"] [role="checkbox"]');
+        const top = async () => { await head.evaluate((el) => el.scrollIntoView({ block: "start" })); await page.waitForTimeout(150); };
+        let s = await read();
+        if (!s) throw new Error("no 'by state' group in the panel");
+        // (1) ONE drop-down, built like its siblings, collapsed by default
+        if (s.expanded !== "false") fails.push(`gridstates: by-state group not collapsed by default (aria-expanded=${s.expanded})`);
+        if (!new RegExp(`\\b0/${stateIds.length} on\\b`, "i").test(s.head)) fails.push(`gridstates: header count reads "${s.head}", expected 0/${stateIds.length} on`);
+        if (s.headTag !== "BUTTON" || s.shape !== s.sibShape) fails.push(`gridstates: by-state header (${s.headTag} ${s.shape}) is not built like the by-province one (${s.sibShape})`);
+        if (s.ctl) fails.push("gridstates: All-states control rendered while the drop-down is closed");
+        await top(); await page.screenshot({ path: shot("collapsed") });
+        // (2) keyboard: the header is a button — Enter opens it
+        await head.focus(); await page.keyboard.press("Enter"); await page.waitForTimeout(250);
+        s = await read();
+        if (s.expanded !== "true") fails.push("gridstates: Enter on the focused header did not open the drop-down");
+        if (!s.ctl || !s.ctlFirst) fails.push("gridstates: All-states control is not the first row of the open drop-down");
+        if (s.tag !== "BUTTON" || s.hook !== "none" || s.checked !== "false" || s.status !== "off") fails.push(`gridstates: none position wrong (tag=${s.tag} state=${s.hook} aria-checked=${s.checked} status="${s.status}")`);
+        if (!s.label) fails.push("gridstates: All-states control has no accessible name");
+        if (!s.more || s.rowIds.length > 12) fails.push(`gridstates: GROUP_ROW_CAP not holding with the control present (${s.rowIds.length} rows, show-more=${s.more})`);
+        if (s.masterRowInGroup) fails.push("gridstates: a master/HIFLD row sits inside the by-state list");
+        await top(); s = await read();
+        if (!s.inView || !s.hitOk) fails.push(`gridstates: All-states control not reachable (inView=${s.inView} hit=${s.hitOk}) — SELF-SEE`);
+        if (vp.w <= 639 && s.rowH < 44) fails.push(`gridstates: All-states row ${s.rowH}px < 44px touch floor`);
+        if (!s.panelBottomOk || s.hscroll) fails.push(`gridstates: panel overflows (bottomOk=${s.panelBottomOk} hscroll=${s.hscroll})`);
+        await page.screenshot({ path: shot("expanded") });
+        // (3) ONE state picked by its own row -> the control reads "some"
+        await page.locator(`[data-vt-layer="${stateIds[0]}"] [role="switch"]`).click({ timeout: 4000 });
+        await page.waitForTimeout(250);
+        s = await read();
+        if (s.hook !== "some" || s.checked !== "mixed" || s.status !== `1 of ${stateIds.length} on` || !new RegExp(`\\b1/${stateIds.length} on\\b`, "i").test(s.head))
+          fails.push(`gridstates: some position wrong (state=${s.hook} aria-checked=${s.checked} status="${s.status}" head="${s.head}")`);
+        // (4) keyboard on the control: Space completes to ALL
+        await ctl.focus(); await page.keyboard.press("Space"); await page.waitForTimeout(600);
+        await grp.locator(".vt-layer-showmore").first().click().catch(() => {});
+        await page.waitForTimeout(250);
+        s = await read();
+        if (s.hook !== "all" || s.checked !== "true" || s.status !== `all ${stateIds.length} on` || !new RegExp(`\\b${stateIds.length}/${stateIds.length} on\\b`, "i").test(s.head))
+          fails.push(`gridstates: all position wrong (state=${s.hook} aria-checked=${s.checked} status="${s.status}" head="${s.head}")`);
+        if (s.rowIds.length !== stateIds.length || s.rowsOn !== stateIds.length) fails.push(`gridstates: ${s.rowsOn}/${s.rowIds.length} state rows on after All states (want ${stateIds.length})`);
+        if (s.rowIds.some((id) => !/^powergrid_[a-z]{2}$/.test(id))) fails.push("gridstates: a non-state row is listed in the by-state drop-down");
+        if (s.stateSources !== stateIds.length) fails.push(`gridstates: ${s.stateSources} state tile sources on the map after All states (want ${stateIds.length})`);
+        if (s.usMasterSource) fails.push("gridstates: All states switched the US master on — it must turn the real state layers on, not swap in the overview");
+        // COST HONESTY: all-on must say it is the heavy option, in the row and in the panel's load badge
+        if (!/heavy/i.test(s.note)) fails.push(`gridstates: all-on row carries no cost note ("${s.note}")`);
+        if (!/heavy/i.test(s.load)) fails.push(`gridstates: panel load badge reads "${s.load}" with ${stateIds.length} state layers on`);
+        await top(); await page.screenshot({ path: shot("all") });
+        // (5) press again -> NONE; nothing left on the map
+        await ctl.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await ctl.click({ timeout: 4000 }); await page.waitForTimeout(600);
+        s = await read();
+        if (s.hook !== "none" || s.checked !== "false" || s.status !== "off" || s.rowsOn !== 0 || s.stateSources !== 0)
+          fails.push(`gridstates: off left state on (state=${s.hook} aria-checked=${s.checked} status="${s.status}" rowsOn=${s.rowsOn} sources=${s.stateSources})`);
+      } catch (e) {
+        fails.push(`gridstates: battery could not run — ${String(e?.message || e).slice(0, 160)}`);
+      }
+      results.push({ page: "data-gridstates", width: vp.w, label: vp.label, screenshot: shot("all"),
+                     tti: null, perf: {}, failures: fails, warnings: [], info: { states: stateIds.length } });
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close();
 
