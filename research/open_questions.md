@@ -8127,6 +8127,35 @@
     MEASUREMENT INTEGRITY) and is worth doing only if the check above
     leaves the guard trimming.
 
+56. **[FOUND 2026-11-20 18:10Z, PRODUCT scheduled routine. FIXED same day,
+    v1.0.1499, regression tests in server/nasaFirms.test.ts and
+    test_session_health_check.py. NOT a recurrence: no earlier item is
+    this symptom.]** The fire-detection archive wrote nothing from
+    2026-11-03 to 2026-11-20 and the /data fires layer read "warming up".
+    MEASURED (production, 18:10Z): `/api/data/archive/stats` fires newest
+    file `2026-11-02.jsonl.gz`; `/api/data/streams` fires "stale", 402 h;
+    `/api/data/fires` `{warming_up: true, count: 0}`; `/api/health` cache
+    `nasaFirms.archivedIds` 0 entries. MEASURED (NASA's public files,
+    18:15Z): Suomi NPP 24 h, 48 h and 7 d files are the header and nothing
+    else (112 bytes each); NOAA-20 24 h holds 75,878 detections, NOAA-21
+    69,911.
+    CAUSE (read in code): the poller asked for `VIIRS_SNPP_NRT` only. A
+    header with no rows parsed as zero detections; zero detections with a
+    cold cache wrote nothing, cached nothing and logged nothing. The
+    streams inventory marked the stream stale from 11-04; no check read it.
+    NOT KNOWN: why Suomi NPP returns nothing (no NASA notice was read);
+    whether the key itself still works (a session has no key; the first
+    deployed poll's `poll` block on /api/data/fires answers it).
+    FIX: the poll asks NOAA-20, then NOAA-21, then Suomi NPP and takes the
+    first with rows; a 200 with no CSV header is a failed request; the
+    poll's outcome rides the fires route; the layer and the facilities
+    panel say "no detections from any satellite" with what was asked;
+    `session_health_check.py` gains "Polled archives": a server-polled
+    stream that is stale without a recorded reason is an ALARM.
+    LOST: 18 days of detections (2026-11-03 to 11-20). Whether NASA's
+    dated request can refill them is the first follow-up below
+    (2026-11-20 section at the end of this file).
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -24602,6 +24631,17 @@ OPEN, ranked by the measurement:
 - [EXISTING, not changed] On a phone the shared table style drops the label of a row's last cell (written for a trailing link column). Older single-table panels with a figure in the last column show it unlabelled (for example "Max FRP" on Facilities near active fires). The new .vt-tablewrap-flow variant keeps the label; moving the older panels to it is a design-polish pass with its own harness run.
 - [EXISTING, not changed] Three pages (attention, cot, shortvol) each carry their own copy of a sparkline that joins across missing readings. HistoryChart.tsx breaks the line at a gap. Moving them to it changes what those pages draw, so it is its own PR.
 - [DATA AGE] The rail archive's newest week is 2026-10-28 (rebuilt 2026-11-02); the panel states the lag. The rebuild is a session-run script (scripts/stb_rail.py); the next PIPELINE session should run it.
+
+## 2026-11-20 — fire-detection archive (KNOWN BROKEN #56): what is left open
+
+- [FIRST, T-DATACORE, PIPELINE] REFILL 2026-11-03 to 2026-11-20. NASA's area request takes a date (`/api/area/csv/[KEY]/[SOURCE]/[AREA]/[DAY_RANGE]/[DATE]` returns DATE to DATE + DAY_RANGE - 1, DAY_RANGE at most 5; read on firms.modaps.eosdis.nasa.gov/api/area 2026-11-20). The module's comment and the licensing register say FIRMS has no free history; that was never tested against the dated request. NOT KNOWN: how far back the NRT sources answer (`/api/data_availability/csv/[KEY]/VIIRS_NOAA20_NRT` says; it needs the key, which only the server holds). BUILD: a one-time, resumable server job that reads data_availability, then asks NOAA-20 for each missing date and writes `fires/<acq_date>.jsonl.gz` only where no file exists; rows carry their own acq_date, so a refilled day is told apart by nothing but the file's write time: add `"refilled": true` to the manifest note and a per-day row count to the job's report. Gate 1 for the refill: the newest refilled day's count against NASA's public 7-day file for the same date (75,878 rows in the 24 h file of 11-20). Prior, stated before any run: 60% that NRT answers at least 7 days back, 30% that it answers all 18.
+- [T-DATACORE, PIPELINE, existing loss, not measured] THE DAY BOUNDARY. NASA's one-day answer is the current UTC date only ("from TODAY to TODAY - (DAY_RANGE-1)"). A detection acquired late in a UTC day and published after midnight is never asked for: after 00:00 the request covers the new date. NASA states about 3 hours of near-real-time latency, so the exposure is the last hours of every day since 2026-07-04. TEST: for a finished date D, rows in our archive with acq_date = D against NASA's dated answer for D (same job as the refill). FIX CANDIDATE: between 00:00 and 06:00 UTC also ask for yesterday by date. Asking for two days on every poll is the wrong fix: the dedup set is capped at 200,000 ids and two NOAA-20 days are about 150,000, so a busy season would trim the set and re-append rows.
+- [SERIES BREAK, stated in the manifest] Rows are Suomi NPP (`satellite` "N") from 2026-07-04 to 2026-11-02 and NOAA-20 ("N20") from the first deployed poll. Same instrument, different overpass time (about 50 minutes apart). Any reader that counts detections per day across the break (gas-flare persistence in server/gasFlareCandidates.ts, site timelines) sees 18 empty days and then a different satellite: a persistence test spanning the gap must state it.
+- [NOT CHECKED] Other Suomi NPP products on the map: night lights (`VIIRS_SNPP_GapFilled_BRDF_Corrected_DayNightBand_Radiance`), NDVI 8-day (`VIIRS_SNPP_NDVI_8Day`), the OMPS sulfur-dioxide layer. These are dated GIBS tiles the browser requests; if Suomi NPP is down they stop at a date. Read the newest date GIBS serves for each before believing either way.
+- [CHOICE, not taken] Asking all three satellites on every poll would roughly triple detections (about 146,000 a day on 11-20 from NOAA-20 and NOAA-21). Not done in the repair: it triples the archive's daily size on a volume already under its free-space target, and needs the dedup cap raised. A deliberate PIPELINE change with its own measurement, after the refill.
+- [MEASURED, existing] The detection id (satellite, lat and lon to 3 decimals, date, time) is not unique: 277 of the 75,878 NOAA-20 rows of 11-20 share an id with another row (0.37%). Both rows are archived when they arrive in one poll; a reader that dedups by id drops one.
+- [HEALTH LINE] `QUIET_ARCHIVES_KNOWN` in scripts/session_health_check.py lists four streams that are stale for a recorded reason (airquality, cropconditions, waitlist, fdicfailures). cropconditions is listed all year though it is quiet only out of season: from May a stale cropconditions is a real stall and the entry should carry a season.
+- [QUEUED, unchanged] UI coverage batch C second part (archive counts and the off-site copy in the Data quality panel, scheduled jobs in Pipeline health, Form 4 completeness). Payloads read 2026-11-20: `/api/data/archive/stats` has 64 kinds with files, bytes, oldest and newest file name; `/api/data/archive/offload-status` has both tiers by kind, the permanent tier by stream, the last run and the volume's free space. The fires stall was found reading these two for that panel: a newest-file column on the panel would have shown it to any visitor.
 
 ## 2026-11-20 — RESULT on "(h) the tier engine's regime label changes from scan to scan": two causes; the one that is a defect is fixed (v1.0.1498, tier_macro_guard.py)
 TRACED (experiments.md 2026-11-20 15:16 ET [REPAIR]; (h) was filed 2026-11-17 in the entry at "AUDIT LOG, SEEN WHILE CHECKING HEALTH", not traced):

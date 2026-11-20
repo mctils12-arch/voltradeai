@@ -13,6 +13,7 @@
 // .vt-filings-* table CSS (midas.tsx precedent) — no new styles.
 import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Flame } from "lucide-react";
+import { firesEmptyNote, type FirePoll } from "@/lib/fireSource";
 
 interface FacilityFireHit {
   id: string;
@@ -29,6 +30,8 @@ interface FiresNearFacilitiesPayload {
   enabled?: boolean;
   awaiting_key?: boolean;
   warming_up?: boolean;
+  no_detections?: boolean;
+  poll?: FirePoll | null;
   kind?: string;
   as_of?: number;
   radius_km?: number;
@@ -86,7 +89,13 @@ export default function FiresNearFacilitiesView({ onBack }: { onBack: () => void
         <div className="vt-filings-state">Fires feed warming up — first detections still loading.</div>
       )}
 
-      {!error && data && data.enabled && !data.warming_up && (
+      {!error && data && data.no_detections && (
+        <div className="vt-filings-state" data-vt-fnf-nodata>
+          {firesEmptyNote(data, Date.now())}. With no detections there is nothing to check against the facilities; this is not a reading of "no fires nearby".
+        </div>
+      )}
+
+      {!error && data && data.enabled && !data.warming_up && !data.no_detections && (
         <div className="vt-shortvol-body">
           <div className="vt-filings-sub">
             {data.note ? data.note + " " : ""}

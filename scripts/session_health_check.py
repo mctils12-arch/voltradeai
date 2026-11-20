@@ -907,6 +907,50 @@ def check_edgar_archives(probe, now=None, filing_day=edgar_filing_day):
                    "by the nightly Form 4 completeness pass only (13F and 8-K have none)")
 
 
+# ── Polled archives gone quiet ────────────────────────────────────────────
+# [REPAIR 2026-11-20] The fire-detection archive wrote nothing from 2026-11-03
+# to 11-20: NASA answered the one satellite the poller asked for with a header
+# and no rows. /api/data/streams marked the stream "stale" on 11-04 and every
+# day after, and no check read it. This line reads it. A stream the server
+# polls (its newest file is a day file on the volume, not a snapshot bundled in
+# the repo, which research_state_check.py covers) that is stale and is not in
+# the list below is an ALARM: an archive gap never refills.
+QUIET_ARCHIVES_KNOWN = {
+    "airquality": "Google Air Quality API is not enabled on the project (the human's console step, wishlist.md)",
+    "cropconditions": "USDA rates crops in the growing season only",
+    "waitlist": "written per signup, not polled",
+    "fdicfailures": "written per bank failure, not polled on a cadence",
+}
+
+
+def check_quiet_archives(inventory):
+    label = "Polled archives"
+    streams = inventory.get("streams") if isinstance(inventory, dict) else None
+    if not isinstance(streams, list) or not streams:
+        return finding(WARN, label, "/api/data/streams unreadable or still warming up (asked once)",
+                       "read /api/data/streams again in a minute")
+    polled = [s for s in streams if isinstance(s, dict)
+              and not str(s.get("newest_file") or "").startswith("datacore/")]
+    stale = [s for s in polled if s.get("health") == "stale"]
+    unknown = [s for s in stale if s.get("stream") not in QUIET_ARCHIVES_KNOWN]
+    known = [s for s in stale if s.get("stream") in QUIET_ARCHIVES_KNOWN]
+
+    def age(s):
+        h = s.get("age_hours")
+        return f"{h / 24:.1f} d" if isinstance(h, (int, float)) and h >= 48 else f"{h} h"
+
+    tail = (f"; quiet for a recorded reason: "
+            + ", ".join(f"{s.get('stream')} ({QUIET_ARCHIVES_KNOWN[s.get('stream')]})" for s in known)) if known else ""
+    if unknown:
+        return finding(
+            ALARM, label,
+            "; ".join(f"{s.get('stream')}: newest file {s.get('newest_file')}, {age(s)} old "
+                      f"({s.get('health_note') or 'past its cadence'})" for s in unknown) + tail,
+            "an archive gap never refills: read the stream's route for its poll state, request the upstream by hand, "
+            "and fix the poller this session; add a stream to QUIET_ARCHIVES_KNOWN only with the reason it is quiet")
+    return finding(OK, label, f"{len(polled) - len(stale)} of {len(polled)} polled streams inside their cadence" + tail)
+
+
 def p95(samples):
     xs = sorted(x for x in samples if isinstance(x, (int, float)))
     if not xs:
@@ -1097,6 +1141,7 @@ def main():
 
     if diag_token:
         findings.append(check_edgar_archives(gather_edgar(args.base_url, diag_token)))
+    findings.append(check_quiet_archives(_fetch_json(f"{args.base_url}/api/data/streams")))
 
     if not args.no_ops:
         plan_status, intent_cov, offload, governor, latency, uptime_s = gather_ops(args.base_url, health)

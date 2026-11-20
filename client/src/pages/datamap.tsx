@@ -33,6 +33,7 @@ import CotView from "./cot";
 import GraphView from "./graph";
 import StreamsView from "./streams";
 import QualityDashboardView from "./qualityDashboard";
+import { fireSatelliteName, firesEmptyNote, firesSourceNote } from "@/lib/fireSource";
 import SignalLadderView from "./signalLadder";
 import ValidatedSignalsView from "./validatedSignals";
 import PipelineHealthDashboardView from "./pipelineHealthDashboard";
@@ -12521,7 +12522,9 @@ export default function DataMapPage() {
         const d = await r.json();
         if (stop) return;
         if (d.enabled === false) { setStatus("fires", "awaiting_key"); return; }
-        if (d.warming_up) { setStatus("fires", "loading", 0, "warming up — first poll can take a few minutes"); return; }
+        // A poll that found no detection on any satellite is not a warm-up
+        // (lib/fireSource.ts): the line names what NASA was asked and when.
+        if (d.warming_up || d.no_detections) { setStatus("fires", d.no_detections ? "error" : "loading", 0, firesEmptyNote(d, Date.now())); return; }
         const fc = {
           type: "FeatureCollection",
           features: (d.fires || []).map((f: any) => ({
@@ -12558,7 +12561,7 @@ export default function DataMapPage() {
             setDetail({
               kind: "fire",
               title: "Active fire detection",
-              subtitle: `${p.confidence} confidence · ${p.satellite}${p.daynight ? ` · ${p.daynight === "D" ? "day" : "night"}` : ""}`,
+              subtitle: `${p.confidence} confidence · ${fireSatelliteName(p.satellite)}${p.daynight ? ` · ${p.daynight === "D" ? "day" : "night"}` : ""}`,
               body: `Detected ${p.acq_date} ${String(p.acq_time).padStart(4, "0")} UTC` +
                     `${p.brightness != null ? `\nBrightness: ${Math.round(p.brightness)} K` : ""}` +
                     `${p.frp != null ? `\nFire radiative power: ${p.frp} MW` : ""}\n\n` +
@@ -12571,7 +12574,8 @@ export default function DataMapPage() {
             fetchDossier(dossierKey, null, e.lngLat?.lat, e.lngLat?.lng);
           });
         }
-        const baseNote = "NASA FIRMS/LANCE · VIIRS 375m · ~3h latency · not for safety-of-life use";
+        const from = firesSourceNote(d.poll);
+        const baseNote = `NASA FIRMS/LANCE · VIIRS 375m${from ? ` ${from}` : ""} · ~3h latency · not for safety-of-life use`;
         const note = d.capped
           ? `showing ${d.count.toLocaleString()} of ${d.count_before_cap.toLocaleString()} in view (capped) · ${baseNote}`
           : baseNote;

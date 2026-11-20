@@ -1119,3 +1119,47 @@ def test_edgar_polls_saved_by_a_feed_retry_are_named_and_an_older_server_reads_a
     assert "13F last row none in the day files, polls 6 ok / 0 failed;" in f["detail"]  # no key, no note
     none = _edgar_probe(form4={"last_archive_write_at": "2026-11-17T18:55:00.000Z", "polls_saved_by_retry": 0})
     assert "saved by a feed retry" not in hc.check_edgar_archives(none, now=_utc("2026-11-17T19:05:00"))["detail"]
+
+
+# ── polled archives gone quiet (2026-11-20) ──────────────────────────────
+def _stream(name, health, newest, age_hours, note=None):
+    return {"stream": name, "health": health, "newest_file": newest, "age_hours": age_hours, "health_note": note}
+
+
+def test_quiet_archive_is_an_alarm_the_day_it_goes_stale():
+    """The live inventory of 2026-11-20: fires had been stale since 11-04 and no check said so."""
+    inv = {"streams": [
+        _stream("aircraft", "live", "2026-11-20-18.jsonl", 0),
+        _stream("fires", "stale", "2026-11-02.jsonl.gz", 402.0,
+                "newest file 402.0h old — exceeds cadence-derived threshold ~26h"),
+        _stream("airquality", "stale", "2026-10-06.jsonl.gz", 1025.9),
+        _stream("cropconditions", "stale", "2026-10-26.jsonl.gz", 569.9),
+        _stream("eiaweekly", "stale", "datacore/eia/weekly_series.json", 436.6),
+    ]}
+    f = hc.check_quiet_archives(inv)
+    assert f["severity"] == hc.ALARM
+    assert "fires: newest file 2026-11-02.jsonl.gz, 16.8 d old" in f["detail"]
+    assert "exceeds cadence-derived threshold ~26h" in f["detail"]
+    # a bundled snapshot is another check's (research_state_check.py); a known-quiet stream is named with its reason
+    assert "eiaweekly" not in f["detail"]
+    assert "airquality (Google Air Quality API is not enabled" in f["detail"]
+    assert "never refills" in f["fix"]
+
+
+def test_quiet_archives_known_reasons_alone_do_not_alarm():
+    inv = {"streams": [
+        _stream("aircraft", "live", "2026-11-20-18.jsonl", 0),
+        _stream("fires", "live", "2026-11-20.jsonl", 0.2),
+        _stream("airquality", "stale", "2026-10-06.jsonl.gz", 1025.9),
+        _stream("eiaweekly", "stale", "datacore/eia/weekly_series.json", 436.6),
+    ]}
+    f = hc.check_quiet_archives(inv)
+    assert f["severity"] == hc.OK
+    assert f["detail"].startswith("2 of 3 polled streams inside their cadence")
+    assert "airquality" in f["detail"]
+
+
+def test_quiet_archives_unreadable_inventory_is_a_warning_not_ok():
+    assert hc.check_quiet_archives(None)["severity"] == hc.WARN
+    assert hc.check_quiet_archives({"streams": []})["severity"] == hc.WARN
+    assert hc.check_quiet_archives({"warming_up": True})["severity"] == hc.WARN

@@ -42,11 +42,19 @@ export function firmsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(firmsKey(env));
 }
 
-// VIIRS 375m NRT is the higher-resolution source the licensing register
-// names; NOAA-20 is used as a second satellite pass (more detections/day)
-// but this module only queries SNPP today — adding NOAA-20 is a one-line
-// extension of AREA_SOURCES if the single-satellite detection rate proves
-// too sparse for a future gate-1 test.
+// VIIRS 375m NRT, one satellite at a time. The module shipped asking for
+// Suomi NPP only. The archive's last day file is 2026-11-02; on 2026-11-20
+// NASA's public 24 h, 48 h and 7 d files for Suomi NPP were a header and no
+// rows, while NOAA-20 held 75,878 detections and NOAA-21 69,911 in 24 h. A
+// header with no rows parsed as "no fires", so the archive wrote nothing for
+// 18 days and nothing was logged. The poll now asks the sources in
+// this order and takes the first that returns rows. NOAA-20 leads: same
+// instrument, in service since 2018, and Suomi NPP (2011) is past its design
+// life, so a series led by it would break again. One source per poll keeps
+// the row count, the dedup set and the archive's daily size where they were;
+// every row carries its `satellite`, so a reader can tell the series apart.
+export const FIRMS_SOURCES = ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "VIIRS_SNPP_NRT"] as const;
+/** firmsUrl's default when no source is named (the module's first source; the poll always names one). */
 export const FIRMS_SOURCE = "VIIRS_SNPP_NRT";
 export const FIRMS_AREA = "-180,-90,180,90"; // world bbox
 export const FIRMS_DAY_RANGE = 1; // most recent day only — dedup handles overlap across polls
@@ -148,15 +156,115 @@ export function parseFirmsCsv(csv: string): FireDetection[] {
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 const FIRMS_UA = { "User-Agent": "voltradeai-datacore/1.0 (research@voltradeai.com)" };
 
-export async function fetchFirmsDetections(mapKey: string, fetchImpl: FetchFn = fetch as any): Promise<FireDetection[]> {
-  const r = await fetchImpl(firmsUrl(mapKey), { headers: FIRMS_UA, signal: AbortSignal.timeout(15000) as any });
+export async function fetchFirmsDetections(mapKey: string, fetchImpl: FetchFn = fetch as any, source: string = FIRMS_SOURCES[0]): Promise<FireDetection[]> {
+  const r = await fetchImpl(firmsUrl(mapKey, source), { headers: FIRMS_UA, signal: AbortSignal.timeout(15000) as any });
   if (!r.ok) throw new Error(`FIRMS ${r.status}`);
-  return parseFirmsCsv(await r.text());
+  const text = await r.text();
+  // FIRMS answers some refusals (bad key, transaction limit) as plain text. A
+  // body with no CSV header is a failed request, not a day without fires.
+  const first = text.trimStart().split(/\r?\n/, 1)[0] || "";
+  if (!/(^|,)\s*latitude\s*(,|$)/i.test(first)) {
+    throw new Error(`FIRMS answered without a CSV header: "${first.slice(0, 80)}"`);
+  }
+  return parseFirmsCsv(text);
 }
 
-// ── archive (COLLECT-EVERYTHING: NASA FIRMS has NO free history — every
-// detection not archived today is permanently lost, per the licensing
-// register). Append-only JSONL per UTC day under <archive>/fires/, deduped
+/** What one poll found, per source asked. `rows` is null when the request failed. */
+export interface FirmsSourceResult { source: string; rows: number | null; error: string | null }
+/** NASA's "1 day" is the current UTC date only (api/area: "from TODAY to
+ *  TODAY - (DAY_RANGE-1)"), so a healthy satellite answers with no rows for a
+ *  while after 00:00 UTC; its near-real-time rows arrive within about 3 hours.
+ *  Inside this window an empty lead source is the start of the day, not a
+ *  dead satellite: no other source is asked and nothing is counted or logged. */
+export const FIRMS_DAY_START_GRACE_MS = 3 * 3600_000;
+
+export interface FirmsPollState {
+  /** true when the last poll was an empty lead source inside the day-start window */
+  day_start: boolean;
+  last_attempt_at: string | null;
+  /** last poll in which some source returned rows */
+  last_rows_at: string | null;
+  /** the source the last poll's rows came from; null when none had rows */
+  source_used: string | null;
+  sources: FirmsSourceResult[];
+  /** polls in a row, in this process, in which no source returned rows */
+  polls_without_rows: number;
+}
+const pollState: FirmsPollState = { day_start: false, last_attempt_at: null, last_rows_at: null, source_used: null, sources: [], polls_without_rows: 0 };
+
+/** The last poll's outcome, for the fires route and the streams inventory. */
+export function firmsPollState(): FirmsPollState {
+  return { ...pollState, sources: pollState.sources.map((x) => ({ ...x })) };
+}
+
+/** The poll's errors are served with the fires route, and the key rides in
+ *  the request URL: an error text that quotes the URL or the key must not. */
+export function scrubFirmsKey(text: string, mapKey: string): string {
+  return (mapKey ? text.split(mapKey).join("[key]") : text).slice(0, 200);
+}
+
+/** Asks each source in FIRMS_SOURCES order and returns the first that has
+ *  rows. Throws only when EVERY source failed (so the caller's failure path
+ *  runs as before); sources that answered with a header and no rows are
+ *  recorded as 0, never as an error. Inside the day-start window an empty
+ *  lead source ends the poll (`dayStart`). */
+export async function fetchFirmsFirstWithRows(
+  mapKey: string,
+  fetchImpl: FetchFn = fetch as any,
+  nowMs: number = Date.now(),
+  sources: readonly string[] = FIRMS_SOURCES,
+): Promise<{ detections: FireDetection[]; source: string | null; tried: FirmsSourceResult[]; dayStart: boolean }> {
+  const tried: FirmsSourceResult[] = [];
+  const inDayStart = nowMs % 86400_000 < FIRMS_DAY_START_GRACE_MS;
+  for (const source of sources) {
+    try {
+      const detections = await fetchFirmsDetections(mapKey, fetchImpl, source);
+      tried.push({ source, rows: detections.length, error: null });
+      if (detections.length > 0) return { detections, source, tried, dayStart: false };
+      if (inDayStart && tried.length === 1) return { detections: [], source: null, tried, dayStart: true };
+    } catch (e: unknown) {
+      tried.push({ source, rows: null, error: scrubFirmsKey(e instanceof Error ? e.message : String(e), mapKey) });
+    }
+  }
+  if (tried.length > 0 && tried.every((t) => t.error !== null)) {
+    throw Object.assign(new Error(tried.map((t) => `${t.source}: ${t.error}`).join("; ")), { tried });
+  }
+  return { detections: [], source: null, tried, dayStart: false };
+}
+
+/** Records a poll and says it out loud when the answer is not the usual one:
+ *  no source has rows, the source changed, or rows came back after a gap.
+ *  One line per change of state, and one per day while nothing has rows. */
+function recordPoll(tried: FirmsSourceResult[], source: string | null, nowMs: number, dayStart = false): void {
+  const prevSource = pollState.source_used;
+  const prevEmpty = pollState.polls_without_rows;
+  pollState.last_attempt_at = new Date(nowMs).toISOString();
+  pollState.sources = tried;
+  pollState.day_start = dayStart;
+  if (dayStart) return; // the day has just begun: the source in use and the count stand
+  const summary = tried.map((t) => `${t.source} ${t.error ? `failed (${t.error})` : `${t.rows} rows`}`).join("; ");
+  if (source) {
+    pollState.last_rows_at = pollState.last_attempt_at;
+    pollState.source_used = source;
+    pollState.polls_without_rows = 0;
+    if (prevEmpty > 0) console.error(`[datacore] FIRMS: detections are back after ${prevEmpty} poll(s) without any (${summary})`);
+    else if (source !== prevSource && (prevSource !== null || source !== FIRMS_SOURCES[0])) {
+      console.error(`[datacore] FIRMS: detections now come from ${source}${prevSource ? ` (was ${prevSource})` : ""}: ${summary}`);
+    }
+    return;
+  }
+  pollState.source_used = null;
+  pollState.polls_without_rows = prevEmpty + 1;
+  // 48 polls a day at the 30-minute cadence
+  if (prevEmpty === 0 || pollState.polls_without_rows % 48 === 0) {
+    console.error(`[datacore] FIRMS: NO SOURCE RETURNED A DETECTION for ${pollState.polls_without_rows} poll(s) in a row; nothing is being archived (${summary})`);
+  }
+}
+
+// ── archive (COLLECT-EVERYTHING: the licensing register records NASA FIRMS
+// as having no free history, so a detection not archived today is treated as
+// lost; whether the dated API can refill a missed day is an open question,
+// research/open_questions.md 2026-11-20). Append-only JSONL per UTC day under <archive>/fires/, deduped
 // by our own id, gzipped after 2 days — identical shape to edgarForm4.ts's
 // filings archive (both are discrete dated events, not continuous tracks).
 const archivedIds = new Set<string>();
@@ -273,6 +381,7 @@ export function _resetFirmsCacheForTests(): void {
   seeded = false;
   cache = null;
   polling = false;
+  Object.assign(pollState, { day_start: false, last_attempt_at: null, last_rows_at: null, source_used: null, sources: [], polls_without_rows: 0 });
 }
 
 /** Reconstructs a cache-shaped detections list from the on-disk fires
@@ -304,6 +413,19 @@ export function backfillFirmsFromArchive(baseDir?: string, nowMs?: number, days 
 // into `count`.
 export const FIRES_SERVE_CAP = 8000;
 
+/** The route's answer while there is nothing to draw. Before the first poll
+ *  it is a warm-up (as is an empty lead source at the start of the UTC day);
+ *  after a poll in which no source had rows it says so, with the poll, so the
+ *  layer never reads "warming up" for days. */
+export function buildFiresEmptyResponse(state: FirmsPollState = firmsPollState()): Record<string, unknown> {
+  const polled = state.last_attempt_at !== null && !state.day_start;
+  return {
+    enabled: true, kind: "raw", count: 0, fires: [],
+    ...(polled ? { no_detections: true } : { warming_up: true }),
+    poll: state,
+  };
+}
+
 export function buildFiresResponse(
   detections: FireDetection[],
   bboxStr: unknown,
@@ -327,6 +449,7 @@ export function buildFiresResponse(
     time: Math.floor(atMs / 1000),
     count: fires.length,
     total_detections: detections.length,
+    poll: firmsPollState(),
     ...(viewported.viewport_filtered ? {
       viewport_filtered: true,
       count_before_viewport: viewported.count_before_viewport,
@@ -337,17 +460,20 @@ export function buildFiresResponse(
   };
 }
 
-export async function refreshFirmsCache(env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any): Promise<void> {
+export async function refreshFirmsCache(env: NodeJS.ProcessEnv = process.env, fetchImpl: FetchFn = fetch as any, nowMs: number = Date.now()): Promise<void> {
   const key = firmsKey(env);
   if (!key) return;
   try {
-    const detections = await fetchFirmsDetections(key, fetchImpl);
+    const { detections, source, tried, dayStart } = await fetchFirmsFirstWithRows(key, fetchImpl, nowMs);
+    recordPoll(tried, source, nowMs, dayStart);
     const next = resolveCacheItems(cache !== null, detections, () => backfillFirmsFromArchive());
     if (next) cache = { at: Date.now(), detections: next };
     try { archiveFireDetections(detections); } catch {}
     try { gzipOldFireDays(); } catch {}
   } catch (e: any) {
-    console.error("[datacore] FIRMS refresh:", e?.message || e);
+    const tried = Array.isArray(e?.tried) ? (e.tried as FirmsSourceResult[]) : [];
+    if (tried.length) recordPoll(tried, null, nowMs);
+    else console.error("[datacore] FIRMS refresh:", e?.message || e);
     const next = resolveCacheItems(cache !== null, [], () => backfillFirmsFromArchive());
     if (next) cache = { at: Date.now(), detections: next };
   }

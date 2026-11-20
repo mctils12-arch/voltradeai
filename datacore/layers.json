@@ -2525,7 +2525,7 @@
    "group": "environmental",
    "costTier": "moderate",
    "source": "NASA FIRMS / LANCE (VIIRS 375m NRT; free MAP_KEY)",
-   "description": "Active-fire detections, ~3h latency. Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration — see wishlist). No free history exists upstream — detections archive from the day the key activates."
+   "description": "Active-fire detections, ~3h latency, from one VIIRS satellite at a time: NOAA-20, or NOAA-21 or Suomi NPP when it has none (the layer's status line and each detection's card name the satellite). Not for safety-of-life use. Goes live automatically when NASA_FIRMS_MAP_KEY is set (free registration — see wishlist). Detections archive from the day the key activates; the archive holds none for 2026-11-03 to 2026-11-20."
   },
   {
    "id": "nightlights",
