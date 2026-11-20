@@ -914,6 +914,27 @@ experiments.md.
   promotes it; PROMOTION RULE 6 and the PREMIUM EXPERIENCE STANDARD
   apply to every such PR.
 
+- FINISH WHAT WAS STARTED (human-directed 2026-11-19, execution-layer
+  Addendum 1 §A10; the quoted sentences are the human's, verbatim;
+  binding on every session and routine): "Before starting any new work,
+  check open PRs. Finish, fix and merge open PRs first. Do not abandon
+  work in progress." A PR open more than 48 hours is picked up and
+  finished first by the next session or routine. Total open PRs stay
+  under 10 across the repo; at the cap no new PR is opened until
+  existing ones merge. A still-useful PR is rebased, fixed, completed
+  and merged; one that duplicates later work has its useful parts
+  folded into the current code and is then closed with a note saying
+  where the work went; only a PR that is fully superseded or no longer
+  applies is closed, always with a reason. "Nothing useful is thrown
+  away". How it sits with the rules already here: the DEPLOY WINDOW
+  still decides WHEN a finished PR merges (a merge restarts the bot);
+  a PR labelled `manual-review` is the human's to merge, so no session
+  or routine merges or closes it — it counts toward the cap and is
+  reported, not picked up; a branch pushed without a PR (the midday
+  routine's hand-off) is work in progress under this rule too.
+  `OPEN_PR_TRIAGE.md` (repo root) is the record of the 2026-11-19
+  one-time cleanup.
+
 ## RENDERING & MOTION LAW (Amendment 6, human-approved 2026-08-12)
 
 Installed verbatim from the human's "Article: Rendering & Motion Law"
