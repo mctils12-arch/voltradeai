@@ -189,10 +189,6 @@
    "plumbing",
    "operator action; retrain runs on schedule"
   ],
-  "GET /api/data/swim/products": [
-   "missing",
-   "FAA SWIM feed: products received. No UI. Placement: one row per product in the Streams inventory."
-  ],
   "GET /api/data/swim/tfms/active": [
    "missing",
    "Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards."
