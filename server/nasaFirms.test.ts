@@ -19,6 +19,7 @@ import {
   latestFirms,
   refreshFirmsCache,
   fetchFirmsFirstWithRows,
+  scrubFirmsKey,
   firmsPollState,
   buildFiresEmptyResponse,
   FIRMS_SOURCES,
@@ -456,4 +457,19 @@ test("a cold start inside the day-start window is a warm-up, not 'no detections'
     assert.equal(out.warming_up, true);
     assert.equal(out.no_detections, undefined);
   });
+});
+
+test("an error that quotes the request URL never serves the key", async () => {
+  const KEY = "0123456789abcdef0123456789abcdef";
+  const impl = async (url: string) => { throw new Error(`request to ${url} failed`); };
+  const orig = console.error; console.error = () => {};
+  try {
+    await withFiresDir(async () => {
+      await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: KEY } as any, impl as any, NOON);
+      const served = JSON.stringify(buildFiresEmptyResponse());
+      assert.ok(!served.includes(KEY), "the key is not in the served poll");
+      assert.match(firmsPollState().sources[0].error || "", /csv\/\[key\]\/VIIRS_NOAA20_NRT/);
+    });
+  } finally { console.error = orig; }
+  assert.equal(scrubFirmsKey("x".repeat(500), "").length, 200, "and an error text is bounded");
 });

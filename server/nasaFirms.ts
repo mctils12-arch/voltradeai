@@ -197,6 +197,12 @@ export function firmsPollState(): FirmsPollState {
   return { ...pollState, sources: pollState.sources.map((x) => ({ ...x })) };
 }
 
+/** The poll's errors are served with the fires route, and the key rides in
+ *  the request URL: an error text that quotes the URL or the key must not. */
+export function scrubFirmsKey(text: string, mapKey: string): string {
+  return (mapKey ? text.split(mapKey).join("[key]") : text).slice(0, 200);
+}
+
 /** Asks each source in FIRMS_SOURCES order and returns the first that has
  *  rows. Throws only when EVERY source failed (so the caller's failure path
  *  runs as before); sources that answered with a header and no rows are
@@ -217,7 +223,7 @@ export async function fetchFirmsFirstWithRows(
       if (detections.length > 0) return { detections, source, tried, dayStart: false };
       if (inDayStart && tried.length === 1) return { detections: [], source: null, tried, dayStart: true };
     } catch (e: unknown) {
-      tried.push({ source, rows: null, error: e instanceof Error ? e.message : String(e) });
+      tried.push({ source, rows: null, error: scrubFirmsKey(e instanceof Error ? e.message : String(e), mapKey) });
     }
   }
   if (tried.length > 0 && tried.every((t) => t.error !== null)) {
