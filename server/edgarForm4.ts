@@ -324,7 +324,7 @@ export async function fetchLatestForm4Filings(
   delayMs = 150,
 ): Promise<Form4Filing[]> {
   const feedUrl = edgarCurrentFeedUrl("4", limit * 3);
-  const feedXml = await fetchText(fetchImpl, feedUrl);
+  const feedXml = await fetchEdgarFeed(fetchImpl, feedUrl, SEC_UA, "filings");
   const all = parseFilingFeed(feedXml);
   const wanted = all.filter((e) => e.form == null || isForm4Type(e.form));
   const entries = wanted.slice(0, Math.max(0, limit));
@@ -376,6 +376,7 @@ import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
 import { notePollOk, notePollFailed } from "./edgarPollHealth";
+import { fetchEdgarFeed } from "./edgarFeedFetch";
 
 // [REPAIR 2026-11-16] "already archived?" is answered from the day files
 // themselves (filingSeen.ts), from the filing's own filed date forward —

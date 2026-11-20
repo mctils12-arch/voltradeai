@@ -46,12 +46,19 @@ export interface EdgarPollCounters {
   last_error: string | null;
   /** rows appended to the archive by polls since boot */
   rows_archived: number;
+  /** feed requests that timed out, dropped or answered 5xx (edgarFeedFetch.ts);
+   *  each was followed by another attempt unless it was the poll's last */
+  feed_attempts_failed: number;
+  /** polls whose feed page arrived on a second or third attempt: polls the
+   *  single-request poller would have lost */
+  polls_saved_by_retry: number;
 }
 
 function emptyCounters(): EdgarPollCounters {
   return {
     polls_ok: 0, polls_failed: 0, consecutive_failures: 0,
     last_ok_at: null, last_failure_at: null, last_error: null, rows_archived: 0,
+    feed_attempts_failed: 0, polls_saved_by_retry: 0,
   };
 }
 
@@ -81,6 +88,17 @@ export function notePollFailed(stream: EdgarPollStream, err: unknown, nowMs: num
   c.last_failure_at = new Date(nowMs).toISOString();
   const msg = err instanceof Error ? err.message : String(err ?? "unknown error");
   c.last_error = msg.length > ERROR_MAX_CHARS ? `${msg.slice(0, ERROR_MAX_CHARS)}…` : msg;
+}
+
+/** One feed request of a poll failed in a way that is retried. Does not
+ *  count as a failed poll: `notePollFailed` does that if every attempt fails. */
+export function noteFeedAttemptFailed(stream: EdgarPollStream, _err?: unknown): void {
+  of(stream).feed_attempts_failed++;
+}
+
+/** A poll's feed page arrived after at least one failed attempt. */
+export function noteFeedRecovered(stream: EdgarPollStream): void {
+  of(stream).polls_saved_by_retry++;
 }
 
 /** Newest mtime among the stream's plain `<day>.jsonl` files, or null when the
@@ -130,7 +148,7 @@ export function edgarPollHealthStatus(baseDir?: string, nowMs: number = Date.now
     booted_at: new Date(bootedAtMs).toISOString(),
     uptime_s: Math.max(0, Math.round((nowMs - bootedAtMs) / 1000)),
     poll_interval_min: 15,
-    note: "Counters are since boot. last_archive_write_at is read from the archive's day files and survives a restart; null means no plain day file (nothing appended in about two days).",
+    note: "Counters are since boot. feed_attempts_failed counts single feed requests that timed out or answered 5xx; polls_saved_by_retry counts polls that got their page on a later attempt. last_archive_write_at is read from the archive's day files and survives a restart; null means no plain day file (nothing appended in about two days).",
     streams,
   };
 }

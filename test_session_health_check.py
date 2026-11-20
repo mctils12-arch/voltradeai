@@ -1106,3 +1106,16 @@ def test_edgar_probe_missing_or_misshapen_is_a_warning_not_a_crash():
     assert f["severity"] == hc.WARN and "13F: not in the probe" in f["detail"]
     # an unreadable write time counts as no write: by 11:30 ET that is an alarm
     assert hc.check_edgar_archives(part, now=_utc("2026-11-17T16:30:00"))["severity"] == hc.ALARM
+
+
+def test_edgar_polls_saved_by_a_feed_retry_are_named_and_an_older_server_reads_as_before():
+    # [REPAIR 2026-11-19] server/edgarFeedFetch.ts retries the feed request; the
+    # probe counts the polls that needed it. An older server has no such key.
+    saved = _edgar_probe(form4={"last_archive_write_at": "2026-11-17T18:55:00.000Z",
+                                "polls_ok": 40, "polls_saved_by_retry": 9, "feed_attempts_failed": 10})
+    f = hc.check_edgar_archives(saved, now=_utc("2026-11-17T19:05:00"))
+    assert f["severity"] == hc.OK
+    assert "Form 4 last row 0.2 h ago, polls 40 ok / 0 failed (9 of the ok saved by a feed retry)" in f["detail"]
+    assert "13F last row none in the day files, polls 6 ok / 0 failed;" in f["detail"]  # no key, no note
+    none = _edgar_probe(form4={"last_archive_write_at": "2026-11-17T18:55:00.000Z", "polls_saved_by_retry": 0})
+    assert "saved by a feed retry" not in hc.check_edgar_archives(none, now=_utc("2026-11-17T19:05:00"))["detail"]
