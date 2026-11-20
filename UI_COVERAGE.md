@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 270 | 5 | 7 | 27 | 14 |
+| HTTP routes | 271 | 5 | 6 | 27 | 14 |
 | Diagnostic probes (token-gated) | 36 | 14 | 2 | 11 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -26,7 +26,7 @@ Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, th
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (9)
+## Missing: user-relevant, no UI yet (8)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -35,7 +35,6 @@ layers are not listed one by one here.
 | route | `POST /api/bot/trade` | `server/bot.ts` | Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner). |
 | route | `POST /api/bot/close` | `server/bot.ts` | Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above. |
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
-| route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards. |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
 | probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel. |
@@ -130,7 +129,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (312)
+## Surfaced (313)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -403,6 +402,7 @@ layers are not listed one by one here.
 | route | `GET /api/orders/open` | `server/routes.ts` | a page calls it |
 | route | `GET /api/ml/status` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | a page calls it |
+| route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /terms` | `server/terms.ts` | a page calls it |
 | probe | `audit` | `server/bot.ts /api/diag/audit` | AI Engine activity log (/api/bot/audit) |
 | probe | `ml` | `server/bot.ts /api/diag/ml` | model status (/api/ml/status) |

@@ -20,7 +20,7 @@ export const FEED_NAMES: Readonly<Record<string, string>> = {
 /** what the server does with a feed, in the page's words */
 export const FEED_USE: Readonly<Record<string, string>> = {
   SFDPS: "filed flight plans and their amendments, on the flight card",
-  TFMS: "traffic programs (ground stops, delays, reroutes); read and counted, not yet shown on a page",
+  TFMS: "ground stops, delay programs, restrictions and runway rates, on the FAA airport card; flow areas and national advisories are read and not yet shown",
   NOTAM: "notices and flight restrictions; read and counted, not yet shown on a page",
 };
 /** a feed with no message for this long while connected is "quiet" */
@@ -78,7 +78,7 @@ const n = (v: number) => v.toLocaleString("en-US");
 export function feedCounts(f: FeedView): string {
   if (f.state === "not_set_up") return `${f.missingSettings} setting${f.missingSettings === 1 ? "" : "s"} missing on the server`;
   if (f.state === "not_consumed") return "set up on the server, deliberately not read yet";
-  const parts = [`${n(f.received)} messages since the server started`];
+  const parts = [`${n(f.received)} message${f.received === 1 ? "" : "s"} since the server started`];
   if (f.processed !== f.received) parts.push(`${n(f.processed)} handled`);
   if (f.dropped) parts.push(`${n(f.dropped)} dropped under load`);
   if (f.errors) parts.push(`${n(f.errors)} failed to parse`);

@@ -7946,6 +7946,175 @@ async function main() {
                    tti: null, perf: {}, failures: pgFailures, warnings: [], info: { planeGlide: pgInfo } });
   }
 
+  // ── AIRPORT TRAFFIC battery ([PRODUCT] 2026-11-20; components/AirportTraffic.tsx over GET
+  // /api/data/swim/tfms/active) ────────────────────────────────────────────
+  // The FAA airport card's Traffic row, driven through the real map: the FAA airport layer is switched on, an
+  // airport's symbol is clicked, and the row must say what the FAA's traffic-management feed lists for THAT airport:
+  // the delay program with its reason and end time, the count of restrictions (a re-sent restriction counted once,
+  // another airport's and the feed's "ALL" rows not counted), and the runways and rates the tower reported. Opened:
+  // one line per program and restriction, the advisory's own title, the caveat that a restriction cancelled early
+  // can still be listed, and the source line. An airport the feed says nothing about gets a sentence and a control
+  // that does nothing. One request per selection; nothing leaves the card or the window at 1440, 768 and 390.
+  // `--page airporttraffic` runs this battery alone.
+  if (!only || only === "data" || only === "airporttraffic") {
+    const atFailures = [];
+    const atInfo = {};
+    const json = (route, body) => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
+    const { ctx, page, flip } = await bootDemandPage(browser, port, 1);
+    const atErrors = [];
+    page.on("pageerror", (e) => atErrors.push(e.message));
+    const AT_NOW = Date.now();
+    const H = 3600_000;
+    const z = (ms) => { const d = new Date(ms); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}Z`; };
+    const sameDay = (ms) => new Date(ms).getUTCDate() === new Date(AT_NOW).getUTCDate();
+    const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const zd = (ms) => (sameDay(ms) ? z(ms) : `${MON[new Date(ms).getUTCMonth()]} ${new Date(ms).getUTCDate()} ${z(ms)}`);
+    const GDP_END = AT_NOW + 2 * H, R1_END = AT_NOW + 1 * H, R2_END = AT_NOW + 3 * H, CFG_AT = AT_NOW - 40 * 60_000;
+    const prog = (o) => ({ status: null, airport: null, facility: null, start: AT_NOW - H, end: null, title: null, text: null, reason: null, elements: [], geometry: null, floorFl: null, ceilingFl: null, updatedAt: AT_NOW - 30 * 60_000, ...o });
+    const tfmsCalls = [];
+    await page.route("**/api/data/airport-status", (route) => json(route, { kind: "raw", source: "FAA National Airspace System Status (fixture)", time: 1, update_time: new Date(AT_NOW).toISOString(), count: 2, events: [
+      { airport: "ATL", type: "Ground Delay Program", reason: "Volume", avg: "31 minutes", max: "1 hour 5 minutes", min: "16 minutes", trend: "Increasing", direction: "Arrival", end_time: "18:00 UTC", reopen: null, update_time: new Date(AT_NOW).toISOString() },
+      { airport: "BOS", type: "Departure Delay", reason: "Wind", avg: "20 minutes", max: "30 minutes", min: "15 minutes", trend: "Decreasing", direction: "Departure", end_time: null, reopen: null, update_time: new Date(AT_NOW).toISOString() },
+    ] }));
+    await page.route("**/api/data/swim/tfms/active", (route) => {
+      tfmsCalls.push(Date.now());
+      return json(route, { at: AT_NOW, source: "FAA SWIM TFMS (SCDS, NDRB pre-approved for public release; not for operational use)", stats: { programs: 9 },
+        programs: [
+          prog({ id: "ADV:ATCSCC:0059", kind: "ADVISORY", status: "GDP", airport: "ATL", facility: "DCCO", end: GDP_END, title: "ATCSCC ADVZY 059 ATL/ZTL CDM GROUND DELAY PROGRAM" }),
+          prog({ id: "GDP:ATL", kind: "GDP", status: "ACTUAL", airport: "ATL", facility: "ZTL", end: GDP_END, title: "gdpAdvisory", reason: "VOLUME" }),
+          prog({ id: "RSTR:1", kind: "RESTRICTION", status: "4", airport: "ATL", facility: "ZJX", end: R1_END, title: "MIT ARRIVAL", reason: "WX:Thunderstorms", elements: ["OSPRY", "RDSOX"] }),
+          prog({ id: "RSTR:2", kind: "RESTRICTION", status: "5", airport: "ATL", facility: "ZJX", end: R1_END, title: "MIT ARRIVAL", reason: "WX:Thunderstorms", elements: ["OSPRY", "RDSOX"], updatedAt: AT_NOW - 10 * 60_000 }),
+          prog({ id: "RSTR:3", kind: "RESTRICTION", status: "4", airport: "ATL/PDK", facility: "A80", end: R2_END, title: "APREQ DEPARTURE", reason: "NONE", elements: ["ATL"] }),
+          prog({ id: "RSTR:4", kind: "RESTRICTION", status: "4", airport: "ALL", facility: "ZTL", end: R2_END, title: "MIT DEPARTURE", reason: "VOL:Volume", elements: ["SMKEY"] }),
+          prog({ id: "RSTR:5", kind: "RESTRICTION", status: "4", airport: "CLT", facility: "ZTL", end: R2_END, title: "STOP ARRIVAL", reason: "WEATHER", elements: [] }),
+          prog({ id: "FCA:1", kind: "FCA", status: "UPDATED", facility: "DCC", title: "FCALEW", geometry: [[45.3, -82.7], [46.1, -81.2]] }),
+          prog({ id: "ADV:ATCSCC:0055", kind: "ADVISORY", facility: "DCCO", title: "ATCSCC ADVZY 055 DCC US/MEXICO OUTLOOK" }),
+        ],
+        airportConfigs: [{ airport: "ATL", arrRunways: "08L/09R/10", depRunways: "08R/09L", aar: 132, adr: 0, weather: "VMC", facility: "A80", at: CFG_AT }] });
+    });
+    const selectAirport = async (code, lon, lat) => {
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.evaluate(([lo, la]) => window.__vtMap.jumpTo({ center: [lo, la], zoom: 6, pitch: 0, bearing: 0 }), [lon, lat]);
+      let spot = null;
+      for (let i = 0; i < 40 && !spot; i++) {
+        await page.waitForTimeout(400);
+        spot = await page.evaluate((c) => {
+          try {
+            const m = window.__vtMap;
+            const f = m.querySourceFeatures("faa-airports").find((x) => x.properties.airport === c);
+            if (!f || m.isMoving()) return null;
+            const px = m.project(f.geometry.coordinates);
+            const rect = m.getContainer().getBoundingClientRect();
+            return { x: rect.left + px.x, y: rect.top + px.y };
+          } catch { return null; }
+        }, code);
+      }
+      if (!spot) { atFailures.push(`airport traffic: fixture airport ${code} never rendered as a clickable symbol`); return false; }
+      await page.mouse.click(spot.x, spot.y);
+      const row = await page.waitForSelector(`[data-testid="airport-traffic-row"][data-airport="${code}"]`, { timeout: 10000 }).catch(() => null);
+      if (!row) { atFailures.push(`airport traffic: selecting ${code} showed no Traffic row on its card`); return false; }
+      return true;
+    };
+    const readRow = () => page.evaluate(() => {
+      const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+      const r = document.querySelector('[data-testid="airport-traffic-row"]');
+      if (!r) return null;
+      const btn = r.querySelector("[data-vt-airport-traffic-toggle]");
+      const rb = r.getBoundingClientRect(), bb = btn.getBoundingClientRect();
+      const card = r.closest(".vt-site-card") || r.parentElement;
+      const cb = card.getBoundingClientRect();
+      const list = r.querySelector("[data-vt-airport-traffic-list]");
+      const top = document.elementFromPoint(bb.left + bb.width / 2, bb.top + bb.height / 2);
+      const lineEls = [...r.querySelectorAll("[data-vt-airport-traffic-headline] > div")];
+      const lines = lineEls.map(txt);
+      const headCut = lineEls[0] ? lineEls[0].scrollWidth > lineEls[0].clientWidth + 1 : false;
+      return { lines, headCut, open: r.getAttribute("data-open") === "true", disabled: btn.disabled, btnH: Math.round(bb.height), covered: !(top && (top === btn || btn.contains(top))),
+        right: Math.round(rb.right - window.innerWidth), outOfCard: Math.round(rb.right - cb.right), cardTitle: txt(card.querySelector("h3, .vt-site-card-title, [data-testid='detail-title']")),
+        programs: list ? [...list.querySelectorAll("[data-vt-traffic-program]")].map(txt) : [], restrictions: list ? [...list.querySelectorAll("[data-vt-traffic-restriction]")].map(txt) : [],
+        config: txt(list?.querySelector("[data-vt-traffic-config]")), source: txt(list?.querySelector("[data-vt-airport-traffic-source]")), listText: txt(list),
+        listScrolls: list ? getComputedStyle(list).overflowY : null, listH: list ? Math.round(list.getBoundingClientRect().height) : 0,
+        pageOver: Math.max(0, document.documentElement.scrollWidth - window.innerWidth) };
+    });
+    const HEAD = `Ground delay program · volume · until ${zd(GDP_END)} · 2 restrictions`;
+    const CONFIG = `Arriving 08L/09R/10 · departing 08R/09L · 132 arrivals an hour · visual conditions (VMC) · reported ${zd(CFG_AT)}`;
+    const checkAtl = async () => {
+      const w = page.viewportSize().width;
+      const fail = (m) => atFailures.push(`airport traffic ATL @${w}px: ${m}`);
+      let r = await readRow();
+      if (!r) { fail("no Traffic row"); return; }
+      if (r.lines[0] !== HEAD) fail(`the first line reads "${r.lines[0]}" (expected "${HEAD}")`);
+      if (r.lines[1] !== CONFIG) fail(`the runway line reads "${r.lines[1]}" (expected "${CONFIG}")`);
+      // first run, 1440px: the first line was cut to "Ground delay program · volume · u…": the end time was not readable
+      if (r.headCut) fail("the first line is cut: the program's end time must be readable without opening the list");
+      if (r.disabled) fail("the control is disabled although there is a list to open");
+      if (r.covered) fail("another element covers the Traffic control");
+      if (r.right > 1 || r.outOfCard > 1) fail(`the row leaves the ${r.right > 1 ? "window" : "card"} by ${Math.max(r.right, r.outOfCard)}px`);
+      if (w < 640 && r.btnH < 44) fail(`the control is ${r.btnH}px tall on a phone (44)`);
+      const tgl = page.locator("[data-vt-airport-traffic-toggle]");
+      await tgl.scrollIntoViewIfNeeded(); await tgl.click(); await page.waitForTimeout(250);
+      r = await readRow();
+      if (!r.open) { fail("the list does not open"); return; }
+      const wantProg = `Ground delay program · volume · until ${zd(GDP_END)} · ATCSCC ADVZY 059 ATL/ZTL CDM GROUND DELAY PROGRAM`;
+      if (r.programs.length !== 1 || r.programs[0] !== wantProg) fail(`the program line reads ${JSON.stringify(r.programs)} (expected "${wantProg}")`);
+      const wantR = [
+        `Call for release, departures · via ATL · set by A80 · until ${zd(R2_END)}`,
+        `Miles-in-trail, arrivals · via OSPRY, RDSOX · set by ZJX · weather: thunderstorms · until ${zd(R1_END)}`,
+      ];
+      // 5 restriction rows served: one is a re-send of another, one names every airport ("ALL"), one names CLT
+      if (JSON.stringify(r.restrictions) !== JSON.stringify(wantR)) fail(`the restrictions read ${JSON.stringify(r.restrictions)} (expected ${JSON.stringify(wantR)})`);
+      if (r.config !== `Runways and rates · ${CONFIG}`) fail(`opened, the runway line reads "${r.config}"`);
+      if (!/^FAA traffic-management feed \(SWIM TFMS\), as received: 9 programs and restrictions searched for ATL\. A restriction is listed until its published end; one cancelled early can still be listed\. Times are Zulu\. Not for operational use\. Read \d+ (s|min) ago\.$/.test(r.source)) fail(`the source line reads "${r.source}"`);
+      if (/NaN|undefined|\bnull\b|Infinity/.test(r.listText + r.lines.join(" "))) fail("a bare NaN / undefined / null in the row");
+      if (r.listScrolls !== "auto" || r.listH > 150) fail(`the open list is ${r.listH}px tall with overflow ${r.listScrolls} (it must scroll inside 148px)`);
+      if (r.right > 1 || r.pageOver > 1) fail(`opened, the row leaves the window by ${r.right}px (page overflow ${r.pageOver}px)`);
+      await page.locator('[data-testid="airport-traffic-row"]').screenshot({ path: path.join(OUT, `data-airporttraffic-${w}.png`) }).catch(() => {});
+      await tgl.click(); await page.waitForTimeout(150);
+      if ((await readRow()).open) fail("the list does not close again");
+    };
+    try {
+      if (!(await flip("faa_airports", true))) atFailures.push("airport traffic: the FAA airport layer toggle never landed");
+      if (await selectAirport("ATL", -84.4277, 33.6407)) {
+        await checkAtl();
+        atInfo.callsAfterAtl = tfmsCalls.length;
+        if (tfmsCalls.length !== 1) atFailures.push(`airport traffic: selecting one airport made ${tfmsCalls.length} requests for the feed (exactly 1)`);
+        await page.screenshot({ path: path.join(OUT, "data-airporttraffic-card-1440.png") });
+        await page.setViewportSize({ width: 768, height: 1024 });
+        await page.waitForTimeout(1200);
+        await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+        await checkAtl();
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(1200);
+        await page.click('[aria-label="Collapse layers panel"]', { timeout: 1500 }).catch(() => {});
+        await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+        await checkAtl();
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.waitForTimeout(1200);
+      }
+      // an airport the traffic feed says nothing about: a sentence, and a control that does nothing
+      const before = tfmsCalls.length;
+      if (await selectAirport("BOS", -71.0096, 42.3656)) {
+        const r = await readRow();
+        const want = "No ground stop, delay program or restriction for BOS in the FAA feed";
+        if (!r || r.lines.length !== 1 || r.lines[0] !== want) atFailures.push(`airport traffic BOS: the row reads ${JSON.stringify(r?.lines)} (expected one line: "${want}")`);
+        if (r && !r.disabled) atFailures.push("airport traffic BOS: the control is enabled with nothing to list");
+        if (tfmsCalls.length - before !== 1) atFailures.push(`airport traffic BOS: ${tfmsCalls.length - before} requests on selection (exactly 1)`);
+      }
+      // closing the card removes the row and stops asking (the refresh timer is cleared with the selection)
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.click('[aria-label="Close details"]', { timeout: 1500 }).catch(() => {});
+      await page.waitForTimeout(600);
+      if (await page.locator('[data-testid="airport-traffic-row"]').count()) atFailures.push("airport traffic: the row is still on the page after the card is closed");
+      atInfo.calls = tfmsCalls.length;
+    } catch (e) {
+      atFailures.push("airport traffic: battery crashed: " + String(e?.message || e).split("\n")[0]);
+    }
+    for (const e of atErrors) atFailures.push("airport traffic: pageerror: " + e);
+    console.log("\n[AIRPORT TRAFFIC] " + JSON.stringify(atInfo) + (atFailures.length ? "\n  ✗ " + atFailures.join("\n  ✗ ") : ""));
+    await ctx.close();
+    results.push({ page: "data-airporttraffic", width: 1440, label: "airport-traffic", screenshot: path.join(OUT, "data-airporttraffic-card-1440.png"),
+                   tti: null, perf: {}, failures: atFailures, warnings: [], info: { airportTraffic: atInfo } });
+  }
+
   // ── BOOT MARKER battery (2026-11-19) ────────────────────────────────────
   // Measured on production: a visit to pricing, to the AI Engine page or to
   // the landing page, left normally, put the NEXT visit's map in reduced mode

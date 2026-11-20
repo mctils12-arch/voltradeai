@@ -124,6 +124,7 @@ import {
 import FlightProfilePanel, { type FlightClock } from "@/components/FlightProfilePanel";
 import { usePlannedRoute } from "@/components/PlannedRoute";
 import { usePlanChanges } from "@/components/PlanChanges";
+import { useAirportTraffic } from "@/components/AirportTraffic";
 import { useRunwayStatus } from "@/components/RunwayStatus";
 import { useFlightProcedures } from "@/components/FlightProcedures";
 import { sampleOrbitArc, ARC_GAP } from "@/lib/orbital/orbitArc";
@@ -4486,6 +4487,12 @@ export default function DataMapPage() {
   const planChanges = usePlanChanges({
     hex: detail?.kind === "aircraft" ? String(detail.trailId || "") : null,
     getCallsign: () => selectedCallsignOf(selectedHexLc()),
+  });
+  // AIRPORT TRAFFIC (2026-11-20, UI coverage batch B, part 3): what the FAA's traffic-management feed lists for the
+  // selected FAA airport (programs, restrictions, runways and rates). The card's dossier key carries the airport's
+  // FAA code ("faaairport:<CODE>:<time>"). Fetch, refresh, teardown and the row live in components/AirportTraffic.tsx.
+  const airportTraffic = useAirportTraffic({
+    code: detail?.kind === "faaairport" ? (/^faaairport:([A-Z0-9]{3,4}):/.exec(String(detail.dossierKey || ""))?.[1] ?? null) : null,
   });
   const plannedRoute = usePlannedRoute({
     mapRef, mapReady,
@@ -16662,6 +16669,9 @@ export default function DataMapPage() {
           {/* how the filed plan changed (versions, changes, off-route) — components/PlanChanges.tsx;
               rendered only when there is a change to show */}
           {detail.kind === "aircraft" && planChanges.row}
+          {/* an FAA airport: ground stops and delay programs, restrictions, runways and rates from the FAA's
+              traffic-management feed — components/AirportTraffic.tsx */}
+          {detail.kind === "faaairport" && airportTraffic.row}
           {/* instrument procedures: filed DP/STAR, suggested approaches, CIFP
               path + georeferenced plate — components/FlightProcedures.tsx */}
           {detail.kind === "aircraft" && flightProcedures.row}
