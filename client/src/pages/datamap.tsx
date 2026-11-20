@@ -23,7 +23,7 @@ import {
   LNG_SHIPYARD_COUNTRY_LABEL, lngShipyardCountryTier, LNG_SHIPYARD_COUNTRY_COLOR,
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, siteHostCountry, testedAtHome } from "@/lib/nukeCodes";
-import { AIRPORT_COORDS, faaEventColor, faaEventLabel, type FaaEventType } from "@/lib/faaAirports";
+import { AIRPORT_COORDS, faaEventColor, faaEventLabel, faaCardStats, type FaaEventType } from "@/lib/faaAirports";
 import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
@@ -16546,7 +16546,9 @@ export default function DataMapPage() {
           {/* ONE row of stat chips — the whole default card (design 1a) */}
           {detail.stats && detail.stats.length > 0 && (
             <div className="vt-card-stats">
-              {detail.stats.slice(0, 4).map((s) => (
+              {/* an FAA airport's chips: delays shortened and no repeat of the subtitle's event, so no value is cut
+                  (lib/faaAirports.ts faaCardStats); every other card kind is unchanged */}
+              {(detail.kind === "faaairport" ? faaCardStats(detail.stats) : detail.stats.slice(0, 4)).map((s) => (
                 <div key={s.label} className="vt-card-stat">
                   <span className="vt-card-stat-l">{s.label}</span>
                   <span className="vt-card-stat-v">{s.value}</span>

@@ -239,3 +239,24 @@ export function faaEventColor(type: string | null | undefined): string {
 export function faaEventLabel(type: string | null | undefined): string {
   return (type && FAA_EVENT_LABEL[type as FaaEventType]) || String(type || "unknown");
 }
+
+// ── the airport card's chips ([PRODUCT] 2026-11-20) ──────────────────────
+// The card's vitals row holds short values (it was designed for "35,000 ft").
+// The FAA feed's delays are sentences ("1 hour and 37 minutes") and the first
+// chip repeated the event the subtitle already names, so at the card's width
+// all four chips were cut: "Ground…", "31 min…", "1 hour…", "Increa…".
+
+/** "1 hour and 37 minutes" -> "1 h 37 min", "25 minutes" -> "25 min", "1 hour" -> "1 h". The feed's wording is
+ *  shortened, never recomputed: a string that is not hours and/or minutes in the feed's own form is returned as it is. */
+export function compactDelay(value: string | null | undefined): string {
+  const s = String(value ?? "").trim();
+  const m = /^(?:(\d+)\s*hours?)?(?:\s*(?:and\s+)?(\d+)\s*minutes?)?$/i.exec(s);
+  if (!s || !m || (m[1] === undefined && m[2] === undefined)) return s;
+  return [m[1] !== undefined ? `${m[1]} h` : null, m[2] !== undefined ? `${m[2]} min` : null].filter(Boolean).join(" ");
+}
+
+/** The chips an FAA airport card shows: the delays and the trend, delays shortened. The "Event" chip is left out:
+ *  the card's subtitle carries the same words in full. Other chips pass through unchanged. */
+export function faaCardStats<T extends { label: string; value: string }>(stats: readonly T[] | null | undefined): T[] {
+  return (stats ?? []).filter((s) => s.label !== "Event").slice(0, 4).map((s) => (/delay$/i.test(s.label) ? { ...s, value: compactDelay(s.value) } : s));
+}
