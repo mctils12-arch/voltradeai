@@ -24380,6 +24380,20 @@ STILL OPEN, each its own PR:
 Unchanged and still open: (m) server `covered.from` on a truncated filed-day page, (n) filed-day index build time on a visitor's first request (18:08Z reading, not the first after a deploy: 1.10 s for the 30-day window, 1.9 MB), (g), (h), (i), (j), (k), (e).
 Ladder: gate 1 (DATA) for a RAW archive, product surface. No signal claim.
 
+## 2026-11-19 (second entry) — RESULT on "(i) 13F AND 8-K HISTORY BY FILED DAY": built for 13F (v1.0.1484); 8-K open
+
+MEASURED (production 2026-11-20 00:20Z, experiments.md 2026-11-19 19:10 ET [PRODUCT]): after the first recovery night `/api/data/filings13f/history?days=2` returned 640 filings, 600 of them filed on the 2026-11-16 deadline and sitting under archive day 2026-11-19. That is the defect (i) named, one day after the pass shipped.
+BUILT: `server/edgar13fFiledHistory.ts` behind `/api/data/filings13f/history` and `/api/v1/data/13f-holdings-history`: `?filed_from=&filed_to=` serves whole filed days with `filings`, `edgar_index`, `complete`, `checked_at` per day from the pass's ledger (null = not checked, the poll's sample). The archive-day window is unchanged and now says `window_by: "archive_day"`. The generic reader needed no change.
+(t) JUDGED on the RAW route: 1.67 MB, 0.73 s for a page holding a 600-filing recovery night. Under the 5 MB / 2 s line. The keyed route (full tables) is unread; a session with an API key reads `?days=2` there.
+(k) CHECK (2) JUDGED: first night backfilled 600, capped, 0 failed, 0 unparsed. Check (3) waits for the third night (Mon 11-23).
+STILL OPEN, each its own PR:
+(i-8K) 8-K BY FILED DAY. Unchanged: the 8-K index truth needs each filing's header items (the 8-K half of (k)); wire the filed-day window when that is measured.
+(w) A DEADLINE DAY IS ONE PAGE. A filed day is atomic, so 2026-11-16 will be 1,712 filings in one response once recovered: estimated 4.5 MB on the RAW route, about 10 MB on the keyed one, serialised in one event-loop turn on the process that runs the trading loop. TESTABLE FORM: after the ledger marks 11-16 complete, time `?filed_from=2026-11-16&filed_to=2026-11-16` on both routes and read the event-loop lag gauge beside it; over 200 ms of block or 10 MB means a cursor inside a filed day (by accession order) in `server/filedDayHistory.ts`, which Form 4's 2,800-row days would share.
+(x) THE /data 13F PAGE STILL WALKS ARCHIVE DAYS (T-CLIENT). `client/src/pages/edgar13f.tsx` asks `?days=45`; in a recovery week its newest rows are months-old filings recovered last night, shown in archive order. TESTABLE FORM: the page asks `?filed_from=<today - 44 d>`, groups by filed day with the day's `complete` / sample state (the Form 4 page's `filingDayGroups` pattern), visual run at 390/768/1440.
+(h-13F) `filings` vs `edgar_index` ON COMPLETE DAYS. For 13F both dates are 10-character days on production (640-row sample). PRIOR 85% that every complete day has `filings` equal to `edgar_index`. First reading: 11-17 and 11-18 after deploy; any difference names a filing whose feed date and index date disagree.
+Unchanged and still open: (g), (j), (e), (p), (m), (q), (u), (v).
+Ladder: gate 1 (DATA) for a RAW archive, product surface. No signal claim. Standalone-product note: a filings history that states, per filed day, the regulator's own count beside its own is the part of this dataset a customer cannot check elsewhere without redoing the work.
+
 ## 2026-11-19 — RESULT on "(k) 13F AND 8-K HAVE NO REFILL": the 13F archive held 27% of the deadline day; a nightly pass now recovers what the poll missed (v1.0.1472)
 
 MEASURED (experiments.md 2026-11-18 19:10 ET [PIPELINE]; scripts/edgar13f_index_check.py; research/edgar13f_index_check_2026-11-19.json): against EDGAR's daily form index, 13F-HR + 13F-HR/A, filed 2026-11-02..11-17: eight quiet days 100% held; 11-12 96.5% (755 of 782), 11-13 83.3% (905 of 1,087), 11-16 27.0% (462 of 1,712). 1,459 filings missing, all within two filing days of the deadline. PRIOR (k) said 60% short; mine before the read was 90% short and under half on 11-16.

@@ -8,7 +8,7 @@
  "schema_version": 1,
  "field_map": {
   "accession": "SEC accession (dedup key)",
-  "filedAt": "filing date UTC",
+  "filedAt": "the day the filing was filed, YYYY-MM-DD (EDGAR's own date): the feed's Filed date on a polled row, the daily form index's date on a recovered row; the history routes' filed_from/filed_to window reads by it",
   "indexUrl": "SEC filing index URL (evidence link)",
   "managerCik": "filing manager CIK (entity key)",
   "managerName": "filing manager name",

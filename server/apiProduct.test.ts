@@ -325,6 +325,21 @@ test("13f-holdings-history (SEC EDGAR 13F-HR accumulated archive) shares the 13f
   const schema = RESPONSE_DATA_SCHEMAS.voltrade_thirteenf_holdings_history as any;
   for (const k of ["window", "covered", "truncated", "next", "count", "focused_cap", "filings"]) assert.ok(schema.properties[k], `response schema must carry ${k}`);
   for (const k of ["window", "covered", "truncated", "focused_cap"]) assert.ok(schema.required.includes(k), `${k} must be REQUIRED`);
+  // 2026-11-19: the filed-day window (server/edgar13fFiledHistory.ts). Since
+  // the nightly completeness pass, a deadline day's filings sit under the
+  // nights they were recovered (production 2026-11-20: 600 of a 640-filing
+  // `?days=2` page were filed on 2026-11-16) — the spec must offer the window
+  // that reads by filed day and say what `complete` means.
+  for (const k of ["filed_from", "filed_to"]) assert.ok(tool.input_schema.properties[k], `input_schema must advertise ?${k}=`);
+  assert.match(tool.endpoint, /filed_from=\{filed_from\}&filed_to=\{filed_to\}/);
+  assert.match(entry.params, /filed_from=YYYY-MM-DD&filed_to=YYYY-MM-DD/, "apiMeta params string must show the filed-day form");
+  for (const text of [entry.desc, tool.description]) {
+    assert.match(text, /edgar_index/, "honesty: the description must name EDGAR's index count");
+    assert.match(text, /`complete`; null means the day has not been checked/, "honesty: an unchecked day must not read as complete");
+    assert.match(text, /returned whole/, "honesty: a deadline day exceeds the page cap, and the description says so");
+  }
+  for (const k of ["window_by", "filed_days", "complete_days", "omitted", "archive_days_read"]) assert.ok(schema.properties[k], `response schema must carry ${k}`);
+  assert.ok(schema.required.includes("window_by"), "every page says which window it used");
 });
 
 test("eu-macro license mark: commercial reuse permitted with attribution resells freely like the public-domain CAMD/FTD/MIDAS/crop-conditions/NRC streams, not conditional like OCC/Cboe/issuer-authored data; agent tool documents it as a REGIME INPUT with gate-2 unattempted", () => {
