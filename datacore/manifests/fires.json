@@ -26,6 +26,6 @@
  "entity_key": "id (detection)",
  "sentiment": null,
  "started": "2026-07-04",
- "cadence": "30-min poll; ~3h upstream NRT latency",
+ "cadence": "30-min poll; ~3h upstream NRT latency. Once a day from 06:00 UTC a completeness pass (server/firesCompleteness.ts) asks NASA for yesterday by date and appends rows the poll missed; a day with no file inside 25 days is written from NASA's dated answer (its ledger, GET /api/data/fires/completeness, marks such a day `refilled` with the time it was asked)",
  "_note": "Universal archive envelope (approved 2026-07-04): dataset-level manifest; datum-level fields where information varies per record. Append-only JSONL unless stated; readers pick field_map from here."
 }

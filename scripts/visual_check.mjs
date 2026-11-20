@@ -1008,7 +1008,23 @@ const PAGES = {
   // Data quality dashboard (MAP V2 ROADMAP R6(b), 2026-07-30) — same Phase 5
   // ratchet rule as streams above: every new view passes the harness at
   // 390/768/1440 before it ships.
-  quality: { route: "/app#/data/quality", map: false },
+  // The Archive checks section (2026-11-20) reads the fire archive's
+  // completeness ledger: one day of each status. A function, so the last run
+  // is always 2 h 10 min before the page reads it.
+  quality: { route: "/app#/data/quality", map: false, fixtures: {
+    "/api/data/fires/completeness": () => ({
+      kind: "raw", enabled: true, job: "fires_completeness_daily",
+      last_run_at: new Date(Date.now() - 130 * 60_000).toISOString(),
+      refilled_days: 2, no_rows_days: 1, failed_days: 0,
+      live_poll_missed: { days: 1, upstream_rows: 75878, added: 281, share: 0.0037 },
+      days: [
+        { day: "2026-11-20", status: "complete", source: "VIIRS_NOAA20_NRT", upstream_rows: 75878, held_before: 75597, added: 281, attempts: 1, error: null },
+        { day: "2026-11-19", status: "refilled", source: "VIIRS_NOAA20_NRT", upstream_rows: 70100, held_before: 0, added: 70100, attempts: 1, error: null },
+        { day: "2026-11-03", status: "refilled", source: "VIIRS_NOAA20_NRT", upstream_rows: 64000, held_before: 0, added: 64000, attempts: 1, error: null },
+        { day: "2026-10-27", status: "no_rows", source: null, upstream_rows: 0, held_before: 0, added: 0, attempts: 3, error: null },
+      ],
+    }),
+  } },
   // Signal-strength dashboard (MAP V2 ROADMAP R6(a), 2026-07-30) — same
   // Phase 5 ratchet rule as streams/quality above.
   signals: { route: "/app#/data/signals", map: false },
@@ -4149,6 +4165,23 @@ async function main() {
           if ((await blocks.nth(1).locator("[data-vt-pua-more]").count()) !== 0) fail("a two-plant warning offers a more control");
           await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-opened.png`), fullPage: true });
         }
+      }
+      if (name === "quality") {
+        const fail = (m) => checks.failures.push("data quality, archive checks: " + m);
+        await page.waitForSelector("[data-vt-quality-checks] li", { timeout: 8000 }).catch(() => {});
+        const lines = await page.$$eval("[data-vt-quality-checks] li", (els) => els.map((e) => e.textContent));
+        const want = [
+          /^Checked against NASA's record by date 2 h 1[01] min ago\.$/,
+          /^Over 1 finished day the live recording had missed 281 of the 75,878 detections NASA holds for those dates \(0\.37%\); they were added\.$/,
+          /^2 days with no recording \(2026-11-03 to 2026-11-19\) were refilled afterwards from NASA's answer for the date: 134,100 detections\. They are NASA's record as of the refill, not a live recording\.$/,
+          /^1 day \(2026-10-27\) stays empty: NASA returned nothing for the date from any satellite\.$/,
+        ];
+        if (lines.length !== want.length) fail(`${lines.length} sentences, expected ${want.length}: ${JSON.stringify(lines)}`);
+        else want.forEach((re, i) => { if (!re.test(lines[i] || "")) fail(`sentence ${i + 1} reads "${lines[i]}"`); });
+        const over = await page.$eval("[data-vt-quality-checks]", (el) => el.scrollWidth > el.clientWidth + 1).catch(() => false);
+        if (over) fail("the section scrolls sideways");
+        await page.locator("[data-vt-quality-checks]").scrollIntoViewIfNeeded().catch(() => {});
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-checks.png`) });
       }
       if (name === "firesnodata") {
         const fail = (m) => checks.failures.push("fires, no detections: " + m);

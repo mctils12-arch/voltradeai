@@ -59,8 +59,14 @@ export const FIRMS_SOURCE = "VIIRS_SNPP_NRT";
 export const FIRMS_AREA = "-180,-90,180,90"; // world bbox
 export const FIRMS_DAY_RANGE = 1; // most recent day only — dedup handles overlap across polls
 
-export function firmsUrl(mapKey: string, source = FIRMS_SOURCE, area = FIRMS_AREA, dayRange = FIRMS_DAY_RANGE): string {
-  return `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(mapKey)}/${source}/${area}/${dayRange}`;
+/** Without `date`: NASA's "most recent" answer, the current UTC date for a
+ *  one-day range. With `date` (YYYY-MM-DD): that date, as NASA's area page
+ *  documents (`.../[DAY_RANGE]/[DATE]` returns DATE to DATE + DAY_RANGE - 1). */
+export function firmsUrl(mapKey: string, source = FIRMS_SOURCE, area = FIRMS_AREA, dayRange = FIRMS_DAY_RANGE, date?: string): string {
+  const base = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${encodeURIComponent(mapKey)}/${source}/${area}/${dayRange}`;
+  if (date === undefined) return base;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`firmsUrl: date must be YYYY-MM-DD, got "${date}"`);
+  return `${base}/${date}`;
 }
 
 export type FireConfidence = "low" | "nominal" | "high";
@@ -156,8 +162,15 @@ export function parseFirmsCsv(csv: string): FireDetection[] {
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 const FIRMS_UA = { "User-Agent": "voltradeai-datacore/1.0 (research@voltradeai.com)" };
 
-export async function fetchFirmsDetections(mapKey: string, fetchImpl: FetchFn = fetch as any, source: string = FIRMS_SOURCES[0]): Promise<FireDetection[]> {
-  const r = await fetchImpl(firmsUrl(mapKey, source), { headers: FIRMS_UA, signal: AbortSignal.timeout(15000) as any });
+export async function fetchFirmsDetections(
+  mapKey: string,
+  fetchImpl: FetchFn = fetch as any,
+  source: string = FIRMS_SOURCES[0],
+  /** a past UTC date (the completeness pass, firesCompleteness.ts); omitted = today */
+  date?: string,
+  timeoutMs = 15000,
+): Promise<FireDetection[]> {
+  const r = await fetchImpl(firmsUrl(mapKey, source, FIRMS_AREA, FIRMS_DAY_RANGE, date), { headers: FIRMS_UA, signal: AbortSignal.timeout(timeoutMs) as any });
   if (!r.ok) throw new Error(`FIRMS ${r.status}`);
   const text = await r.text();
   // FIRMS answers some refusals (bad key, transaction limit) as plain text. A

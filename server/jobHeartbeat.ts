@@ -314,6 +314,21 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_FORM4_COMPLETENESS off",
   },
   {
+    // firesCompleteness.ts bootFiresCompleteness: first tick 2 min after boot,
+    // then every 30 min; one pass per UTC day from 06:00 UTC (the day is kept
+    // in the job's ledger, so a restart does not run it again). Asks NASA
+    // FIRMS for yesterday by date and for up to 20 days that have no day file.
+    id: "fires_completeness_daily", label: "Fire-detection archive completeness pass (NASA FIRMS dated request, from 06:00 UTC)",
+    source: "server/firesCompleteness.ts", kind: "daily", tz: "UTC", dueMin: 6 * 60,
+    graceMs: 90 * MIN, maxRunMs: 1 * HOUR, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_FIRES_COMPLETENESS;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return (v === "1" || v === "true" || v === "on" || v === "yes") && Boolean(env.NASA_FIRMS_MAP_KEY || env.FIRMS_MAP_KEY);
+    },
+    disabledReason: "VOLTRADE_FIRES_COMPLETENESS off, or no FIRMS key",
+  },
+  {
     // edgar13fCompleteness.ts boot13FCompleteness: 30-min tick, one pass per ET
     // morning inside 06:00-09:00 — EDGAR's daily form index (types 13F-HR,
     // 13F-HR/A) minus what the 13F archive holds is fetched and appended, for
