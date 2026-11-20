@@ -18,6 +18,10 @@ import {
   FIRES_SERVE_CAP,
   latestFirms,
   refreshFirmsCache,
+  fetchFirmsFirstWithRows,
+  firmsPollState,
+  buildFiresEmptyResponse,
+  FIRMS_SOURCES,
   _resetFirmsCacheForTests,
   type FireDetection,
 } from "./nasaFirms";
@@ -264,4 +268,192 @@ test("refreshFirmsCache: a live fetch that succeeds with zero detections and no 
     _resetFirmsCacheForTests();
     if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
   }
+});
+
+// ── [REPAIR 2026-11-20] the archive wrote nothing for 18 days ─────────────
+// Shapes are NASA's own, read 2026-11-20: Suomi NPP's file is its header and
+// nothing else (112 bytes); the NOAA-20 row is the first of that day's file.
+const HEADER_ONLY = "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,confidence,version,bright_ti5,frp,daynight\n";
+const N20_CSV = HEADER_ONLY +
+  "64.35897,-21.78175,297.71,0.59,0.53,2026-11-19,0533,N20,nominal,2.0NRT,269.68,2.24,N\n" +
+  "-37.03685,-60.29919,301.61,0.33,0.55,2026-11-19,0423,N20,nominal,2.0NRT,284.75,0.85,N\n";
+const N21_CSV = HEADER_ONLY + "-26.54383,29.15791,320.25,0.5,0.66,2026-11-19,0000,N21,nominal,2.0NRT,287.05,2.4,N\n";
+
+/** Outside the day-start window (00:00 to 03:00 UTC), where an empty lead source is the day beginning. */
+const NOON = Date.parse("2026-11-20T12:00:00Z");
+
+/** A FIRMS that answers each source with the given body, an HTTP status, or a thrown error. */
+function fakeFirms(bySource: Record<string, string | number | Error>) {
+  const asked: string[] = [];
+  const impl = async (url: string) => {
+    const source = Object.keys(bySource).find((k) => url.includes(`/${k}/`));
+    asked.push(source || url);
+    const a = source ? bySource[source] : 404;
+    if (a instanceof Error) throw a;
+    if (typeof a === "number") return { ok: false, status: a, text: async () => "" };
+    return { ok: true, status: 200, text: async () => a };
+  };
+  return { impl: impl as any, asked };
+}
+
+function withFiresDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-firms-src-"));
+  const prev = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetFirmsCacheForTests();
+  return fn(path.join(base, "datacore_archive", "fires")).finally(() => {
+    _resetFirmsCacheForTests();
+    if (prev === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prev;
+  });
+}
+
+test("sources: NOAA-20 leads, then NOAA-21, then Suomi NPP; the URL carries the source asked for", () => {
+  assert.deepEqual([...FIRMS_SOURCES], ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "VIIRS_SNPP_NRT"]);
+  assert.match(firmsUrl("k", FIRMS_SOURCES[0]), /\/VIIRS_NOAA20_NRT\//);
+  assert.match(firmsUrl("k", "VIIRS_SNPP_NRT"), /\/VIIRS_SNPP_NRT\//);
+});
+
+test("THE BREAK: a satellite that answers with a header and no rows no longer stops the archive; the next source is asked and its rows are archived", async () => {
+  await withFiresDir(async (dir) => {
+    // Suomi NPP's place on 2026-11-20, put first in line: the lead source is the empty one.
+    const f = fakeFirms({ VIIRS_NOAA20_NRT: HEADER_ONLY, VIIRS_NOAA21_NRT: N21_CSV, VIIRS_SNPP_NRT: HEADER_ONLY });
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, NOON);
+    assert.deepEqual(f.asked, ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT"], "stops at the first source with rows");
+    const cached = latestFirms();
+    assert.ok(cached, "the layer has detections");
+    assert.equal(cached!.detections.length, 1);
+    assert.equal(cached!.detections[0].satellite, "N21", "each row says which satellite saw it");
+    const day = new Date().toISOString().slice(0, 10);
+    const lines = fs.readFileSync(path.join(dir, `${day}.jsonl`), "utf8").trim().split("\n");
+    assert.equal(lines.length, 1, "the archive wrote the row");
+    const st = firmsPollState();
+    assert.equal(st.source_used, "VIIRS_NOAA21_NRT");
+    assert.deepEqual(st.sources, [
+      { source: "VIIRS_NOAA20_NRT", rows: 0, error: null },
+      { source: "VIIRS_NOAA21_NRT", rows: 1, error: null },
+    ]);
+    assert.equal(st.last_attempt_at, "2026-11-20T12:00:00.000Z");
+    assert.equal(st.polls_without_rows, 0);
+    assert.ok(st.last_rows_at);
+  });
+});
+
+test("the usual poll asks one source: the lead has rows, the others are not requested", async () => {
+  await withFiresDir(async () => {
+    const f = fakeFirms({ VIIRS_NOAA20_NRT: N20_CSV, VIIRS_NOAA21_NRT: N21_CSV, VIIRS_SNPP_NRT: HEADER_ONLY });
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, NOON);
+    assert.deepEqual(f.asked, ["VIIRS_NOAA20_NRT"]);
+    assert.equal(latestFirms()!.detections.length, 2);
+    assert.equal(firmsPollState().source_used, "VIIRS_NOAA20_NRT");
+  });
+});
+
+test("no source has rows: the state says so and counts the polls, and the route stops saying 'warming up'", async () => {
+  await withFiresDir(async () => {
+    assert.equal(buildFiresEmptyResponse().warming_up, true, "before any poll it is a warm-up");
+    const f = fakeFirms({ VIIRS_NOAA20_NRT: HEADER_ONLY, VIIRS_NOAA21_NRT: HEADER_ONLY, VIIRS_SNPP_NRT: HEADER_ONLY });
+    const errs: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => { errs.push(a.join(" ")); };
+    try {
+      await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, NOON);
+      await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, NOON);
+    } finally { console.error = orig; }
+    assert.equal(f.asked.length, 6, "all three asked, both polls");
+    assert.equal(latestFirms(), null, "nothing is fabricated");
+    const st = firmsPollState();
+    assert.equal(st.source_used, null);
+    assert.equal(st.polls_without_rows, 2);
+    assert.equal(st.last_rows_at, null);
+    const loud = errs.filter((e) => /NO SOURCE RETURNED A DETECTION/.test(e));
+    assert.equal(loud.length, 1, "said once, not on every poll");
+    assert.match(loud[0], /VIIRS_NOAA20_NRT 0 rows; VIIRS_NOAA21_NRT 0 rows; VIIRS_SNPP_NRT 0 rows/);
+    const out = buildFiresEmptyResponse() as any;
+    assert.equal(out.warming_up, undefined);
+    assert.equal(out.no_detections, true);
+    assert.equal(out.poll.polls_without_rows, 2);
+    assert.deepEqual(out.fires, []);
+  });
+});
+
+test("a refusal in plain text with HTTP 200 is a failed request, not a day without fires", async () => {
+  const f = fakeFirms({ VIIRS_NOAA20_NRT: "Invalid MAP_KEY." });
+  await assert.rejects(fetchFirmsDetections("k", f.impl, "VIIRS_NOAA20_NRT"), /without a CSV header: "Invalid MAP_KEY\."/);
+  // header-only is a valid answer with no rows
+  const g = fakeFirms({ VIIRS_NOAA20_NRT: HEADER_ONLY });
+  assert.deepEqual(await fetchFirmsDetections("k", g.impl, "VIIRS_NOAA20_NRT"), []);
+});
+
+test("one source failing does not hide another's rows; every source failing throws with each one's error", async () => {
+  const f = fakeFirms({ VIIRS_NOAA20_NRT: new Error("The operation was aborted due to timeout"), VIIRS_NOAA21_NRT: N21_CSV });
+  const got = await fetchFirmsFirstWithRows("k", f.impl, NOON);
+  assert.equal(got.source, "VIIRS_NOAA21_NRT");
+  assert.deepEqual(got.tried[0], { source: "VIIRS_NOAA20_NRT", rows: null, error: "The operation was aborted due to timeout" });
+
+  const all = fakeFirms({ VIIRS_NOAA20_NRT: 400, VIIRS_NOAA21_NRT: 400, VIIRS_SNPP_NRT: new Error("reset") });
+  await assert.rejects(fetchFirmsFirstWithRows("k", all.impl, NOON), /VIIRS_NOAA20_NRT: FIRMS 400; VIIRS_NOAA21_NRT: FIRMS 400; VIIRS_SNPP_NRT: reset/);
+
+  // some failed, the rest empty: not a throw (a source did answer), and no rows
+  const mixed = fakeFirms({ VIIRS_NOAA20_NRT: 500, VIIRS_NOAA21_NRT: HEADER_ONLY, VIIRS_SNPP_NRT: HEADER_ONLY });
+  const m = await fetchFirmsFirstWithRows("k", mixed.impl, NOON);
+  assert.equal(m.source, null);
+  assert.deepEqual(m.tried.map((t) => t.rows), [null, 0, 0]);
+});
+
+test("every source failing is recorded in the poll state, and the cold cache is still backfilled from the archive", async () => {
+  await withFiresDir(async (dir) => {
+    fs.mkdirSync(dir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(path.join(dir, `${today}.jsonl`), JSON.stringify({ id: "A-1", lat: 1, lon: 2, brightness: 300, confidence: "nominal", frp: null, acq_date: today, acq_time: "0100", satellite: "N20", daynight: "N" }) + "\n");
+    const f = fakeFirms({ VIIRS_NOAA20_NRT: 400, VIIRS_NOAA21_NRT: 400, VIIRS_SNPP_NRT: 400 });
+    const orig = console.error; console.error = () => {};
+    try { await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, NOON); } finally { console.error = orig; }
+    assert.equal(latestFirms()!.detections[0].id, "A-1");
+    const st = firmsPollState();
+    assert.equal(st.polls_without_rows, 1);
+    assert.deepEqual(st.sources.map((x) => x.error), ["FIRMS 400", "FIRMS 400", "FIRMS 400"]);
+  });
+});
+
+test("the served response carries the poll, so a reader can see which satellite the rows came from", async () => {
+  await withFiresDir(async () => {
+    const f = fakeFirms({ VIIRS_NOAA20_NRT: N20_CSV });
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, NOON);
+    const hit = latestFirms()!;
+    const out = buildFiresResponse(hit.detections, undefined, hit.at) as any;
+    assert.equal(out.poll.source_used, "VIIRS_NOAA20_NRT");
+    assert.equal(out.count, 2);
+  });
+});
+
+test("the start of the UTC day: NASA's one-day answer is today only, so an empty lead source before 03:00 UTC asks no one else, counts nothing and keeps the source in use", async () => {
+  await withFiresDir(async () => {
+    const busy = fakeFirms({ VIIRS_NOAA20_NRT: N20_CSV, VIIRS_NOAA21_NRT: N21_CSV });
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, busy.impl, Date.parse("2026-11-20T23:40:00Z"));
+    const f = fakeFirms({ VIIRS_NOAA20_NRT: HEADER_ONLY, VIIRS_NOAA21_NRT: N21_CSV, VIIRS_SNPP_NRT: HEADER_ONLY });
+    const errs: string[] = [];
+    const orig = console.error; console.error = (...a: unknown[]) => { errs.push(a.join(" ")); };
+    try { await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, Date.parse("2026-11-21T00:10:00Z")); } finally { console.error = orig; }
+    assert.deepEqual(f.asked, ["VIIRS_NOAA20_NRT"], "NOAA-21 is not asked: the series does not change satellite at midnight");
+    assert.deepEqual(errs, [], "nothing is logged");
+    const st = firmsPollState();
+    assert.equal(st.day_start, true);
+    assert.equal(st.source_used, "VIIRS_NOAA20_NRT");
+    assert.equal(st.polls_without_rows, 0);
+    assert.equal(latestFirms()!.detections.length, 2, "yesterday's detections stay on the layer");
+    // 03:00 UTC and after, an empty lead source is taken at its word
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, Date.parse("2026-11-21T03:00:00Z"));
+    assert.equal(firmsPollState().source_used, "VIIRS_NOAA21_NRT");
+    assert.equal(firmsPollState().day_start, false);
+  });
+});
+
+test("a cold start inside the day-start window is a warm-up, not 'no detections'", async () => {
+  await withFiresDir(async () => {
+    const f = fakeFirms({ VIIRS_NOAA20_NRT: HEADER_ONLY });
+    await refreshFirmsCache({ NASA_FIRMS_MAP_KEY: "k" } as any, f.impl, Date.parse("2026-11-21T01:00:00Z"));
+    const out = buildFiresEmptyResponse() as any;
+    assert.equal(out.warming_up, true);
+    assert.equal(out.no_detections, undefined);
+  });
 });

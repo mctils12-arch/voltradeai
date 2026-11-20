@@ -2,7 +2,7 @@
  "stream": "fires",
  "storage": "volume JSONL <archive>/fires/YYYY-MM-DD.jsonl(.gz)",
  "written_by": "server/nasaFirms.ts (archive block)",
- "source": "NASA FIRMS (LANCE) VIIRS_SNPP_NRT, world/1-day",
+ "source": "NASA FIRMS (LANCE) VIIRS 375m NRT, world/1-day, one satellite per poll: NOAA-20, else NOAA-21, else Suomi NPP (each row's `satellite` says which). Suomi NPP only from 2026-07-04 to 2026-11-02; no rows 2026-11-03 to 2026-11-20 (Suomi NPP returned none and the poller asked for nothing else)",
  "license": "NASA open data; LANCE attribution; not for safety-of-life decisions",
  "attribution": "NASA FIRMS (LANCE)",
  "schema_version": 1,

@@ -1086,6 +1086,24 @@ const PAGES = {
   // Facilities near active fires — NASA FIRMS × strategic-sites cross-tie
   // (2026-08-20) — same Phase 5 ratchet rule as drought/occvolume above.
   firesnearfacilities: { route: "/app#/data/fires-near-facilities", map: false },
+  // [REPAIR 2026-11-20] the same panel after a fires poll that found no
+  // detection on any satellite (the live state from 2026-11-03 to 11-20,
+  // when the panel read "warming up"): it says what NASA was asked and when,
+  // and that an empty answer is not "no fires nearby".
+  firesnodata: { route: "/app#/data/fires-near-facilities", map: false, fixtures: {
+    "/api/data/fires-near-facilities": () => ({
+      enabled: true, no_detections: true, facilities: [],
+      note: "the last fires poll returned no detections, so there is nothing to check against the facilities",
+      poll: {
+        last_attempt_at: new Date(Date.now() - 12 * 60_000).toISOString(), last_rows_at: null, source_used: null, polls_without_rows: 3,
+        sources: [
+          { source: "VIIRS_NOAA20_NRT", rows: 0, error: null },
+          { source: "VIIRS_NOAA21_NRT", rows: null, error: "FIRMS 500" },
+          { source: "VIIRS_SNPP_NRT", rows: 0, error: null },
+        ],
+      },
+    }),
+  } },
   // Air quality at strategic sites — Google Air Quality current conditions
   // (2026-08-20) — same Phase 5 ratchet rule as firesnearfacilities above.
   airquality: { route: "/app#/data/air-quality", map: false },
@@ -4131,6 +4149,14 @@ async function main() {
           if ((await blocks.nth(1).locator("[data-vt-pua-more]").count()) !== 0) fail("a two-plant warning offers a more control");
           await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-opened.png`), fullPage: true });
         }
+      }
+      if (name === "firesnodata") {
+        const fail = (m) => checks.failures.push("fires, no detections: " + m);
+        const txt = await page.locator("[data-vt-fnf-nodata]").innerText({ timeout: 8000 }).catch(() => "");
+        if (!/^NASA FIRMS returned no detections from any satellite \(asked 1[123] min ago\): NOAA-20 no detections · NOAA-21 request failed · Suomi NPP no detections\. With no detections there is nothing to check against the facilities; this is not a reading of "no fires nearby"\.$/.test(txt)) fail(`the panel reads "${txt}"`);
+        const body = await page.evaluate(() => document.body.innerText);
+        if (/warming up/i.test(body)) fail("the panel still says it is warming up after a poll has run");
+        if ((await page.locator(".vt-filings-table").count()) !== 0) fail("a facilities table is drawn with no detections to check");
       }
       if (name === "railtraffic") {
         const fail = (m) => checks.failures.push("rail carloads: " + m);
