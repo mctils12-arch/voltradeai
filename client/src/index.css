@@ -3814,6 +3814,17 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 @media (max-width: 480px) {
   .vt-quality-kind-row { grid-template-columns: 74px 1fr auto; gap: 6px; }
 }
+/* Archive checks (2026-11-20): one card per archive, sentences not figures. */
+.vt-quality-check {
+  background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
+  border-radius: 10px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.vt-quality-check-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.vt-quality-check-lines {
+  margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 4px;
+  font-size: 12px; line-height: 1.5; color: var(--text-secondary);
+}
 
 /* ── Signal-strength dashboard (#/data/signals — MAP V2 ROADMAP R6(a),
    2026-07-30). Reuses the vt-filings/vt-streams-body/vt-quality-* shell. ── */

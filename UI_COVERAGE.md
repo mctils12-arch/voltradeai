@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 264 | 4 | 15 | 27 | 11 |
+| HTTP routes | 265 | 4 | 15 | 27 | 11 |
 | Diagnostic probes (token-gated) | 33 | 14 | 6 | 10 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -137,7 +137,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (303)
+## Surfaced (304)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -191,6 +191,7 @@ layers are not listed one by one here.
 | route | `GET /api/bot/calendar` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/diagnostics` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/insight` | `server/bot.ts` | a page calls it |
+| route | `GET /api/data/fires/completeness` | `server/firesCompleteness.ts` | a page calls it |
 | route | `GET /api/data/aircraft/plan/:hex` | `server/flightPlans.ts` | a page calls it |
 | route | `GET /api/data/aircraft/global` | `server/globalAircraft.ts` | a page calls it |
 | route | `GET /api/data/aircraft/live/:hex` | `server/globalAircraft.ts` | a page calls it |

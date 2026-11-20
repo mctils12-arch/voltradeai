@@ -11,6 +11,7 @@
 // .vt-filings-* shell + theme tokens only.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ShieldCheck, RefreshCw, Database } from "lucide-react";
+import { firesCheckLines, type FiresCheck } from "@/lib/archiveChecks";
 
 interface StreamHealthSummary {
   total: number;
@@ -55,6 +56,21 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
   const [data, setData] = useState<QualityPayload | null>(null);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Archive checks (2026-11-20): an archive compared with its source's own
+  // record. Its own request and its own failure: the panel above does not
+  // depend on it.
+  const [firesCheck, setFiresCheck] = useState<FiresCheck | null>(null);
+  const [firesCheckError, setFiresCheckError] = useState(false);
+  const loadChecks = async () => {
+    try {
+      const r = await fetch("/api/data/fires/completeness");
+      if (!r.ok) throw new Error(String(r.status));
+      setFiresCheck(await r.json());
+      setFiresCheckError(false);
+    } catch {
+      setFiresCheckError(true);
+    }
+  };
 
   const load = async () => {
     setRefreshing(true);
@@ -71,7 +87,7 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
       setRefreshing(false);
     }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); void loadChecks(); }, []);
 
   const healthRows = useMemo(() => {
     if (!data) return [];
@@ -104,7 +120,7 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
               : error ? "dashboard unavailable — retry below" : "loading…"}
           </div>
         </div>
-        <button className="vt-icon-btn" aria-label="Refresh dashboard" onClick={() => void load()}
+        <button className="vt-icon-btn" aria-label="Refresh dashboard" onClick={() => { void load(); void loadChecks(); }}
                 style={{ marginLeft: "auto" }} disabled={refreshing}>
           <RefreshCw size={15} className={refreshing ? "vt-spin" : undefined} />
         </button>
@@ -165,6 +181,23 @@ export default function QualityDashboardView({ onBack }: { onBack: () => void })
                     <div className="vt-quality-tile-pct">{pct(t.cat.verified, t.cat.total)}% verified</div>
                   </div>
                 ))}
+              </div>
+            </section>
+
+            <section className="vt-quality-section" data-vt-quality-checks>
+              <div className="vt-quality-section-head">
+                <span>Archive checks</span>
+                <span className="vt-quality-section-sub">an archive compared with its source's own record, and what was done about the difference</span>
+              </div>
+              <div className="vt-quality-check">
+                <div className="vt-quality-check-name">Active fires (NASA FIRMS)</div>
+                {firesCheckError && !firesCheck && <div className="vt-filings-sub">The check's record did not load. Refresh asks again.</div>}
+                {!firesCheckError && !firesCheck && <div className="vt-filings-sub">Loading…</div>}
+                {firesCheck && (
+                  <ul className="vt-quality-check-lines">
+                    {firesCheckLines(firesCheck, Date.now()).map((line) => <li key={line}>{line}</li>)}
+                  </ul>
+                )}
               </div>
             </section>
 

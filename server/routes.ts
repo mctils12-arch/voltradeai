@@ -152,6 +152,7 @@ import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { bootEarningsQoq } from "./earningsQoq";
 import { bootGithubGate2 } from "./githubGate2";
 import { bootForm4Completeness } from "./edgarForm4Completeness";
+import { registerFiresCompletenessRoutes } from "./firesCompleteness";
 import { boot13FCompleteness } from "./edgar13fCompleteness";
 import { bootEventStudy } from "./eventStudy";
 import { platformStats } from "./platformStats";
@@ -1753,6 +1754,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // eagerly (KNOWN BROKEN #9 lesson) but only actually polls once a key is
   // present — bootFirmsPoll no-ops without NASA_FIRMS_MAP_KEY.
   bootFirmsPoll();
+  // Daily completeness pass + refill of days with no file (server/firesCompleteness.ts):
+  // GET /api/data/fires/completeness serves its per-day ledger (counts only).
+  registerFiresCompletenessRoutes(app);
 
   // Daily options-chain snapshot archive (approved options-data decision
   // 2026-07-04: forward-only history that can never be back-bought; feed=
