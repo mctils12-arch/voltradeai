@@ -604,6 +604,10 @@ class RPCDispatcher:
             # args {"equity": float|None}; python3 -c fallback in bot.ts's
             # `kill_state` diag probe. Writes nothing.
             "kill_state": ("kill_state_probe", "kill_state_report"),
+            # SAFETY LIMITS for the owner's page ([PRODUCT] 2026-11-20): every
+            # limit's value beside the state the guards keep (safety_limits_view.py,
+            # over kill_state_report + the kill switch's own state file). Read-only.
+            "safety_limits": ("safety_limits_view", "safety_limits"),
             # GATE COUNTERFACTUALS ([RULE-REVIEW] 2026-11-12): read-only report of
             # what the tier engine's gates (exposure cap, daily loss, drawdown,
             # cash reserve) blocked or cut and what those dollars would have

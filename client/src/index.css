@@ -5564,6 +5564,18 @@ section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--exit { color: var(--t
 .vt-sc-ar .m { color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
 .vt-sc-ar[data-unread="true"] .m { color: var(--text-primary); }
 .vt-sc-src { font-size: 10.5px; line-height: 1.4; color: var(--text-tertiary); }
+/* safety limits (2026-11-20): name | bar | share used, then the reading and what the guard does, each on its own line */
+.vt-sc-lims { display: flex; flex-direction: column; }
+.vt-sc-lim { display: grid; grid-template-columns: minmax(0, 1fr) 56px max-content; align-items: center; gap: 1px 8px; padding: 4px 0; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; }
+.vt-sc-lim .n { color: var(--text-primary); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-sc-lim .bar { height: 4px; border-radius: 2px; background: var(--border-subtle); overflow: hidden; }
+.vt-sc-lim .bar i { display: block; height: 100%; border-radius: 2px; background: var(--text-tertiary); }
+.vt-sc-lim .u { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10.5px; color: var(--text-tertiary); white-space: nowrap; text-align: right; }
+.vt-sc-lim[data-state="near"] .bar i { background: var(--accent-orange); } .vt-sc-lim[data-state="near"] .u { color: var(--accent-orange); }
+.vt-sc-lim[data-state="hit"] .bar i { background: var(--accent-red); } .vt-sc-lim[data-state="hit"] .u { color: var(--accent-red); }
+.vt-sc-lim .r { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.vt-sc-lim .r .t { color: var(--accent-red); font-weight: 500; }
+.vt-sc-lim .e { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; font-size: 10.5px; color: var(--text-tertiary); }
 @media (max-width: 639px) { .vt-sc-ar { grid-template-columns: 84px minmax(0, 1fr); } .vt-sc-ar .m { grid-column: 1 / -1; } }
 /* evidence blocks ([PRODUCT] 2026-11-20, client/src/bot/evidence.tsx): closed trades, order history, the base
    holding and the rule table reuse the Book's mono table; a text column reads left, and where the pinned cell

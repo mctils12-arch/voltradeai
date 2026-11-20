@@ -11,9 +11,10 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Help } from "./help";
 import type { GlossaryKey } from "./glossary";
-import { fmtAge, fmtClockET, fmtMonDay } from "./format";
+import { fmtAge, fmtClockET, fmtMonDay, fmtMoney } from "./format";
 import { unavailableWords } from "./whyView";
 import { parseSelfCheck, selfCheckSentence, checkItemWords, appliedNote, parseAlerts, alertsSentence, alertTone, ALERT_KIND_WORDS } from "./selfCheckView";
+import { parseLimits, limitsSentence, usedWords } from "./limitsView";
 
 const TONE: Readonly<Record<string, string>> = { ok: "vt-bot-t2", warn: "vt-bot-o", bad: "vt-bot-r", none: "vt-bot-t3" };
 
@@ -52,6 +53,35 @@ export function SelfCheck({ q, appliedScoreBar, nowMs }: { q: UseQueryResult<unk
           <div className="vt-sc-src">the bot's own diagnostics (diagnostics.py), run for this page{q.dataUpdatedAt ? ` ${fmtAge(nowMs - q.dataUpdatedAt)} ago` : ""} · the loop runs the same check itself every fifth scan and applies its size and score settings; this is a fresh run, not the loop's last one · the win-rate lines read the bot's own trade log, not the broker's lots</div>
         </>
       ) : null}
+    </Fold>
+  );
+}
+
+// SAFETY LIMITS ([PRODUCT] 2026-11-20, limitsView.ts over GET /api/bot/safety-limits): every guard that can block
+// entries or stop the bot, with the reading the guard itself keeps, its limit, how far along it is (the bar) and what
+// it does at the limit. One line until opened: what is tripped or near, then the three headline readings.
+export function SafetyLimits({ q, nowMs }: { q: UseQueryResult<unknown>; nowMs: number }) {
+  const v = useMemo(() => parseLimits(q.data), [q.data]);
+  if (!v) return <Fold id="limits" title="Safety limits" help="safetyLimits" cls="vt-bot-t3" summary={q.isLoading ? "Reading the safety limits…" : unavailableWords(q.isError ? q.error : null, "the safety-limits read")} />;
+  const say = limitsSentence(v);
+  return (
+    <Fold id="limits" title="Safety limits" help="safetyLimits" cls={TONE[say.tone]} summary={say.text}>
+      <div className="vt-sc-lims" role="list">
+        {v.rows.map((r) => (
+          <div key={r.id} className="vt-sc-lim" role="listitem" data-limit={r.id} data-state={r.state}>
+            <span className="n">{r.name}</span>
+            <span className="bar" aria-hidden="true"><i style={{ width: `${Math.min(100, Math.round((r.used ?? 0) * 100))}%` }} /></span>
+            <span className="u">{usedWords(r)}</span>
+            <span className="r">{r.reading}{r.limit ? ` · limit ${r.limit}` : ""}{r.tripped ? <span className="t"> · {r.tripped}</span> : null}</span>
+            <span className="e">at the limit: {r.effect}</span>
+          </div>
+        ))}
+      </div>
+      {v.peaksNote ? <div className="vt-bot-o" data-lim="peaks">{v.peaksNote}</div> : null}
+      {v.engineError ? <div className="vt-bot-o" data-lim="engine-error">The engine's own guards did not answer ({v.engineError}): only this loop's drawdown kill is shown.</div> : null}
+      {v.others.length ? <ul className="vt-sc-l" data-list="others">{v.others.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
+      {v.events.length ? <div className="vt-bot-t3" data-lim="events">Kill switch history: {v.events.join(" · ")}</div> : null}
+      <div className="vt-sc-src">each guard's own record{v.equity !== null ? `, measured against one account value (${fmtMoney(v.equity)})` : ""}{q.dataUpdatedAt ? ` · read ${fmtAge(nowMs - q.dataUpdatedAt)} ago` : ""} · the limits are settings: shown here, never changed from this page</div>
     </Fold>
   );
 }

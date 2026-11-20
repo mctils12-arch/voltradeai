@@ -74,16 +74,16 @@
    "process health; folded into /api/health"
   ],
   "GET /api/monitoring/overview": [
-   "missing",
-   "Pre-refocus monitoring summary (tiers, drawdown, caches). Not read by any page. Check against the AI Engine Overview first: where it duplicates, remove the route; where it adds (drawdown path), surface it there."
+   "legacy",
+   "Pre-refocus monitoring summary (daemon, kill switch, drawdown, model). Checked against the AI Engine page 2026-11-20: its kill-switch block (the daemon's risk_status, get_kill_switch_status) takes the losing streak and the day's loss from two files nothing writes, so both always read 0; the page reads the real figures through /api/bot/safety-limits, the model through /api/ml/status and the drawdown through /api/bot/status. Nothing to surface. Removal is its own PR (drawdownGuard.test.ts pins its text)."
   ],
   "GET /api/monitoring/tier-pnl": [
-   "missing",
-   "as above (P&L by tier)"
+   "legacy",
+   "P&L by strategy bucket from the trade-feedback file. It adds per-trade percentages whatever the size of each trade, so the total cannot be read as money. The page shows P&L per sleeve in dollars from the broker's own fills (the sleeve ledger, the expectancy table). Nothing to surface."
   ],
   "GET /api/monitoring/drawdown": [
-   "missing",
-   "as above (drawdown from peak). The Overview shows the kill distance but not the drawdown path."
+   "legacy",
+   "Drawdown from the engine's shared peak, with -20 written into the route. /api/bot/safety-limits (2026-11-20) measures each drawdown guard from its own peak against its own limit, on the page. Nothing to surface. Removal is its own PR (peakEquityRpc.test.ts pins its text)."
   ],
   "GET /api/monitoring/caches": [
    "plumbing",
@@ -413,7 +413,7 @@
   ],
   "kill_state": [
    "surfaced",
-   "kill-state banner"
+   "kill-state banner; since 2026-11-20 each guard's reading, peak and limit in the Issues panel's Safety limits block (through /api/bot/safety-limits)"
   ],
   "gate_counterfactuals": [
    "surfaced",

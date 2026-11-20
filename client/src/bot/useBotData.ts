@@ -243,6 +243,8 @@ export interface BotData {
   selfCheck: UseQueryResult<unknown>;
   /** /api/bot/notifications: the alerts the loop raised since the server last restarted (in memory) */
   alerts: UseQueryResult<unknown>;
+  /** /api/bot/safety-limits (2026-11-20, limitsView.ts): every guard's own reading beside its limit */
+  limits: UseQueryResult<unknown>;
 }
 /** the attribution windows the Why panel offers (days) */
 export const ATTRIBUTION_WINDOWS = [7, 30, 90] as const;
@@ -291,7 +293,9 @@ export function useBotData(opts: { overview?: boolean; attributionDays?: number 
   // the alerts are an in-memory list, read as often as the working orders
   const selfCheck = useQuery<unknown>({ queryKey: ["/api/bot/diagnostics"], queryFn: () => getJson<unknown>("/api/bot/diagnostics", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 15 * 60_000, staleTime: 5 * 60_000 });
   const alerts = useQuery<unknown>({ queryKey: ["/api/bot/notifications"], queryFn: () => getJson<unknown>("/api/bot/notifications"), refetchInterval: 30_000 });
-  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime, dailyLine, closedLots, orderHistory, floorTracking, ruleCounterfactuals, regimeCounterfactual, optionsFeed, selfCheck, alerts };
+  // the guards' readings move with the account: asked once a minute (the server keeps its answer 30 s)
+  const limits = useQuery<unknown>({ queryKey: ["/api/bot/safety-limits"], queryFn: () => getJson<unknown>("/api/bot/safety-limits", BOT_INSIGHT_TIMEOUT_MS), refetchInterval: 60_000, staleTime: 30_000 });
+  return { status, account, positions, audit, performance, market, calendar, ml, insight, lastScan, orders, benchmark, sleeves, scoreboard, decisions, attribution, flows, tax, signals, regime, dailyLine, closedLots, orderHistory, floorTracking, ruleCounterfactuals, regimeCounterfactual, optionsFeed, selfCheck, alerts, limits };
 }
 
 export function num(v: unknown, fallback: number | null = null): number | null {
