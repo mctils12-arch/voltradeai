@@ -313,7 +313,7 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
         rss, label = peak, f"daemon rss={peak}MB"
     if rss is None:
         return finding(WARN, "daemon_memory", "rss_mb missing from /api/diag/daemon response")
-    label += _memory_makeup(daemon.get("memory"), daemon.get("memory_maps"))
+    label += _memory_makeup(daemon.get("memory"), daemon.get("memory_maps"), daemon.get("allocator"))
     # 2026-11-17 (KNOWN BROKEN #55): a daemon that reports `deep_guard`
     # states what the guard DID; the memory figure is then context, not the
     # verdict. An idle reading can sit under the line while scans skip, and
@@ -335,7 +335,7 @@ def check_daemon_memory(daemon, skip_mb=550, trim_mb=400):
     return finding(OK, "daemon_memory", f"{label}, well under trim_mb={trim_mb}MB")
 
 
-def _memory_makeup(memory, maps=None):
+def _memory_makeup(memory, maps=None, allocator=None):
     """' — C heap in use X MB, freed but retained Y MB, python blocks N
     (start M); resident by mapping: ...' from the daemon's `memory` and
     `memory_maps` blocks; '' when `memory` is absent. A daemon older than
@@ -347,7 +347,14 @@ def _memory_makeup(memory, maps=None):
     if isinstance(malloc, dict):
         parts.append(f"C heap in use {malloc.get('in_use_mb')}MB, freed but retained {malloc.get('free_retained_mb')}MB")
     blocks = memory.get("python_blocks")
-    if isinstance(blocks, int) and not isinstance(blocks, bool):
+    # 2026-11-20 (#55): a daemon on glibc's allocator counts no interpreter
+    # blocks (the count is 0 by construction), so say which one it is on.
+    on_malloc = isinstance(allocator, dict) and allocator.get("in_use") == "malloc"
+    if on_malloc:
+        parts.append("objects allocated by glibc (PYTHONMALLOC=malloc; interpreter blocks not counted)")
+    elif isinstance(allocator, dict) and allocator.get("requested") == "malloc":
+        parts.append("glibc allocator requested but NOT in use")
+    if isinstance(blocks, int) and not isinstance(blocks, bool) and not on_malloc:
         start = (memory.get("at_start") or {}).get("python_blocks")
         parts.append(f"python blocks {blocks}" + (f" (start {start})" if isinstance(start, int) else ""))
     # 2026-11-19 (#55): the kernel's split of what is resident, by mapping.
