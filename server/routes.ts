@@ -159,7 +159,8 @@ import {
   bootEarnings8kPoll, latestEarnings8Ks, parseEarnings8kHistoryQuery, readEarnings8kHistoryWindow,
   earnings8kHistoryNextQuery, omitEarnings8kText, EARNINGS8K_ARCHIVE_START,
 } from "./sec8kEarnings";
-import { boot13FPoll, latest13FFilings, trimHoldings, filings13fHistoryPage, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
+import { boot13FPoll, latest13FFilings, trimHoldings, FOCUSED_MAX_HOLDINGS } from "./edgar13f";
+import { filings13fHistory } from "./edgar13fFiledHistory";
 import { bootFredPoll, latestFredSeries, buildMacroPayload, fredEnabled } from "./fredMacro";
 import { raceDeadline, slotExpired, makeSlot, swrDecision, ROUTE_DEADLINE_MS, type InflightSlot } from "./routeGuards";
 import { planDiscs, fetchDiscs, tilingEnvelope, MAX_DISCS_PER_REFRESH, type DiscProvider } from "./aircraftTiling";
@@ -2025,13 +2026,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // echoed `days` back unmodified — live on 2026-11-11, in the Q3 season,
   // that was TWO archive days presented as 120. Holdings keep the RAW page's
   // 25-row display trim (the archive holds the full table).
-  app.get("/api/data/filings13f/history", (req, res) => {
+  // FILED-DAY WINDOW (2026-11-19): `?filed_from=YYYY-MM-DD&filed_to=YYYY-MM-DD`
+  // reads by the day a filing was FILED (server/edgar13fFiledHistory.ts). The
+  // nightly completeness pass stores a recovered filing under the night it
+  // was recovered, so an archive-day window no longer means "filed then".
+  app.get("/api/data/filings13f/history", async (req, res) => {
     try {
       res.json({
         kind: "raw",
         source: "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05)",
         focused_cap: FOCUSED_MAX_HOLDINGS,
-        ...filings13fHistoryPage(req.query as Record<string, unknown>, 25),
+        ...(await filings13fHistory(req.query as Record<string, unknown>, 25)),
       });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "history read failed" });
@@ -5054,16 +5059,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // history route's own 120-day bound (wider than those companions' 90d —
   // 13F's quarterly filing cadence means a 90-day window can otherwise
   // miss a manager's only filing entirely).
-  app.get("/api/v1/data/13f-holdings-history", (req, res) => {
+  app.get("/api/v1/data/13f-holdings-history", async (req, res) => {
     const auth = requireApiKey(req, res);
     if (!auth) return;
     try {
-      // Same windowed/paged reader as the RAW preview route (from/to/limit,
-      // truncated + next cursor), holdings at FOCUSED_MAX_HOLDINGS — a keyed
-      // customer must never again receive two archive days labelled 120.
+      // Same windowed/paged reader as the RAW preview route (from/to/limit or
+      // filed_from/filed_to, truncated + next cursor), holdings at
+      // FOCUSED_MAX_HOLDINGS — a keyed customer must never again receive two
+      // archive days labelled 120.
       res.json(v1Envelope("data/13f-holdings", {
         focused_cap: FOCUSED_MAX_HOLDINGS,
-        ...filings13fHistoryPage(req.query as Record<string, unknown>, FOCUSED_MAX_HOLDINGS),
+        ...(await filings13fHistory(req.query as Record<string, unknown>, FOCUSED_MAX_HOLDINGS)),
       }));
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/13f-holdings-history", status: 200, tier: auth.tier });
     } catch (e: unknown) {
