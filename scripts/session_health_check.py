@@ -872,7 +872,11 @@ def check_edgar_archives(probe, now=None, filing_day=edgar_filing_day):
         ok_polls, bad_polls = r.get("polls_ok") or 0, r.get("polls_failed") or 0
         last_write = _parse_iso(r.get("last_archive_write_at"))
         age = f"{(now - last_write).total_seconds() / 3600:.1f} h ago" if last_write else "none in the day files"
-        parts.append(f"{name} last row {age}, polls {ok_polls} ok / {bad_polls} failed")
+        # [REPAIR 2026-11-19] the feed request is retried (server/edgarFeedFetch.ts);
+        # a poll that needed the retry is a poll the single request lost before.
+        saved = r.get("polls_saved_by_retry") or 0
+        parts.append(f"{name} last row {age}, polls {ok_polls} ok / {bad_polls} failed"
+                     + (f" ({saved} of the ok saved by a feed retry)" if saved else ""))
         if stream == "filings":
             day, quiet = edgar_quiet_hours(last_write, now, filing_day)
             if day is not None and quiet >= EDGAR_SILENT_ALARM_H:

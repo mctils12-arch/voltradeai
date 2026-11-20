@@ -43,6 +43,7 @@ import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
 import { notePollOk, notePollFailed } from "./edgarPollHealth";
+import { fetchEdgarFeed } from "./edgarFeedFetch";
 import { trackSet } from "./heapDiag";
 import { edgarCurrentFeedUrl } from "./edgarForm4";
 import { createFilingSeen } from "./filingSeen";
@@ -314,7 +315,7 @@ export async function fetchLatestEarnings8Ks(
   delayMs = 200,
 ): Promise<Earnings8K[]> {
   const feedUrl = edgarCurrentFeedUrl("8-K", 100);
-  const feedXml = await fetchText(fetchImpl, feedUrl);
+  const feedXml = await fetchEdgarFeed(fetchImpl, feedUrl, SEC_UA, "earnings8k");
   // One FILING per accession: a joint 8-K (parent + subsidiaries) is one
   // accession listed once per registrant in the feed. Group first so `limit`
   // counts filings, the exhibit is fetched once, and the archive gets one

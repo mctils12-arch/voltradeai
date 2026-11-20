@@ -34,6 +34,7 @@ import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryRe
 import { parseFilingFeed, edgarCurrentFeedUrl } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
 import { notePollOk, notePollFailed } from "./edgarPollHealth";
+import { fetchEdgarFeed } from "./edgarFeedFetch";
 import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
 
@@ -225,7 +226,7 @@ export async function fetchLatest13FFilings(
   delayMs = 200,
 ): Promise<Filing13F[]> {
   const feedUrl = edgarCurrentFeedUrl("13F-HR", limit * 2);
-  const feedXml = await fetchText(fetchImpl, feedUrl);
+  const feedXml = await fetchEdgarFeed(fetchImpl, feedUrl, SEC_UA, "filings13f");
   const entries = parseFilingFeed(feedXml).slice(0, limit);
   const out: Filing13F[] = [];
   for (const entry of entries) {

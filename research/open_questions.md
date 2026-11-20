@@ -24380,6 +24380,18 @@ STILL OPEN, each its own PR:
 Unchanged and still open: (m) server `covered.from` on a truncated filed-day page, (n) filed-day index build time on a visitor's first request (18:08Z reading, not the first after a deploy: 1.10 s for the 30-day window, 1.9 MB), (g), (h), (i), (j), (k), (e).
 Ladder: gate 1 (DATA) for a RAW archive, product surface. No signal claim.
 
+## 2026-11-19 (third entry) — RESULT on "EDGAR poll failure share, second reading": one slow feed request lost the poll; the feed request is now retried (v1.0.1487)
+
+READ (production `/api/diag/edgar_poll`, 2026-11-20 02:34Z): Form 4 polls 4 ok / 2 failed, "The operation was aborted due to timeout", the failure 12 s after the tick. The 11-19 reading was about 20 failed of 78 on each of the three streams.
+MEASURED (session, 61 sequential requests to the three feed URLs): 46 under 3.4 s, 15 between 6.5 and 21.2 s, 2 over the pollers' 12 s limit; 9 of 10 slow requests were followed by a fast one; page size makes no difference.
+BUILT (experiments.md 2026-11-19 21:33 ET [REPAIR]): `server/edgarFeedFetch.ts`, three attempts (12 / 20 / 30 s) for a timeout, a dropped request or a 5xx; never for a 4xx. Probe counters `feed_attempts_failed` and `polls_saved_by_retry`; the health check names saved polls.
+CHECK AFTER DEPLOY (PRIOR 80% right): with 40 or more polls in one container, failed share under 5% on each stream and `polls_saved_by_retry` above 0. If the failed share stays above 15% with `feed_attempts_failed` near three times `polls_failed`, the slowness is sustained on production's address: time the feed from production for an hour before changing anything else.
+STILL OPEN, each its own PR:
+(y) THE PER-DOCUMENT REQUESTS HAVE ONE ATTEMPT TOO. Inside a poll each filing's `index.json` and document are fetched once with a 12-15 s limit; a failure is counted (`form4_completeness` `poll.failed`) and the filing waits for the next poll or the nightly pass. Not measured whether those hosts (`www.sec.gov/Archives`) share the feed endpoint's slow tail; the feed is a CGI and the archive is static files. TESTABLE FORM: read `poll.failed` against `poll.returned` on `/api/diag/form4_completeness` over a day; above 5% means the same retry belongs there. PRIOR: 70% under 5%.
+(z) THE THREE POLLERS FIRE IN THE SAME SECOND. All three boot together and tick every 15 minutes, so three feed requests reach EDGAR's CGI at once. Not measured whether concurrency raises the slow share (the session's requests were sequential). TESTABLE FORM: once the retry counters have a day, compare `feed_attempts_failed` per poll on production with the session's sequential 25% slow / 3% over 12 s; a production share far above it with no sustained outage points here, and the fix is a 20 s offset per stream at boot.
+Unchanged and still open: (g), (h), (i-8K), (j), (e), (p), (m), (q), (u), (v), (w), (x).
+Ladder: gate 1 (DATA) for three RAW archives. No signal claim.
+
 ## 2026-11-19 (second entry) — RESULT on "(i) 13F AND 8-K HISTORY BY FILED DAY": built for 13F (v1.0.1485); 8-K open
 
 MEASURED (production 2026-11-20 00:20Z, experiments.md 2026-11-19 19:10 ET [PRODUCT]): after the first recovery night `/api/data/filings13f/history?days=2` returned 640 filings, 600 of them filed on the 2026-11-16 deadline and sitting under archive day 2026-11-19. That is the defect (i) named, one day after the pass shipped.
