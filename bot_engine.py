@@ -5017,6 +5017,7 @@ def _scan_market_inner():
     kill_suppressed = []
     tier_stats = {}
     tier_kill_status = None
+    tier_macro = None
     if _HAS_TIERED:
         try:
             acct = get_alpaca_account()
@@ -5025,14 +5026,25 @@ def _scan_market_inner():
             positions = get_alpaca_positions() or []
             peak = update_peak_equity(equity)
 
-            vxx_r = float(_macro.get("vxx_ratio", 1.0) or 1.0) if '_macro' in locals() else 1.0
+            # 2026-11-20 REPAIR (tier_macro_guard.py): a failed VXX fetch arrives as
+            # vxx_ratio 1.0, which read as a calm market to the tier engine and to the
+            # kill switches below (live 2026-11-17: the only two tier entries of the day
+            # passed on such scans). The last real reading is used while it is recent;
+            # with none, this scan proposes no new tier entry.
+            import tier_macro_guard as _tmg
+            tier_macro = _tmg.resolve_vxx(_macro if '_macro' in locals() else {})
+            vxx_r = float(tier_macro["vxx_ratio"])
             daily_pnl = compute_daily_pnl_pct(acct)
             kill_status = check_kill_switches(
                 equity=equity, peak_equity=peak, positions=positions,
                 daily_pnl_pct=daily_pnl, vxx_ratio=vxx_r, buying_power=bp,
             )
 
-            if not kill_status["killed"]:
+            if not kill_status["killed"] and tier_macro["block"]:
+                tier_kill_status = {"killed": True, "kill_reason": tier_macro["reason"]}
+                import logging
+                logging.getLogger("bot_engine").warning(f"[TIERS] BLOCKED: {tier_macro['reason']}")
+            elif not kill_status["killed"]:
                 # REGIME ENGINE step 7: under VOLTRADE_REGIME_LABELS the tier context's label is
                 # the engine's. (Found while wiring: `_regime_ctx` is deep_score's local, never
                 # this function's, so the fallback below has always read "NEUTRAL" — filed in
@@ -5250,6 +5262,8 @@ def _scan_market_inner():
         "kill_status": kill_status,
         "kill_suppressed_trades": kill_suppressed,
         "tier_kill_status": tier_kill_status,
+        # 2026-11-20: where this scan's tier VXX reading came from (live / held / none).
+        "tier_macro": tier_macro,
         # REGIME ENGINE (2026-10-28, shadow): the persisted RegimeState dict
         # (None while VOLTRADE_REGIME_ENGINE is off). bot.ts audits its
         # transitions; no consumer acts on it until its own flag is set.
@@ -6337,15 +6351,11 @@ def _floor_macro_vxx_is_fallback(macro: dict) -> bool:
     as NEUTRAL) when the VXX fetch fails; it only sets vxx_closes/vxx_latest
     from real bars, and lists "vxx_ratio" in data_quality_failures when the
     closes are missing. A regime derived from that substitute must not move
-    the floors.
+    the floors. One definition, shared with the tier engine's guard
+    (tier_macro_guard.vxx_is_fallback, 2026-11-20).
     """
-    if not isinstance(macro, dict):
-        return True
-    if "vxx_ratio" in (macro.get("data_quality_failures") or []):
-        return True
-    if macro.get("vxx_closes"):
-        return False
-    return macro.get("vxx_latest") is None
+    from tier_macro_guard import vxx_is_fallback
+    return vxx_is_fallback(macro)
 
 
 def _floor_macro_observation_key(macro: dict) -> str:

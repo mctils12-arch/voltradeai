@@ -7771,6 +7771,12 @@ else:
       if (result.tier_kill_status?.killed) {
         audit("TIER-KILL", `Tier engine blocked: ${result.tier_kill_status.kill_reason}`);
       }
+      // 2026-11-20 (tier_macro_guard.py): the scan had no VXX reading of its own
+      // and the tier engine used the last real one. A scan with none at all is the
+      // TIER-KILL row above. Counting these rows is how the guard is judged.
+      if (result.tier_macro?.source === "held") {
+        audit("TIER-MACRO", String(result.tier_macro.reason || "held VXX reading").slice(0, 200));
+      }
 
       // REGIME ENGINE (2026-10-28, docs/regime/FINDINGS.md step 3): the scan
       // carries the engine's state when VOLTRADE_REGIME_ENGINE is on. One
