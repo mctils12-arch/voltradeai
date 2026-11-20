@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 259 | 4 | 20 | 27 | 11 |
+| HTTP routes | 264 | 4 | 15 | 27 | 11 |
 | Diagnostic probes (token-gated) | 33 | 14 | 6 | 10 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -26,7 +26,7 @@ Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, th
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (26)
+## Missing: user-relevant, no UI yet (21)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -42,11 +42,6 @@ layers are not listed one by one here.
 | route | `GET /api/monitoring/drawdown` | `server/bot.ts` | as above (drawdown from peak). The Overview shows the kill distance but not the drawdown path. |
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
 | route | `GET /api/data/aircraft/plan-history/:hex` | `server/flightPlanHistory.ts` | Flight-plan versions for a plane (2026-11-17): every filed plan and amendment. No UI. Placement: a 'Plan history' section on the flight card, beside the route. |
-| route | `GET /api/data/plants-under-alerts` | `server/routes.ts` | Power plants inside an active NWS alert polygon (a cross-stream join; RAW, the hypothesis built on it is gated). No UI. Placement: a /data panel like 'Facilities near active fires', labelled RAW, and a badge on the plant's card. |
-| route | `GET /api/data/rail-traffic` | `server/routes.ts` | Class I railroad weekly carloads (STB EP 724). Served on the keyed API and listed on /developers; no /data panel. Placement: a /data panel beside 'US port imports'. |
-| route | `GET /api/data/crop-conditions/history` | `server/routes.ts` | History behind the crop-conditions panel, which shows the latest week only. Placement: a history chart inside that panel. |
-| route | `GET /api/data/appstore-rankings/history` | `server/routes.ts` | History behind the App Store rankings panel (latest day only today). Placement: a rank-over-time chart in that panel. |
-| route | `GET /api/data/github-activity/history` | `server/routes.ts` | History behind the GitHub activity panel. Placement: a history chart in that panel. |
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | FAA SWIM feed: products received. No UI. Placement: one row per product in the Streams inventory. |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | Active FAA traffic-management initiatives (ground stops, delay programs). No UI. Placement: on the existing FAA airport status layer's cards. |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
@@ -142,7 +137,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (298)
+## Surfaced (303)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -225,6 +220,7 @@ layers are not listed one by one here.
 | route | `GET /api/data/aircraft/trips/:hex` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/fires-near-facilities` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/plants-near-rivergauges` | `server/routes.ts` | a page calls it |
+| route | `GET /api/data/plants-under-alerts` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/streams` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/quality-dashboard` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/signal-ladder` | `server/routes.ts` | a page calls it |
@@ -286,6 +282,7 @@ layers are not listed one by one here.
 | route | `GET /api/data/military_installations` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/jodi-oil-stocks` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/un-comtrade` | `server/routes.ts` | a page calls it |
+| route | `GET /api/data/rail-traffic` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/methane-plumes` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/methane-plumes/asset-stats` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/coal-mine-features` | `server/routes.ts` | a page calls it |
@@ -304,6 +301,7 @@ layers are not listed one by one here.
 | route | `GET /api/data/dtcc-swaps` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/vix-term-structure` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/crop-conditions` | `server/routes.ts` | a page calls it |
+| route | `GET /api/data/crop-conditions/history` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/nrc-reactor-status` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/vehicle-complaints` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/attention` | `server/routes.ts` | a page calls it |
@@ -316,7 +314,9 @@ layers are not listed one by one here.
 | route | `GET /api/data/fda-events` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/clinical-trials` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/appstore-rankings` | `server/routes.ts` | a page calls it |
+| route | `GET /api/data/appstore-rankings/history` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/github-activity` | `server/routes.ts` | a page calls it |
+| route | `GET /api/data/github-activity/history` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/contracts` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/macro` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/shadowstats` | `server/routes.ts` | a page calls it |

@@ -137,10 +137,6 @@
    "partial",
    "Archive row counts and sizes. The Data quality panel shows growth for some archives. Placement: complete that panel from this route."
   ],
-  "GET /api/data/plants-under-alerts": [
-   "missing",
-   "Power plants inside an active NWS alert polygon (a cross-stream join; RAW, the hypothesis built on it is gated). No UI. Placement: a /data panel like 'Facilities near active fires', labelled RAW, and a badge on the plant's card."
-  ],
   "GET /api/data/3dtiles/status": [
    "plumbing",
    "3D tiles proxy status (key-gated provider, not enabled)"
@@ -164,22 +160,6 @@
   "GET /api/data/satellites": [
    "partial",
    "Server-side satellite catalog (relay-gated: CelesTrak blocks Railway). The map reads CelesTrak from the browser instead. Nothing to place until the relay decision."
-  ],
-  "GET /api/data/rail-traffic": [
-   "missing",
-   "Class I railroad weekly carloads (STB EP 724). Served on the keyed API and listed on /developers; no /data panel. Placement: a /data panel beside 'US port imports'."
-  ],
-  "GET /api/data/crop-conditions/history": [
-   "missing",
-   "History behind the crop-conditions panel, which shows the latest week only. Placement: a history chart inside that panel."
-  ],
-  "GET /api/data/appstore-rankings/history": [
-   "missing",
-   "History behind the App Store rankings panel (latest day only today). Placement: a rank-over-time chart in that panel."
-  ],
-  "GET /api/data/github-activity/history": [
-   "missing",
-   "History behind the GitHub activity panel. Placement: a history chart in that panel."
   ],
   "GET /api/debug/finnhub-insider/:ticker": [
    "plumbing",
