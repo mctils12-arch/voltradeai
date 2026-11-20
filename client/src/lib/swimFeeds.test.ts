@@ -3,7 +3,7 @@
 // the page must survive.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseSwimFeeds, feedCounts, feedAge, feedsSentence, FEED_QUIET_MS } from "./swimFeeds.ts";
+import { parseSwimFeeds, feedCounts, feedAge, feedsSentence, FEED_QUIET_MS, FEED_USE } from "./swimFeeds.ts";
 
 const NOW = 1_795_210_306_219;
 const feed = (over: Record<string, unknown>) => ({ env: { configured: true, missing: [] }, consumer: "x", connected: true, messagesReceived: 0, messagesProcessed: 0, processErrors: 0, droppedOverflow: 0, reconnects: 0, stallRestarts: 0, lastMessageAt: null, lastError: null, ...over });
@@ -53,4 +53,11 @@ test("another shape is null; an unknown feed keeps its own id; a malformed produ
   const v = parseSwimFeeds({ products: { NEWFEED: feed({ lastMessageAt: NOW }), BROKEN: null } }, NOW)!;
   assert.deepEqual(v.feeds.map((f) => [f.id, f.name, f.use]), [["NEWFEED", "NEWFEED", null]]);
   assert.equal(v.at, null);
+});
+
+test("one message is 'message'; the traffic feed says where it is shown", () => {
+  const v = parseSwimFeeds({ at: 1_000_000, products: { NOTAM: { env: { configured: true, missing: [] }, connected: true, consumer: "notam", messagesReceived: 1, messagesProcessed: 1, lastMessageAt: 999_000 } } }, 1_000_000)!;
+  assert.equal(feedCounts(v.feeds.find((f) => f.id === "NOTAM")!), "1 message since the server started");
+  assert.ok(FEED_USE.TFMS.includes("on the FAA airport card"));
+  assert.ok(!/not yet shown on a page/.test(FEED_USE.TFMS));
 });
