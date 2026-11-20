@@ -10,12 +10,12 @@
    "operator token only; the owner's /admin page reads /api/admin/site-report instead"
   ],
   "GET /api/data/aircraft/estimate/:hex": [
-   "missing",
-   "Server-side position ESTIMATE for a plane that stopped reporting (2026-11-17). The selected plane's card estimates in the browser (planeMotion.ts) and does not read this. Placement: the flight card's 'estimate' line should state the server's estimate and its limits for planes not in the live feed (watch list, search result)."
+   "partial",
+   "Server-side position ESTIMATE for a plane that stopped reporting. Built for the mobile app (contract section 8). CORRECTED 2026-11-20 (was 'missing'): the web card estimates the selected plane in the browser with the same arithmetic (shared/aircraftEstimate.ts through client/src/lib/air/planeMotion.ts) and marks it an estimate. It does not ask the server, so a watched plane that is not selected gets no estimate."
   ],
   "GET /api/data/aircraft/fleet": [
-   "missing",
-   "Fleet / operator data for an aircraft (2026-11-17). Placement: a 'Fleet' block on the existing flight card (DetailCard), under registration and type."
+   "partial",
+   "Past flights for saved tail numbers. Built for the mobile app (docs/aircraft_app_data_contract.md, section 4). CORRECTED 2026-11-20 (was 'missing'): the web flight card lists the same flight objects for one plane through /api/data/aircraft/trips/:hex. What the web lacks is the all-saved-tails view in one answer. Whether the app shows it cannot be checked from this repository."
   ],
   "POST /api/auth/reset-request": [
    "legacy",
@@ -107,7 +107,7 @@
   ],
   "GET /api/data/aircraft/plan-history/:hex": [
    "missing",
-   "Flight-plan versions for a plane (2026-11-17): every filed plan and amendment. No UI. Placement: a 'Plan history' section on the flight card, beside the route."
+   "Flight-plan versions for a plane: every filed plan, amendment and off-route stretch. Built for the mobile app (contract section 9). The web card shows the current plan only (/api/data/aircraft/plan). Placement: a 'Plan changes' section on the flight card, beside the route."
   ],
   "GET /api/data/aircraft/plan-status": [
    "plumbing",
@@ -218,8 +218,8 @@
    "Polygon news passthrough from before the refocus. No page reads it: the News tab reads /api/market/news. It was counted as called by a page until 2026-11-20 because /api/newsletter starts the same way. Removal candidate."
   ],
   "GET /api/data/aircraft/track/:hex": [
-   "missing",
-   "A watched plane's stored track from the tracked-plane log (2026-11-17, built for the app contract). The flight card draws its track from the older /api/data/track route and does not read this one. It was counted as called by a page until 2026-11-20 because /api/data/aircraft/tracked starts the same way. Placement: with fleet and plan history on the flight card (batch B)."
+   "partial",
+   "A plane's flown track with altitude, speed and vertical rate at each point. Built for the mobile app (contract section 3). CORRECTED 2026-11-20 (was 'missing'): the web draws a plane's track from the older /api/data/track route. Not shown on the web: this route's per-point vertical rate, which altitude each point is, and its list of coverage gaps."
   ]
  },
  "probes": {
@@ -336,20 +336,20 @@
    "Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority."
   ],
   "ml_v3": [
-   "missing",
-   "The candidate model's out-of-sample readings. No UI. Placement: the Brain page, beside the live model's verdicts."
+   "surfaced",
+   "The candidate model's out-of-sample readings. CORRECTED 2026-11-20 (was 'missing'): the Brain page's 'ML v3 candidate' card shows them (brain_evidence.py reads the same status: out-of-sample AUC with its confidence interval, log-loss against the base rate, top-minus-bottom quintile, rows and dates, and the IC of its logged probability on the live shadow population). Not shown: the calibration deciles and the per-regime split."
   ],
   "shadow_bands": [
-   "missing",
-   "Score-band outcomes from shadow logging. No UI. Placement: the Brain page."
+   "plumbing",
+   "The same score-band table WITHOUT de-duplication. Kept for comparison only: each candidate was logged about 30 times a day, and reading this version is what produced the October 'the score is anti-predictive' artifact. It should not be shown; the de-duplicated probe is the honest one."
   ],
   "shadow_bands_dedup": [
-   "missing",
-   "as above, de-duplicated (the honest version)"
+   "partial",
+   "Score-band outcomes from the shadow log, one first-seen record per ticker per day. CORRECTED 2026-11-20 (was 'missing'): the Brain page's short-term evidence is computed under this same de-duplication rule (decision buckets against SPY, the score's own IC). What no page shows is this probe's table of outcomes by score quintile and by day-change band. Placement if wanted: a small table on the Brain page's 'Minimum score gate' card."
   ],
   "source_validation": [
-   "missing",
-   "Per-source validation of the scoring inputs. No UI. Placement: the Brain page's signal table (a 'validated' column)."
+   "surfaced",
+   "Per-source validation of the scoring inputs. CORRECTED 2026-11-20 (was 'missing'): the Brain page shows it (brain_evidence.py trims source_validation.py's own report): each input's short-term rank IC, its confidence interval, Benjamini-Hochberg q and verdict on its card, and the forward selection and ablation in the 'combinations' panel."
   ],
   "signals": [
    "surfaced",
@@ -440,8 +440,8 @@
    "price panel build"
   ],
   "walkforward": [
-   "partial",
-   "Walk-forward reads. The 'why we are losing' card cites them in words. Placement: the Brain page, as a dated table."
+   "surfaced",
+   "The multi-year walk-forward test of the score's price inputs. CORRECTED 2026-11-20 (was 'partial'): the Brain page shows each input's long-term verdict from it (brain_evidence.py reads the last good result) beside the short-term evidence, with the run's date; the AI Engine's 'why' card also cites it in words."
   ],
   "edge_p2": [
    "surfaced",
