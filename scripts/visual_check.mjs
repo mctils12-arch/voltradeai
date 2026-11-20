@@ -2478,6 +2478,20 @@ const FIXTURES = {
   },
   // Streams inventory (Phase 4) — one row per health state so the card
   // battery exercises every chip/peek/no-data rendering path at 390px.
+  // FAA live feeds on the Streams inventory ([PRODUCT] 2026-11-20, client/src/lib/swimFeeds.ts): the shape production
+  // answers with — flight plans receiving with drops, traffic management connected but silent for 20 minutes, notices
+  // disconnected with an error, terminal data deliberately not read, terminal weather not set up (3 settings)
+  "/api/data/swim/products": (() => {
+    const now = Date.now();
+    const f = (over) => ({ env: { configured: true, missing: [] }, consumer: "x", connected: true, messagesReceived: 0, messagesProcessed: 0, processErrors: 0, droppedOverflow: 0, reconnects: 0, stallRestarts: 0, lastMessageAt: null, lastError: null, hourly: [], shapes: null, ...over });
+    return { at: now, note: "fixture", products: {
+      SFDPS: f({ consumer: "flight plans (swimSfdps.ts)", messagesReceived: 18113, messagesProcessed: 17506, droppedOverflow: 607, lastMessageAt: now - 2000 }),
+      TFMS: f({ consumer: "capture (shape profile + samples)", messagesReceived: 21624, messagesProcessed: 21624, lastMessageAt: now - 20 * 60_000 }),
+      STDDS: f({ consumer: "configured-only", connected: false }),
+      NOTAM: f({ consumer: "capture (shape profile + samples)", connected: false, messagesReceived: 32, messagesProcessed: 30, processErrors: 2, reconnects: 1, lastMessageAt: now - 2 * 3600_000, lastError: "broker closed the session" }),
+      ITWS: f({ env: { configured: false, missing: ["SWIM_ITWS_URL", "SWIM_ITWS_VPN", "SWIM_ITWS_QUEUE"] }, consumer: "configured-only", connected: false }),
+    } };
+  })(),
   "/api/data/streams": {
     time: 1, count: 4,
     streams: [
@@ -4283,6 +4297,45 @@ async function main() {
         const body = await page.evaluate(() => document.body.innerText);
         if (/warming up/i.test(body)) fail("the panel still says it is warming up after a poll has run");
         if ((await page.locator(".vt-filings-table").count()) !== 0) fail("a facilities table is drawn with no detections to check");
+      }
+      // ── FAA LIVE FEEDS on the Streams inventory ([PRODUCT] 2026-11-20; GET /api/data/swim/products): one card per
+      // feed under its own heading, apart from the archive list: the state chip, the newest message's age, what arrived
+      // and what was lost (a dropped or unparsed message is always said), what the feed is used for; a missing setting is
+      // counted, never named; the archive count above is unchanged by the block.
+      if (name === "streams") {
+        const fail = (m) => checks.failures.push("faa feeds: " + m);
+        await page.waitForSelector("[data-vt-faa-feeds] [data-vt-faa-feed]", { timeout: 8000 }).catch(() => {});
+        const ff = await page.evaluate(() => {
+          const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+          const sec = document.querySelector("[data-vt-faa-feeds]");
+          if (!sec) return null;
+          return { state: sec.getAttribute("data-state"), say: txt(sec.querySelector("[data-vt-faa-feeds-say]")), text: txt(sec),
+            cards: [...sec.querySelectorAll("[data-vt-faa-feed]")].map((c) => ({ id: c.getAttribute("data-vt-faa-feed"), state: c.getAttribute("data-state"), chip: txt(c.querySelector(".vt-streams-chip")), age: txt(c.querySelector("[data-vt-feed-age]")), meta: txt(c.querySelector("[data-vt-feed-counts]")), headH: Math.round(c.querySelector(".vt-streams-cardhead").getBoundingClientRect().height), attr: [...c.querySelectorAll(".vt-streams-attr")].map(txt), over: Math.round(c.getBoundingClientRect().right - window.innerWidth) })),
+            archiveCards: document.querySelectorAll(".vt-streams-list > .vt-streams-card:not([data-vt-faa-feed])").length, sub: txt(document.querySelector(".vt-filings-head .vt-filings-sub")),
+            pageOver: Math.max(0, document.documentElement.scrollWidth - window.innerWidth) };
+        });
+        if (!ff) fail("no FAA live feeds block on the Streams inventory");
+        else {
+          console.log(`  faa feeds ${vp.w}px: ${ff.state} · "${ff.say}"`);
+          if (ff.state !== "ready") fail(`the block reads "${ff.state}"`);
+          if (ff.say !== "1 of 3 FAA feeds the server reads are receiving · traffic management quiet, notices to airmen disconnected · 2 more not read") fail(`the line reads "${ff.say}"`);
+          if (JSON.stringify(ff.cards.map((c) => [c.id, c.state, c.chip])) !== JSON.stringify([["SFDPS", "receiving", "receiving"], ["TFMS", "quiet", "quiet"], ["STDDS", "not_consumed", "not read"], ["NOTAM", "disconnected", "disconnected"], ["ITWS", "not_set_up", "not set up"]])) fail(`the cards read ${JSON.stringify(ff.cards.map((c) => [c.id, c.state, c.chip]))}`);
+          const by = Object.fromEntries(ff.cards.map((c) => [c.id, c]));
+          if (by.SFDPS && (by.SFDPS.meta !== "18,113 messages since the server started · 17,506 handled · 607 dropped under load" || !/^last message \d+ (s|min) ago$/.test(by.SFDPS.age))) fail(`flight plans reads "${by.SFDPS.meta}" / "${by.SFDPS.age}"`);
+          // the fixture's clock is fixed when the harness starts: by a later width the ages have grown by the run's own minutes
+          if (by.TFMS && !/^last message 2\d min ago$/.test(by.TFMS.age)) fail(`a feed silent for 20 minutes reads "${by.TFMS.age}"`);
+          if (by.NOTAM && (by.NOTAM.meta !== "32 messages since the server started · 30 handled · 2 failed to parse · 1 reconnect" || !by.NOTAM.attr.some((a) => a === "Last error: broker closed the session"))) fail(`the disconnected feed reads "${by.NOTAM.meta}" / ${JSON.stringify(by.NOTAM.attr)}`);
+          if (by.ITWS && (by.ITWS.meta !== "3 settings missing on the server" || by.ITWS.age !== "")) fail(`the feed that is not set up reads "${by.ITWS.meta}" / "${by.ITWS.age}"`);
+          if (/SWIM_ITWS_/.test(ff.text)) fail("a server setting's NAME is printed on the page (only the count may be)");
+          if (!/These are live connections, not archives/.test(ff.text) || !/starts again when the server restarts/.test(ff.text)) fail("the block does not say the feeds are not archives and that counts restart");
+          if (/NaN|undefined|\bnull\b|Infinity/.test(ff.text)) fail(`a bare NaN / undefined / null in "${ff.text.slice(0, 200)}"`);
+          if (ff.archiveCards !== 4 || !/^4 archived streams/.test(ff.sub)) fail(`the archive list shows ${ff.archiveCards} cards under "${ff.sub}" (the feeds must not be counted as archives)`);
+          // first run, 390px: the name broke into three lines beside the chip and the age; the head is now one or two lines
+          if (ff.cards.some((c) => c.headH > 60)) fail(`a feed card's head is ${Math.max(...ff.cards.map((c) => c.headH))}px tall (the name is breaking beside the chip)`);
+          if (ff.cards.some((c) => c.over > 1) || ff.pageOver > 1) fail(`a feed card leaves the window (page overflow ${ff.pageOver}px)`);
+          await page.locator("[data-vt-faa-feeds]").scrollIntoViewIfNeeded().catch(() => {});
+          await page.locator("[data-vt-faa-feeds]").screenshot({ path: path.join(OUT, `streams-faafeeds-${vp.w}.png`), animations: "disabled" }).catch(() => {});
+        }
       }
       if (name === "railtraffic") {
         const fail = (m) => checks.failures.push("rail carloads: " + m);

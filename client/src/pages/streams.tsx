@@ -9,6 +9,7 @@
 // designed loading/warming/error/empty states.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Database, RefreshCw, Search } from "lucide-react";
+import { parseSwimFeeds, feedAge, feedCounts, feedsSentence, FEED_STATE_WORDS, type FeedsView, type FeedState } from "@/lib/swimFeeds";
 
 interface StreamRow {
   stream: string;
@@ -57,6 +58,12 @@ function fmtBytes(b: number): string {
 
 const FILTERS: Array<"all" | StreamRow["health"]> = ["all", "live", "recent", "stale", "no-data"];
 
+// FAA live feeds (2026-11-20, lib/swimFeeds.ts): the chip colour per state — the same four tokens as the archive health
+const FEED_COLOR: Record<FeedState, string> = {
+  receiving: "var(--accent-green)", quiet: "var(--accent-orange)", disconnected: "var(--accent-red)",
+  not_consumed: "var(--text-tertiary)", not_set_up: "var(--text-tertiary)",
+};
+
 export default function StreamsView({ onBack }: { onBack: () => void }) {
   const [inv, setInv] = useState<Inventory | null>(null);
   const [error, setError] = useState(false);
@@ -64,6 +71,19 @@ export default function StreamsView({ onBack }: { onBack: () => void }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
+  // the FAA's live feeds: their own read, so a failure here never hides the archive inventory (and the reverse)
+  const [feeds, setFeeds] = useState<{ view: FeedsView | null; at: number; failed: boolean } | null>(null);
+  const loadFeeds = async () => {
+    try {
+      const r = await fetch("/api/data/swim/products");
+      if (!r.ok) throw new Error(String(r.status));
+      const view = parseSwimFeeds(await r.json(), Date.now());
+      setFeeds({ view, at: Date.now(), failed: !view });
+    } catch (err) {
+      console.warn("[streams] FAA feed status not read:", err);
+      setFeeds((f) => ({ view: f?.view ?? null, at: f?.at ?? Date.now(), failed: true }));
+    }
+  };
 
   const load = async () => {
     setRefreshing(true);
@@ -80,7 +100,7 @@ export default function StreamsView({ onBack }: { onBack: () => void }) {
       setRefreshing(false);
     }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); void loadFeeds(); }, []);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: inv?.streams.length || 0 };
@@ -114,7 +134,7 @@ export default function StreamsView({ onBack }: { onBack: () => void }) {
               : error ? "inventory unavailable — retry below" : "loading…"}
           </div>
         </div>
-        <button className="vt-icon-btn" aria-label="Refresh inventory" onClick={() => void load()}
+        <button className="vt-icon-btn" aria-label="Refresh inventory" onClick={() => { void load(); void loadFeeds(); }}
                 style={{ marginLeft: "auto" }} disabled={refreshing}>
           <RefreshCw size={15} className={refreshing ? "vt-spin" : undefined} />
         </button>
@@ -189,6 +209,44 @@ export default function StreamsView({ onBack }: { onBack: () => void }) {
             </div>
           ))}
         </div>
+
+        {/* FAA LIVE FEEDS ([PRODUCT] 2026-11-20): connections the server holds open, not files on the volume — kept
+            apart from the archive list above so a count of "archived streams" stays a count of archives */}
+        {feeds ? (
+          <section className="vt-streams-feeds" data-vt-faa-feeds data-state={feeds.view ? (feeds.failed ? "stale" : "ready") : "unreadable"} aria-label="FAA live feeds">
+            <div className="vt-streams-feedshead">
+              <span className="vt-streams-name">FAA live feeds</span>
+              <span className="vt-filings-sub" data-vt-faa-feeds-say>
+                {feeds.view ? feedsSentence(feeds.view) : "The feed status could not be read just now."}
+                {feeds.view && feeds.failed ? " · the last refresh failed; showing the previous reading" : ""}
+              </span>
+            </div>
+            {feeds.view ? (
+              <div className="vt-streams-list">
+                {feeds.view.feeds.map((f) => (
+                  <div key={f.id} className="vt-streams-card" data-vt-faa-feed={f.id} data-state={f.state}>
+                    {/* name and state on the first line; the age rides the counts line, so a phone never breaks the name into three */}
+                    <div className="vt-streams-cardhead" style={{ cursor: "default", flexWrap: "wrap" }}>
+                      <span className="vt-streams-name">{f.name} <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>{f.id}</span></span>
+                      <span className="vt-streams-chip" style={{ color: FEED_COLOR[f.state], borderColor: FEED_COLOR[f.state], marginLeft: "auto" }}>{FEED_STATE_WORDS[f.state]}</span>
+                    </div>
+                    <div className="vt-streams-meta">
+                      {f.state === "not_set_up" || f.state === "not_consumed" ? null : <span data-vt-feed-age>last message {feedAge(f.lastMessageAt, feeds.at)}</span>}
+                      <span data-vt-feed-counts>{feedCounts(f)}</span>
+                    </div>
+                    {f.use ? <div className="vt-streams-attr">Used for: {f.use}.</div> : null}
+                    {f.lastError && f.state === "disconnected" ? <div className="vt-streams-attr" style={{ color: "var(--accent-orange)" }}>Last error: {f.lastError.slice(0, 160)}</div> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="vt-filings-sub vt-streams-foot">
+              Source: FAA System Wide Information Management (SWIM), read by this server. These are live connections, not archives: nothing here is a file
+              on the volume, and every count starts again when the server restarts. FAA-sourced data for an aircraft on the FAA's privacy (LADD) list is
+              not served. Status as of {new Date(feeds.at).toISOString().slice(11, 19)}Z.
+            </div>
+          </section>
+        ) : null}
 
         {inv && !inv.warming_up && (
           <div className="vt-filings-sub vt-streams-foot">

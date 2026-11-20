@@ -3738,6 +3738,9 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-streams-search { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); flex: 1; min-width: 160px; }
 .vt-streams-search .vt-earnings-search { flex: 1; min-width: 0; }
 .vt-streams-list { display: flex; flex-direction: column; gap: 10px; }
+/* FAA live feeds block (2026-11-20): the archive list's cards under their own heading */
+.vt-streams-feeds { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.vt-streams-feedshead { display: flex; flex-direction: column; gap: 2px; }
 .vt-streams-card {
   background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);
   border-radius: 10px; padding: 10px 14px 12px;
