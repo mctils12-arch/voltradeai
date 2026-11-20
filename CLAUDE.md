@@ -442,8 +442,10 @@ If a change seems to require touching a frozen path, write the proposal to
 - ML features/labels/training in `ml_model_v2.py`
 - Data source modules: `alt_data.py`, `finnhub_data.py`, `macro_data.py`,
   `social_data.py`, `institutional_data.py`, `intelligence.py`
-- `client/src/` — user-facing features. If you add a user-visible function
-  to the bot, add the corresponding UI and API route in the same PR.
+- `client/src/` — user-facing features. Every backend change ships with
+  its UI counterpart in the same PR (STANDING BEHAVIORS, UI INTEGRATION
+  AND ONE ORDER PATH — which absorbed this line's 2026 "add the
+  corresponding UI and API route in the same PR" rule).
 - Tests — you must ADD tests for every behavior change. Never delete or
   weaken an existing assertion to make your change pass.
 
@@ -724,6 +726,17 @@ read-before-write review.
   - OPEN: findings in research/open_questions.md, 2026-11-06
     section.
 
+- EXECUTION LAYER program installed 2026-11-19 (human spec + Addendum
+  1, verbatim in research/execution_layer_program.md): one execution
+  layer every strategy will route through (NetEdge ranking, fill model,
+  exponential price walk, Kelly sizing on net edge, config-driven tax
+  engine, assignment/expiry barriers) plus a platform-wide data
+  lifecycle rule. It is a MANUAL, FOREGROUND project: scheduled
+  routines do NOT build it or take work from its charter; its PRs carry
+  the `manual-review` label and never auto-merge; it stops at every
+  phase gate for the human. STATUS at install: nothing built; Phase 0
+  not started; the charter's RESUME STATE is authoritative.
+
 ## STANDING BEHAVIORS (each human-approved, dated)
 
 Rules governing ongoing session behavior (KNOWN STATE stays pure facts);
@@ -877,6 +890,29 @@ experiments.md.
   `benchmark` / `account` existed before (2026-07-07, 09-10, 10-20
   widenings). A session never has to say the Book is unreadable again —
   read it with the token before describing the account.
+
+- UI INTEGRATION AND ONE ORDER PATH (human-directed 2026-11-19,
+  execution-layer Addendum 1 §A8; the two quoted sentences are the
+  human's, verbatim; binding on every session and routine): "Every new
+  backend feature, strategy, or data output must be integrated into the
+  existing integrated UI where it is relevant to the user, extending
+  existing views rather than creating standalone pages, and every
+  strategy must route orders through the execution layer." "Any update
+  to existing functionality must update its UI counterpart in the same
+  PR, using the existing integrated UI's components and conventions."
+  From the same directive: inspect the current UI code before placing
+  anything and do not invent a pattern where an existing one fits; pure
+  plumbing (governors, compaction jobs) needs no UI; `UI_COVERAGE.md`
+  (repo root, created by the Addendum's one-time audit) is the register,
+  and every PR that adds or changes a backend feature updates its row.
+  The order-routing clause binds from the execution layer's Phase 4
+  ("No strategy may send orders directly to the broker once the layer
+  reaches Phase 4"); until then the existing order path is the only
+  path (research/execution_layer_program.md). How it sits with the
+  rules already here: an interpreted SIGNAL is still surfaced only after
+  ladder gate 2 (RAW OVERLAYS vs SIGNALS) — integrating an output never
+  promotes it; PROMOTION RULE 6 and the PREMIUM EXPERIENCE STANDARD
+  apply to every such PR.
 
 ## RENDERING & MOTION LAW (Amendment 6, human-approved 2026-08-12)
 
