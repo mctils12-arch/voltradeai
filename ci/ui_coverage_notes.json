@@ -41,14 +41,6 @@
    "legacy",
    "The last 50 closed orders from the broker. Superseded 2026-11-20 by /api/bot/order-history (every status, the price ladder's steps), which the Orders panel reads, and by /api/bot/lots for closed trades. Nothing reads this one. Removal candidate."
   ],
-  "GET /api/bot/notifications": [
-   "missing",
-   "The bot's notifications (fills, halts, alarms), kept in memory. No page reads them. Placement: a notifications list on the AI Engine page (no bell exists today; use the page's existing card pattern)."
-  ],
-  "POST /api/bot/notifications/read": [
-   "missing",
-   "Marks notifications read. Placement: ships with the notifications list in the row above."
-  ],
   "POST /api/bot/backup": [
    "plumbing",
    "operator action (state backup)"
@@ -112,10 +104,6 @@
   "POST /api/bot/run-now": [
    "missing",
    "Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only."
-  ],
-  "GET /api/bot/diagnostics": [
-   "partial",
-   "The bot's hourly self-diagnostics. The Overview's 'why we are losing' card carries the conclusions, not the diagnostics. Placement: a collapsible 'Diagnostics' section under it."
   ],
   "GET /api/bot/ml-status": [
    "legacy",

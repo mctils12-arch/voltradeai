@@ -372,7 +372,21 @@ function botFixtures({ latched, between = false }) {
     // the real server shape (routes.ts): { orders } — a bare [] here hid the
     // Orders-panel shape bug (audit §8.2 D4) from this harness.
     "/api/orders/open": { orders: [{ id: "ord-1", symbol: "NVDA", side: "buy", qty: "12", type: "limit", limit_price: "181.20", status: "new", submitted_at: ago(4) }] },
-    "/api/bot/notifications": [],
+    // SELF-CHECK + ALERTS ([PRODUCT] 2026-11-20, client/src/bot/selfCheck.tsx): the latched page has three alerts
+    // (two unread) and a degraded self-check that shrinks size and lifts the score bar; the idle page an empty
+    // alert list and no diagnostics route (a designed sentence)
+    "/api/bot/notifications": latched ? [
+      { time: ago(3), type: "alert", message: "Daily loss: -3.1%. Trading halted.", read: false },
+      { time: ago(22), type: "trade", message: "OPTIONS: SELL 1x AAL $11.5 PUT (2026-12-31)", read: false },
+      { time: ago(190), type: "system", message: "Bot activated — scanning for opportunities", read: true },
+    ] : [],
+    ...(latched ? { "/api/bot/diagnostics": { report: { timestamp: ago(1), overall_status: "degraded",
+      problems: [
+        { system: "cache", severity: "high", message: "Critical data sources stale: ['macro', 'insider']", auto_fix: "reduce_position_size", fix_params: { multiplier: 0.7 } },
+        { system: "ml_model", severity: "medium", message: "Low win rate: 36% over 58 trades", auto_fix: "increase_score_threshold", fix_params: { min_score: 75 } },
+      ],
+      warnings: [{ system: "disk", message: "Cache using 410MB of 500MB limit" }], auto_fixes: ["Removed 12 expired cache files"], recommendations: [] },
+      auto_fix: { position_size_multiplier: 0.7, min_score_threshold: 75, should_pause: false, force_retrain: false, problems_summary: "[HIGH] Critical data sources stale" } } } : {}),
     // EVIDENCE ([PRODUCT] 2026-11-20, client/src/bot/evidence.tsx; real shapes, taken from the live probes): the
     // latched page has all six reads; the idle page none of the routes (a server that predates them — each block
     // says so in a designed sentence)
@@ -4588,6 +4602,68 @@ async function main() {
                 if (secs.rules !== "the rule report is not on this server yet") evFail(`the idle rules line reads "${secs.rules}"`);
                 if (vp.w < 1180 && (!ev.orders || ev.orders.state !== "absent" || !/the order history is not on this server yet/.test(ev.orders.text))) evFail(`without the route the order history reads "${ev.orders?.state}": "${(ev.orders?.text || "").slice(0, 160)}"`);
                 if (ev.pageOver > 1) evFail(`the idle page scrolls sideways by ${ev.pageOver}px`);
+              }
+            }
+            // ── SELF-CHECK + ALERTS ([PRODUCT] 2026-11-20; client/src/bot/selfCheck.tsx over GET /api/bot/diagnostics and
+            // GET /api/bot/notifications): two one-line blocks under the Issues list. The line states the count of
+            // problems and warnings and what they set (size multiplier, score bar); opened, each finding names its
+            // system, its severity and what it changes, and says when the loop is still on a different score bar. The
+            // alerts line counts the unread and quotes the newest; opening the list marks them read (a POST). The idle
+            // page has no diagnostics route and an empty alert list: each is a sentence.
+            {
+              const scFail = (m) => checks.failures.push("self-check: " + m);
+              const scShot = async (sel, tag) => { try { const el = page.locator(sel).first(); if (await el.count()) { await el.scrollIntoViewIfNeeded(); await el.screenshot({ path: path.join(OUT, `${name}-evidence-${tag}-${vp.w}.png`), animations: "disabled" }); } } catch (e) { console.log(`  (self-check screenshot ${tag} skipped: ${String(e.message || e).slice(0, 80)})`); } };
+              for (let i = 0; i < 50; i++) { const t = await page.evaluate(() => (document.querySelector('.vt-sc[data-sc="check"] .vt-sc-s')?.textContent || "")); if (t && !/^Running /.test(t)) break; await page.waitForTimeout(100); }
+              const readSc = () => page.evaluate(() => {
+                const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+                const one = (id) => { const el = document.querySelector(`.vt-sc[data-sc="${id}"]`); if (!el) return null; const btn = el.querySelector(".vt-sc-h > button:not(.vt-help)"); const r = btn?.getBoundingClientRect();
+                  return { title: txt(btn?.querySelector(".t")), say: txt(el.querySelector(".vt-sc-s")), cls: el.querySelector(".vt-sc-s")?.className || "", open: el.getAttribute("data-open") === "true", body: txt(el.querySelector(".vt-sc-b")), btnH: r ? Math.round(r.height) : 0, disabled: !!btn?.disabled,
+                    inIssues: !!el.closest('section.vt-bot-panel[data-panel="issues"]'), help: !!el.querySelector("button.vt-help"), problems: [...el.querySelectorAll('.vt-sc-l[data-list="problems"] li')].map(txt), warnings: [...el.querySelectorAll('.vt-sc-l[data-list="warnings"] li')].map(txt),
+                    alerts: [...el.querySelectorAll(".vt-sc-ar")].map((r2) => ({ k: txt(r2.querySelector(".k")), m: txt(r2.querySelector(".m")), unread: r2.getAttribute("data-unread") === "true", over: Math.round(r2.getBoundingClientRect().right - window.innerWidth) })) }; };
+                return { check: one("check"), alerts: one("alerts"), pageOver: Math.max(0, document.documentElement.scrollWidth - window.innerWidth) };
+              });
+              const openSc = async (id) => { const b = page.locator(`.vt-sc[data-sc="${id}"] .vt-sc-h > button:not(.vt-help)`).first(); await b.scrollIntoViewIfNeeded(); await pressQ(b); await settle(); };
+              let sc = await readSc();
+              if (!sc.check || !sc.alerts) scFail(`the Issues panel lacks the ${!sc.check ? "self-check" : "alerts"} block`);
+              else {
+                console.log(`  self-check ${vp.w}px: "${sc.check.say.slice(0, 90)}" · alerts "${sc.alerts.title}"`);
+                if (!sc.check.inIssues || !sc.alerts.inIssues) scFail("the blocks are not inside the Issues panel");
+                if (!sc.check.help || !sc.alerts.help) scFail("a block lacks its help glyph");
+                if (name === "bot") {
+                  if (sc.check.say !== "Self-check: 2 problems, 1 warning · new positions at ×0.70 of normal size · score bar 75") scFail(`the self-check line reads "${sc.check.say}"`);
+                  if (!/vt-bot-r/.test(sc.check.cls)) scFail(`a high-severity finding is not shown in the alarm colour (${sc.check.cls})`);
+                  if (vp.touch && (sc.check.btnH < 44 || sc.alerts.btnH < 44)) scFail(`touch targets under 44px: self-check ${sc.check.btnH}px, alerts ${sc.alerts.btnH}px`);
+                  await openSc("check");
+                  sc = await readSc();
+                  if (!sc.check.open || sc.check.problems.length !== 2 || sc.check.warnings.length !== 1) scFail(`opened, the self-check lists ${sc.check.problems.length} problems and ${sc.check.warnings.length} warnings (2 and 1 served)`);
+                  if (sc.check.problems[0] !== "Data freshnesshigh Critical data sources stale: ['macro', 'insider'] → new positions are sized smaller") scFail(`the first finding reads "${sc.check.problems[0]}"`);
+                  if (sc.check.problems[1] !== "Modelmedium Low win rate: 36% over 58 trades → only higher-scoring picks are taken") scFail(`the second finding reads "${sc.check.problems[1]}"`);
+                  if (sc.check.warnings[0] !== "Disk Cache using 410MB of 500MB limit") scFail(`the warning reads "${sc.check.warnings[0]}"`);
+                  // the fixture's loop is on a score bar of 65 while the fresh check says 75: the difference is said
+                  if (!/The loop is using a score bar of 65 until it next applies the check\./.test(sc.check.body)) scFail("the applied-score-bar note is missing");
+                  if (!/Housekeeping it did: Removed 12 expired cache files/.test(sc.check.body) || !/a fresh run, not the loop's last one/.test(sc.check.body)) scFail(`the self-check detail lacks its housekeeping or source line: "${sc.check.body.slice(-220)}"`);
+                  if (/NaN|undefined|\bnull\b|Infinity/.test(sc.check.body + sc.check.say)) scFail("a bare NaN / undefined / null in the self-check");
+                  await scShot('.vt-sc[data-sc="check"]', "selfcheck");
+                  if (sc.alerts.title !== "Alerts · 2 new" || !/^3 alerts · 2 new · newest \d+[smh] ago: Daily loss: -3\.1%\. Trading halted\.$/.test(sc.alerts.say)) scFail(`the alerts block reads "${sc.alerts.title}" / "${sc.alerts.say}"`);
+                  if (!/vt-bot-o/.test(sc.alerts.cls)) scFail(`an unread alert is not shown in the warning colour (${sc.alerts.cls})`);
+                  let posted = 0;
+                  const onReq = (rq) => { if (rq.method() === "POST" && /\/api\/bot\/notifications\/read$/.test(new URL(rq.url()).pathname)) posted += 1; };
+                  page.on("request", onReq);
+                  await openSc("alerts");
+                  await page.waitForTimeout(400);
+                  page.off("request", onReq);
+                  sc = await readSc();
+                  if (posted !== 1) scFail(`opening the alerts sent ${posted} mark-read request(s) (exactly 1)`);
+                  if (JSON.stringify(sc.alerts.alerts.map((r) => [r.k, r.m, r.unread])) !== JSON.stringify([["alert", "Daily loss: -3.1%. Trading halted.", true], ["trade", "OPTIONS: SELL 1x AAL $11.5 PUT (2026-12-31)", true], ["system", "Bot activated — scanning for opportunities", false]])) scFail(`the alert rows read ${JSON.stringify(sc.alerts.alerts)}`);
+                  if (sc.alerts.alerts.some((r) => r.over > 1)) scFail("an alert row leaves the window");
+                  if (!/cleared by a restart or a deploy/.test(sc.alerts.body)) scFail("the alerts detail does not say the list is cleared by a restart");
+                  await scShot('.vt-sc[data-sc="alerts"]', "alerts");
+                  if (sc.pageOver > 1) scFail(`the page scrolls sideways by ${sc.pageOver}px with both blocks open`);
+                  await openSc("alerts"); await openSc("check");
+                } else {
+                  if (sc.check.say !== "the bot's self-check is not on this server yet" || !sc.check.disabled) scFail(`without the route the self-check reads "${sc.check.say}" (disabled ${sc.check.disabled})`);
+                  if (sc.alerts.title !== "Alerts" || sc.alerts.say !== "No alerts since the server last restarted." || !sc.alerts.disabled) scFail(`with an empty list the alerts block reads "${sc.alerts.title}" / "${sc.alerts.say}" (disabled ${sc.alerts.disabled})`);
+                }
               }
             }
             // ── DAILY LINE CARD ([PRODUCT] 2026-11-06; server/dailyLine.ts via GET /api/bot/daily-line, overview.tsx

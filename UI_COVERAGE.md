@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 256 | 5 | 22 | 27 | 11 |
+| HTTP routes | 259 | 4 | 20 | 27 | 11 |
 | Diagnostic probes (token-gated) | 33 | 14 | 6 | 10 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -26,7 +26,7 @@ Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, th
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (28)
+## Missing: user-relevant, no UI yet (26)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -34,8 +34,6 @@ layers are not listed one by one here.
 | route | `GET /api/data/aircraft/track/:hex` | `server/aircraftTrackData.ts` | A watched plane's stored track from the tracked-plane log (2026-11-17, built for the app contract). The flight card draws its track from the older /api/data/track route and does not read this one. It was counted as called by a page until 2026-11-20 because /api/data/aircraft/tracked starts the same way. Placement: with fleet and plan history on the flight card (batch B). |
 | route | `GET /api/data/aircraft/fleet` | `server/aircraftTrackData.ts` | Fleet / operator data for an aircraft (2026-11-17). Placement: a 'Fleet' block on the existing flight card (DetailCard), under registration and type. |
 | route | `GET /api/bot/stream` | `server/bot.ts` | Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh. |
-| route | `GET /api/bot/notifications` | `server/bot.ts` | The bot's notifications (fills, halts, alarms), kept in memory. No page reads them. Placement: a notifications list on the AI Engine page (no bell exists today; use the page's existing card pattern). |
-| route | `POST /api/bot/notifications/read` | `server/bot.ts` | Marks notifications read. Placement: ships with the notifications list in the row above. |
 | route | `POST /api/bot/circuit-breaker/reset` | `server/bot.ts` | Owner action: clear a tripped circuit breaker. The AI Engine page shows the kill state but offers no reset. Placement: beside the kill-state banner, owner only, with a confirm step. A risk control: needs the human's go-ahead before it is exposed. |
 | route | `POST /api/bot/trade` | `server/bot.ts` | Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner). |
 | route | `POST /api/bot/close` | `server/bot.ts` | Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above. |
@@ -59,12 +57,11 @@ layers are not listed one by one here.
 | probe | `source_validation` | `server/bot.ts /api/diag/source_validation` | Per-source validation of the scoring inputs. No UI. Placement: the Brain page's signal table (a 'validated' column). |
 | probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel. |
 
-## Partial (23)
+## Partial (22)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
 | route | `GET /api/data/archive/offload-status` | `server/archiveOffload.ts` | Archive off-site copy status. The Data quality panel shows archive growth, not the off-site copy. Placement: one row in the Data quality panel. |
-| route | `GET /api/bot/diagnostics` | `server/bot.ts` | The bot's hourly self-diagnostics. The Overview's 'why we are losing' card carries the conclusions, not the diagnostics. Placement: a collapsible 'Diagnostics' section under it. |
 | route | `GET /api/data/archive/stats` | `server/routes.ts` | Archive row counts and sizes. The Data quality panel shows growth for some archives. Placement: complete that panel from this route. |
 | route | `GET /api/data/query` | `server/routes.ts` | The query engine (console W4). The analyst pane uses it on the server; there is no direct query box. Placement: none proposed until the analyst pane's use shows a need. |
 | route | `GET /api/data/satellites` | `server/routes.ts` | Server-side satellite catalog (relay-gated: CelesTrak blocks Railway). The map reads CelesTrak from the browser instead. Nothing to place until the relay decision. |
@@ -145,7 +142,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (295)
+## Surfaced (298)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -162,6 +159,8 @@ layers are not listed one by one here.
 | route | `POST /api/billing/portal` | `server/billing.ts` | a page calls it |
 | route | `GET /api/bot/account` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/positions` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/notifications` | `server/bot.ts` | a page calls it |
+| route | `POST /api/bot/notifications/read` | `server/bot.ts` | a page calls it |
 | route | `GET /api/health` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/performance` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/benchmark` | `server/bot.ts` | a page calls it |
@@ -195,6 +194,7 @@ layers are not listed one by one here.
 | route | `GET /api/bot/market-status` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/last-scan` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/calendar` | `server/bot.ts` | a page calls it |
+| route | `GET /api/bot/diagnostics` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/insight` | `server/bot.ts` | a page calls it |
 | route | `GET /api/data/aircraft/plan/:hex` | `server/flightPlans.ts` | a page calls it |
 | route | `GET /api/data/aircraft/global` | `server/globalAircraft.ts` | a page calls it |
