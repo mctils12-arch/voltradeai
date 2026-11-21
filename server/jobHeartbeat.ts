@@ -645,6 +645,56 @@ export function healthJobsBlock(r: HeartbeatReport): { status: "ok" | "degraded"
   return { status: r.verdict, failing: r.failing, counts: r.counts, error_class, gates_top_level_status: false };
 }
 
+/** One job as the public /data Pipeline health panel may show it. */
+export interface PublicJob {
+  id: string;
+  label: string;
+  status: JobVerdict;
+  schedule: string;
+  last_start_at: string | null;
+  last_finish_at: string | null;
+  last_status: BeatStatus | "running" | null;
+  running: boolean;
+  /** switched off on this server (an environment switch), so it is not expected to run */
+  disabled: boolean;
+  recent_errors: number;
+  /** set only while the job's verdict is "errored" */
+  error_class: JobErrorClass | null;
+}
+export interface PublicJobsView {
+  evaluated_at: string;
+  verdict: "ok" | "degraded";
+  counts: Record<JobVerdict, number>;
+  jobs: PublicJob[];
+}
+
+/** Every registered job for an UNAUTHENTICATED reader (the /data Pipeline
+ *  health panel, 2026-11-21): the registry's own label and schedule, the
+ *  verdict, the last start and finish, and a closed-enum cause for an
+ *  errored job. It never carries `reason` or `lastDetail`: both can hold
+ *  free text from a failed run (paths, stderr) or the name of an
+ *  environment switch, and those stay behind the diag token. */
+export function publicJobsView(r: HeartbeatReport): PublicJobsView {
+  return {
+    evaluated_at: r.evaluatedAt,
+    verdict: r.verdict,
+    counts: { ...r.counts },
+    jobs: r.jobs.map((j) => ({
+      id: j.job,
+      label: j.label,
+      status: j.status,
+      schedule: j.schedule,
+      last_start_at: j.lastStartAt,
+      last_finish_at: j.lastFinishAt,
+      last_status: j.lastStatus,
+      running: j.running,
+      disabled: j.status === "not_due" && j.reason.startsWith("disabled:"),
+      recent_errors: j.recentErrors,
+      error_class: j.status === "errored" ? classifyJobError(j.lastDetail) : null,
+    })),
+  };
+}
+
 // ── pure transitions ────────────────────────────────────────────────────────
 
 function clip(s: unknown): string | undefined {
