@@ -346,6 +346,21 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_13F_COMPLETENESS off",
   },
   {
+    // xbrlFrames.ts bootXbrlFrames: 20-min tick, one read per ET night inside
+    // 02:00-05:00 of SEC's XBRL frames (about 100 requests, under a minute),
+    // recording first sightings and revisions. A night interrupted by a
+    // restart is tried once more inside the window.
+    id: "xbrl_frames_nightly", label: "Company fundamentals record (SEC XBRL frames, 02:00-05:00 ET)",
+    source: "server/xbrlFrames.ts", kind: "daily", tz: "America/New_York", dueMin: 2 * 60,
+    graceMs: 90 * MIN, maxRunMs: 30 * MIN, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_XBRL_FRAMES;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_XBRL_FRAMES off",
+  },
+  {
     // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,

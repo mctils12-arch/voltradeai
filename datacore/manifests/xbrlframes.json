@@ -1,0 +1,29 @@
+{
+ "stream": "xbrlframes",
+ "storage": "append-only JSONL day-files under <archive>/xbrlframes/ by the UTC date of the nightly read (gz after 2 days); beside them, not part of the record: _snap_<frame>.json.gz (what the last read held per frame), _entities.json.gz (CIK -> name, location), _run.json (last night's summary)",
+ "written_by": "server/xbrlFrames.ts runXbrlNight (one read a night inside 02:00-05:00 ET; change-only: a row is written when a value first appears, changes, or leaves a frame; one `run` line every night)",
+ "source": "SEC EDGAR XBRL frames API, https://data.sec.gov/api/xbrl/frames/<taxonomy>/<tag>/<unit>/<period>.json, keyless JSON; SEC asks for a descriptive User-Agent and at most 10 requests a second (a night is about 100 requests, one at a time with a 0.3 s pause). Verified live 2026-11-21: 96 frames, 89 published, 281,870 facts, 0 rows rejected; 30 of 30 sampled facts equal SEC's per-company endpoint (companyconcept) for the same accession.",
+ "license": "US government work, public domain",
+ "attribution": "U.S. Securities and Exchange Commission, EDGAR",
+ "schema_version": 1,
+ "field_map": {
+  "seen": "UTC time of OUR nightly read that first held the value. One-day resolution. Not SEC's acceptance time: that is in the filing `accn` names",
+  "frame": "taxonomy/tag/unit/period as SEC names it, e.g. us-gaap/NetIncomeLoss/USD/CY2026Q3 (three months), .../CY2026Q3I (a balance at the quarter's end), .../CY2025 (a full year). SEC places a company's fiscal period in the calendar period it fits best, so `end` is the company's own period end",
+  "cik": "SEC Central Index Key, as published (integer)",
+  "kind": "first (a company not held before) | revised (a different value or period end than the last read held) | dropped (held before, absent now) | run (the night's own line: status and counts, no cik)",
+  "accn": "the accession number SEC's frame named on that night. A frame keeps one fact per company and names the LATEST filing that reports the period, so on a backfill row this is often not the filing that first reported the number",
+  "end / start": "the fact's period, as tagged, YYYY-MM-DD (`start` on three-month and full-year facts only)",
+  "val": "the value as tagged (USD or shares; not scaled, not adjusted); null on a dropped row",
+  "backfill": "true on rows from the first read of a frame: `seen` is then the day recording began and says nothing about when the number was published",
+  "prev_val / prev_accn / prev_end": "revised and dropped rows: what the read before held, and the filing that held it"
+ },
+ "confidence_model": "RAW record of company-reported numbers (RAW OVERLAYS vs SIGNALS, CLAUDE.md): no score, no ranking, no predictive claim, no ladder gating required to show it. Known limits: (1) one fact per company per frame, SEC's choice of which; a company that tags a concept with a custom element or a different standard tag is absent from that concept (measured 2026-11-21: Revenues 1,509 companies and RevenueFromContractWithCustomer 2,137 against NetIncomeLoss 4,618 for CY2026Q3); (2) most companies tag no three-month fourth quarter, so the full-year frames carry the year; (3) the same value named by a later filing writes no row (counted in the run line as `refiled`); (4) a restart between writing a frame's rows and its snapshot repeats those rows on the next read; (5) a frame that lost more than half its companies since the last read is refused that night and read again the next.",
+ "geo_fields": [
+  "(none; _entities.json.gz keeps SEC's state/country code per company)"
+ ],
+ "entity_key": "cik + frame",
+ "sentiment": null,
+ "started": "2026-11-21",
+ "cadence": "daily (one read a night; a `run` line is written every night, changed or not)",
+ "_note": "Universal archive envelope (approved 2026-07-04). Recorded because SEC's frame replaces a fact when a later filing reports the same period again (86% of CY2025Q3 net-income facts carried a 2026 accession on 2026-11-21), so what was first reported, and when, cannot be read back from the frame later."
+}

@@ -18,8 +18,8 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 271 | 5 | 6 | 27 | 14 |
-| Diagnostic probes (token-gated) | 37 | 14 | 1 | 11 | 0 |
+| HTTP routes | 273 | 5 | 6 | 27 | 14 |
+| Diagnostic probes (token-gated) | 38 | 14 | 1 | 11 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, the legend and
@@ -128,7 +128,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (314)
+## Surfaced (317)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -403,6 +403,8 @@ layers are not listed one by one here.
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /terms` | `server/terms.ts` | a page calls it |
+| route | `GET /api/data/xbrl-fundamentals` | `server/xbrlFrames.ts` | a page calls it |
+| route | `GET /api/data/xbrl-fundamentals/company` | `server/xbrlFrames.ts` | a page calls it |
 | probe | `audit` | `server/bot.ts /api/diag/audit` | AI Engine activity log (/api/bot/audit) |
 | probe | `ml` | `server/bot.ts /api/diag/ml` | model status (/api/ml/status) |
 | probe | `positions` | `server/bot.ts /api/diag/positions` | the Book (open positions) |
@@ -437,6 +439,7 @@ layers are not listed one by one here.
 | probe | `gate_counterfactuals` | `server/bot.ts /api/diag/gate_counterfactuals` | What each blocking rule prevented. Since 2026-11-20 the Why panel's 'Rules that blocked trades' section shows one row per rule, tier and action with its caveats, through /api/bot/rule-counterfactuals. |
 | probe | `walkforward` | `server/bot.ts /api/diag/walkforward` | The multi-year walk-forward test of the score's price inputs. CORRECTED 2026-11-20 (was 'partial'): the Brain page shows each input's long-term verdict from it (brain_evidence.py reads the last good result) beside the short-term evidence, with the run's date; the AI Engine's 'why' card also cites it in words. |
 | probe | `edge_p2` | `server/bot.ts /api/diag/edge_p2` | lookup ledger (ticker dossier) |
+| probe | `xbrl_frames` | `server/bot.ts /api/diag/xbrl_frames` | Company fundamentals page (#/data/xbrl-fundamentals): last night's status, per-frame counts and revisions come from the same run file; the probe adds attempt markers, error text and free space |
 | probe | `filings13f_completeness` | `server/bot.ts /api/diag/filings13f_completeness` | 13F page, by filed day (#1845, API); the page itself still reads by archive day: PARTIAL in the UI |
 | probe | `event_study` | `server/bot.ts /api/diag/event_study` | ticker dossier |
 | probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: on time, late, never ran, last run failed, not due. Since 2026-11-21 the /data Pipeline health panel lists every job with its schedule, its last run and, for a failed one, the cause as one of six fixed sentences (the `jobs` field of /api/data/pipeline-health-dashboard, jobHeartbeat.publicJobsView). Not shown, by design: the failed run's own error text and the evaluator's reason, which stay behind the token. |

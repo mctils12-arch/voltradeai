@@ -442,6 +442,11 @@ export const DIAG_PROBES = [
   // ledger in counts (index, held, short days by date). Counts and dates only:
   // no manager, CIK, accession or filing URL; no network; no query parameters.
   "filings13f_completeness",
+  // ADDED 2026-11-21 ([PIPELINE]): read-only status of the nightly SEC XBRL
+  // fundamentals read (server/xbrlFrames.ts xbrlFramesStatus) — the day
+  // markers, the last night's per-frame counts and error text, free space.
+  // Public filings data only; no network; no query parameters.
+  "xbrl_frames",
   // ADDED 2026-11-17 ([PIPELINE]): read-only health of the three EDGAR
   // pollers (server/edgarPollHealth.ts edgarPollHealthStatus) — polls ok /
   // failed since boot, consecutive failures, the last error (the poller's own
