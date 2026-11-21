@@ -23,7 +23,7 @@ export const FEED_NAMES: Readonly<Record<string, string>> = {
 export const FEED_USE: Readonly<Record<string, string>> = {
   SFDPS: "filed flight plans and their amendments, on the flight card",
   TFMS: "ground stops, delay programs, restrictions and runway rates, on the FAA airport card; flow areas and national advisories are read and not yet shown",
-  NOTAM: "notices and flight restrictions; read and counted, not yet shown on a page",
+  NOTAM: "flight restrictions, on the map's Flight restrictions layer; other notices are counted and not shown",
 };
 /** a feed with no message for this long while connected is "quiet" */
 export const FEED_QUIET_MS = 5 * 60_000;

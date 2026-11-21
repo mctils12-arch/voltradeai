@@ -1412,6 +1412,7 @@ const FIXTURES = {
       // above for the precedent this repeats.
       { id: "nukefacilities", name: "Nuclear facilities (fuel cycle)", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "Wikidata (CC0 1.0), curated", description: "67 fuel-cycle/production facilities, building-trefoil symbols by category." },
       { id: "faa_airports", name: "FAA airport status", kind: "raw", status: "live", group: "facilities", costTier: "light", source: "FAA National Airspace System Status (public domain)", description: "Ground stops/delays/closures, rolling snapshot." },
+      { id: "flight_restrictions", name: "Flight restrictions (FAA)", kind: "raw", status: "live", group: "live", costTier: "light", source: "FAA SWIM FNS NOTAM (fixture)", description: "Flight restrictions in force or starting within 6 hours, as received." },
       // [REPAIR, found alongside this session's NRC dashboard page]: this
       // toggleable registry layer (datacore/layers.json) was missing from
       // this fixture, same class of gap the R15 (2026-07-07) and
@@ -2803,6 +2804,29 @@ const FIXTURES = {
     kind: "raw", source: "FAA National Airspace System Status (fixture)", time: 1, update_time: "2026-07-25T00:00:00Z", count: 1,
     events: [{ airport: "ATL", type: "Ground Delay Program", reason: "Volume", avg: "31 minutes", max: "1 hour 5 minutes", min: "16 minutes", trend: "Increasing", direction: "Arrival", end_time: "18:00 UTC", reopen: null, update_time: "2026-07-25T00:00:00Z" }],
   },
+  "/api/data/swim/notam/tfrs": (() => {
+    const now = Date.now(), H = 3600_000;
+    const circle = (id, lat, lon, text, qcode, startIn) => ({
+      id, series: null, number: null, year: "2026", type: "N", classification: qcode ? "INTL" : "FDC", location: id.split(":")[0], qcode,
+      issued: now - H, start: now + startIn * H, end: now + 8 * H, minFl: 0, maxFl: 180, center: [lat, lon], radiusNm: 30, text, scenario: null,
+      geometry: { kind: "circle", center: [lat, lon], radiusNm: 30, approximate: true },
+    });
+    return {
+      at: now, stats: { notams: 400, tfrs: 9, byClassification: {}, parseErrors: 0 },
+      kept: { saved_every_s: 60, last_saved_at: now - 30_000, last_save: "ok", restored: null },
+      feed: { connected: true, last_message_at: now - 20_000 },
+      source: "FAA SWIM FNS NOTAM (fixture)",
+      tfrs: [
+        circle("KZDC:FX1", 38.9, -77.0, "TEMPORARY FLIGHT RESTRICTIONS PURSUANT TO 14 CFR SECTION 91.141", null, -1),
+        circle("KZLA:FX2", 34.2, -118.2, "TEMPORARY FLIGHT RESTRICTIONS PURSUANT TO 14 CFR SECTION 91.137(A)(2) WILDFIRE", null, -1),
+        circle("KZJX:FX3", 28.5, -80.6, "PURSUANT TO 14 CFR SECTION 91.143 SPACE OPERATIONS", null, 2),
+        circle("KZAU:FX4", 41.9, -87.6, "PURSUANT TO 14 CFR SECTION 91.145 AIR SHOW", null, -1),
+        circle("LDZL:FX5", 45.8, 15.95, "TEMPORARY RESERVED AREA ACTIVATED", "QRTCA", -1),
+        { ...circle("KZDV:FX6", 39.5, -105.0, "TEMPORARY FLIGHT RESTRICTIONS IN EFFECT", null, -1),
+          geometry: { kind: "polygon", rings: [[[39.2, -105.4], [39.2, -104.6], [39.8, -104.6], [39.8, -105.4], [39.2, -105.4]]] } },
+      ],
+    };
+  })(),
   "/api/data/border-waits": {
     kind: "raw", source: "CBP Border Wait Times (fixture)", time: 1, count: 1,
     waits: [{ port_number: "010401", border: "Canada", lane: "POV", status: "Open", delay_min: 15, lanes_open: 2, update_time: "2026-07-25T00:00:00Z" }],
@@ -8212,6 +8236,203 @@ async function main() {
     await ctx.close();
     results.push({ page: "data-airporttraffic", width: 1440, label: "airport-traffic", screenshot: path.join(OUT, "data-airporttraffic-card-1440.png"),
                    tti: null, perf: {}, failures: atFailures, warnings: [], info: { airportTraffic: atInfo } });
+  }
+
+  // ── FLIGHT RESTRICTIONS battery ([PRODUCT] 2026-11-21; the /data map's Flight restrictions layer over GET
+  // /api/data/swim/notam/tfrs, lib/air/flightRestrictions.ts) ───────────────
+  // Driven through the real map: the layer is switched on and must draw one area and one vt-airspace symbol per
+  // restriction served (a row with no usable shape is counted in the status line, never drawn), with the notice's
+  // index circle on the dashed layer and the restriction's own outline on the solid one. The status line says how
+  // many are in force, how many start within 6 hours, how many are held, how many restriction notices arrived with
+  // no shape, that the list is not the FAA's complete one, and when the last notice arrived. The legend
+  // lists every kind with the same symbol the map draws. A symbol opens the card: four chips, none cut; Details says
+  // which shape is drawn and that a circle is larger than the restriction; the card stays inside the window at 1440,
+  // 768 and 390. Switched off, both sources and all four layers are gone and no request follows.
+  // `--page flightrestrictions` runs this battery alone.
+  if (!only || only === "data" || only === "flightrestrictions") {
+    const frFailures = [];
+    const frInfo = {};
+    const fail = (m) => frFailures.push("flight restrictions: " + m);
+    const { ctx, page, flip } = await bootDemandPage(browser, port, 1);
+    const frErrors = [];
+    page.on("pageerror", (e) => frErrors.push(e.message));
+    const FR_NOW = Date.now();
+    const H = 3600_000;
+    const base = { series: "A", number: "1", year: "2026", type: "N", issued: FR_NOW - H, scenario: null };
+    const ZAG = { ...base, id: "LDZL:A4134/2026", classification: "INTL", location: "LDZL", qcode: "QRTCA", start: FR_NOW - 20 * 60_000, end: FR_NOW + 9 * H, minFl: 0, maxFl: 999,
+      center: [45.8167, 15.95], radiusNm: 20, text: "TEMPORARY RESERVED AREA 'ZAGREB CENTAR' ACTIVATED DUE TO UAS ACTIVITIES.\r\nDURING ACTIVITY PENETRATION NOT ALLOWED.",
+      geometry: { kind: "circle", center: [45.8167, 15.95], radiusNm: 20, approximate: true } };
+    const VIP = { ...base, id: "FDC:6/1234", classification: "FDC", location: "KZDC", qcode: null, start: FR_NOW + 2 * H, end: FR_NOW + 5 * H, minFl: 0, maxFl: 180, center: null, radiusNm: null,
+      text: "TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 14 CFR SECTION 91.141 AIRCRAFT FLIGHT OPERATIONS ARE PROHIBITED",
+      geometry: { kind: "polygon", rings: [[[38.6, -77.4], [38.6, -76.7], [39.2, -76.7], [39.2, -77.4], [38.6, -77.4]]] } };
+    const BROKEN = { ...base, id: "X:1", classification: "FDC", location: "KZNY", qcode: null, start: FR_NOW, end: FR_NOW + H, text: "TEMPORARY FLIGHT RESTRICTIONS", geometry: { kind: "circle", center: [40, -74], radiusNm: 0 } };
+    const calls = [];
+    await page.route("**/api/data/swim/notam/tfrs", (route) => {
+      calls.push(Date.now());
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify({
+        at: FR_NOW, tfrs: [ZAG, VIP, BROKEN], stats: { notams: 423, tfrs: 18, tfrs_without_shape: 7, byClassification: {}, parseErrors: 0 },
+        kept: { saved_every_s: 60, last_saved_at: FR_NOW - 30_000, last_save: "ok", restored: null },
+        feed: { connected: true, last_message_at: FR_NOW - 12_000 }, source: "FAA SWIM FNS NOTAM (fixture)" }) });
+    });
+    const LAYERS = ["flight-restrictions-fill", "flight-restrictions-line", "flight-restrictions-line-enclosing", "flight-restrictions-sym"];
+    const mapState = () => page.evaluate((ids) => {
+      const m = window.__vtMap;
+      const has = (id) => { try { return !!m.getLayer(id); } catch { return false; } };
+      const src = (id) => { try { return !!m.getSource(id); } catch { return false; } };
+      const q = (id, filter) => { try { return m.querySourceFeatures(id, filter ? { filter } : undefined).map((f) => f.properties); } catch { return []; } };
+      const uniq = (rows) => Array.from(new Map(rows.map((p) => [p.id, p])).values()).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      return {
+        layers: ids.filter(has), sources: ["flight-restrictions-areas", "flight-restrictions-pts"].filter(src),
+        symType: has("flight-restrictions-sym") ? m.getLayer("flight-restrictions-sym").type : null,
+        icon: has("flight-restrictions-sym") ? m.getLayoutProperty("flight-restrictions-sym", "icon-image") : null,
+        dash: has("flight-restrictions-line-enclosing") ? m.getPaintProperty("flight-restrictions-line-enclosing", "line-dasharray") : null,
+        ownDash: has("flight-restrictions-line") ? m.getPaintProperty("flight-restrictions-line", "line-dasharray") ?? null : "missing",
+        pts: uniq(q("flight-restrictions-pts")), areas: uniq(q("flight-restrictions-areas")),
+      };
+    }, LAYERS);
+    const rowText = () => page.evaluate(() => (document.querySelector('[data-vt-layer="flight_restrictions"]')?.textContent || "").replace(/\s+/g, " ").trim());
+    const openCard = async (id, lon, lat) => {
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.evaluate(([lo, la]) => window.__vtMap.jumpTo({ center: [lo, la], zoom: 6, pitch: 0, bearing: 0 }), [lon, lat]);
+      let spot = null;
+      for (let i = 0; i < 40 && !spot; i++) {
+        await page.waitForTimeout(400);
+        spot = await page.evaluate((rid) => {
+          try {
+            const m = window.__vtMap;
+            const f = m.querySourceFeatures("flight-restrictions-pts").find((x) => x.properties.id === rid);
+            if (!f || m.isMoving()) return null;
+            const px = m.project(f.geometry.coordinates);
+            const rect = m.getContainer().getBoundingClientRect();
+            return { x: rect.left + px.x, y: rect.top + px.y };
+          } catch { return null; }
+        }, id);
+      }
+      if (!spot) { fail(`fixture restriction ${id} never rendered as a clickable symbol`); return false; }
+      await page.mouse.click(spot.x, spot.y);
+      const card = await page.waitForSelector(`.vt-site-card[role="dialog"][aria-label^="Flight restriction"]`, { timeout: 10000 }).catch(() => null);
+      if (!card) { fail(`clicking ${id} opened no card`); return false; }
+      return true;
+    };
+    const readCard = () => page.evaluate(() => {
+      const c = document.querySelector('.vt-site-card[role="dialog"]');
+      if (!c) return null;
+      const r = c.getBoundingClientRect();
+      const chips = Array.from(c.querySelectorAll(".vt-card-stat")).map((el) => {
+        const v = el.querySelector(".vt-card-stat-v");
+        const l = el.querySelector(".vt-card-stat-l");
+        return { l: l?.textContent || "", v: v?.textContent || "", cut: Math.max(v ? v.scrollWidth - v.clientWidth : 0, l ? l.scrollWidth - l.clientWidth : 0) };
+      });
+      return {
+        title: c.getAttribute("aria-label"), cat: (c.querySelector(".vt-site-card-cat")?.textContent || "").trim(), chips,
+        facts: Object.fromEntries(Array.from(c.querySelectorAll(".vt-card-fact")).map((el) => [el.querySelector(".vt-card-fact-l")?.textContent || "", el.querySelector(".vt-card-fact-v")?.textContent || ""])),
+        body: c.querySelector(".vt-site-card-body")?.textContent || "", open: !!c.querySelector(".vt-card-detbody"),
+        left: Math.round(r.left), right: Math.round(r.right - window.innerWidth), top: Math.round(r.top), bottom: Math.round(r.bottom - window.innerHeight),
+        pageOver: document.documentElement.scrollWidth - window.innerWidth, text: c.textContent || "",
+      };
+    });
+    const checkCard = async (w) => {
+      let c = await readCard();
+      if (!c) { fail(`${w}: the card is gone`); return; }
+      if (!c.open) {
+        await page.locator('.vt-site-card[role="dialog"] button', { hasText: "DETAILS" }).first().click({ timeout: 2000 }).catch(() => {});
+        await page.waitForTimeout(250);
+        c = await readCard();
+      }
+      if (c.title !== "Flight restriction LDZL A4134/2026") fail(`${w}: the card is titled "${c.title}"`);
+      if (!c.cat.startsWith("Temporary restricted area (ICAO notice) · in force until ")) fail(`${w}: the card's second line reads "${c.cat}"`);
+      const want = [["Status", "active"], ["Lower", "surface"], ["Upper", "unlim."]];
+      if (c.chips.length !== 4) fail(`${w}: ${c.chips.length} chips (4)`);
+      for (const [l, v] of want) if (!c.chips.some((x) => x.l === l && x.v === v)) fail(`${w}: no chip "${l}: ${v}" in ${JSON.stringify(c.chips.map((x) => [x.l, x.v]))}`);
+      for (const x of c.chips) if (x.cut > 1) fail(`${w}: the chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
+      if (!c.open) { fail(`${w}: Details did not open`); return; }
+      if (!/^a circle of [\d.,]+ (mi|km) around the notice's index point\. It encloses the restriction and is larger than it/.test(c.facts["Drawn shape"] || "")) fail(`${w}: Drawn shape reads "${c.facts["Drawn shape"]}"`);
+      if (c.facts["Rule cited"] !== "none cited; ICAO Q-code subject RT, temporary restricted area") fail(`${w}: Rule cited reads "${c.facts["Rule cited"]}"`);
+      if (c.facts["Notice"] !== "LDZL A4134/2026" || c.facts["Q-code, as sent"] !== "QRTCA") fail(`${w}: the notice facts read ${JSON.stringify(c.facts)}`);
+      if (!c.body.includes("TEMPORARY RESERVED AREA 'ZAGREB CENTAR'") || !c.body.includes("not for flight planning or any operational use.") || !c.body.includes("This is not the FAA's complete list")) fail(`${w}: the card body lacks the notice text, the not-complete sentence or the not-for-flight-planning line`);
+      if (/NaN|undefined|\bnull\b|Infinity/.test(c.text)) fail(`${w}: a bare NaN / undefined / null on the card`);
+      if (c.left < -1 || c.right > 1 || c.top < -1 || c.bottom > 1 || c.pageOver > 1) fail(`${w}: the card leaves the window (left ${c.left}, right +${c.right}, top ${c.top}, bottom +${c.bottom}, page overflow ${c.pageOver}px)`);
+      await page.screenshot({ path: path.join(OUT, `data-flightrestrictions-${w}.png`) }).catch(() => {});
+    };
+    try {
+      const before = await mapState();
+      if (before.layers.length || before.sources.length) fail(`drawn before the layer is switched on: ${JSON.stringify(before)}`);
+      if (calls.length) fail(`${calls.length} requests before the layer is switched on`);
+      if (!(await flip("flight_restrictions", true))) fail("the layer toggle never landed");
+      let st = null;
+      for (let i = 0; i < 40; i++) {
+        await page.waitForTimeout(300);
+        st = await mapState();
+        if (st.layers.length === 4) break;
+      }
+      // both fixture rows in view so querySourceFeatures can see them
+      await page.evaluate(() => window.__vtMap.jumpTo({ center: [-30, 42], zoom: 1.6, pitch: 0, bearing: 0 }));
+      for (let i = 0; i < 30; i++) {
+        await page.waitForTimeout(300);
+        st = await mapState();
+        if (st.pts.length === 2 && st.areas.length === 2) break;
+      }
+      frInfo.layers = st.layers; frInfo.points = st.pts.map((p) => p.id);
+      if (st.layers.length !== 4 || st.sources.length !== 2) fail(`layers ${JSON.stringify(st.layers)} / sources ${JSON.stringify(st.sources)} (4 layers, 2 sources)`);
+      if (st.symType !== "symbol" || st.icon !== "vt-airspace") fail(`the point layer is a ${st.symType} drawing ${st.icon} (a symbol drawing vt-airspace)`);
+      if (!Array.isArray(st.dash) || st.ownDash !== null) fail(`the index circle must be dashed and the restriction's own outline solid (dash ${JSON.stringify(st.dash)}, own ${JSON.stringify(st.ownDash)})`);
+      const wantPts = [
+        { id: "FDC:6/1234", kind: "security", color: "#f87171", shape: "own", in_force: false },
+        { id: "LDZL:A4134/2026", kind: "icao_temporary", color: "#2dd4bf", shape: "enclosing", in_force: true },
+      ];
+      if (JSON.stringify(st.pts) !== JSON.stringify(wantPts)) fail(`the symbols carry ${JSON.stringify(st.pts)} (expected ${JSON.stringify(wantPts)})`);
+      if (JSON.stringify(st.areas) !== JSON.stringify(wantPts)) fail(`the areas carry ${JSON.stringify(st.areas)}`);
+      const row = await rowText();
+      frInfo.row = row;
+      if (!row.includes("2 restrictions")) fail(`the layer row does not count 2 restrictions: "${row}"`);
+      if (!/1 in force, 1 starting within 6 hours of 18 held · 1 could not be read · 7 restriction notices arrived without a shape and are not drawn · not the FAA's complete list · last notice received \d+ (s|min) ago/.test(row)) fail(`the layer row's status reads "${row}"`);
+      const legend = await page.evaluate(() => Array.from(document.querySelectorAll('.vt-legend-item[data-vt-icon="vt-airspace"]')).map((el) => (el.textContent || "").trim()));
+      frInfo.legend = legend.length;
+      const wantLegend = ["Security (91.141, 99.7)", "Disaster, hazard or emergency (91.137 to 91.139)", "Space flight operations (91.143)", "Air show or major sporting event (91.145)", "Temporary restricted area (ICAO notice)", "Flight restriction, rule not cited"];
+      if (JSON.stringify(legend) !== JSON.stringify(wantLegend)) fail(`the legend lists ${JSON.stringify(legend)}`);
+      if (calls.length !== 1) fail(`switching the layer on made ${calls.length} requests (exactly 1)`);
+      if (await openCard("LDZL:A4134/2026", 15.95, 45.8167)) {
+        await checkCard(1440);
+        await page.setViewportSize({ width: 768, height: 1024 });
+        await page.waitForTimeout(1200);
+        await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+        await checkCard(768);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(1200);
+        await page.click('[aria-label="Collapse layers panel"]', { timeout: 1500 }).catch(() => {});
+        await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+        await checkCard(390);
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.waitForTimeout(1200);
+      }
+      // a restriction that has not started: its own outline, the cited rule, "Starts"
+      if (await openCard("FDC:6/1234", -77.05, 38.9)) {
+        const c = await readCard();
+        if (c?.title !== "Flight restriction FDC 6/1234" || !c.cat.startsWith("Security (91.141, 99.7) · starts ")) fail(`the second card reads "${c?.title}" / "${c?.cat}"`);
+        if (!c?.chips.some((x) => x.l === "Starts") || !c?.chips.some((x) => x.l === "Upper" && x.v === "FL180")) fail(`the second card's chips read ${JSON.stringify(c?.chips.map((x) => [x.l, x.v]))}`);
+        await page.screenshot({ path: path.join(OUT, "data-flightrestrictions-own-1440.png") }).catch(() => {});
+      }
+      // switched off: everything the layer added is removed, and nothing asks again
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.click('[aria-label="Close details"]', { timeout: 1500 }).catch(() => {});
+      if (!(await page.locator(".vt-layer-panel").count())) await page.click(".vt-map-fab", { timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const callsOn = calls.length;
+      if (!(await flip("flight_restrictions", false))) fail("the layer would not switch off");
+      await page.waitForTimeout(800);
+      const off = await mapState();
+      if (off.layers.length || off.sources.length) fail(`switched off, the map still holds ${JSON.stringify(off.layers)} ${JSON.stringify(off.sources)}`);
+      if (await page.locator('.vt-legend-item[data-vt-icon="vt-airspace"]').count()) fail("switched off, the legend still lists flight restrictions");
+      if (calls.length !== callsOn) fail(`switching off made ${calls.length - callsOn} more requests`);
+      frInfo.calls = calls.length;
+    } catch (e) {
+      fail("battery crashed: " + String(e?.message || e).split("\n")[0]);
+    }
+    for (const e of frErrors) fail("pageerror: " + e);
+    console.log("\n[FLIGHT RESTRICTIONS] " + JSON.stringify(frInfo) + (frFailures.length ? "\n  ✗ " + frFailures.join("\n  ✗ ") : ""));
+    await ctx.close();
+    results.push({ page: "data-flightrestrictions", width: 1440, label: "flight-restrictions", screenshot: path.join(OUT, "data-flightrestrictions-1440.png"),
+                   tti: null, perf: {}, failures: frFailures, warnings: [], info: { flightRestrictions: frInfo } });
   }
 
   // ── BOOT MARKER battery (2026-11-19) ────────────────────────────────────

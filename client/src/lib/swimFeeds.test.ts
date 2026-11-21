@@ -60,4 +60,7 @@ test("one message is 'message'; the traffic feed says where it is shown", () => 
   assert.equal(feedCounts(v.feeds.find((f) => f.id === "NOTAM")!), "1 message since the server started");
   assert.ok(FEED_USE.TFMS.includes("on the FAA airport card"));
   assert.ok(!/not yet shown on a page/.test(FEED_USE.TFMS));
+  // since 2026-11-21 the notice feed's flight restrictions are a map layer
+  assert.ok(FEED_USE.NOTAM.includes("on the map's Flight restrictions layer"));
+  assert.ok(!/not yet shown on a page/.test(FEED_USE.NOTAM));
 });

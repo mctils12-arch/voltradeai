@@ -126,6 +126,13 @@ test("capture consumers: TFMS + NOTAM connect and profile; STDDS is never consum
     assert.equal(ok.samples.length, 1);
     assert.ok(ok.samples[0].payload.includes("GROUND STOP"));
     assert.equal((await fetch(`${base}/api/data/swim/samples?product=STDDS&token=${"t".repeat(32)}`)).status, 400);
+    // the flight-restrictions answer says how old it is: the notice feed's
+    // connection and the time of its newest message (the map layer's data age)
+    const tf = await (await fetch(`${base}/api/data/swim/notam/tfrs`)).json() as { tfrs: unknown[]; feed: { connected: boolean; last_message_at: number | null } };
+    assert.deepEqual(tf.tfrs, []);
+    assert.equal(tf.feed.connected, pr.products.NOTAM.connected);
+    assert.equal(tf.feed.last_message_at, pr.products.NOTAM.lastMessageAt);
+    assert.ok(typeof tf.feed.last_message_at === "number" && tf.feed.last_message_at > 0, "one notice was received in this test");
   } finally {
     srv.close();
     for (const h of handles) h.stop();

@@ -429,6 +429,23 @@ const shapes: Record<string, () => ImageData> = {
     ctx.beginPath(); ctx.moveTo(23, 14); ctx.lineTo(26, 10); ctx.stroke();
     ctx.beginPath(); ctx.arc(9, s - 6, 2.6, 0, Math.PI * 2); ctx.fill();
   }),
+  // flight restriction (FAA notice feed): an octagon outline with a bar
+  // across it, the road "no entry" idea drawn as airspace. A notice mark,
+  // deliberately distinct from vt-airport (round field + runways) and from
+  // every aircraft glyph (nothing here moves).
+  "vt-airspace": () => draw(S, (ctx, s) => {
+    const m = s / 2, r = 15.5;
+    ctx.lineWidth = 3;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = Math.PI / 8 + (i * Math.PI) / 4;
+      const x = m + r * Math.cos(a), y = m + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.stroke();
+    ctx.fillRect(m - 8.5, m - 2.6, 17, 5.2);
+  }),
   // ocean buoy: mast + top ball over a diamond hull, floating on a wave
   // (reuses vt-gauge's wave motif — both are water-observation glyphs)
   "vt-buoy": () => draw(S, (ctx, s) => {
