@@ -542,8 +542,29 @@ export async function runIncrementalFold<S, P extends CachedPartial, R>(spec: In
   try { return await foldCycle(spec); } finally { spec.cache.endCycle(); }
 }
 
+/** Longest stretch (ms) of cached-partial merges before the event loop gets a
+ *  turn ([REPAIR] 2026-11-21, KNOWN BROKEN #57). A cached hour used to be
+ *  merged with no await before the next one, so once both streams ran
+ *  incremental (2026-11-17) a cycle merged its whole window in one block:
+ *  read on production 2026-11-21 with /api/diag/loop_profile, 2.6 s inside
+ *  the port-dwell absorb (168 h) and 1.7 s inside the shadow-fleet one (72 h),
+ *  every 10 minutes, on the process that runs the trading loop. The same
+ *  slice as dtccSwaps.ts's DTCC_ASYNC_SLICE_MS. */
+export const FOLD_ABSORB_SLICE_MS = 8;
+const yieldToLoop = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
+
 async function foldCycle<S, P extends CachedPartial, R>(spec: IncrementalFoldSpec<S, P, R>): Promise<R> {
   const { cache, stats, mode } = spec;
+  // The cycle's state is private until finish() and begin/endCycle hold the
+  // cache's string table fixed across awaits, so a turn between two merges
+  // changes nothing a merge can see (cycles already interleave at every
+  // streamed file).
+  let sliceStart = performance.now();
+  const breathe = async (): Promise<void> => {
+    if (performance.now() - sliceStart < FOLD_ABSORB_SLICE_MS) return;
+    await yieldToLoop();
+    sliceStart = performance.now();
+  };
   const listing = listVesselWindowFiles(spec.windowHours, spec.baseDir, spec.nowMs);
   const passStart = performance.now();
   const full = mode === "shadow" ? spec.newState() : null;
@@ -570,6 +591,7 @@ async function foldCycle<S, P extends CachedPartial, R>(spec: IncrementalFoldSpe
       // incremental fold stands on the cached partial.
       if (full) await streamInto(file, (m, p) => spec.push(full, m, p));
       absorbTimed(cached);
+      await breathe();
       continue;
     }
     const t = performance.now();

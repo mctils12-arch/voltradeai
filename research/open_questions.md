@@ -8156,9 +8156,11 @@
     dated request can refill them is the first follow-up below
     (2026-11-20 section at the end of this file).
 
-57. **[FOUND 2026-11-21 16:10Z, DAILY scheduled routine. OPEN: the cause is
-    not known; the tool that reads it shipped the same day (v1.0.1514,
-    server/loopProfile.ts)]** THE EVENT LOOP IS BLOCKED 1 TO 3 S EVERY 5
+57. **[FOUND 2026-11-21 16:10Z, DAILY scheduled routine. READ THE SAME DAY
+    with server/loopProfile.ts (v1.0.1514). FIRST CAUSE FIXED v1.0.1515
+    (the vessel-archive fold merged its cached hours in one block: 2.6 s
+    and 1.7 s every 10 minutes); THREE SMALLER CAUSES OPEN, listed at the
+    end of this item. The paragraphs between are the item as first filed.]** THE EVENT LOOP IS BLOCKED 1 TO 3 S EVERY 5
     MINUTES, ROUND THE CLOCK. /api/diag/audit 2026-11-21: 70 of the 200
     newest rows are EVENTLOOP-LAG (0.5 to 3.5 s) in 3 h 40 min on a Saturday
     with Tier-2 scans skipped. The rows sit 5 or 10 minutes apart at a phase
@@ -8187,6 +8189,23 @@
     2026-11-06 is the pattern: slices of 8 ms). (3) only then: correct the
     EVENTLOOP-LAG row's text (it names #18) and decide whether the stall
     count belongs on a page (Pipeline health is where it would go).
+    UPDATE 2026-11-21 17:10Z (same session): THE READING. A 780 s profile
+    on production (16:50-17:03Z): 16 blocked stretches, 16.3 s in all.
+    `foldCycle` (server/vesselArchiveFold.ts) was on the stack for 5.3 s
+    of it: at the 10-minute tick the shadow-fleet merge blocked 1.7 s and
+    the port-dwell merge 2.6 s, because a cached hour is merged with no
+    await and both streams have run incremental since 2026-11-17. FIXED
+    v1.0.1515: a turn of the loop after a cached merge, every 8 ms
+    (server/vesselArchiveFoldYield.test.ts; without it the test reads a
+    191 ms block). STILL OPEN, by measured size: (a) garbage collection,
+    6.5 s of the 16.3 s and 5.3% of the wall clock, mostly in the first
+    five minutes after a boot; (b) the port-dwell finish, one block of
+    about 0.6 s per cycle; (c) the FAA feed client's buffers
+    (`createUnsafeBuffer` 1.3 s, `utf8ToUcs2` 0.9 s under solclientjs's
+    data handler), which is also allocation that feeds (a); (d) one 458 ms
+    synchronous gunzip of datacore/gem/ownership.json.gz after boot.
+    Close this item when a day's audit log holds no EVENTLOOP-LAG row over
+    1 s outside the five minutes after a boot.
 
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
@@ -24787,3 +24806,12 @@ The FAA airport card now reads GET /api/data/swim/tfms/active for its own airpor
 - (p3) THE AUDIT ROW POINTS AT A CLOSED ITEM. "check for a coincident TIER2-ERROR/STREAM-DISCONNECT (KNOWN BROKEN #18)" has sent 61 session logs to a closed item. Change the text when the cause is known (step 3 of #57), not before: the right pointer depends on it.
 - (p4) THE HEALTH CHECK DOES NOT COUNT STALLS. scripts/session_health_check.py reads Tier-2 daemon timeouts and not EVENTLOOP-LAG rows; a line "N stalls in the last hour, longest X s" with a WARN line would have raised this months ago. Its own change, after the fix sets what normal is.
 - (p5) HYPOTHESIS, speculative (foreign field: aviation maintenance, "normalisation of deviance"): an alarm that fires at a steady rate stops being read. Testable form: for each audit row type, the count of session logs that mention it against the count that act on it; types with many mentions and no action are alarms to fix or delete. LADDER PATH: none (process, not signal); terminates as a list in this file.
+
+## 2026-11-21 (sixth entry) — KNOWN BROKEN #57 after the first production profile: one cause fixed (v1.0.1515), what is left open
+- [DONE] (p1) of the fifth entry: the first production run. `own_start_ms` 861 and 1,099 (under the 2,000 trigger), `own_stop_ms` 13 and 73. The reading and the fix are in experiments.md (two 2026-11-21 [REPAIR] entries) and in #57.
+- (q1) CHECK AFTER v1.0.1515 IS LIVE, outside market hours: start a 780 s profile within two minutes of a boot (so the 10-minute fold tick is inside it); expect no blocked stretch with `absorbPartial` or `detector` on top, and `foldCycle` on the stack for well under 1 s of blocked time. PRIOR 80%. Then count EVENTLOOP-LAG rows over the next full day against today's 70 in 3 h 40 min: PRIOR 60% that they fall by more than half. Also read /api/health's fold stats: `fallbacks` and `mismatches` unchanged.
+- (q2) THE FOLD'S FINISH IS ONE BLOCK of about 0.6 s per port-dwell cycle (the visit clustering, `Tpe` in the bundle: a grid of points per port, then a pass over hours). It needs the same slicing inside portDwell.ts's finish, which is synchronous by its type today (IncrementalFoldSpec.finish returns R, not a promise): a signature change with two implementers and the shadow compare. Its own PR.
+- (q3) GARBAGE COLLECTION IS 5.3% OF THE WALL CLOCK and 40% of the blocked time; nine of sixteen stretches were mostly collection, 0.4 to 1.3 s each, seven of them in the five minutes after boot (heap 1.15 GB 100 s after boot: the restore of every archive-backed store at once). Testable form: a profile from boot+6 min to boot+19 min should show collection under 2% if boot is the driver; if it stays near 5%, the steady allocators are the cause ((q4) first). No change proposed before that reading.
+- (q4) THE FAA FEED CLIENT ALLOCATES A BUFFER PER READ. `createUnsafeBuffer` 1.3 s and `utf8ToUcs2` 0.9 s of blocked time sit under solclientjs's `_rxDataCB` (290,000 messages an hour). The library is a dependency; what is ours is how many subscriptions and how large a receive window it is given. Read its session properties before proposing anything.
+- (q5) ONE SYNCHRONOUS 458 ms READ AFTER BOOT: `JSON.parse(gunzipSync(readFileSync("datacore/gem/ownership.json.gz")))`, at 16:52:55Z, four minutes after boot, on first use. Small; the async gunzip is a two-line change in its own PR, or fold it into whichever PR next touches that reader.
+- (q6) STILL OPEN FROM THE FIFTH ENTRY: (p3) the audit row's pointer to #18, (p4) the health check does not count stalls. Both wait for (q1)'s day of data, which sets what normal is.
