@@ -113,6 +113,9 @@ export interface AirportConfig {
   at: number;
 }
 
+/** the part of the store kept across a restart (swimStoreKeep.ts) */
+export interface TfmsSnapshot { programs: TfmsProgram[]; configs: AirportConfig[] }
+
 export interface FlightTmi { acid: string; fcaId: string; fcaName: string | null; entryAt: number | null; at: number }
 
 export interface TfmsParsed {
@@ -362,6 +365,52 @@ export class TfmsStore {
     const programs = Array.from(this.programs.values()).filter((p) => this.isActive(p, now))
       .sort((a, b) => (a.kind === b.kind ? (a.airport ?? "").localeCompare(b.airport ?? "") : a.kind.localeCompare(b.kind)));
     return { programs, airportConfigs: Array.from(this.configs.values()).sort((a, b) => a.airport.localeCompare(b.airport)) };
+  }
+
+  /** What a restart must not lose: the programs not yet past their end and
+   *  every airport configuration. Per-flight records are not kept (off by
+   *  default, and LADD-gated when on). Plain data, safe to JSON. */
+  snapshot(now: number = Date.now()): TfmsSnapshot {
+    this.evict(now);
+    return { programs: Array.from(this.programs.values()), configs: Array.from(this.configs.values()) };
+  }
+
+  /** Put a snapshot back (boot). A record already held and at least as new
+   *  wins, so a message that arrived before the restore is never overwritten
+   *  by an older saved copy. Programs past the eviction line (an hour after
+   *  their end) are dropped; malformed entries are skipped and counted.
+   *
+   *  An airport configuration is put back whatever its report time. Read on
+   *  production 2026-11-21 14:20Z, 11 hours after a boot: 8 of 63 held
+   *  configurations carried a report time 22 to 24 hours old (LAX, SAN, BUR
+   *  ...), so the FAA re-sends a standing report with its ORIGINAL time and a
+   *  report's age says nothing about whether it is current. The live store
+   *  never ages one out either; the card prints the report time. */
+  restore(snap: unknown, now: number = Date.now()): { programs: number; configs: number; dropped: number } {
+    const out = { programs: 0, configs: 0, dropped: 0 };
+    const s = snap as { programs?: unknown; configs?: unknown } | null;
+    for (const raw of Array.isArray(s?.programs) ? s!.programs as unknown[] : []) {
+      const pr = raw as TfmsProgram | null;
+      if (!pr || typeof pr.id !== "string" || !pr.id || typeof pr.kind !== "string" || !Number.isFinite(pr.updatedAt)
+        || (pr.end != null && !Number.isFinite(pr.end)) || (pr.start != null && !Number.isFinite(pr.start))) { out.dropped++; continue; }
+      const end = pr.end ?? pr.updatedAt + TFMS_PROGRAM_DEFAULT_TTL_MS;
+      if (end < now - 3600_000 || pr.updatedAt > now + 60_000) { out.dropped++; continue; }
+      const prev = this.programs.get(pr.id);
+      if (prev && prev.updatedAt >= pr.updatedAt) continue;
+      if (this.programs.size >= TFMS_MAX_PROGRAMS && !prev) { out.dropped++; continue; }
+      this.programs.set(pr.id, { ...pr, elements: Array.isArray(pr.elements) ? pr.elements.filter((e) => typeof e === "string") : [], geometry: Array.isArray(pr.geometry) ? pr.geometry : null });
+      out.programs++;
+    }
+    for (const raw of Array.isArray(s?.configs) ? s!.configs as unknown[] : []) {
+      const c = raw as AirportConfig | null;
+      if (!c || typeof c.airport !== "string" || !c.airport || !Number.isFinite(c.at)) { out.dropped++; continue; }
+      if (c.at > now + 60_000) { out.dropped++; continue; }
+      const prev = this.configs.get(c.airport);
+      if (prev && prev.at >= c.at) continue;
+      this.configs.set(c.airport, { ...c });
+      out.configs++;
+    }
+    return out;
   }
 
   airportConfig(airport: string): AirportConfig | null {

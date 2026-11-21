@@ -4425,6 +4425,7 @@ async function main() {
           if (by.ITWS && (by.ITWS.meta !== "3 settings missing on the server" || by.ITWS.age !== "")) fail(`the feed that is not set up reads "${by.ITWS.meta}" / "${by.ITWS.age}"`);
           if (/SWIM_ITWS_/.test(ff.text)) fail("a server setting's NAME is printed on the page (only the count may be)");
           if (!/These are live connections, not archives/.test(ff.text) || !/starts again when the server restarts/.test(ff.text)) fail("the block does not say the feeds are not archives and that counts restart");
+          if (!/still in\s+force are saved, each minute/.test(ff.text) || /nothing here is a file/.test(ff.text)) fail("the block does not say which lists are saved across a restart (or still says nothing is a file on the volume)");
           if (/NaN|undefined|\bnull\b|Infinity/.test(ff.text)) fail(`a bare NaN / undefined / null in "${ff.text.slice(0, 200)}"`);
           if (ff.archiveCards !== 4 || !/^4 archived streams/.test(ff.sub)) fail(`the archive list shows ${ff.archiveCards} cards under "${ff.sub}" (the feeds must not be counted as archives)`);
           // first run, 390px: the name broke into three lines beside the chip and the age; the head is now one or two lines
@@ -8055,6 +8056,7 @@ async function main() {
     const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const zd = (ms) => (sameDay(ms) ? z(ms) : `${MON[new Date(ms).getUTCMonth()]} ${new Date(ms).getUTCDate()} ${z(ms)}`);
     const GDP_END = AT_NOW + 2 * H, R1_END = AT_NOW + 1 * H, R2_END = AT_NOW + 3 * H, CFG_AT = AT_NOW - 40 * 60_000;
+    const KEPT_SAVED = AT_NOW - 41 * 60_000, KEPT_READ = AT_NOW - 40 * 60_000;
     const prog = (o) => ({ status: null, airport: null, facility: null, start: AT_NOW - H, end: null, title: null, text: null, reason: null, elements: [], geometry: null, floorFl: null, ceilingFl: null, updatedAt: AT_NOW - 30 * 60_000, ...o });
     const tfmsCalls = [];
     await page.route("**/api/data/airport-status", (route) => json(route, { kind: "raw", source: "FAA National Airspace System Status (fixture)", time: 1, update_time: new Date(AT_NOW).toISOString(), count: 2, events: [
@@ -8063,7 +8065,9 @@ async function main() {
     ] }));
     await page.route("**/api/data/swim/tfms/active", (route) => {
       tfmsCalls.push(Date.now());
+      // `kept` (2026-11-21): the server saves the list each minute and read 351 rows back at its last start, 40 minutes ago
       return json(route, { at: AT_NOW, source: "FAA SWIM TFMS (SCDS, NDRB pre-approved for public release; not for operational use)", stats: { programs: 9 },
+        kept: { saved_every_s: 60, last_saved_at: AT_NOW - 20_000, last_save: "ok", restored: { at: KEPT_READ, saved_at: KEPT_SAVED, cause: "ok", programs: 351, airport_configs: 43 } },
         programs: [
           prog({ id: "ADV:ATCSCC:0059", kind: "ADVISORY", status: "GDP", airport: "ATL", facility: "DCCO", end: GDP_END, title: "ATCSCC ADVZY 059 ATL/ZTL CDM GROUND DELAY PROGRAM" }),
           prog({ id: "GDP:ATL", kind: "GDP", status: "ACTUAL", airport: "ATL", facility: "ZTL", end: GDP_END, title: "gdpAdvisory", reason: "VOLUME" }),
@@ -8155,7 +8159,10 @@ async function main() {
       // 5 restriction rows served: one is a re-send of another, one names every airport ("ALL"), one names CLT
       if (JSON.stringify(r.restrictions) !== JSON.stringify(wantR)) fail(`the restrictions read ${JSON.stringify(r.restrictions)} (expected ${JSON.stringify(wantR)})`);
       if (r.config !== `Runways and rates · ${CONFIG}`) fail(`opened, the runway line reads "${r.config}"`);
-      if (!/^FAA traffic-management feed \(SWIM TFMS\), as received: 9 programs and restrictions searched for ATL\. A restriction is listed until its published end; one cancelled early can still be listed\. The list starts again when the server restarts: a program sent before then is missing until the FAA sends it again\. Times are Zulu\. Not for operational use\. Read \d+ (s|min) ago\.$/.test(r.source)) fail(`the source line reads "${r.source}"`);
+      // the server in this fixture keeps its list across a restart: the line says what was carried over and what a restart can still lose
+      const srcHead = `FAA traffic-management feed (SWIM TFMS), as received: 9 programs and restrictions searched for ATL. A restriction is listed until its published end; one cancelled early can still be listed. The list is kept across a server restart: 351 programs and restrictions carried over the last one (saved ${zd(KEPT_SAVED)}, read back ${zd(KEPT_READ)}). What the FAA sent while the server was restarting is missing until it is sent again, and a program cancelled then stays listed until its end. Times are Zulu. Not for operational use. Read `;
+      if (!r.source.startsWith(srcHead) || !/^\d+ (s|min) ago\.$/.test(r.source.slice(srcHead.length))) fail(`the source line reads "${r.source}"`);
+      if (/starts again when the server restarts|restarts with the server/.test(r.source + r.lines.join(" "))) fail("the row still says the list restarts with the server, on a server that keeps it");
       if (/NaN|undefined|\bnull\b|Infinity/.test(r.listText + r.lines.join(" "))) fail("a bare NaN / undefined / null in the row");
       if (r.listScrolls !== "auto" || r.listH > 150) fail(`the open list is ${r.listH}px tall with overflow ${r.listScrolls} (it must scroll inside 148px)`);
       if (r.right > 1 || r.pageOver > 1) fail(`opened, the row leaves the window by ${r.right}px (page overflow ${r.pageOver}px)`);
@@ -8186,7 +8193,7 @@ async function main() {
       const before = tfmsCalls.length;
       if (await selectAirport("BOS", -71.0096, 42.3656)) {
         const r = await readRow();
-        const want = "Nothing for BOS among the 9 programs and restrictions held from the FAA feed (the list restarts with the server)";
+        const want = "Nothing for BOS among the 9 programs and restrictions held from the FAA feed";
         if (!r || r.lines.length !== 1 || r.lines[0] !== want) atFailures.push(`airport traffic BOS: the row reads ${JSON.stringify(r?.lines)} (expected one line: "${want}")`);
         if (r && !r.disabled) atFailures.push("airport traffic BOS: the control is enabled with nothing to list");
         if (tfmsCalls.length - before !== 1) atFailures.push(`airport traffic BOS: ${tfmsCalls.length - before} requests on selection (exactly 1)`);

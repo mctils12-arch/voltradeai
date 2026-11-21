@@ -241,8 +241,9 @@ export default function StreamsView({ onBack }: { onBack: () => void }) {
               </div>
             ) : null}
             <div className="vt-filings-sub vt-streams-foot">
-              Source: FAA System Wide Information Management (SWIM), read by this server. These are live connections, not archives: nothing here is a file
-              on the volume, and every count starts again when the server restarts. FAA-sourced data for an aircraft on the FAA's privacy (LADD) list is
+              Source: FAA System Wide Information Management (SWIM), read by this server. These are live connections, not archives: no message is stored,
+              and every count starts again when the server restarts. Only the traffic programs, airport runway reports and flight restrictions still in
+              force are saved, each minute, so those lists are read back after a restart. FAA-sourced data for an aircraft on the FAA's privacy (LADD) list is
               not served. Status as of {new Date(feeds.at).toISOString().slice(11, 19)}Z.
             </div>
           </section>

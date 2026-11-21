@@ -4,7 +4,7 @@
 // from the shapes the card must survive.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseAirportTraffic, trafficHeadline, configLine, programWords, restrictionLine, reasonWords, zuluAt, periodWords } from "./airportTraffic.ts";
+import { parseAirportTraffic, trafficHeadline, configLine, programWords, restartWords, restrictionLine, reasonWords, zuluAt, periodWords } from "./airportTraffic.ts";
 
 const NOW = Date.UTC(2026, 10, 20, 22, 48, 10);
 const at = (d: number, h: number, m: number) => Date.UTC(2026, 10, d, h, m, 0);
@@ -107,4 +107,37 @@ test("another shape is null, never a guess", () => {
   const odd = parseAirportTraffic({ programs: [null, "x", { kind: "GDP" }, { kind: "RESTRICTION", airport: "SAN" }], airportConfigs: "nope" }, "SAN")!;
   assert.deepEqual([odd.programs.length, odd.restrictions.length, odd.config, odd.atMs], [0, 1, null, null]);
   assert.equal(restrictionLine(odd.restrictions[0], NOW), "Restriction");
+});
+
+test("a server that keeps its list across a restart: the warning goes, and the source line says what was carried over and what a restart can still lose", () => {
+  const OLD = "The list starts again when the server restarts: a program sent before then is missing until the FAA sends it again.";
+  const GAP = "What the FAA sent while the server was restarting is missing until it is sent again, and a program cancelled then stays listed until its end.";
+  // a server that says nothing about keeping (an older build, or keeping switched off: `kept: null`)
+  for (const body of [{ at: NOW, programs: [] }, { at: NOW, programs: [], kept: null }, { at: NOW, programs: [], kept: "yes" }, { at: NOW, programs: [], kept: {} }]) {
+    const v = parseAirportTraffic(body, "XYZ")!;
+    assert.equal(v.kept, null);
+    assert.equal(restartWords(v, NOW), OLD);
+    assert.match(trafficHeadline(v, NOW), /\(the list restarts with the server\)$/);
+  }
+  // rows read back at the last start (the route's shape, server/swimCapture.ts keptFor)
+  const kept = { saved_every_s: 60, last_saved_at: NOW - 30_000, last_save: "ok", restored: { at: at(20, 22, 2), saved_at: at(20, 22, 1), cause: "ok", programs: 351, airport_configs: 43 } };
+  const v = parseAirportTraffic({ at: NOW, programs: [], kept }, "XYZ")!;
+  assert.deepEqual(v.kept, { carried: 351, savedAtMs: at(20, 22, 1), restoredAtMs: at(20, 22, 2) });
+  assert.equal(trafficHeadline(v, NOW), "Nothing for XYZ among the 0 programs and restrictions held from the FAA feed");
+  assert.equal(restartWords(v, NOW), `The list is kept across a server restart: 351 programs and restrictions carried over the last one (saved 22:01Z, read back 22:02Z). ${GAP}`);
+  // one row carried reads in the singular; a save from another UTC day carries its date
+  const one = parseAirportTraffic({ at: NOW, programs: [], kept: { ...kept, restored: { ...kept.restored, programs: 1, saved_at: at(19, 23, 59) } } }, "XYZ")!;
+  assert.equal(restartWords(one, NOW), `The list is kept across a server restart: 1 program and restriction carried over the last one (saved Nov 19 23:59Z, read back 22:02Z). ${GAP}`);
+  // kept, but the last start read nothing back: first boot, a file too old, or one it could not read
+  const NONE = "The list is saved each minute to be kept across a server restart, but nothing was read back at the last one: a program sent before it is missing until the FAA sends it again.";
+  for (const restored of [null, { at: at(20, 22, 2), saved_at: null, cause: "no_file", programs: 0, airport_configs: 0 }, { at: at(20, 22, 2), saved_at: at(19, 20, 0), cause: "too_old", programs: 0, airport_configs: 0 }, { at: at(20, 22, 2), saved_at: null, cause: "unreadable", programs: 0 }]) {
+    const n = parseAirportTraffic({ at: NOW, programs: [], kept: { ...kept, restored } }, "XYZ")!;
+    assert.equal(n.kept?.carried, null);
+    assert.equal(restartWords(n, NOW), NONE);
+    assert.equal(trafficHeadline(n, NOW), "Nothing for XYZ among the 0 programs and restrictions held from the FAA feed");
+  }
+  // a restore that put back zero rows from a readable file is a count, not "nothing was read"
+  const zero = parseAirportTraffic({ at: NOW, programs: [], kept: { ...kept, restored: { ...kept.restored, programs: 0 } } }, "XYZ")!;
+  assert.match(restartWords(zero, NOW), /^The list is kept across a server restart: 0 programs and restrictions carried over/);
+  assert.doesNotMatch(restartWords(v, NOW) + restartWords(zero, NOW) + NONE, /NaN|undefined|null/);
 });

@@ -168,6 +168,32 @@ export class NotamStore {
       .sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
   }
 
+  /** The flight restrictions not yet ended: what a restart must not lose. */
+  snapshot(now: number = Date.now()): TfrRecord[] {
+    this.evict(now);
+    return Array.from(this.tfrs.values());
+  }
+
+  /** Put saved restrictions back (boot). One already held wins (it arrived
+   *  after the save); ended or malformed ones are dropped and counted. A
+   *  cancellation the FAA sent while the server was down is not known here:
+   *  such a restriction stays listed until its published end. */
+  restore(list: unknown, now: number = Date.now()): { tfrs: number; dropped: number } {
+    const out = { tfrs: 0, dropped: 0 };
+    for (const raw of Array.isArray(list) ? list : []) {
+      const t = raw as TfrRecord | null;
+      const g = t?.geometry as { kind?: unknown } | null | undefined;
+      if (!t || typeof t.id !== "string" || !t.id || !g || (g.kind !== "polygon" && g.kind !== "circle")
+        || [t.start, t.end, t.issued].some((v) => v != null && !Number.isFinite(v))) { out.dropped++; continue; }
+      if (this.endOf(t) < now) { out.dropped++; continue; }
+      if (this.tfrs.has(t.id)) continue;
+      if (this.tfrs.size >= NOTAM_MAX_TFRS) { out.dropped++; continue; }
+      this.tfrs.set(t.id, t);
+      out.tfrs++;
+    }
+    return out;
+  }
+
   stats() {
     return { notams: this.notams, tfrs: this.tfrs.size, byClassification: { ...this.byClass }, parseErrors: this.parseErrors };
   }
