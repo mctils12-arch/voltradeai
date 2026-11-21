@@ -4,9 +4,11 @@
 // has received since the server started and how old the newest one is
 // ([PRODUCT] 2026-11-20, UI coverage batch B).
 //
-// These are LIVE FEEDS, not archived streams: nothing here is a file on the
-// volume, and the counters start again at every server restart. The page says
-// both. Pure; pinned by swimFeeds.test.ts. Read tolerantly: another shape is
+// These are LIVE FEEDS, not archived streams: no message is stored, and the
+// counters start again at every server restart. Since 2026-11-21 the rows
+// still in force (traffic programs, airport runway reports, flight
+// restrictions) are saved each minute and read back at a start
+// (server/swimStoreKeep.ts). The page says all three. Pure; pinned by swimFeeds.test.ts. Read tolerantly: another shape is
 // null and the block says the status could not be read. The server reports a
 // missing setting by NAME; the page prints only how many are missing.
 

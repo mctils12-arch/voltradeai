@@ -61,6 +61,17 @@ export interface AirportTrafficView {
   /** how many programs and restrictions the whole answer held (what was searched) */
   searched: number;
   source: string | null;
+  /** the server keeps its list across a restart (route field `kept`, 2026-11-21); null = it does not, or does not say */
+  kept: TrafficKept | null;
+}
+/** What the server put back at its last start. Counts and times as the route gives them. */
+export interface TrafficKept {
+  /** programs and restrictions read back from the file at the last start; null = nothing was read back */
+  carried: number | null;
+  /** when the previous process wrote the file that was read back */
+  savedAtMs: number | null;
+  /** when this process started and read it */
+  restoredAtMs: number | null;
 }
 
 /** a feed reason in plain lower case: "VOL:COMPACTED DEMAND" -> "volume: compacted demand"; NONE / empty -> null */
@@ -127,8 +138,14 @@ export function parseAirportTraffic(raw: unknown, codeIn: string): AirportTraffi
     config = { arriving: str(c.arrRunways), departing: str(c.depRunways), arrivalRate: rate(c.aar), departureRate: rate(c.adr), weather: str(c.weather), atMs: fin(c.at) ? c.at : null };
   }
   const ORDER: readonly ProgramKind[] = ["GS", "GDP", "AFP", "CTOP"];
+  // `kept` is an object only on a server that saves the list; a restore that read nothing (first boot, an old or
+  // unreadable file) carries no count
+  const k = obj(o.kept), kr = obj(k?.restored);
+  const kept: TrafficKept | null = k && fin(k.saved_every_s)
+    ? { carried: kr && kr.cause === "ok" && fin(kr.programs) && fin(kr.saved_at) ? kr.programs : null, savedAtMs: kr && fin(kr.saved_at) ? kr.saved_at : null, restoredAtMs: kr && fin(kr.at) ? kr.at : null }
+    : null;
   return {
-    code, config, atMs: fin(o.at) ? o.at : null, searched: o.programs.length, source: str(o.source),
+    code, config, atMs: fin(o.at) ? o.at : null, searched: o.programs.length, source: str(o.source), kept,
     programs: ORDER.map(programOf).filter((p): p is TrafficProgram => !!p),
     restrictions: Array.from(restrictions.values()).map(({ updatedAt: _u, ...r }) => r)
       .sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0) || a.words.localeCompare(b.words) || a.key.localeCompare(b.key)),
@@ -162,10 +179,24 @@ export function trafficHeadline(v: AirportTrafficView, nowMs: number): string {
   if (v.programs.length) return [...v.programs.map((p) => programWords(p, nowMs)), rest].filter(Boolean).join(" · ");
   // THE LIST RESTARTS WITH THE SERVER (seen on production 2026-11-20, two minutes after a deploy: an airport under a
   // ground stop read "nothing in the FAA feed" because the server held 48 rows, none sent again yet). "Nothing" is
-  // therefore said of what the server HOLDS, with the number, never of the FAA's system.
+  // therefore said of what the server HOLDS, with the number, never of the FAA's system. Since 2026-11-21 the server
+  // saves its list each minute and reads it back at a start (route field `kept`); the bracketed warning is for a
+  // server that does not, and the opened list's source line says what a restart can still lose (restartWords).
   const held = `${v.searched} program${v.searched === 1 ? "" : "s"} and restriction${v.searched === 1 ? "" : "s"} held from the FAA feed`;
   // with restrictions to list, the same caveat is in the opened list's source line (the control opens it)
-  return rest ? `No ground stop or delay program · ${rest}` : `Nothing for ${v.code} among the ${held} (the list restarts with the server)`;
+  return rest ? `No ground stop or delay program · ${rest}` : `Nothing for ${v.code} among the ${held}${v.kept ? "" : " (the list restarts with the server)"}`;
+}
+/** The source line's sentence on what a server restart does to the list. Three cases: the server does not keep the
+ *  list; it keeps it and read rows back at its last start; it keeps it and had nothing to read back. */
+export function restartWords(v: AirportTrafficView, nowMs: number): string {
+  const k = v.kept;
+  if (!k) return "The list starts again when the server restarts: a program sent before then is missing until the FAA sends it again.";
+  const gap = "What the FAA sent while the server was restarting is missing until it is sent again, and a program cancelled then stays listed until its end.";
+  if (k.carried === null || k.savedAtMs === null) {
+    return "The list is saved each minute to be kept across a server restart, but nothing was read back at the last one: a program sent before it is missing until the FAA sends it again.";
+  }
+  const at = k.restoredAtMs !== null ? `, read back ${zuluAt(k.restoredAtMs, nowMs)}` : "";
+  return `The list is kept across a server restart: ${k.carried} program${k.carried === 1 ? "" : "s"} and restriction${k.carried === 1 ? "" : "s"} carried over the last one (saved ${zuluAt(k.savedAtMs, nowMs)}${at}). ${gap}`;
 }
 const WEATHER_WORDS: Readonly<Record<string, string>> = { VMC: "visual conditions (VMC)", IMC: "instrument conditions (IMC)", LOW_VMC: "low visual conditions", LOW_IMC: "low instrument conditions" };
 /** "Arriving 27/32 · departing 33L · 44 arrivals / 36 departures an hour · visual conditions (VMC) · reported 21:01Z"; null when the tower's report is not in the feed */

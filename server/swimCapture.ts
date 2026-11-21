@@ -26,6 +26,7 @@ import { checkDiagToken, diagEnabled } from "./diag";
 import { TfmsStore } from "./swimTfms";
 import { NotamStore, TFR_TEXT_RE } from "./swimNotam";
 import { trackMap } from "./heapDiag";
+import { createSwimKeeper, type SwimKeeper, type SwimKeepView } from "./swimStoreKeep";
 
 // TFMS parser (written against the captured samples): every TFMS payload is
 // profiled AND parsed into programs / airport configs / per-flight
@@ -34,6 +35,23 @@ let tfmsStore: TfmsStore | null = null;
 export function sharedTfmsStore(): TfmsStore { return (tfmsStore ??= new TfmsStore()); }
 let notamStore: NotamStore | null = null;
 export function sharedNotamStore(): NotamStore { return (notamStore ??= new NotamStore()); }
+
+// The rows of both stores that are still in force are kept across a restart
+// (swimStoreKeep.ts; open_questions 2026-11-20 (t6)). One keeper per process,
+// started only where a feed is configured, so a process with no FAA feed (a
+// test, a local run) neither reads nor writes the file.
+let keeper: SwimKeeper | null = null;
+export function startSwimStoreKeep(o: { env?: NodeJS.ProcessEnv; file?: string; intervalMs?: number; log?: (m: string) => void; now?: () => number } = {}): SwimKeeper | null {
+  if (keeper) return keeper;
+  const status = swimProductsEnvStatus(o.env ?? process.env);
+  if (!status.TFMS?.configured && !status.NOTAM?.configured) return null;
+  keeper = createSwimKeeper(sharedTfmsStore(), sharedNotamStore(), { file: o.file, intervalMs: o.intervalMs, log: o.log, now: o.now });
+  keeper.start();
+  return keeper;
+}
+/** What the public routes say about the keeping; null when no keeper runs
+ *  (no feed configured), so a page keeps its "restarts with the server" words. */
+export function swimKeepView(): SwimKeepView | null { return keeper ? keeper.view() : null; }
 
 export const CAPTURE_PRODUCTS = ["TFMS", "NOTAM"] as const;
 export type CaptureProduct = typeof CAPTURE_PRODUCTS[number];
@@ -164,7 +182,25 @@ export async function startSwimCapture(o: {
 }
 
 /** test seam */
-export function _resetSwimCaptureForTests(): void { captures.clear(); tfmsStore = null; notamStore = null; }
+export function _resetSwimCaptureForTests(): void { captures.clear(); tfmsStore = null; notamStore = null; keeper?.stop(); keeper = null; }
+
+/** The keeping as one route's answer states it: whether the list survives a
+ *  restart, what this process put back at boot (this route's rows only) and
+ *  when the file was last written. Counts and times, no text. null = the
+ *  list is NOT kept (no keeper, or switched off). */
+export function keptFor(which: "tfms" | "notam", v: SwimKeepView | null = swimKeepView()) {
+  if (!v || !v.enabled) return null;
+  const r = v.restored;
+  return {
+    saved_every_s: v.interval_s,
+    last_saved_at: v.last_saved_at,
+    last_save: v.last_save,
+    restored: r ? {
+      at: r.at, saved_at: r.saved_at, cause: r.cause,
+      ...(which === "tfms" ? { programs: r.programs, airport_configs: r.configs } : { tfrs: r.tfrs }),
+    } : null,
+  };
+}
 
 /** GET /api/data/swim/products (public: every SCDS product's env readiness
  *  by NAME, transport status, per-hour cadence and the content-free shape
@@ -206,7 +242,7 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
     st.evict(now);
     res.set("Cache-Control", "public, max-age=30");
     res.json({
-      at: now, ...st.active(now), stats: st.stats(),
+      at: now, ...st.active(now), stats: st.stats(), kept: keptFor("tfms"),
       source: "FAA SWIM TFMS (SCDS, NDRB pre-approved for public release; not for operational use)",
     });
   });
@@ -220,7 +256,7 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
     st.evict(now);
     res.set("Cache-Control", "public, max-age=60");
     res.json({
-      at: now, tfrs: st.active(now), stats: st.stats(),
+      at: now, tfrs: st.active(now), stats: st.stats(), kept: keptFor("notam"),
       source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use)",
       note: "geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area; only 'polygon' is the restriction's own shape.",
     });

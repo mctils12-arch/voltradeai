@@ -17,7 +17,7 @@
 // per-frame work. Times are Zulu, as the FAA publishes them.
 import { useEffect, useState } from "react";
 import {
-  AIRPORT_CODE_RE, AIRPORT_TRAFFIC_REFRESH_MS, PROGRAM_WORDS, configLine, fetchAirportTraffic, periodWords, restrictionLine, trafficHeadline,
+  AIRPORT_CODE_RE, AIRPORT_TRAFFIC_REFRESH_MS, PROGRAM_WORDS, configLine, fetchAirportTraffic, periodWords, restartWords, restrictionLine, trafficHeadline,
   type AirportTrafficView,
 } from "@/lib/air/airportTraffic";
 
@@ -110,7 +110,7 @@ function AirportTrafficRow({ code, v, fetchedAt, failed }: { code: string; v: Ai
           <div data-vt-airport-traffic-source>
             FAA traffic-management feed (SWIM TFMS), as received: {v.searched} programs and restrictions searched for {code}.
             {v.restrictions.length ? " A restriction is listed until its published end; one cancelled early can still be listed." : ""}
-            {" "}The list starts again when the server restarts: a program sent before then is missing until the FAA sends it again.
+            {" "}{restartWords(v, v.atMs ?? now)}
             {" "}Times are Zulu. Not for operational use. Read {ageWords(now - fetchedAt)} ago{failed ? `; the last refresh failed (${failed})` : ""}.
           </div>
         </div>
