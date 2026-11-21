@@ -419,6 +419,10 @@
    "plumbing",
    "disk volume"
   ],
+  "loop_profile": [
+   "plumbing",
+   "on-demand CPU profile of the server's event loop (a session's diagnostic; it starts a run, so it is not a page read)"
+  ],
   "bars_coverage": [
    "plumbing",
    "price-bar coverage"

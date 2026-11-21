@@ -8156,6 +8156,38 @@
     dated request can refill them is the first follow-up below
     (2026-11-20 section at the end of this file).
 
+57. **[FOUND 2026-11-21 16:10Z, DAILY scheduled routine. OPEN: the cause is
+    not known; the tool that reads it shipped the same day (v1.0.1514,
+    server/loopProfile.ts)]** THE EVENT LOOP IS BLOCKED 1 TO 3 S EVERY 5
+    MINUTES, ROUND THE CLOCK. /api/diag/audit 2026-11-21: 70 of the 200
+    newest rows are EVENTLOOP-LAG (0.5 to 3.5 s) in 3 h 40 min on a Saturday
+    with Tier-2 scans skipped. The rows sit 5 or 10 minutes apart at a phase
+    that restarts with each boot (boot 14:27:24Z -> 14:32:31, 14:37:32,
+    14:42:31, 14:47:32, 14:57:32, 15:07:37 ...), so the cause is a 5-minute
+    timer started at boot; about half its ticks fall under the 500 ms
+    reporting line. Two more clusters: about 30 minutes after a boot, and
+    beside the daily forecast run.
+    NOT #18: that item (daemon timeouts) was closed 2026-07-17 and the audit
+    row's own text still points at it; 61 session logs have passed these rows
+    as noise on that pointer.
+    COST: the process that runs the stop monitor, the stream stops and every
+    order call loses up to 3 s every 5 minutes, market hours included; and
+    the stall alarm is too noisy to show a real stall.
+    RULED OUT BY READING (2026-11-21): the six 5-minute timers in
+    server/bot.ts (clock comparisons at this hour); the 5-minute plan-history
+    save in server/flightPlans.ts (20,000 plans at most, about 2 MB).
+    NEXT, IN ORDER: (1) after v1.0.1514 is live, outside market hours:
+    `GET /api/diag/loop_profile?start=1` with the diag token, read
+    `/api/diag/loop_profile` 11 minutes later; `result.stalls_on_stack` names
+    the frames (bundle position + the first characters of the function's
+    text; search the text's string literals in server/). PRIOR before the
+    run: 50% a periodic save or serialise of a large structure, 25% garbage
+    collection after a periodic burst, 25% other. (2) the fix, its own PR,
+    with a test that the named path yields the loop (the DTCC repair of
+    2026-11-06 is the pattern: slices of 8 ms). (3) only then: correct the
+    EVENTLOOP-LAG row's text (it names #18) and decide whether the stall
+    count belongs on a page (Pipeline health is where it would go).
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -24747,3 +24779,11 @@ The FAA airport card now reads GET /api/data/swim/tfms/active for its own airpor
 - (s4) NO SAVE AT SHUTDOWN. The last minute before a restart is not in the file. A save on SIGTERM belongs to the shutdown handler in server/bot.ts (T-BOT) and was left out to keep this change in one territory; the route's `kept.last_saved_at` shows how old the file is at any moment.
 - (s5) THE FLIGHT-RESTRICTION LAYER is still not on the map (UI_COVERAGE.md "missing": GET /api/data/swim/notam/tfrs). Production held 10 restrictions at 14:20Z, so the store is no longer empty and the layer can be built against real rows; with this change it also survives a deploy.
 - [VERIFIED ON PRODUCTION, the 13F page of the entry above] 2026-11-21 13:55Z, v1.0.1512, a real browser: the first request is `?filed_from=2026-10-08`; the header reads "(days filed)" and "all 4 filed days are complete"; "Load older days" brings "Filed 2026-11-16 · 1,712 filings · complete · all 1,712 on EDGAR's index".
+
+## 2026-11-21 (fifth entry) — the event loop's periodic stall (KNOWN BROKEN #57) and the loop profile (v1.0.1514): what is left open
+- [BUILT] `GET /api/diag/loop_profile` (diag token; `?start=1&seconds=660&sample_ms=10`): V8's sampling profiler for a bounded time, reduced to what was on the stack while the loop was blocked. Switch: VOLTRADE_LOOP_PROFILE=off. experiments.md 2026-11-21 [REPAIR] entry.
+- (p1) THE FIRST PRODUCTION RUN is the next action on #57 (steps and prior are in that item). Read `own_start_ms` first: locally the start blocked the loop 222 ms; production's heap is seven times larger and the number is not known. Over 2,000 ms is the rollback trigger.
+- (p2) THE OTHER TWO CLUSTERS. Six rows 30 minutes after the 14:27Z boot (14:57:32-14:58:02, up to 3.3 s) and nine rows at 15:42:29-15:46:16 beside the 15:42:25Z FORECAST-DAILY row. A default run started within 20 minutes of a boot catches the first; the second needs a run that spans the forecast check (every 15 minutes, 2 minutes after boot).
+- (p3) THE AUDIT ROW POINTS AT A CLOSED ITEM. "check for a coincident TIER2-ERROR/STREAM-DISCONNECT (KNOWN BROKEN #18)" has sent 61 session logs to a closed item. Change the text when the cause is known (step 3 of #57), not before: the right pointer depends on it.
+- (p4) THE HEALTH CHECK DOES NOT COUNT STALLS. scripts/session_health_check.py reads Tier-2 daemon timeouts and not EVENTLOOP-LAG rows; a line "N stalls in the last hour, longest X s" with a WARN line would have raised this months ago. Its own change, after the fix sets what normal is.
+- (p5) HYPOTHESIS, speculative (foreign field: aviation maintenance, "normalisation of deviance"): an alarm that fires at a steady rate stops being read. Testable form: for each audit row type, the count of session logs that mention it against the count that act on it; types with many mentions and no action are alarms to fix or delete. LADDER PATH: none (process, not signal); terminates as a list in this file.

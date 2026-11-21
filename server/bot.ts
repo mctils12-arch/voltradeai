@@ -78,6 +78,7 @@ import { githubGate2Status } from "./githubGate2";
 import { form4CompletenessStatus } from "./edgarForm4Completeness";
 import { filings13fCompletenessStatus } from "./edgar13fCompleteness";
 import { xbrlFramesStatus } from "./xbrlFrames";
+import { startLoopProfile, loopProfileStatus } from "./loopProfile";
 import { edgarPollHealthStatus } from "./edgarPollHealth";
 import { eventStudyStatus } from "./eventStudy";
 import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, FORECAST_QUEUE_MAX_WAIT_MS, FORECAST_QUEUE_BUDGET_MS, type ForecastPayload, forecastDailyPayloadPath, forecastGenerateDailyCmd, vixFromCboe, dailyAuditKind, dailyWantsVixRefresh, type ForecastDailyPayload, type DailyGenerateResult } from "./forecast";
@@ -5163,6 +5164,20 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // ADDED 2026-11-17 ([PIPELINE]): read-only status of the nightly Form 4
           // archive completeness pass (server/edgarForm4Completeness.ts) — counts only.
           return res.json(sanitizeDiag(form4CompletenessStatus()));
+        }
+        case "loop_profile": {
+          // ADDED 2026-11-21 ([REPAIR], measurement only — server/loopProfile.ts):
+          // what was on the stack while the event loop was blocked. A plain
+          // read answers the state and the last result; ?start=1 (optional
+          // &seconds= 2-900, &sample_ms= 2-100) starts one bounded run of
+          // V8's sampling profiler. VOLTRADE_LOOP_PROFILE=off refuses starts.
+          if (String(req.query.start || "") === "1") {
+            const r = startLoopProfile({ seconds: req.query.seconds, sampleMs: req.query.sample_ms });
+            const st = loopProfileStatus();
+            if (r.started) audit("LOOP-PROFILE", `CPU profile of the event loop started: ${st.seconds} s, one sample every ${st.sample_ms} ms, until ${st.ends_at} (read /api/diag/loop_profile after that)`);
+            return res.json(sanitizeDiag({ probe: "loop_profile", started: r.started, reason: r.reason, ...st }));
+          }
+          return res.json(sanitizeDiag({ probe: "loop_profile", ...loopProfileStatus() }));
         }
         case "xbrl_frames": {
           // The nightly SEC XBRL fundamentals read: its markers, the last

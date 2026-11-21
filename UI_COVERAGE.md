@@ -19,7 +19,7 @@ page requests it, not that the page shows every field.
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
 | HTTP routes | 273 | 5 | 6 | 27 | 14 |
-| Diagnostic probes (token-gated) | 37 | 15 | 1 | 11 | 0 |
+| Diagnostic probes (token-gated) | 37 | 15 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, the legend and
@@ -86,7 +86,7 @@ layers are not listed one by one here.
 | route | `GET /api/shorts/dashboard` | `server/routes.ts` | pre-refocus route; no page reads it. Removal candidate. |
 | route | `GET /api/trades/history` | `server/routes.ts` | pre-refocus route. Removal candidate. |
 
-## Plumbing: not user features (38)
+## Plumbing: not user features (39)
 
 | Kind | Item | Why |
 |---|---|---|
@@ -128,6 +128,7 @@ layers are not listed one by one here.
 | probe | `volume` | disk volume |
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
+| probe | `loop_profile` | on-demand CPU profile of the server's event loop (a session's diagnostic; it starts a run, so it is not a page read) |
 
 ## Surfaced (316)
 
