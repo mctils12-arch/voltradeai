@@ -60,6 +60,17 @@ test("store: active TFRs only (window, cancellation); non-TFRs are counted by cl
   assert.equal(t.end, null);
   assert.equal(noEnd.active(Date.parse("2026-10-14T23:20:00Z") + NOTAM_TFR_DEFAULT_TTL_MS + 1).length, 0, "kept a bounded time past issue");
   assert.equal(s.stats().parseErrors, 0);
+  // a restriction notice with no airspace geometry and no index circle cannot
+  // be drawn: it is counted, so the map can say its list is short by them
+  assert.equal(s.stats().tfrs_without_shape, 0, "every restriction above carried a shape; the plain ILS notice is not counted");
+  const bare = (x: string) => x.replace(/<event:coordinates>[^<]*<\/event:coordinates>/, "").replace(/<event:radius>[^<]*<\/event:radius>/, "");
+  const shapeless = new NotamStore();
+  shapeless.ingest(bare(msg({ cls: "FDC", id: "6/4444", text: "TEMPORARY FLIGHT RESTRICTIONS WI AN AREA DEFINED AS 3NM RADIUS OF 370905N0834549W PURSUANT TO 14 CFR SECTION 91.137(A)(1)" })), now);
+  assert.deepEqual({ held: shapeless.stats().tfrs, without_shape: shapeless.stats().tfrs_without_shape, listed: shapeless.active(now).length }, { held: 0, without_shape: 1, listed: 0 });
+  shapeless.ingest(bare(msg({ cls: "FDC", id: "6/4444", type: "C", text: "TEMPORARY FLIGHT RESTRICTIONS CANCELED" })), now);
+  assert.equal(shapeless.stats().tfrs_without_shape, 1, "a cancellation is not a restriction that could not be drawn");
+  shapeless.ingest(bare(ILS), now);
+  assert.equal(shapeless.stats().tfrs_without_shape, 1, "a notice that is not a flight restriction is not counted");
   assert.deepEqual(parseNotamPayload("<x/>"), []);
 });
 

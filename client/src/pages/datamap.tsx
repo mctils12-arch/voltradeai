@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
-import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake, ArrowLeftRight, Gem, Truck } from "lucide-react";
+import { Layers as LayersIcon, Info, X, Minus, Flag, Plane, Ship, MapPin, Satellite, FileText, Zap, TrainFront, Maximize2, Minimize2, Mountain, CloudRain, Thermometer, Wind, Flame, TrendingUp, Share2, Database as DatabaseIcon, Globe as GlobeIcon, Map as FlatMapIcon, MessageSquareText, Moon, CloudFog, Leaf, Droplets, Droplet, Factory, ChevronLeft, ChevronRight, Clock, ThermometerSun, Activity, Waves, Eye, Scale, Anchor, TreePine, Gauge, Shield, Orbit, Sparkles, Cloud, Waypoints, Grid3x3, Tag, SunMedium, Lock, LockOpen, ZoomIn, ZoomOut, TowerControl, Ban, Milestone, Landmark, Radar, FlaskConical, Smartphone, GitBranch, Euro, Percent, Plug, TrendingDown, Banknote, Pill, Car, Building2, Megaphone, Repeat, Handshake, ArrowLeftRight, Gem, Truck } from "lucide-react";
 // Static CSS import: without maplibre's stylesheet loaded BEFORE the map
 // constructs, maplibre mis-measures the container (300px fallback canvas) and
 // its controls render unpositioned. The JS stays dynamically imported below.
@@ -24,6 +24,7 @@ import {
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, siteHostCountry, testedAtHome } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, faaCardStats, type FaaEventType } from "@/lib/faaAirports";
+import { parseFlightRestrictions, drawRestrictions, removeRestrictions, RESTRICTION_CLICK_LAYERS, restrictionCard, statusWords as flightRestrictionStatus, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, FLIGHT_RESTRICTIONS_REFRESH_MS, type FlightRestriction } from "@/lib/air/flightRestrictions";
 import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
@@ -524,7 +525,7 @@ interface DetailKV { label: string; value: string }
 interface DetailAction { label: string; primary?: boolean; run: () => void }
 
 interface Detail {
-  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "chemicalplant" | "lngshipyard" | "steelrawmaterials" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
+  kind: "site" | "aircraft" | "vessel" | "powerplant" | "substation" | "transmission" | "train" | "fire" | "gauge" | "alert" | "satellite" | "coverage" | "quake" | "volcano" | "buoy" | "place" | "superfund" | "nuketest" | "waterviolator" | "pfas" | "radiation" | "nukeaccident" | "nukefacility" | "port" | "celestial" | "military_installation" | "methaneplume" | "camdplant" | "faaairport" | "flightrestriction" | "borderwait" | "coalminefeature" | "coalterminal" | "ironoremine" | "ironsteelplant" | "chemicalplant" | "lngshipyard" | "steelrawmaterials" | "spaceweather" | "nrcreactor" | "cancercounty" | "meteor" | "cable";
   title: string;
   subtitle: string;
   body: string;
@@ -953,7 +954,7 @@ const LAYER_GROUP: Record<string, string> = {
   // proposal filed in wishlist.md (workflows are frozen).
   timezones: "base",
   celestial_paths: "base",
-  aircraft: "live", vessels: "live", trains: "live",
+  aircraft: "live", vessels: "live", trains: "live", flight_restrictions: "live",
   sites: "facilities", powerplants: "facilities", nukefacilities: "facilities", military_installations: "facilities",
   plant_operations: "facilities", nrc_reactor_status: "facilities", faa_airports: "facilities", border_waits: "facilities",
   coal_terminals: "facilities",
@@ -1607,7 +1608,7 @@ const LegendPanel = memo(function LegendPanel({
               </div>
             </div>
           )}
-          {(enabled.aircraft || enabled.vessels || enabled.trains) && (
+          {(enabled.aircraft || enabled.vessels || enabled.trains || enabled.flight_restrictions) && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Live Tracking</div>
               <div className="vt-legend-items">
@@ -1712,6 +1713,16 @@ const LegendPanel = memo(function LegendPanel({
                   </>
                 )}
                 {enabled.trains && <LegendIcon icon="vt-train" color="#2dd4bf" label="Train" />}
+                {enabled.flight_restrictions && (
+                  <>
+                    {RESTRICTION_KIND_ORDER.map((k) => (
+                      <LegendIcon key={k} icon="vt-airspace" color={RESTRICTION_KIND_COLOR[k]} label={RESTRICTION_KIND_LABEL[k]} />
+                    ))}
+                    <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px solid #cbd5e1" }} /> The restriction's own outline</span>
+                    <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px dashed #cbd5e1" }} /> A circle that encloses it (outline not sent)</span>
+                    <span className="vt-legend-note">FAA notice feed, as received; not the FAA's complete list. Faint = starts within 6 hours. Not for flight planning.</span>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -10471,6 +10482,72 @@ export default function DataMapPage() {
     return () => { stop = true; iv(); detach(); };
   }, [enabled.faa_airports, mapReady, setStatus]);
 
+  // ── Flight restrictions (RAW; GET /api/data/swim/notam/tfrs, the FAA notice
+  // feed's restrictions in force now or starting within 6 hours). Parsing,
+  // kind, shape, caps and every sentence are lib/air/flightRestrictions.ts.
+  // Drawn: a tinted area per restriction (its own outline solid; the notice's
+  // index circle, which is larger than the restriction, dashed), and one
+  // vt-airspace symbol whose colour is the kind. RENDERING & MOTION LAW: no
+  // map-event handler (I); at most 2,000 restrictions and 512 corners an
+  // outline, thinned above that (IV); every request is aborted and both
+  // sources and all four layers removed on toggle-off (IV); the status line
+  // says when the feed's last notice arrived, and a failed read keeps what is
+  // drawn and says so (V). Off by default. ──
+  const flightRestrictionRowsRef = useRef<{ rows: Map<string, FlightRestriction>; kept: boolean }>({ rows: new Map(), kept: false });
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!enabled.flight_restrictions) {
+      removeRestrictions(map);
+      flightRestrictionRowsRef.current = { rows: new Map(), kept: false };
+      setStatus("flight_restrictions", "off");
+      return;
+    }
+    if (!map || !mapReady) return;
+    setStatus("flight_restrictions", "loading");
+    let stop = false;
+    let drawn = false;
+    let attached = false;
+    let detach = () => {};
+    let ctl: AbortController | null = null;
+    const load = async () => {
+      ctl?.abort();
+      const mine = (ctl = new AbortController());
+      try {
+        const r = await fetch("/api/data/swim/notam/tfrs", { signal: mine.signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const v = parseFlightRestrictions(await r.json());
+        if (stop || mine.signal.aborted) return;
+        if (!v) throw new Error("shape");
+        flightRestrictionRowsRef.current = { rows: new Map(v.rows.map((x) => [x.id, x])), kept: v.kept };
+        drawRestrictions(map, v.rows);
+        // once per run of this effect: the layers can outlive a run (the map
+        // becoming ready again), the click handlers do not
+        if (!attached) {
+          attached = true;
+          detach = attachLayerInteractions(map, RESTRICTION_CLICK_LAYERS, (e: { features?: Array<{ properties?: { id?: string } }> }) => {
+            const held = flightRestrictionRowsRef.current;
+            const row = held.rows.get(e.features?.[0]?.properties?.id ?? "");
+            if (!row) return;
+            const card = restrictionCard(row, Date.now(), { km: (km, digits) => fmtKm(km, digits), meters: (m) => fmtMeters(m) }, held.kept);
+            const dossierKey = `flightrestriction:${row.id}:${Date.now()}`;
+            setDetail({ kind: "flightrestriction", ...card, dossierKey });
+            // a restriction is not an Everything Graph node: place-only dossier at its symbol
+            fetchDossier(dossierKey, null, row.center[1], row.center[0]);
+          });
+        }
+        drawn = true;
+        setStatus("flight_restrictions", "active", v.rows.length, flightRestrictionStatus(v, Date.now()));
+      } catch (err) {
+        if (stop || mine.signal.aborted) return;
+        setStatus("flight_restrictions", "error", undefined,
+          drawn ? "the last read failed; what is drawn is the answer before it. Retrying each minute" : "could not be read; retrying each minute");
+      }
+    };
+    load();
+    const iv = pollWhenVisible(load, FLIGHT_RESTRICTIONS_REFRESH_MS);
+    return () => { stop = true; ctl?.abort(); iv(); detach(); };
+  }, [enabled.flight_restrictions, mapReady, setStatus]);
+
   // ── CBP land-border wait times (RAW — server/cbpBorderWait.ts's own
   // manifest named this map layer "deferred with the FAA one" since
   // 2026-07-05; both coordinate tables now exist). Position comes from a
@@ -13990,6 +14067,7 @@ export default function DataMapPage() {
     id === "plant_operations" ? <Gauge size={15} /> :
     id === "nrc_reactor_status" ? <Zap size={15} /> :
     id === "faa_airports" ? <TowerControl size={15} /> :
+    id === "flight_restrictions" ? <Ban size={15} /> :
     id === "border_waits" ? <Milestone size={15} /> :
     id === "coal_mine_features" ? <Mountain size={15} /> :
     id === "coal_terminals" ? <ArrowLeftRight size={15} /> :
@@ -14048,7 +14126,7 @@ export default function DataMapPage() {
     if (rt?.status === "loading") return { dot: "var(--accent-orange)", text: "loading…", note: rt.note };
     if (rt?.status === "active") {
       const c = rt.count;
-      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "clinical_trials" ? "changes" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "chemicals" ? "plants" : l.id === "lng_shipyards" ? "shipyards" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
+      const unit = l.id === "sites" ? "sites" : l.id === "insider" ? "filings" : l.id === "earnings" ? "releases" : l.id === "shortvol" ? "symbols" : l.id === "ats_summary" ? "records" : l.id === "midas" ? "watchlist" : l.id === "secftd" ? "top fails" : l.id === "fleet_utilization" ? "owners" : l.id === "grid_demand" ? "respondents" : l.id === "grid_generation" ? "respondents" : l.id === "occ_volume" ? "underlyings" : l.id === "tff" ? "markets" : l.id === "treasury_auctions" ? "auctions" : l.id === "treasury_dts" ? "lines" : l.id === "fda_events" ? "events" : l.id === "clinical_trials" ? "changes" : l.id === "vehicle_complaints" ? "vehicles" : l.id === "bank_failures" ? "failures" : l.id === "powerplants" ? "plants" : l.id === "plant_operations" ? "facilities" : l.id === "nrc_reactor_status" ? "plants" : l.id === "trains" ? "trains" : l.id === "shadowstats" ? "gap events" : l.id === "portdwell" ? "port calls" : l.id === "fires" ? "detections" : l.id === "methane_plumes" ? "plumes" : l.id === "graph" ? "entities" : l.id === "earthquakes" ? "quakes" : l.id === "meteors" ? "blasts" : l.id === "volcanoes" ? "elevated" : l.id === "buoys" ? "stations" : l.id === "faa_airports" ? "events" : l.id === "flight_restrictions" ? "restrictions" : l.id === "border_waits" ? "crossings" : l.id === "coal_mine_features" ? "features" : l.id === "coal_terminals" ? "terminals" : l.id === "iron_ore_mines" ? "mines" : l.id === "iron_steel_plants" ? "plants" : l.id === "chemicals" ? "plants" : l.id === "lng_shipyards" ? "shipyards" : l.id === "attention" ? "tickers" : l.id === "cot" ? "markets" : l.id === "contracts" ? "awards" : l.id;
       return { dot: "var(--accent-green)", text: c != null ? `${c.toLocaleString()} ${unit}` : "active", note: rt.note };
     }
     return { dot: "var(--text-tertiary)", text: "off" };

@@ -254,9 +254,14 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
     const st = sharedNotamStore();
     const now = Date.now();
     st.evict(now);
+    const feed = swimProductStatus("NOTAM");
     res.set("Cache-Control", "public, max-age=60");
     res.json({
       at: now, tfrs: st.active(now), stats: st.stats(), kept: keptFor("notam"),
+      // how old the list is (RENDERING & MOTION LAW V): whether the notice
+      // feed is connected and when its newest message arrived (any notice,
+      // not only a flight restriction)
+      feed: { connected: feed.connected, last_message_at: feed.lastMessageAt },
       source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use)",
       note: "geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area; only 'polygon' is the restriction's own shape.",
     });

@@ -189,10 +189,6 @@
    "plumbing",
    "operator action; retrain runs on schedule"
   ],
-  "GET /api/data/swim/notam/tfrs": [
-   "missing",
-   "Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry)."
-  ],
   "GET /api/data/swim/samples": [
    "plumbing",
    "raw message samples for debugging"

@@ -138,6 +138,12 @@ export class NotamStore {
   readonly byClass: Record<string, number> = {};
   notams = 0;
   parseErrors = 0;
+  /** flight-restriction notices received since this process started that
+   *  carried neither airspace geometry nor an index circle, so they cannot be
+   *  drawn or tested against a track. Messages, not distinct notices (a
+   *  re-sent notice counts again). Why the map's list is shorter than the
+   *  FAA's own (2026-11-21: 66 on tfr.faa.gov, 18 held here) starts here. */
+  tfrsWithoutShape = 0;
 
   ingest(xml: string, now: number = Date.now()): void {
     let recs: TfrRecord[];
@@ -146,7 +152,10 @@ export class NotamStore {
       this.notams++;
       const k = r.classification ?? "UNKNOWN";
       this.byClass[k] = (this.byClass[k] || 0) + 1;
-      if (!r.geometry) continue;
+      if (!r.geometry) {
+        if (isTfr(r) && (r.type ?? "").toUpperCase() !== "C") this.tfrsWithoutShape++;
+        continue;
+      }
       if ((r.type ?? "").toUpperCase() === "C") { this.tfrs.delete(r.id); continue; } // cancellation
       this.tfrs.set(r.id, r);
     }
@@ -195,6 +204,6 @@ export class NotamStore {
   }
 
   stats() {
-    return { notams: this.notams, tfrs: this.tfrs.size, byClassification: { ...this.byClass }, parseErrors: this.parseErrors };
+    return { notams: this.notams, tfrs: this.tfrs.size, tfrs_without_shape: this.tfrsWithoutShape, byClassification: { ...this.byClass }, parseErrors: this.parseErrors };
   }
 }
