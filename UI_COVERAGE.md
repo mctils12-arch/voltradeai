@@ -18,15 +18,15 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 273 | 5 | 6 | 27 | 14 |
+| HTTP routes | 274 | 5 | 5 | 27 | 14 |
 | Diagnostic probes (token-gated) | 37 | 15 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
-Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, the legend and
+Map layers: 258 in `datacore/layers.json` (255 live). The /data layers panel, the legend and
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (7)
+## Missing: user-relevant, no UI yet (6)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -35,7 +35,6 @@ layers are not listed one by one here.
 | route | `POST /api/bot/trade` | `server/bot.ts` | Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner). |
 | route | `POST /api/bot/close` | `server/bot.ts` | Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above. |
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
-| route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
 
 ## Partial (24)
@@ -130,7 +129,7 @@ layers are not listed one by one here.
 | probe | `price_panel` | price panel build |
 | probe | `loop_profile` | on-demand CPU profile of the server's event loop (a session's diagnostic; it starts a run, so it is not a page read) |
 
-## Surfaced (316)
+## Surfaced (317)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -404,6 +403,7 @@ layers are not listed one by one here.
 | route | `GET /api/ml/status` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | a page calls it |
+| route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /terms` | `server/terms.ts` | a page calls it |
 | route | `GET /api/data/xbrl-fundamentals` | `server/xbrlFrames.ts` | a page calls it |
 | route | `GET /api/data/xbrl-fundamentals/company` | `server/xbrlFrames.ts` | a page calls it |
