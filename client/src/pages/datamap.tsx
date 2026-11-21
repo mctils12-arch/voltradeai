@@ -24,7 +24,7 @@ import {
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, siteHostCountry, testedAtHome } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, faaCardStats, type FaaEventType } from "@/lib/faaAirports";
-import { parseFlightRestrictions, drawRestrictions, removeRestrictions, RESTRICTION_CLICK_LAYERS, restrictionCard, statusWords as flightRestrictionStatus, KIND_COLOR as RESTRICTION_KIND_COLOR, KIND_LABEL as RESTRICTION_KIND_LABEL, KIND_ORDER as RESTRICTION_KIND_ORDER, FLIGHT_RESTRICTIONS_REFRESH_MS, type FlightRestriction } from "@/lib/air/flightRestrictions";
+import { parseFlightRestrictions, drawRestrictions, removeRestrictions, RESTRICTION_CLICK_LAYERS, restrictionCard, statusWords as flightRestrictionStatus, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, FLIGHT_RESTRICTIONS_REFRESH_MS, type FlightRestriction } from "@/lib/air/flightRestrictions";
 import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";

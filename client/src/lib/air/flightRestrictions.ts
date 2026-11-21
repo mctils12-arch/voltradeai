@@ -69,7 +69,7 @@ const RULE_KIND: Readonly<Record<string, RestrictionKind>> = {
   "91.137": "hazard", "91.138": "hazard", "91.139": "hazard",
   "91.141": "security", "99.7": "security", "91.143": "space", "91.145": "event",
 };
-export const KIND_LABEL: Readonly<Record<RestrictionKind, string>> = {
+export const RESTRICTION_KIND_LABEL: Readonly<Record<RestrictionKind, string>> = {
   security: "Security (91.141, 99.7)",
   hazard: "Disaster, hazard or emergency (91.137 to 91.139)",
   space: "Space flight operations (91.143)",
@@ -77,10 +77,10 @@ export const KIND_LABEL: Readonly<Record<RestrictionKind, string>> = {
   icao_temporary: "Temporary restricted area (ICAO notice)",
   not_cited: "Flight restriction, rule not cited",
 };
-export const KIND_COLOR: Readonly<Record<RestrictionKind, string>> = {
+export const RESTRICTION_KIND_COLOR: Readonly<Record<RestrictionKind, string>> = {
   security: "#f87171", hazard: "#fb923c", space: "#a78bfa", event: "#60a5fa", icao_temporary: "#2dd4bf", not_cited: "#94a3b8",
 };
-export const KIND_ORDER: readonly RestrictionKind[] = ["security", "hazard", "space", "event", "icao_temporary", "not_cited"];
+export const RESTRICTION_KIND_ORDER: readonly RestrictionKind[] = ["security", "hazard", "space", "event", "icao_temporary", "not_cited"];
 /** who issued the notice, as the feed classifies it */
 export const CLASSIFICATION_WORDS: Readonly<Record<string, string>> = {
   FDC: "FAA Flight Data Center", DOM: "US domestic", INTL: "international", MIL: "military",
@@ -232,7 +232,7 @@ export interface FeatureCollection { type: "FeatureCollection"; features: Featur
 
 /** The two sources the layer draws: the areas (one MultiPolygon per restriction) and one symbol point each. */
 export function restrictionFeatures(rows: FlightRestriction[]): { areas: FeatureCollection; points: FeatureCollection } {
-  const props = (r: FlightRestriction) => ({ id: r.id, kind: r.kind, color: KIND_COLOR[r.kind], shape: r.shape, in_force: r.inForce });
+  const props = (r: FlightRestriction) => ({ id: r.id, kind: r.kind, color: RESTRICTION_KIND_COLOR[r.kind], shape: r.shape, in_force: r.inForce });
   return {
     areas: { type: "FeatureCollection", features: rows.map((r) => ({ type: "Feature", geometry: { type: "MultiPolygon", coordinates: r.rings.map((ring) => [ring]) }, properties: props(r) })) },
     points: { type: "FeatureCollection", features: rows.map((r) => ({ type: "Feature", geometry: { type: "Point", coordinates: r.center }, properties: props(r) })) },
@@ -325,7 +325,7 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
   const cls = r.classification ? CLASSIFICATION_WORDS[r.classification.toUpperCase()] ?? r.classification : null;
   const facts = [
     { label: "Notice", value: r.notice },
-    { label: "Kind", value: KIND_LABEL[r.kind] },
+    { label: "Kind", value: RESTRICTION_KIND_LABEL[r.kind] },
     { label: "Rule cited", value: rule },
     { label: "Drawn shape", value: shape },
     r.startMs !== null ? { label: r.inForce ? "In force since" : "Starts", value: zuluAt(r.startMs, nowMs) } : null,
@@ -342,7 +342,7 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
     : "The list starts again when the server restarts: a restriction sent before then is missing until the FAA sends it again.";
   return {
     title: `Flight restriction ${r.notice}`,
-    subtitle: `${KIND_LABEL[r.kind]} · ${periodWords(r, nowMs)}`,
+    subtitle: `${RESTRICTION_KIND_LABEL[r.kind]} · ${periodWords(r, nowMs)}`,
     stats: [
       { label: r.inForce ? "Status" : "Starts", value: r.inForce ? "active" : chipTime(r.startMs, nowMs) },
       { label: "Ends", value: chipTime(r.endMs, nowMs) },

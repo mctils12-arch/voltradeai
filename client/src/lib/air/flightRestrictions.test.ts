@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import {
   parseFlightRestrictions, restrictionFeatures, restrictionKind, rulesCited, circleRing, statusWords, feedWords, limitWords,
   periodWords, restrictionCard, agoWords, chipTime, limitChip, drawRestrictions, removeRestrictions,
-  RESTRICTION_LAYERS, RESTRICTION_SOURCES, RESTRICTION_CLICK_LAYERS, KIND_COLOR, KIND_LABEL, KIND_ORDER, RULE_WORDS, CIRCLE_POINTS,
+  RESTRICTION_LAYERS, RESTRICTION_SOURCES, RESTRICTION_CLICK_LAYERS, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, RULE_WORDS, CIRCLE_POINTS,
   FLIGHT_RESTRICTION_MAX_RING_POINTS, FLIGHT_RESTRICTIONS_MAX_FEATURES, FLIGHT_RESTRICTIONS_HEAP_BUDGET_BYTES,
 } from "./flightRestrictions.ts";
 import { haversineNm } from "../../../../shared/flightPlanGeometry.ts";
@@ -72,8 +72,8 @@ test("kind is read from the section the notice cites, then the Q-code subject, a
   assert.equal(restrictionKind("FREQ 191.137 CHANGED", null), "not_cited", "a number that only contains 91.137 is not a citation");
   assert.equal(restrictionKind(null, null), "not_cited");
   // every kind has a label and its own colour; every rule has words
-  assert.equal(new Set(KIND_ORDER.map((k) => KIND_COLOR[k])).size, KIND_ORDER.length);
-  for (const k of KIND_ORDER) assert.ok(KIND_LABEL[k]);
+  assert.equal(new Set(RESTRICTION_KIND_ORDER.map((k) => RESTRICTION_KIND_COLOR[k])).size, RESTRICTION_KIND_ORDER.length);
+  for (const k of RESTRICTION_KIND_ORDER) assert.ok(RESTRICTION_KIND_LABEL[k]);
   assert.deepEqual(Object.keys(RULE_WORDS).sort(), ["91.137", "91.138", "91.139", "91.141", "91.143", "91.145", "99.7"]);
 });
 
@@ -91,7 +91,7 @@ test("a notice with airspace geometry: its own outline, several outlines are sep
   assert.equal(f.areas.features.length, 1);
   assert.equal(f.areas.features[0].geometry.type, "MultiPolygon");
   assert.equal((f.areas.features[0].geometry.coordinates as unknown[]).length, 2, "two polygons, not one polygon with a hole");
-  assert.deepEqual(f.areas.features[0].properties, { id: "FDC:6/1234", kind: "security", color: KIND_COLOR.security, shape: "own", in_force: false });
+  assert.deepEqual(f.areas.features[0].properties, { id: "FDC:6/1234", kind: "security", color: RESTRICTION_KIND_COLOR.security, shape: "own", in_force: false });
   assert.deepEqual(f.points.features[0].geometry, { type: "Point", coordinates: [-77.25, 38.25] });
   assert.deepEqual(f.points.features[0].properties, f.areas.features[0].properties);
 });
