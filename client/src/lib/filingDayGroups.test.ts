@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "node:url";
-import { DAY_ROWS_FIRST, DAY_ROWS_STEP, dayRowsWords, defaultOpenDay, groupByFiledDay, isDayOpen, rowsShown, showMoreLabel } from "./filingDayGroups";
+import { DAY_ROWS_FIRST, DAY_ROWS_STEP, dayFilingsWords, dayRowsWords, defaultOpenDay, groupByFiledDay, isDayOpen, rowsShown, showMoreLabel } from "./filingDayGroups";
 import type { FiledDayStatus } from "./filingCoverage";
 
 type Row = { filedAt: string | null; id: number };
@@ -102,4 +102,24 @@ test("RATCHET: the Form 4 page groups every loaded row by filed day and caps onl
   assert.match(src, /aria-expanded=\{open\}/, "a day line must say whether it is open");
   assert.match(src, /showMoreLabel\(/, "an open day must offer the rest of its rows");
   assert.doesNotMatch(src, /narrow with a filter to see the rest[^]*narrow with a filter to see the rest/, "one cap message only");
+});
+
+test("a day line on a one-row-per-filing page states the filings once, and the loaded count only when it differs", () => {
+  assert.equal(dayFilingsWords(1712, 1712), "1,712 filings");
+  assert.equal(dayFilingsWords(1, 1), "1 filing");
+  assert.equal(dayFilingsWords(600, 598), "600 filings · 598 loaded");
+  assert.equal(dayFilingsWords(0, 0), "0 filings");
+  assert.equal(dayFilingsWords(null, 3), "3 filings", "a day the server did not list: the rows are all the page knows");
+});
+
+test("RATCHET: the 13F page asks by filed day, groups every loaded filing by filed day and caps only an archive-day page", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.join(here, "..", "pages", "edgar13f.tsx"), "utf8");
+  assert.match(src, /filedDayFirstQuery\(Date\.now\(\), WINDOW_DAYS\)/, "the first page must be asked for by filed day");
+  assert.doesNotMatch(src, /"\?days=/, "no archive-day first query");
+  assert.match(src, /groupByFiledDay\(filings, filedDayOf, filedDays\)/, "day groups must be built from every loaded filing, not a capped slice");
+  assert.match(src, /!byFiledDay && filings\.length > MAX_ROWS/, "the 'showing first N' cap is for archive-day pages only");
+  assert.match(src, /aria-expanded=\{open\}/, "a day line must say whether it is open");
+  assert.match(src, /showMoreLabel\(/, "an open day must offer the rest of its filings");
+  assert.match(src, /filedDayWords\(st\)/, "a day line must state the day against EDGAR's index");
 });
