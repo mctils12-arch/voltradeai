@@ -119830,3 +119830,13 @@ NOT FIXED HERE: the stores themselves. Filed as (t6) in open_questions.md with t
 TESTS: airportTraffic.test.ts: the nothing-case with 12, 1 and 0 rows held. HARNESS: `airporttraffic` battery re-pinned to the new sentences, 0 hard failures.
 EXISTING ASSERTIONS CHANGED (documented, not weakened): the two strings this PR rewrites, in airportTraffic.test.ts (the XYZ nothing-case) and in the harness battery (the BOS nothing-case and the source-line pattern): each now pins the new, longer sentence.
 SESSION: STARVED (queued: persisting the FAA stores across restarts, the flight-restrictions layer, flow-constrained areas).
+
+## 2026-11-20 [RULE-REVIEW] — research/* only (wishlist.md, open_questions.md) — the daily loss limit's day turns at 19:00 ET and starts with the session that just ended: measured, proposal filed, nothing changed
+VERSION: v1.0.1509 (shipped 2026-11-21 by the parent session; main was v1.0.1508)
+PRIOR (filed before the measurement, open_questions.md 2026-11-20 safety limits k3): 60% that the kill switch's day figure is re-seeded with the finished session's P&L when the engine's date turns.
+MEASURED (production, kill_state and account probes): 23:04Z -2.41% (Friday's worst); 00:12Z, date turned, no scan yet: -2.41%; 00:22Z, first scan after midnight UTC: -1.54%, with the account -1.58% against the same prior close. Confirmed.
+MEANING: after a session that ends at or under -3%, the next engine day starts at or under -3% and every new entry is blocked for it; on a weekday that is the whole next session. Not observed yet (the limit has not fired since the gate log began): no prevention P&L exists for or against.
+NOT CHANGED: anything. The day keying is in risk_kill_switch.check_kill_switches, a frozen mechanism. The proposal (key the day by the NYSE session date, before/after, with the weaker no-frozen-edit alternative and why it is weaker) is in wishlist.md for the human.
+HOW IT WAS FOUND: building the AI Engine page's Safety limits block (v1.0.1505), which reads the kill switch's own state file; the date the day figure belongs to had to be shown, so the question of when it turns came up.
+STILL OPEN: when the broker rolls last_equity (one account-probe read before Monday's open).
+SESSION: STARVED (queued: persisting the FAA stores across restarts, the flight-restrictions layer, the removal PR for the three legacy monitoring routes).

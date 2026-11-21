@@ -4999,3 +4999,19 @@ WHAT: a request to api.airplanes.live/v2/point from this session's network is an
 WHY IT MATTERS: airplanes.live is the second provider in the viewport chain and one of the two the sweep failover uses. If it refuses production, adsb.fi is the only fallback when adsb.lol fails, as on 2026-11-16/17.
 THE ASK, if production is refused too: one email from the human to that address describing the project (a non-commercial proof of concept; a few requests per second at most, only while adsb.lol is down; links to the site). A session can draft it; only the human sends it. If the mobile app will be paid (the 2026-11-16 question above), say so in the email or drop the provider instead, because their free API is non-commercial.
 BUILD-FIRST: nothing to build; this is access to raw material another network receives. Our own receivers (option (b) above) are the only free substitute and cover one region each.
+
+## [FROZEN-PATH PROPOSAL · filed 2026-11-20] The daily loss limit's "day" turns at 19:00 ET and starts with the session that just ended
+
+WHAT WAS MEASURED (production, the `kill_state` probe and the account probe; no change made):
+- 2026-11-20 23:04Z: the kill switch's day figure -2.41% (Friday's worst reading); account -1.56% against the prior close ($87,616.18).
+- 2026-11-21 00:12Z (the engine's date has turned; its last scan was 23:57Z): still -2.41%.
+- 2026-11-21 00:22Z (first scan after midnight UTC, at about 00:17Z): the figure is -1.54%. The account was -1.58% against the SAME prior close. The new "day" was seeded with Friday's session.
+WHY: risk_kill_switch.check_kill_switches resets its day figure when `datetime.now()` changes date (UTC on Railway, 19:00 ET in winter, 20:00 ET in summer) and sets it to the caller's day P&L; bot_engine computes that as equity against the broker's `last_equity`, which at that hour is still the close before the session that just ended. The figure then only ratchets down (it keeps the minimum).
+WHAT IT DOES TO TRADING: after a session that ends at or under the limit (-3%), the next engine "day" starts at or under -3% and new entries are blocked for all of it: on a weekday that is the whole next session, whatever that session does. It has not happened yet (Friday's worst was -2.41%; the limit has not fired since the gate log began), so there is no prevention P&L either way. It would fire on exactly the kind of day that precedes the richest option premium.
+NOT A THRESHOLD QUESTION: -3% is untouched. This is which day the figure belongs to.
+PROPOSED FIX (the human's call: the mechanism is a frozen path), before / after:
+- BEFORE: `today_str = datetime.now().strftime("%Y-%m-%d")` (the server's date) keys the day.
+- AFTER, option A (cleanest): key the day by the NYSE session date (market_calendar's session for the current ET time), so the figure resets at the next session's open and never during an evening. One line in risk_kill_switch.py plus a test that replays the three readings above.
+- AFTER, option B (no frozen edit): in bot_engine, pass a day P&L of 0 to the kill switch outside regular hours. It stops the seeding, but it also blinds the limit to an after-hours loss, and it needs one more measurement first (when the broker rolls `last_equity`). Weaker; listed for completeness.
+RECOMMENDATION: option A. Say "do option A for the daily loss day" and a session ships it after a close, with the replay test and the rollback (one line).
+ALSO FOR THE HUMAN, same family, not proposed: the limit counts the whole account, base holding included (open_questions.md 2026-11-20 safety limits, k4).
