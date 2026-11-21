@@ -153,6 +153,7 @@ import { bootEarningsQoq } from "./earningsQoq";
 import { bootGithubGate2 } from "./githubGate2";
 import { bootForm4Completeness } from "./edgarForm4Completeness";
 import { registerFiresCompletenessRoutes } from "./firesCompleteness";
+import { registerXbrlFramesRoutes } from "./xbrlFrames";
 import { boot13FCompleteness } from "./edgar13fCompleteness";
 import { bootEventStudy } from "./eventStudy";
 import { platformStats } from "./platformStats";
@@ -1764,6 +1765,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Daily completeness pass + refill of days with no file (server/firesCompleteness.ts):
   // GET /api/data/fires/completeness serves its per-day ledger (counts only).
   registerFiresCompletenessRoutes(app);
+  // Company fundamentals record (server/xbrlFrames.ts): GET /api/data/xbrl-fundamentals[/company] + the nightly read.
+  registerXbrlFramesRoutes(app);
 
   // Daily options-chain snapshot archive (approved options-data decision
   // 2026-07-04: forward-only history that can never be back-bought; feed=

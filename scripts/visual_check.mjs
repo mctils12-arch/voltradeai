@@ -1273,6 +1273,7 @@ const PAGES = {
   // closes the "shipped-data-no-client-page" gap the same-day archive
   // session left open (research/open_questions.md's own filed NEXT(3)).
   fmcsaoos: { route: "/app#/data/fmcsa-oos", map: false },
+  xbrlfundamentals: { route: "/app#/data/xbrl-fundamentals", map: false },
   developers: { route: "/developers", map: false },
   // Self-serve preview key management (PLATFORM P3, 2026-07-11) — same
   // Phase 5 ratchet rule as streams/gridstress above. /api/auth/me's
@@ -3377,6 +3378,32 @@ const FIXTURES = {
         notional_amount: null, notional_currency: "USD", underlier_id: "037833100", underlier_id_source: "CUSIP",
         underlier_name: "Fixture Mid-Cap Holdings",
       },
+    ],
+  },
+  "/api/data/xbrl-fundamentals": {
+    kind: "raw", source: "SEC EDGAR XBRL frames API (fixture)", attribution: "U.S. Securities and Exchange Commission, EDGAR",
+    note: "Fixture: numbers are the values companies tagged in their own filings, as SEC served them on our nightly read (see server/xbrlFrames.ts).",
+    warming_up: false, nights: 3,
+    concepts: [
+      { tag: "Revenues", label: "Revenue", unit: "USD", kind: "duration" },
+      { tag: "NetIncomeLoss", label: "Net income", unit: "USD", kind: "duration" },
+      { tag: "Assets", label: "Total assets", unit: "USD", kind: "instant" },
+      { tag: "EntityCommonStockSharesOutstanding", label: "Shares outstanding", unit: "shares", kind: "instant" },
+    ],
+    last_run: {
+      day: "2026-11-21", started: "2026-11-21T07:10:00.000Z", finished: "2026-11-21T07:11:00.000Z", status: "ok", detail: "fixture",
+      frames: { roster: 96, read: 89, not_published: 7, failed: 0 }, rows: { first: 412, revised: 2, dropped: 0, refiled: 300, backfill: 0 }, companies: 7606,
+    },
+    coverage: [
+      { tag: "Revenues", period: "CY2026Q3", state: "read", held: 1509, first: 60, revised: 0, dropped: 0, backfill: false },
+      { tag: "NetIncomeLoss", period: "CY2026Q4", state: "not_published", held: 0, first: 0, revised: 0, dropped: 0, backfill: false },
+      { tag: "NetIncomeLoss", period: "CY2026Q3", state: "read", held: 4618, first: 212, revised: 2, dropped: 0, backfill: false },
+      { tag: "Assets", period: "CY2026Q3I", state: "read", held: 4952, first: 90, revised: 0, dropped: 0, backfill: false },
+      { tag: "EntityCommonStockSharesOutstanding", period: "CY2026Q3I", state: "read", held: 4197, first: 50, revised: 0, dropped: 0, backfill: false },
+    ],
+    revisions: [
+      { seen: "2026-11-21T07:10:00.000Z", tag: "NetIncomeLoss", period: "CY2025Q3", cik: 811830, name: "FIXTURE HOLDINGS INTERNATIONAL CORPORATION", ticker: "FIXT", end: "2025-09-30", val: 456000000, prev_val: 455000000, unit: "USD", filing: "https://www.sec.gov/", prev_filing: "https://www.sec.gov/" },
+      { seen: "2026-11-21T07:10:00.000Z", tag: "NetIncomeLoss", period: "CY2026Q2", cik: 1234567, name: "FIXTURE MICRO CO", ticker: null, end: "2026-06-30", val: -3531000, prev_val: -2900000, unit: "USD", filing: "https://www.sec.gov/", prev_filing: null },
     ],
   },
   "/api/data/fmcsa-oos": {

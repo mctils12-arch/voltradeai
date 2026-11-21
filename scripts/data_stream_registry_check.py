@@ -218,6 +218,14 @@ CANDIDATES = [
              "(this was the sole remaining candidate_unbuilt entry in this table). GATE 2 (signal) not "
              "attempted — too lagged (1-6mo) for direct alpha per the census's own prior, structural-"
              "thesis RAW archive only. No /data client page yet (API only this PR)."},
+    {"id": "sec_xbrl_fundamentals", "name": "SEC XBRL company fundamentals, recorded nightly",
+     "edge_doctrine_named": False, "status": "built",
+     "manifest_keys": ["xbrlframes"], "layer_ids": [],
+     "note": "server/xbrlFrames.ts, /api/data/xbrl-fundamentals, page #/data/xbrl-fundamentals. A new axis (a) "
+             "free root, built 2026-11-21: one read a night of data.sec.gov/api/xbrl/frames (keyless) for 12 "
+             "concepts, recording first sightings and revisions, because a frame replaces a fact when a later "
+             "filing reports the same period again. RAW record, no signal claim; gate 1 not claimed (the "
+             "session check compared two SEC endpoints)."},
     {"id": "fmcsa_oos_orders", "name": "FMCSA Out-of-Service orders (motor-carrier enforcement)",
      "edge_doctrine_named": False, "status": "built",
      "manifest_keys": ["fmcsaoos"], "layer_ids": [],

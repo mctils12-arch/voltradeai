@@ -77,6 +77,7 @@ import { earningsQoqStatus } from "./earningsQoq";
 import { githubGate2Status } from "./githubGate2";
 import { form4CompletenessStatus } from "./edgarForm4Completeness";
 import { filings13fCompletenessStatus } from "./edgar13fCompleteness";
+import { xbrlFramesStatus } from "./xbrlFrames";
 import { edgarPollHealthStatus } from "./edgarPollHealth";
 import { eventStudyStatus } from "./eventStudy";
 import { forecastUniverse, ivMapFrom, forecastPayloadPath, forecastGenerateCmd, forecastScoreCmd, shouldAttemptGenerate, shouldScore, FORECAST_REPORT_CMD, FORECAST_JOB_TIMEOUT_MS, FORECAST_TIME_BUDGET_S, FORECAST_QUEUE_MAX_WAIT_MS, FORECAST_QUEUE_BUDGET_MS, type ForecastPayload, forecastDailyPayloadPath, forecastGenerateDailyCmd, vixFromCboe, dailyAuditKind, dailyWantsVixRefresh, type ForecastDailyPayload, type DailyGenerateResult } from "./forecast";
@@ -5162,6 +5163,11 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // ADDED 2026-11-17 ([PIPELINE]): read-only status of the nightly Form 4
           // archive completeness pass (server/edgarForm4Completeness.ts) — counts only.
           return res.json(sanitizeDiag(form4CompletenessStatus()));
+        }
+        case "xbrl_frames": {
+          // The nightly SEC XBRL fundamentals read: its markers, the last
+          // night's per-frame counts and errors, free space. Read-only.
+          return res.json(sanitizeDiag(xbrlFramesStatus()));
         }
         case "filings13f_completeness": {
           // ADDED 2026-11-19 ([PIPELINE]): read-only status of the nightly 13F

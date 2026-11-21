@@ -57,6 +57,7 @@ import JodiOilStocksView from "./jodiOilStocks";
 import UnComtradeView from "./unComtrade";
 import DtccSwapsView from "./dtccSwaps";
 import FmcsaOosView from "./fmcsaOutOfService";
+import XbrlFundamentalsView from "./xbrlFundamentals";
 import EuMacroView from "./euMacro";
 import Institutional13FView from "./edgar13f";
 import FredMacroView from "./fredMacro";
@@ -3047,6 +3048,7 @@ export default function DataMapPage() {
   // (RAW per-order enforcement reading, no lat/lon in the upstream dataset
   // so not a spatial layer; built 2026-09-28, no client view until now).
   const [fmcsaOosOpen, setFmcsaOosOpen] = useState(() => window.location.hash === "#/data/fmcsa-oos");
+  const [xbrlFundamentalsOpen, setXbrlFundamentalsOpen] = useState(() => window.location.hash === "#/data/xbrl-fundamentals");
   // European macro cluster view (#/data/eu-macro) — same overlay pattern
   // (RAW regime-input reading, not a spatial layer; gate1_pass since
   // 2026-07-07, no client view until now).
@@ -3595,6 +3597,7 @@ export default function DataMapPage() {
       setJodiOilOpen(window.location.hash === "#/data/jodi-oil-stocks");
       setDtccSwapsOpen(window.location.hash === "#/data/dtcc-swaps");
       setFmcsaOosOpen(window.location.hash === "#/data/fmcsa-oos");
+      setXbrlFundamentalsOpen(window.location.hash === "#/data/xbrl-fundamentals");
       setEuMacroOpen(window.location.hash === "#/data/eu-macro");
       setFilings13fOpen(window.location.hash === "#/data/filings13f");
       setFredMacroOpen(window.location.hash === "#/data/fred-macro");
@@ -15055,6 +15058,9 @@ export default function DataMapPage() {
       {dtccSwapsOpen && (
         <DtccSwapsView onBack={() => { window.location.hash = "#/data"; setDtccSwapsOpen(false); }} />
       )}
+      {xbrlFundamentalsOpen && (
+        <XbrlFundamentalsView onBack={() => { window.location.hash = "#/data"; setXbrlFundamentalsOpen(false); }} />
+      )}
       {fmcsaOosOpen && (
         <FmcsaOosView onBack={() => { window.location.hash = "#/data"; setFmcsaOosOpen(false); }} />
       )}
@@ -15746,6 +15752,14 @@ export default function DataMapPage() {
                     onClick={() => { window.location.hash = "#/data/dtcc-swaps"; setDtccSwapsOpen(true); }}>
               <Repeat size={13} /> Equity swap dissemination
               <span className="vt-streams-launch-sub">DTCC SBSDR largest notionals, US underliers · RAW</span>
+            </button>
+            {/* Company fundamentals launcher (2026-11-21): the nightly SEC XBRL
+                record has no coordinates, so it opens as a page from the
+                panel top like the other page-wide tables. */}
+            <button type="button" className="vt-streams-launch" data-vt-xbrlfundamentals-launch
+                    onClick={() => { window.location.hash = "#/data/xbrl-fundamentals"; setXbrlFundamentalsOpen(true); }}>
+              <Building2 size={13} /> Company fundamentals (SEC filings)
+              <span className="vt-streams-launch-sub">reported revenue, income and balance sheet, read nightly, with later changes · RAW</span>
             </button>
             {/* FMCSA Out-of-Service orders launcher (2026-09-28): per-order
                 enforcement reading with no lat/lon in the upstream dataset,

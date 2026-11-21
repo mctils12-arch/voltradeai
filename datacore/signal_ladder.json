@@ -654,6 +654,17 @@
    "last_update_date": "2026-11-06",
    "note": "Edge P1. SIGNAL result is in hand (research/edge_p1_dealer_gamma_result.md, 2026-10-28: pre-registered gate-2 PASS, full b=-0.858 t=-9.61, holdout t=-7.25) but gate 1 (DATA) is NOT passed, so by the ladder this root stays gate1_pending and may not reach gate-3 TRADING; gate-3 simulation may be prepared. GEX is a proprietary model estimate; the registered gate-1 check is our own Black-Scholes GEX from Alpaca open interest vs this series (kill: sign disagrees on >30% of >=40 overlapping days), which needs OI history we do not hold. 2026-10-29: server/squeezeGex.ts now archives the daily rows forward (shadow stream, internal only: licence unverified, no /data route, aggregate-only diag probe squeeze_gex). Not read by any trading path. 2026-11-06: the archive is removed (SqueezeMetrics' terms bar compiling their data without written permission; permission requested): server/squeezeGex.ts reads the live file's own history in memory every 6h and writes only a derived summary (rank, date, GEX sign); the dealer-gamma short-premium filter (dealer_gamma.py, live in paper since 2026-11-06) reads that summary, and gate 1 (scripts/edge_p1_gate1.py) reads the live file.",
    "source_ref": "research/edge_preregistration.md P1; research/edge_p1_dealer_gamma_result.md; server/squeezeGex.ts; datacore/manifests/squeeze_gex.json"
+  },
+  {
+   "id": "sec_xbrl_fundamentals",
+   "name": "SEC XBRL company fundamentals, recorded nightly (first sightings and revisions)",
+   "category": "other",
+   "status": "raw_only",
+   "current_gate": 0,
+   "detail_route": "#/data/xbrl-fundamentals",
+   "last_update_date": "2026-11-21",
+   "note": "EDGE DOCTRINE axis (a), a new free root (the six doctrine-named pipelines are built or blocked; the 2026-11-19 base-redesign queue named SEC XBRL company facts as data to build, not started). SHIPPED: server/xbrlFramesCore.ts + server/xbrlFrames.ts (one read a night, 02:00-05:00 ET, of SEC's XBRL frames for 12 concepts over 7 calendar quarters and, for income-statement concepts, 2 full years: 96 frames), datacore/manifests/xbrlframes.json, GET /api/data/xbrl-fundamentals and /company, diag probe xbrl_frames, page #/data/xbrl-fundamentals. RAW record of company-reported numbers: no score, no predictive claim. WHY RECORDED: a frame keeps one fact per company and replaces it when a later filing reports the period again; measured 2026-11-21, 86% of CY2025Q3 net-income facts carried a 2026 accession, so first-reported value and date cannot be read back later from the frame. DATA CHECK (session, not a ladder gate pass): 30 of 30 sampled facts equal SEC's companyconcept endpoint for the same accession; 0 of 281,870 rows rejected; a second read minutes later wrote 0 rows. That compares two SEC endpoints, not an independent source, so gate 1 is NOT claimed. NOT ATTEMPTED: any signal. Two hypotheses filed in open_questions.md 2026-11-21 (revision direction in small caps; point-in-time market value from shares outstanding x the price panel as the small-cap universe definition), each with its ladder path; both wait for recorded history, the first for at least two filing seasons of non-backfill revisions.",
+   "source_ref": "server/xbrlFramesCore.ts (module header); server/xbrlFrames.ts; server/xbrlFrames.test.ts; server/xbrlFramesCore.test.ts; datacore/manifests/xbrlframes.json; scripts/data_stream_registry_check.py sec_xbrl_fundamentals entry; research/experiments.md 2026-11-21 EDGE entry; research/open_questions.md 2026-11-21 entry"
   }
  ]
 }

@@ -439,6 +439,10 @@
    "partial",
    "Per-day completeness of the Form 4 archive. The 13F page shows completeness by filed day (#1845); Form 4's page does not yet. Placement: the same header on the Form 4 page."
   ],
+  "xbrl_frames": [
+   "surfaced",
+   "Company fundamentals page (#/data/xbrl-fundamentals): last night's status, per-frame counts and revisions come from the same run file; the probe adds attempt markers, error text and free space"
+  ],
   "filings13f_completeness": [
    "surfaced",
    "13F page, by filed day (#1845, API); the page itself still reads by archive day: PARTIAL in the UI"
