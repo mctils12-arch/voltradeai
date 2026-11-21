@@ -2467,6 +2467,23 @@ const FIXTURES = {
   "/api/data/pipeline-health-dashboard": {
     generated_at: "2026-07-31T00:00:00.000Z",
     warming_up: false,
+    // Scheduled jobs ([PRODUCT] 2026-11-21, client/src/lib/jobsView.ts): one row per state the section can draw:
+    // a failed weekly test with its cause, a run open past its limit, on time, running, not due, switched off,
+    // and the longest label in the registry so the wrap is exercised at 390px.
+    jobs: (() => {
+      const now = Date.now();
+      const at = (minAgo) => new Date(now - minAgo * 60000).toISOString();
+      const j = (id, label, over) => ({ id, label, status: "ok", schedule: "every 15m (04:00-20:00 ET), grace 20m", last_start_at: at(12), last_finish_at: at(10), last_status: "ok", running: false, disabled: false, recent_errors: 0, error_class: null, ...over });
+      return { evaluated_at: at(0), verdict: "degraded", counts: { ok: 3, late: 1, missing: 0, errored: 1, not_due: 2 }, jobs: [
+        j("tier2_scan", "Tier 2 scan (adaptive 1-15 min)", {}),
+        j("tier3_strategic", "Tier 3 strategic (hourly: retrain check, manipulation, diagnostics, COT, Form 4, port dwell)", { schedule: "every 1h (always), grace 15m", last_start_at: at(40), last_finish_at: at(39) }),
+        j("options_chain_archive", "Options chain archive (trading days, after 16:15 ET)", { status: "not_due", schedule: "daily (trading days) due 16:15 ET, grace 90m", last_start_at: at(1400), last_finish_at: at(1390) }),
+        j("earnings_qoq_weekly", "8-K earnings-language QoQ delta gate-2 test (weekly, Sun 18:00-19:00 ET)", { status: "errored", schedule: "every 168h (always), grace 26h", last_start_at: at(7200), last_finish_at: at(7199), last_status: "error", recent_errors: 1, error_class: "nonzero_exit" }),
+        j("price_panel_build", "Price panel build (2016+ daily bars incl. delisted, 20:15-04:00 ET)", { status: "late", schedule: "every 24h (20:15-04:00 ET), grace 2h", last_start_at: at(600), last_finish_at: null, last_status: "running", running: true }),
+        j("fires_completeness_daily", "Fire-detection archive completeness pass (NASA FIRMS dated request, from 06:00 UTC)", { schedule: "daily due 06:00 UTC, grace 120m", last_start_at: at(3), last_finish_at: null, last_status: "running", running: true }),
+        j("github_gate2_weekly", "GitHub org engineering-momentum gate-2 test (weekly, Sun 19:00-20:00 ET)", { status: "not_due", disabled: true, schedule: "every 168h (always), grace 26h", last_start_at: null, last_finish_at: null, last_status: null }),
+      ] };
+    })(),
     window_24h: {
       window_hours: 24, sample_count: 288, uptime_pct: 97.6,
       current: {
@@ -4301,6 +4318,36 @@ async function main() {
         await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-offsite.png`) });
         await page.locator("[data-vt-quality-checks]").scrollIntoViewIfNeeded().catch(() => {});
         await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-checks.png`) });
+      }
+      // ── SCHEDULED JOBS on Pipeline health ([PRODUCT] 2026-11-21; `jobs` in /api/data/pipeline-health-dashboard):
+      // failing rows first with their cause in words, the chip never cut, no sideways scroll at any width
+      if (name === "pipelinehealth") {
+        const fail = (m) => checks.failures.push("pipeline health, scheduled jobs: " + m);
+        await page.waitForSelector("[data-vt-jobs] .vt-job", { timeout: 8000 }).catch(() => {});
+        const rows = await page.$$eval("[data-vt-jobs] .vt-job", (els) => els.map((e) => ({
+          tone: e.getAttribute("data-tone"),
+          chip: e.querySelector(".vt-streams-chip")?.textContent || "",
+          cause: e.querySelector(".vt-job-cause")?.textContent || "",
+          meta: e.querySelector(".vt-job-meta")?.textContent || "",
+          cut: (() => { const c = e.querySelector(".vt-streams-chip"); return !c || c.scrollWidth > c.clientWidth + 1 || c.getBoundingClientRect().right > e.getBoundingClientRect().right + 1; })(),
+        })));
+        if (rows.length !== 7) fail(`${rows.length} rows, expected 7`);
+        else {
+          const chips = rows.map((r) => r.chip).join(" | ");
+          if (chips !== "last run failed | late | on time | on time | running | not due now | switched off") fail(`order or states read "${chips}"`);
+          if (rows[0].cause !== "The program exited with an error.") fail(`the failed job's cause reads "${rows[0].cause}"`);
+          if (!/^Last started 5 d ago; it failed\. Schedule: every 168h \(always\), grace 26h\.$/.test(rows[0].meta)) fail(`the failed job's last run reads "${rows[0].meta}"`);
+          if (rows[1].cause !== "The run has been going longer than this job is allowed.") fail(`the stuck job's cause reads "${rows[1].cause}"`);
+          if (rows[6].meta !== "No run is recorded. Schedule: every 168h (always), grace 26h.") fail(`the switched-off job reads "${rows[6].meta}"`);
+          if (rows.some((r) => r.cut)) fail("a state chip is cut or runs past its row");
+          if (rows.slice(2).some((r) => r.cause)) fail("a job that is not failing shows a cause");
+        }
+        const sub = await page.locator("[data-vt-jobs] .vt-quality-section-sub").innerText().catch(() => "");
+        if (!/^7 jobs: 3 on time, 1 not due now, 1 switched off, 2 failing · read \d+ s ago$/.test(sub)) fail(`the summary reads "${sub}"`);
+        const over = await page.$eval("[data-vt-jobs]", (el) => el.scrollWidth > el.clientWidth + 1).catch(() => true);
+        if (over) fail("the section scrolls sideways");
+        await page.locator("[data-vt-jobs]").scrollIntoViewIfNeeded().catch(() => {});
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-jobs.png`) });
       }
       if (name === "firesnodata") {
         const fail = (m) => checks.failures.push("fires, no detections: " + m);

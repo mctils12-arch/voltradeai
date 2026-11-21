@@ -3817,6 +3817,16 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 @media (max-width: 480px) {
   .vt-quality-kind-row { grid-template-columns: 74px 1fr auto; gap: 6px; }
 }
+/* Scheduled jobs on Pipeline health (2026-11-21): one row per job; the name wraps, the state chip does not. */
+.vt-jobs-list { display: flex; flex-direction: column; }
+.vt-job { display: flex; flex-direction: column; gap: 3px; padding: 9px 0; border-top: 1px solid var(--border-subtle); }
+.vt-job:first-child { border-top: none; }
+.vt-job-head { display: flex; align-items: flex-start; gap: 10px; }
+.vt-job-head .vt-streams-chip { margin-left: auto; flex: none; margin-top: 1px; }
+.vt-job-name { color: var(--text-primary); font-size: 12.5px; font-weight: 600; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
+.vt-job-cause { color: var(--text-primary); font-size: 12px; line-height: 1.4; }
+.vt-job-meta { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.vt-job[data-tone="idle"] .vt-job-name { color: var(--text-secondary); font-weight: 500; }
 /* Archive checks (2026-11-20): one card per archive, sentences not figures. */
 .vt-quality-check {
   background: var(--bg-card); border: 1px solid rgba(77, 159, 255, 0.14);

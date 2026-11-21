@@ -58,7 +58,7 @@ import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, a
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
 import { registerAuthRoutes, db, requireOwner } from "./auth";
 import { liveSiteReport } from "./siteReport";
-import { registerBotRoutes } from "./bot";
+import { registerBotRoutes, publicJobsReport } from "./bot";
 import { vesselStreamEnabled, bootVesselStream, vesselFeedHealth, vesselLayerStatus, vesselNeverFramed } from "./vesselStream";
 import { mapDigitrafficAis, freshAisFixes, DIGITRAFFIC_AIS_ATTRIBUTION, DIGITRAFFIC_AIS_LOCATIONS_URL, DIGITRAFFIC_AIS_VESSELS_URL } from "./aisFeed";
 import { expandBbox1dp, buildVesselSnapshot, sinceUnchanged, shouldRebuildSnapshot, VESSEL_SNAPSHOT_TTL_MS, type VesselSnapshot } from "./liveDelta";
@@ -1455,9 +1455,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/data/pipeline-health-dashboard", (_req, res) => {
     try {
       const rows = readHealthHistory(8);
+      // Scheduled jobs (2026-11-21): every registered job against its own
+      // schedule, read at request time. No free text (publicJobsView). A
+      // failure to evaluate answers null and the panel says so; it never
+      // takes the uptime history down with it.
+      let jobs: ReturnType<typeof publicJobsReport> | null = null;
+      try { jobs = publicJobsReport(); } catch (e: unknown) { console.error("[pipeline-health] jobs:", e instanceof Error ? e.message : e); }
       res.json({
         generated_at: new Date().toISOString(),
         warming_up: rows.length === 0,
+        jobs,
         window_24h: summarizeWindow(rows, 24),
         window_7d: summarizeWindow(rows, 24 * 7),
       });

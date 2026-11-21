@@ -7,6 +7,7 @@
 // governed: reuses the .vt-filings-* / .vt-quality-* shell + theme tokens.
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Activity, RefreshCw } from "lucide-react";
+import { ago, jobRows, jobsSummary, type JobTone, type PublicJobsView } from "@/lib/jobsView";
 
 interface HealthSnapshot {
   t: number;
@@ -36,7 +37,13 @@ interface PipelineHealthPayload {
   warming_up: boolean;
   window_24h: HealthSummary;
   window_7d: HealthSummary;
+  /** every scheduled job against its own schedule; null = the server could not read it; absent = an older server */
+  jobs?: PublicJobsView | null;
 }
+
+const JOB_COLOR: Record<JobTone, string> = {
+  bad: "var(--accent-red, #e5484d)", ok: "var(--accent-green)", idle: "var(--text-tertiary)",
+};
 
 const CHECK_LABEL: Record<keyof HealthSummary["degraded_counts"], string> = {
   database: "Database", alpaca: "Alpaca API", python: "Python engine",
@@ -82,6 +89,13 @@ export default function PipelineHealthDashboardView({ onBack }: { onBack: () => 
       .map((k) => ({ key: k, label: CHECK_LABEL[k], count: c[k] }))
       .filter((r) => r.count > 0)
       .sort((a, b) => b.count - a.count);
+  }, [data]);
+
+  // Scheduled jobs: the words are built once per payload, against the time it was loaded.
+  const jobs = useMemo(() => {
+    if (!data || data.jobs === undefined) return null;
+    const now = Date.now();
+    return { rows: jobRows(data.jobs, now), summary: jobsSummary(data.jobs), read: ago(data.jobs?.evaluated_at, now), failed: data.jobs === null };
   }, [data]);
 
   const uptimeColor = (pct: number | null) => {
@@ -206,6 +220,42 @@ export default function PipelineHealthDashboardView({ onBack }: { onBack: () => 
               )}
             </section>
           </>
+        )}
+
+        {jobs && (
+          <section className="vt-quality-section" data-vt-jobs={jobs.failed ? "unread" : jobs.rows.length}>
+            <div className="vt-quality-section-head">
+              <span>Scheduled jobs</span>
+              <span className="vt-quality-section-sub">
+                {jobs.failed ? "not read" : `${jobs.summary}${jobs.read ? ` · read ${jobs.read}` : ""}`}
+              </span>
+            </div>
+            {jobs.failed ? (
+              <div className="vt-filings-state">
+                The server could not read its job schedule on this request. Nothing is shown in its place.
+              </div>
+            ) : (
+              <>
+                <div className="vt-filings-sub">
+                  Every job the server runs on a timer, judged against its own schedule: the trading
+                  loop's cycles, the archive recordings and their completeness checks, and the weekly
+                  signal tests.
+                </div>
+                <div className="vt-jobs-list">
+                  {jobs.rows.map((r) => (
+                    <div key={r.id} className="vt-job" data-tone={r.tone}>
+                      <div className="vt-job-head">
+                        <span className="vt-job-name">{r.label}</span>
+                        <span className="vt-streams-chip" style={{ color: JOB_COLOR[r.tone], borderColor: JOB_COLOR[r.tone] }}>{r.state}</span>
+                      </div>
+                      {r.cause && <div className="vt-job-cause">{r.cause}</div>}
+                      <div className="vt-job-meta">{r.last} Schedule: {r.schedule}.</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
         )}
       </div>
     </div>

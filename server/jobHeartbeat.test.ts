@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   JOB_REGISTRY, evaluate, evaluateJob, applyBeat, applyNoteError, closeInterruptedRuns, parseHeartbeatFile,
-  createHeartbeatStore, readHeartbeatFile, withJobBeat, healthJobsBlock, classifyJobError, windowState, zonedInstant,
+  createHeartbeatStore, readHeartbeatFile, withJobBeat, healthJobsBlock, publicJobsView, classifyJobError, windowState, zonedInstant,
   MAX_RUNS_PER_JOB, MAX_DETAIL_CHARS, type JobRun, type JobSpec, type MarketCalendar, type HeartbeatFile,
 } from "./jobHeartbeat";
 import { parseMarketHolidays } from "./optionsChainArchive";
@@ -318,4 +318,63 @@ test("classifyJobError: closed enum, health block names the cause but never the 
   const h = healthJobsBlock(evaluate(TUE_10ET, file, JOB_REGISTRY, ctx));
   assert.equal(h.error_class["tier2_scan"], "memory_budget");
   assert.ok(!JSON.stringify(h).includes("/secret/path"));
+});
+
+// ── the public view for the /data Pipeline health panel (2026-11-21) ────────
+
+test("publicJobsView: every registered job, its verdict and schedule, a closed cause for an errored one, and no free text", () => {
+  const file: HeartbeatFile = { version: 1, jobs: {
+    tier1_reflex: [ok(TUE_10ET - 30 * SEC)],
+    tier2_scan: [{ startedAt: TUE_10ET - 2 * MIN, finishedAt: TUE_10ET - MIN, status: "error", detail: "code=1 signal=none: /secret/path Traceback" }],
+    tier3_strategic: [{ startedAt: TUE_10ET - MIN, notedError: "noted /secret/path mid-run" }],
+  } };
+  const r = evaluate(TUE_10ET, file, JOB_REGISTRY, ctx);
+  const v = publicJobsView(r);
+  assert.equal(v.evaluated_at, r.evaluatedAt);
+  assert.equal(v.verdict, "degraded");
+  assert.deepEqual(v.counts, r.counts);
+  assert.deepEqual(v.jobs.map((j) => j.id), JOB_REGISTRY.map((s) => s.id), "registry order, nothing dropped");
+  const t2 = v.jobs.find((j) => j.id === "tier2_scan")!;
+  assert.equal(t2.status, "errored");
+  assert.equal(t2.error_class, "nonzero_exit");
+  assert.equal(t2.last_status, "error");
+  assert.equal(t2.recent_errors, 1);
+  assert.equal(t2.label, spec("tier2_scan").label);
+  assert.ok(t2.schedule.startsWith("every 15m"));
+  const t1 = v.jobs.find((j) => j.id === "tier1_reflex")!;
+  assert.equal(t1.status, "ok");
+  assert.equal(t1.error_class, null, "a cause is given only while the verdict is errored");
+  assert.equal(t1.last_start_at, new Date(TUE_10ET - 30 * SEC).toISOString());
+  const t3 = v.jobs.find((j) => j.id === "tier3_strategic")!;
+  assert.equal(t3.running, true);
+  assert.equal(t3.last_status, "running");
+  const text = JSON.stringify(v);
+  assert.ok(!text.includes("/secret/path") && !text.includes("Traceback"), "no detail from a failed or running job");
+  for (const j of v.jobs) {
+    assert.deepEqual(Object.keys(j).sort(), ["disabled", "error_class", "id", "label", "last_finish_at", "last_start_at", "last_status", "recent_errors", "running", "schedule", "status"], "the shape is closed: adding a field is a decision about a public route");
+  }
+});
+
+test("publicJobsView: a job switched off by an environment switch is marked disabled and the switch is not named", () => {
+  const r = evaluate(TUE_10ET, { version: 1, jobs: {} }, JOB_REGISTRY, { ...ctx, env: { VOLTRADE_DISABLE_TIER2: "1" } });
+  const v = publicJobsView(r);
+  const t2 = v.jobs.find((j) => j.id === "tier2_scan")!;
+  assert.equal(t2.status, "not_due");
+  assert.equal(t2.disabled, true);
+  assert.ok(!JSON.stringify(v).includes("VOLTRADE_"), "no environment variable name on a public route");
+  const closed = publicJobsView(evaluate(TUE_10ET - 6 * 60 * MIN, { version: 1, jobs: {} }, [spec("tier1_reflex")], ctx));
+  assert.equal(closed.jobs[0].status, "not_due");
+  assert.equal(closed.jobs[0].disabled, false, "outside its hours is not switched off");
+});
+
+test("the Pipeline health route carries the public view, guarded, and never the token-gated report", () => {
+  const routes = read("server/routes.ts");
+  const start = routes.indexOf('app.get("/api/data/pipeline-health-dashboard"');
+  assert.ok(start > 0);
+  const handler = routes.slice(start, routes.indexOf("app.get(", start + 10));
+  assert.ok(handler.includes("try { jobs = publicJobsReport(); } catch"), "a failure to evaluate answers null, not a 500");
+  assert.ok(/\n\s+jobs,\n/.test(handler), "jobs is in the payload");
+  assert.ok(!handler.includes("jobHeartbeatReport") && !handler.includes("lastDetail"));
+  const bot = read("server/bot.ts");
+  assert.match(bot, /export function publicJobsReport\(\): PublicJobsView \{\s*return publicJobsView\(jobHeartbeatReport\(\)\);\s*\}/);
 });

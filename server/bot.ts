@@ -128,7 +128,7 @@ import { isSlowDbWrite, formatSlowWriteMessage } from "./dbWriteTiming";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
 import { shouldDispatchTierAction, tierDeferAuditMessage } from "./tierDispatchGate";
 import { healthHttpCode, servingVerdict } from "./healthGate";
-import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, JOB_REGISTRY, zonedParts } from "./jobHeartbeat";
+import { beat, noteJobError, withJobBeat, evaluate as evaluateHeartbeats, heartbeatStore, healthJobsBlock, publicJobsView, type PublicJobsView, JOB_REGISTRY, zonedParts } from "./jobHeartbeat";
 import { tier2ScanDecision, closedDayScansEnabled, closedDayAuditLine } from "./tier2SessionGate"; // closed-day gate 2026-11-15
 import {
   TIER1_VIA_DAEMON_ENV, TIER1_SYNC_TIMEOUT_MS, RESEARCH_ANALYZE_TIMEOUT_MS, tier1ViaDaemon, researchViaDaemon,
@@ -1364,6 +1364,11 @@ function jobHeartbeatReport() {
     bootAtMs: PROCESS_BOOT_AT_MS,
     env: process.env,
   });
+}
+/** The same report for an unauthenticated reader: the /data Pipeline health
+ *  panel's "Scheduled jobs" section (no free text; jobHeartbeat.publicJobsView). */
+export function publicJobsReport(): PublicJobsView {
+  return publicJobsView(jobHeartbeatReport());
 }
 
 setInterval(() => {
