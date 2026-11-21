@@ -8070,7 +8070,7 @@ async function main() {
       // 5 restriction rows served: one is a re-send of another, one names every airport ("ALL"), one names CLT
       if (JSON.stringify(r.restrictions) !== JSON.stringify(wantR)) fail(`the restrictions read ${JSON.stringify(r.restrictions)} (expected ${JSON.stringify(wantR)})`);
       if (r.config !== `Runways and rates · ${CONFIG}`) fail(`opened, the runway line reads "${r.config}"`);
-      if (!/^FAA traffic-management feed \(SWIM TFMS\), as received: 9 programs and restrictions searched for ATL\. A restriction is listed until its published end; one cancelled early can still be listed\. Times are Zulu\. Not for operational use\. Read \d+ (s|min) ago\.$/.test(r.source)) fail(`the source line reads "${r.source}"`);
+      if (!/^FAA traffic-management feed \(SWIM TFMS\), as received: 9 programs and restrictions searched for ATL\. A restriction is listed until its published end; one cancelled early can still be listed\. The list starts again when the server restarts: a program sent before then is missing until the FAA sends it again\. Times are Zulu\. Not for operational use\. Read \d+ (s|min) ago\.$/.test(r.source)) fail(`the source line reads "${r.source}"`);
       if (/NaN|undefined|\bnull\b|Infinity/.test(r.listText + r.lines.join(" "))) fail("a bare NaN / undefined / null in the row");
       if (r.listScrolls !== "auto" || r.listH > 150) fail(`the open list is ${r.listH}px tall with overflow ${r.listScrolls} (it must scroll inside 148px)`);
       if (r.right > 1 || r.pageOver > 1) fail(`opened, the row leaves the window by ${r.right}px (page overflow ${r.pageOver}px)`);
@@ -8101,7 +8101,7 @@ async function main() {
       const before = tfmsCalls.length;
       if (await selectAirport("BOS", -71.0096, 42.3656)) {
         const r = await readRow();
-        const want = "No ground stop, delay program or restriction for BOS in the FAA feed";
+        const want = "Nothing for BOS among the 9 programs and restrictions held from the FAA feed (the list restarts with the server)";
         if (!r || r.lines.length !== 1 || r.lines[0] !== want) atFailures.push(`airport traffic BOS: the row reads ${JSON.stringify(r?.lines)} (expected one line: "${want}")`);
         if (r && !r.disabled) atFailures.push("airport traffic BOS: the control is enabled with nothing to list");
         if (tfmsCalls.length - before !== 1) atFailures.push(`airport traffic BOS: ${tfmsCalls.length - before} requests on selection (exactly 1)`);

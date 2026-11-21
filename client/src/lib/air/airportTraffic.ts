@@ -160,7 +160,12 @@ export function trafficHeadline(v: AirportTrafficView, nowMs: number): string {
   const n = v.restrictions.length;
   const rest = n ? `${n} restriction${n === 1 ? "" : "s"}` : null;
   if (v.programs.length) return [...v.programs.map((p) => programWords(p, nowMs)), rest].filter(Boolean).join(" · ");
-  return rest ? `No ground stop or delay program · ${rest}` : `No ground stop, delay program or restriction for ${v.code} in the FAA feed`;
+  // THE LIST RESTARTS WITH THE SERVER (seen on production 2026-11-20, two minutes after a deploy: an airport under a
+  // ground stop read "nothing in the FAA feed" because the server held 48 rows, none sent again yet). "Nothing" is
+  // therefore said of what the server HOLDS, with the number, never of the FAA's system.
+  const held = `${v.searched} program${v.searched === 1 ? "" : "s"} and restriction${v.searched === 1 ? "" : "s"} held from the FAA feed`;
+  // with restrictions to list, the same caveat is in the opened list's source line (the control opens it)
+  return rest ? `No ground stop or delay program · ${rest}` : `Nothing for ${v.code} among the ${held} (the list restarts with the server)`;
 }
 const WEATHER_WORDS: Readonly<Record<string, string>> = { VMC: "visual conditions (VMC)", IMC: "instrument conditions (IMC)", LOW_VMC: "low visual conditions", LOW_IMC: "low instrument conditions" };
 /** "Arriving 27/32 · departing 33L · 44 arrivals / 36 departures an hour · visual conditions (VMC) · reported 21:01Z"; null when the tower's report is not in the feed */
