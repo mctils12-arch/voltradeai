@@ -215,11 +215,19 @@ function asSolaceMessage(m: unknown): SolaceMessage {
  *  or Buffer), possibly gzipped. Returns null when no section is readable. */
 export function payloadToString(message: unknown): string | null {
   const m = asSolaceMessage(message);
+  // The RAW section first, decoded by Node. solclientjs's own
+  // getXmlContentDecoded() is decodeURIComponent(escape(bytes)): 5 to 13
+  // times slower on a flight-plan message (measured 2026-11-21) and, at
+  // 300,000 messages an hour, 49 s of main-thread time in an 11-minute
+  // production profile (KNOWN BROKEN #57). Same string for valid UTF-8; a
+  // malformed byte, which made the client's decode throw and brought us
+  // here anyway, reads U+FFFD as before.
   let xml: unknown = null;
-  try { xml = m.getXmlContentDecoded?.(); } catch { xml = null; }
-  if (typeof xml === "string" && xml) return xml;
   try { xml = m.getXmlContent?.(); } catch { xml = null; }
   if (typeof xml === "string" && xml) return Buffer.from(xml, "latin1").toString("utf8");
+  // a client that offers only the decoded form
+  try { xml = m.getXmlContentDecoded?.(); } catch { xml = null; }
+  if (typeof xml === "string" && xml) return xml;
   let text: unknown = null;
   try { text = m.getSdtContainer?.()?.getValue?.(); } catch { text = null; }
   if (typeof text === "string" && text) return text;

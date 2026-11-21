@@ -236,6 +236,44 @@ test("payloadToString: a real solclientjs message carrying only XML content is r
   assert.equal(payloadToString(m), "<flight>é</flight>");
 });
 
+// ── regression: 2026-11-21, KNOWN BROKEN #57. An 11-minute production
+// profile put 49 s of main-thread time in solclientjs's utf8ToUcs2
+// (getXmlContentDecoded = decodeURIComponent(escape(bytes))), on the thread
+// that runs the trading loop. The reader now takes the raw section and lets
+// Node decode it. These pin: the client's decode is not called when the raw
+// section is there, and the text is the same text.
+
+test("payloadToString: the raw XML section is decoded by Node; the client's slow decode is not called", () => {
+  const text = "<flight a=\"Montréal\">北京 ✈ 𝄞</flight>";
+  let decodedCalls = 0;
+  const m = {
+    getXmlContent: () => Buffer.from(text, "utf8").toString("latin1"),
+    getXmlContentDecoded: () => { decodedCalls++; return text; },
+  };
+  assert.equal(payloadToString(m), text);
+  assert.equal(decodedCalls, 0, "getXmlContentDecoded must not run when getXmlContent has the bytes");
+});
+
+test("payloadToString: on a real solclientjs message the text equals the client's own decode (1 to 4 byte characters)", async () => {
+  const mod = (await import("solclientjs")) as unknown as { default?: Record<string, unknown> };
+  const sol = (mod.default ?? mod) as unknown as {
+    SolclientFactory: { createMessage(): { setXmlContent(s: string): void; getXmlContent(): string; getXmlContentDecoded(): string } };
+  };
+  // the factory was initialised by the test above (init is once per process)
+  const body = "<ns5:MessageCollection><r n=\"é ñ ü\">北京 ✈ 𝄞 \u0000 &amp; %41 %</r>" + "<pos>40.1 -73.4</pos>".repeat(200) + "</ns5:MessageCollection>";
+  const m = sol.SolclientFactory.createMessage();
+  m.setXmlContent(body);
+  assert.notEqual(m.getXmlContent(), body, "the raw section holds UTF-8 bytes, not the text");
+  assert.equal(payloadToString(m), m.getXmlContentDecoded());
+  assert.equal(payloadToString(m), body);
+});
+
+test("payloadToString: a malformed byte reads U+FFFD and does not throw (as before, when the client's decode threw)", () => {
+  const raw = "<a>" + String.fromCharCode(0xc3) + "</a>"; // a lead byte with no continuation
+  assert.throws(() => decodeURIComponent(escape(raw)), URIError);
+  assert.equal(payloadToString({ getXmlContent: () => raw, getXmlContentDecoded: () => decodeURIComponent(escape(raw)) }), "<a>\uFFFD</a>");
+});
+
 test("consumer: a message with no readable section is counted + described, never silently dropped", async () => {
   _resetSwimConnectorForTests();
   const f = fakeSolace();
