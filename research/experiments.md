@@ -119821,3 +119821,12 @@ TESTS: client/src/lib/faaAirports.test.ts +2 (7): the duration forms seen live, 
 HARNESS: the `airporttraffic` battery now reads the card's chips at 1440, 768 and 390 and fails on any cut chip or label: 0 hard failures; the card screenshot checked by eye.
 STILL OPEN (open_questions.md): the same row on other card kinds whose feeds send sentences.
 SESSION: STARVED (queued: the flight-restrictions layer once the feed holds rows, flow-constrained areas, a cut-chip pass over every card kind).
+
+## 2026-11-20 [PRODUCT] — T-CLIENT (client/src/lib/air/airportTraffic.ts, client/src/components/AirportTraffic.tsx) — FAA airport card: "nothing for this airport" is said of what the server holds, and the card says the list restarts with the server
+VERSION: v1.0.1508 (shipped 2026-11-21 by the parent session; main was v1.0.1507)
+FOUND: on production, in the real-browser check of the airport-traffic row, two minutes after v1.0.1507 started. Teterboro's card read "No ground stop, delay program or restriction for TEB in the FAA feed". The FAA had sent a ground stop advisory for TEB at 21:26Z; the server's traffic store is in memory, had restarted empty and held 48 rows (351 an hour earlier). The sentence was true of the server's list and false as the reader takes it.
+CHANGE (wording only, no logic): the nothing-case line is now "Nothing for TEB among the 48 programs and restrictions held from the FAA feed (the list restarts with the server)": the number is the answer's own row count. The opened list's source line gains: "The list starts again when the server restarts: a program sent before then is missing until the FAA sends it again." With restrictions to list the closed line is unchanged (the control opens the source line).
+NOT FIXED HERE: the stores themselves. Filed as (t6) in open_questions.md with the fix shape (persist the active set across restarts; T-DATACORE, its own PR).
+TESTS: airportTraffic.test.ts: the nothing-case with 12, 1 and 0 rows held. HARNESS: `airporttraffic` battery re-pinned to the new sentences, 0 hard failures.
+EXISTING ASSERTIONS CHANGED (documented, not weakened): the two strings this PR rewrites, in airportTraffic.test.ts (the XYZ nothing-case) and in the harness battery (the BOS nothing-case and the source-line pattern): each now pins the new, longer sentence.
+SESSION: STARVED (queued: persisting the FAA stores across restarts, the flight-restrictions layer, flow-constrained areas).
