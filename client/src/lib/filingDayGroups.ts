@@ -84,3 +84,17 @@ export function dayRowsWords(rows: number, filtered: boolean): string {
   const noun = rows === 1 ? "row" : "rows";
   return filtered ? `${fmt(rows)} matching ${noun}` : `${fmt(rows)} ${noun}`;
 }
+
+/** A day line's filing count on a page whose rows ARE filings (the 13F page:
+ *  one row per filing, so "N rows" beside "N filings" would say it twice).
+ *  `listed` is the count the server stated for the day, null when it listed
+ *  none. The loaded count is added only when it differs, e.g.
+ *   "1,712 filings"
+ *   "1 filing"
+ *   "600 filings · 598 loaded"
+ *   "3 filings"            (listed null: the rows are all the page knows) */
+export function dayFilingsWords(listed: number | null, loaded: number): string {
+  const n = listed === null ? loaded : listed;
+  const head = `${fmt(n)} ${n === 1 ? "filing" : "filings"}`;
+  return listed !== null && listed !== loaded ? `${head} · ${fmt(loaded)} loaded` : head;
+}

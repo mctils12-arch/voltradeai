@@ -896,19 +896,25 @@ const TRADE_LOADED = { "/api/analyze/SPY": tradeFx("trade_analyze_spy.json"), "/
 // Mon 11-16 → Wed 11-18 and continues at the Friday before (the live shape,
 // read from production 2026-11-18), with one day complete against EDGAR's
 // index, one partial and one not yet checked on each page.
-function filedDayForm4History(req, form4) {
+// The 13F page asks the same way since 2026-11-21 (a 45-day window, cap 500).
+function filedDayForm4History(req, form4, kind = "form4") {
   const older = /[?&]filed_to=2026-11-13/.test(req.url || "");
+  const is13f = kind === "13f";
+  const from = is13f ? "2026-10-05" : "2026-10-20";
+  // a 13F row carries a 10-character filed day on production; a Form 4 row a timestamp
+  const mk = (i, d) => (is13f ? { ...form4(i, d), filedAt: d } : form4(i, d));
   const filings = older
-    ? [form4(3, "2026-11-13"), form4(4, "2026-11-06"), form4(5, "2026-10-20")]
-    : [form4(0, "2026-11-18"), form4(1, "2026-11-17"), form4(2, "2026-11-16")];
+    ? [mk(3, "2026-11-13"), mk(4, "2026-11-06"), mk(5, "2026-10-20")]
+    : [mk(0, "2026-11-18"), mk(1, "2026-11-17"), mk(2, "2026-11-16")];
   const day = (d, n, index, complete) => ({ day: d, filings: n, omitted: 0, edgar_index: index, complete, checked_at: index == null ? null : "2026-11-18T07:15:41.235Z" });
   return {
-    kind: "raw", source: "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04) (fixture)",
+    kind: "raw", source: is13f ? "SEC EDGAR (13F-HR) — accumulated archive (began 2026-07-05) (fixture)" : "SEC EDGAR (Form 4) — accumulated archive (began 2026-07-04) (fixture)",
+    ...(is13f ? { focused_cap: 250 } : {}),
     window_by: "filed_day", days: null,
-    window: older ? { from: "2026-10-20", to: "2026-11-13" } : { from: "2026-10-20", to: "2026-11-18" },
-    covered: older ? { from: "2026-10-20", to: "2026-11-13" } : { from: "2026-11-16", to: "2026-11-18" },
-    truncated: !older, next: older ? null : "?filed_from=2026-10-20&filed_to=2026-11-13",
-    max_filings: 2000, days_scanned: 3, archive_start: "2026-07-04", malformed_lines: 0, archive_days_read: 3, omitted: 0,
+    window: older ? { from, to: "2026-11-13" } : { from, to: "2026-11-18" },
+    covered: older ? { from, to: "2026-11-13" } : { from: "2026-11-16", to: "2026-11-18" },
+    truncated: !older, next: older ? null : `?filed_from=${from}&filed_to=2026-11-13`,
+    max_filings: is13f ? 500 : 2000, days_scanned: 3, archive_start: is13f ? "2026-07-05" : "2026-07-04", malformed_lines: 0, archive_days_read: 3, omitted: 0,
     filed_days: older
       ? [day("2026-11-13", 1, 1, true), day("2026-11-06", 1, 515, false), day("2026-10-20", 1, null, null)]
       : [day("2026-11-18", 1, null, null), day("2026-11-17", 1, 1, true), day("2026-11-16", 1, 624, false)],
@@ -976,6 +982,7 @@ function pagedFilingHistory(req, kind) {
     text: `Fixture Results ${i} Inc today reported quarterly results and updated its full-year guidance.`, textLength: 92, truncated: false,
   });
   if (kind === "form4" && /[?&]filed_(from|to)=/.test(req.url || "")) return filedDayForm4History(req, form4);
+  if (kind === "13f" && /[?&]filed_(from|to)=/.test(req.url || "")) return filedDayForm4History(req, f13, "13f");
   const make = kind === "form4" ? form4 : kind === "earnings" ? e8k : f13;
   const filings = older
     ? [make(3, "2026-11-13"), make(4, "2026-11-06"), make(5, "2026-10-20")]
@@ -4077,9 +4084,12 @@ async function main() {
         };
         const countWord = name === "earningspaged" ? /\b3 releases\b/ : /\b3 filings\b/;
         const fail = (m) => checks.failures.push("filing-coverage: " + m);
-        // the Form 4 page reads by filed day (2026-11-18); the other two by archive day
-        const byFiled = name === "filingspaged";
-        const want = byFiled
+        // the Form 4 page reads by filed day (2026-11-18) and so does the 13F page (2026-11-21); the earnings page by archive day
+        const byFiled = name === "filingspaged" || name === "filings13fpaged";
+        const is13f = name === "filings13fpaged";
+        const want = is13f
+          ? { before: /2026-11-16 → 2026-11-18 · 3 of the 45 days asked for/, after: /2026-10-05 → 2026-11-18 · all 45 days/, next: /history\?filed_from=2026-10-05&filed_to=2026-11-13$/ }
+          : byFiled
           ? { before: /2026-11-16 → 2026-11-18 · 3 of the 30 days asked for/, after: /2026-10-20 → 2026-11-18 · all 30 days/, next: /history\?filed_from=2026-10-20&filed_to=2026-11-13$/ }
           : { before: /2026-11-14 → 2026-11-15 · 2 of the 30 days asked for/, after: /2026-10-17 → 2026-11-15 · all 30 days/, next: /history\?from=2026-10-17&to=2026-11-13$/ };
         const cov = page.locator("[data-vt-coverage]");
@@ -4091,17 +4101,18 @@ async function main() {
           left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right,
         })));
         if (byFiled) {
-          if (!apiLog.some((u) => /insider\/history\?filed_from=\d{4}-\d{2}-\d{2}$/.test(u))) fail(`the first page was not asked for by filed day (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
+          if (!apiLog.some((u) => (is13f ? /filings13f\/history\?filed_from=\d{4}-\d{2}-\d{2}$/ : /insider\/history\?filed_from=\d{4}-\d{2}-\d{2}$/).test(u))) fail(`the first page was not asked for by filed day (${apiLog.filter((u) => u.includes("history")).join(" , ")})`);
           if (!/\(days filed\)/.test(await page.locator(".vt-filings-sub").first().innerText())) fail("header does not say its days are filed days");
           const sum = page.locator("[data-vt-filed-summary]");
           const sumText = (await sum.count()) ? await sum.first().innerText() : "";
           if (sumText !== "1 of 3 filed days complete against EDGAR's index · 1 partial · 1 not yet checked") fail(`filed-day summary reads "${sumText}"`);
           const lines = await dayLines();
+          // a Form 4 day holds transaction rows beside its filings; a 13F row IS a filing, so its line counts once
           const expect = [
             ["2026-11-18", "sample", "Filed 2026-11-18 · 1 filing · sample · not yet checked against EDGAR's index · 1 row"],
             ["2026-11-17", "complete", "Filed 2026-11-17 · 1 filing · complete · all 1 on EDGAR's index · 1 row"],
             ["2026-11-16", "partial", "Filed 2026-11-16 · 1 filing · partial · 1 of the 624 on EDGAR's index · 1 row"],
-          ];
+          ].map(([d, st, t]) => [d, st, is13f ? t.replace(/ · 1 row$/, "") : t]);
           // only the newest day starts open; the other two open from their own line
           const openNow = await page.locator(".vt-filings-dayrow").evaluateAll((els) => els.map((el) => el.getAttribute("data-open")).join(""));
           if (openNow !== "100") fail(`expected only the newest filed day open at first, got "${openNow}"`);
