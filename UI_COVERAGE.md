@@ -19,14 +19,14 @@ page requests it, not that the page shows every field.
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
 | HTTP routes | 271 | 5 | 6 | 27 | 14 |
-| Diagnostic probes (token-gated) | 36 | 14 | 2 | 11 | 0 |
+| Diagnostic probes (token-gated) | 37 | 14 | 1 | 11 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 257 in `datacore/layers.json` (254 live). The /data layers panel, the legend and
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (8)
+## Missing: user-relevant, no UI yet (7)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -37,7 +37,6 @@ layers are not listed one by one here.
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | Temporary flight restrictions from SWIM NOTAMs. No UI. Placement: a toggleable map layer in the aviation group (symbol per TFR kind, legend entry). |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
-| probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel. |
 
 ## Partial (23)
 
@@ -129,7 +128,7 @@ layers are not listed one by one here.
 | probe | `bars_coverage` | price-bar coverage |
 | probe | `price_panel` | price panel build |
 
-## Surfaced (313)
+## Surfaced (314)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -440,6 +439,7 @@ layers are not listed one by one here.
 | probe | `edge_p2` | `server/bot.ts /api/diag/edge_p2` | lookup ledger (ticker dossier) |
 | probe | `filings13f_completeness` | `server/bot.ts /api/diag/filings13f_completeness` | 13F page, by filed day (#1845, API); the page itself still reads by archive day: PARTIAL in the UI |
 | probe | `event_study` | `server/bot.ts /api/diag/event_study` | ticker dossier |
+| probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: on time, late, never ran, last run failed, not due. Since 2026-11-21 the /data Pipeline health panel lists every job with its schedule, its last run and, for a failed one, the cause as one of six fixed sentences (the `jobs` field of /api/data/pipeline-health-dashboard, jobHeartbeat.publicJobsView). Not shown, by design: the failed run's own error text and the evaluator's reason, which stay behind the token. |
 | strategy | `volatility-managed base (floor_vol_managed.py)` | `volatility-managed base (floor_vol_managed.py)` | The largest holding. Since 2026-11-20 the Why panel's 'Base holding' section shows it against its own rule (see floor_tracking). |
 | strategy | `cash-secured puts (options_execution.py)` | `cash-secured puts (options_execution.py)` | Positions in the Book; since 2026-11-20 the Orders panel's 'Order history' shows each price-ladder step (see orders). |
 | strategy | `regime risk budget (regime_engine)` | `regime risk budget (regime_engine)` | regime card |

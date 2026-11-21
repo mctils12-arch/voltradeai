@@ -452,8 +452,8 @@
    "ticker dossier"
   ],
   "heartbeats": [
-   "missing",
-   "Every scheduled job: ok, late, missing, errored. No UI; /api/health carries a summary. Placement: a 'Jobs' section in the /data Pipeline health panel."
+   "surfaced",
+   "Every scheduled job: on time, late, never ran, last run failed, not due. Since 2026-11-21 the /data Pipeline health panel lists every job with its schedule, its last run and, for a failed one, the cause as one of six fixed sentences (the `jobs` field of /api/data/pipeline-health-dashboard, jobHeartbeat.publicJobsView). Not shown, by design: the failed run's own error text and the evaluator's reason, which stay behind the token."
   ],
   "squeeze_gex": [
    "partial",
