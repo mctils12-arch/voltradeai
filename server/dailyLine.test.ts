@@ -358,20 +358,22 @@ test("the line: a partial line names what was missing, and an unreadable orders 
   assert.deepEqual(l.missing, ["orders: Alpaca 500", "spy bars: timeout"]);
 });
 
-test("store: saveDailyLine replaces the same day, keeps the newest 60, and loads oldest first", () => {
+test("store: saveDailyLine replaces the same day, keeps the newest DAILY_LINE_KEEP (64), and loads oldest first", () => {
   const dir = tmpDir();
   try {
     const base = fullLine();
+    assert.equal(DAILY_LINE_KEEP, 64, "60 until 2026-11-22; 64 = the closes of a 63-session window (floorTracking's drawdown leg)");
+    // 69 consecutive days from 2026-06-01: the last is 2026-08-08, and the newest 64 start at 2026-06-06
     for (let i = 0; i < DAILY_LINE_KEEP + 5; i++) {
       const d = new Date(ms("2026-06-01T12:00:00Z") + i * 86_400_000).toISOString().slice(0, 10);
       assert.ok(saveDailyLine(dir, { ...base, day: d }));
     }
-    saveDailyLine(dir, { ...base, day: "2026-08-04", message: "replaced" });
+    saveDailyLine(dir, { ...base, day: "2026-08-08", message: "replaced" });
     const lines = loadDailyLines(dir);
     assert.equal(lines.length, DAILY_LINE_KEEP);
     assert.equal(lines[0].day, "2026-06-06");
-    assert.equal(lastLineDay(lines), "2026-08-04");
-    assert.equal(lines.filter((l) => l.day === "2026-08-04").length, 1);
+    assert.equal(lastLineDay(lines), "2026-08-08");
+    assert.equal(lines.filter((l) => l.day === "2026-08-08").length, 1);
     assert.equal(lines[lines.length - 1].message, "replaced");
     fs.writeFileSync(path.join(dir, "voltrade_daily_line.json"), "{not json");
     assert.deepEqual(loadDailyLines(dir), [], "an unreadable file is no lines (the day is then due)");

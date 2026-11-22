@@ -1,5 +1,23 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ 2026-11-22 — the account in the market fall, and one question about the floor's rollback line (your call; NOT A SPEND REQUEST)
+
+WHERE THE ACCOUNT IS (Friday 11-20 close, read Sunday): equity $85,724. That is −14.2% from the recorded peak of $99,962, and −22.8% from the real high of $111,041 on 08-08 (the peak was re-baselined on 09-28). The bot's own 18% halt is at $81,965 and both −20% kills at $79,970. The account holds 0.58x of its equity in SPY and the rest in BOXX, so SPY falling about 7.6% more reaches the halt and about 11.6% more reaches the kills. VIX closed at 35.9.
+WHAT THE FLOOR DID: since it went live on 11-06 the account fell 4.6% while SPY fell about 5.8%. On each down day it lost 0.60 to 0.71 of SPY's move, which is what a holding of that size should lose. It is 0.50 points behind its own rule over 10 sessions. The gap to SPY since May (−13.8 points) was made before the floor.
+THE QUESTION: the floor's rollback line reads "account drawdown beyond the backtest's 95th-percentile 3-month drawdown". That number was never computed; it is now: −14.64% (v1.0.1526, research/floor_study_2026-11-05.md addendum).
+- Counted from the day the floor went live (what is built): −5.93% over 11 sessions. Not met.
+- Counted over the last three months whatever floor was running: −18.5% (105,774 on 10-06 to 86,212 on 11-20). Past the line. Of that, −15.0% came before 11-06, under the old basket.
+The built reading does not blame the new floor for the old floor's losses. The other reading is the literal one. Rolling back would mean FLOOR_MODE "basket", the floor that made most of that fall.
+SAY "floor line: from entry" to keep what is built, or "floor line: three months" and a session builds that reading (the trigger would then read MET, and the rollback itself stays your decision).
+NOTHING IS NEEDED to keep the bot running: no alarm, the loop is alive, every safety line is in place and untouched.
+
+## ⚠ 2026-11-22 — 10 sessions in a row ended with work still queued (HEALTH OF THE LOOP rule 6; your call; this one IS a possible spend)
+
+WHAT: the last 10 session entries each end "STARVED: yes". Rule 6 says to flag at 10 that continuous operation through the Agent SDK is now supported by the evidence, with a cost estimate.
+THE EVIDENCE: the queue is not empty work. Left at this session's end: the flight-restriction history's reading surface, three checks on shipped data, and moving the largest archive off the volume.
+COST: not measurable from inside a session. No usage reading has been taken since BLIND MODE began (2026-07-31), and the routines run on the plan, not on metered API. A continuous Agent SDK loop is billed per token on the API. The unit to price is one more session of today's size (over an hour, the full health read, one PR) several times a day. A usage screenshot would turn this into a number.
+THE FREE ALTERNATIVE (build-first): more scheduled slots on the existing plan, which is what the usage loop already allows while weekly usage is under 50%. Recommended first.
+
 ## ⚠ 2026-11-18 — the after-close merge sweep runs once a day, 4 to 7 hours late (frozen workflow; your call whether to change its schedule)
 
 WHAT: `.github/workflows/automerge-sweep.yml` is scheduled at :07 and :37 past 20-23Z on weekdays, so a PR held back during market hours merges at 16:07 ET. GitHub has run it 4 times since it was installed, once a day: 2026-11-12 04:05Z, 11-13 00:59Z, 11-14 00:51Z, 11-17 02:52Z. That is 3 h 51 min to 7 h 06 min after the close. Meanwhile PRs opened after the close merge at once and leave the held PR in conflict, with its session gone. This cost three sessions for #1769 and a re-land for #1809, and it is what pushed the repair ratio to 7 of 10 on 2026-11-17.

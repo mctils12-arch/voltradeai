@@ -277,7 +277,7 @@
   ],
   "floor_tracking": [
    "surfaced",
-   "The base holding against its own rule. Since 2026-11-20 the Why panel's 'Base holding' section shows the sentence, the per-session table, the rollback line and turnover, through /api/bot/floor-tracking."
+   "The base holding against its own rule. Since 2026-11-20 the Why panel's 'Base holding' section shows the sentence, the per-session table, the rollback line and turnover, through /api/bot/floor-tracking. Since 2026-11-22 the rollback line's sentence also carries the account's drawdown against its limit (the trigger's second leg); the page shows the server's sentence as it is."
   ],
   "account": [
    "surfaced",

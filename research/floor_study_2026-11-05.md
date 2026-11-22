@@ -112,3 +112,27 @@ So "the same risk as SPY, more return" sits near an 18% target with a 2x cap. Th
 - V2's CAGR gain came in at +1.5 pp, below the prior's 2–5 pp, and its Sharpe is at SPY's rather than above it.
 - V3 matched its prior.
 - C0 beat its prior: +1.3 pp CAGR with a higher Sharpe than SPY over 2013+.
+
+## Addendum 2026-11-22: the number behind the trigger's second leg
+
+The pre-registration above names "the backtest's 95th-percentile 3-month drawdown" as the account's rollback line. The study never computed it, so the live report could not test that leg. It is computed here from the study's own code and inputs. Nothing above is changed.
+
+Script: `scripts/floor_drawdown_limit.py` (it imports `floor_study.py`'s `run_v1`). Result: `research/floor_study_drawdown_limit_2026-11-22.json`. The run reproduced the study's V1 row: 8,499 sessions, CAGR 10.97%, max drawdown −48.41%, log growth 10.41%, Sharpe 0.572 against the published 0.573 (Yahoo re-states adjusted closes when a dividend is paid).
+
+**Definition, written before the account was set against it.** Three months is 63 sessions. A window is 63 consecutive sessions. Its drawdown is the largest fall from a high to a later low inside the window. The limit is the drawdown that 95% of the backtest's 8,437 windows stayed above.
+
+| | V1 | SPY |
+|---|---|---|
+| 95th percentile | **−14.64%** | −18.76% |
+| 99th percentile | −17.87% | −33.72% |
+| worst window | −19.20% | −41.71% |
+
+**The same words can be read two other ways.** Both are in the result file, so the choice is visible:
+- the fall from the highest close of the last 63 sessions, measured on each day: 95th percentile −11.95%;
+- the 63-session return: 5th percentile −10.05%.
+
+The first reading is the one the server tests (`server/floorTracking.ts`, `FLOOR_DRAWDOWN_LIMIT_PCT`). It is the loosest of the three. On 2026-11-22 the account's figure since the floor entered was −5.93%, inside all three, so the choice did not decide the result that day.
+
+**What the live leg measures.** The account's closing equity from the close before the floor's first fill (2026-11-05), over the newest 63 sessions. A fall past the limit trips the leg at once. "Not met" is said only of a full 63-session window with every close on record. Sessions before 2026-11-06 are not in it: they were the old basket's.
+
+**What that leaves out, stated so it is not missed.** Over the three months to 2026-11-20 the account's largest fall was −18.5% (105,774 on 10-06 to 86,212 on 11-20). That is past −14.64%. Of it, 105,774 to 89,889 (−15.0%) came before the floor entered. Whether the trigger should count those sessions is the human's call (research/wishlist.md, 2026-11-22).

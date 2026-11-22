@@ -1,0 +1,73 @@
+{
+ "what": "the volatility-managed floor's 95th-percentile 3-month drawdown in its pre-registered backtest (V1), the limit of the rollback trigger's second leg",
+ "computed": "2026-11-22",
+ "study": "research/floor_study_2026-11-05.md (pre-registration and results unchanged by this file)",
+ "script": "scripts/floor_drawdown_limit.py over scripts/floor_study.py run_v1",
+ "definition": "63 sessions = 3 months; a window = 63 consecutive sessions (64 closes); its drawdown = the largest fall from a high to a later low inside the window; the limit = the drawdown 95% of the windows stayed above",
+ "window": {
+  "from": "1993-02-01",
+  "to": "2026-11-04",
+  "sessions": 8499
+ },
+ "V1_volmanaged": {
+  "window_sessions": 63,
+  "windows": 8437,
+  "p95_pct": -14.64,
+  "p99_pct": -17.87,
+  "worst_pct": -19.2,
+  "alternatives": {
+   "from_window_high": {
+    "p95_pct": -11.95,
+    "p99_pct": -15.24
+   },
+   "window_return": {
+    "p05_pct": -10.05,
+    "p01_pct": -13.29
+   }
+  }
+ },
+ "B0_SPY": {
+  "window_sessions": 63,
+  "windows": 8437,
+  "p95_pct": -18.76,
+  "p99_pct": -33.72,
+  "worst_pct": -41.71,
+  "alternatives": {
+   "from_window_high": {
+    "p95_pct": -12.99,
+    "p99_pct": -22.66
+   },
+   "window_return": {
+    "p05_pct": -10.46,
+    "p01_pct": -19.44
+   }
+  }
+ },
+ "reproduction": {
+  "recomputed": {
+   "cagr_pct": 10.97,
+   "sharpe": 0.572,
+   "max_dd_pct": -48.41,
+   "log_growth_pct": 10.41
+  },
+  "study": {
+   "cagr_pct": 10.97,
+   "sharpe": 0.573,
+   "max_dd_pct": -48.41,
+   "log_growth_pct": 10.41
+  },
+  "tolerance": 0.02,
+  "reproduces_study": true
+ },
+ "inputs": {
+  "source": "Yahoo chart API, daily, adjusted close (SPY) and close (^IRX)",
+  "h_SPY.json": {
+   "sha256": "d9595b6683858b425ba64162e478a5219bfe668f8f6cc5611becb71258b92f55",
+   "first": "1993-01-29",
+   "last_used": "2026-11-04"
+  },
+  "h_IRX.json": {
+   "sha256": "541f74c4e969a8a36f355fbba3f07e11121a2da3d6357fb1a8247983a5b9383b"
+  }
+ }
+}
