@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-22 (same scheduled PRODUCT session, after #1881 merged and deployed; Sun 08:51 ET = 13:51Z, MARKET CLOSED) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md, tfr_list_gate1_served_2026-11-22.json); shared: package.json — the FAA-list flight restrictions judged on production: coverage gate 1 passes for the United States, 31 of 31 due restrictions served (research only, v1.0.1522)
+VERSION: v1.0.1522 (main was v1.0.1521). No code.
+WHAT: the CHECK AFTER DEPLOY of the entry below ((x1)), run with `npx tsx scripts/tfr_list_gate1.ts --served <production route>` at 13:51Z, 4 minutes after v1.0.1521 booted (#1881 merged 13:46Z, live 13:49Z).
+PRIORS (written in open_questions.md before the deploy) AND RESULT: 75% that Railway reaches tfr.faa.gov: HELD (`status` ok, `last_cause` ok). 90% that every due restriction is served and no detail file is pending within 3 minutes of the first read: HELD (first read 90 s after boot; 47 detail files read in the next 75 s; 31 due, 31 served, 0 missing, 0 served that is not due).
+NUMBERS: 47 listed, 35 with an outline, 12 the FAA publishes no outline for, 0 unread. Outline check on the same read: 34 agree, 1 partial by area count (6/2481, as this morning), 0 disagree, 45 of 45 shape-service polygons matched. `also_in_feed` 0: the notice feed alone held none of the 47.
+VERDICT: ladder gate 1 (DATA) for COVERAGE passes on production for "every US restriction the FAA lists with an outline, as of the last read". Not for other countries (feed only). The layer remains a RAW overlay.
+HEALTH AFTER THE DEPLOY: loop alive, process faults 0, server_version = main; the two standing WARNs (jobs degraded, Tier-2 daemon timeouts #18) unchanged.
+NOT DONE: the map was not opened in a browser against production; the route is what was read.
+NEXT: (x5) the restriction archive on the list read; (x4); (x2).
+STARVED: yes — queued and not reached: (x5), (x4), (x2), (w2), the XBRL second-night check.
+
 ## 2026-11-22 (scheduled routine, PRODUCT prompt, Sun 08:02 ET = 13:02Z, MARKET CLOSED) [PRODUCT] — T-DATACORE primary (server/faaTfrList.ts + test + real FAA fixtures, new; scripts/tfr_list_gate1.ts, new; server/swimCapture.ts: the route's answer; server/swimNotam.ts: one reader of citations; server/flightPlans.ts: one boot call) with its UI half (client/src/lib/air/flightRestrictions.ts + test, client/src/pages/datamap.tsx card call and legend note, scripts/visual_check.mjs); shared last-and-minimal: server/jobHeartbeat.ts (one registry entry), datacore/layers.json (one layer's text), ci/counter_baseline.txt, research/*, package.json — /data map: the standing US flight restrictions are read from the FAA's own public list and drawn with the FAA's outline; the layer's coverage is checked against that list on every read (v1.0.1521)
 VERSION: v1.0.1521 (main was v1.0.1520)
 TERRITORY: T-DATACORE primary, T-CLIENT for its UI counterpart in the same PR (UI INTEGRATION). No strategy, parameter, sizing or measurement code. Nothing in the trading path reads this.

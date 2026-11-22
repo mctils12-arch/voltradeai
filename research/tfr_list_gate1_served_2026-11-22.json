@@ -1,0 +1,400 @@
+{
+ "at": "2026-11-22T13:51:35.802Z",
+ "faa_listed": 47,
+ "list_rows_malformed": 0,
+ "outline": {
+  "compared": 35,
+  "agree": 34,
+  "partial": 1,
+  "not_read": 0,
+  "disagree": 0,
+  "shape_service_polygons": 45,
+  "matched": 45,
+  "worst_matched_nm": 0,
+  "tolerance": "0.1 NM + 0.4% of the shape-service polygon's half-diagonal"
+ },
+ "coverage": {
+  "with_outline": 35,
+  "no_outline_in_faa_file": [
+   "6/3366",
+   "5/3402",
+   "5/6379",
+   "5/7224",
+   "5/6874",
+   "4/9433",
+   "4/2565",
+   "4/1789",
+   "2/8783",
+   "1/5060",
+   "0/0367",
+   "6/8818"
+  ],
+  "detail_unread": [],
+  "shape_service_has_one_we_lack": [],
+  "verdict": "PASS"
+ },
+ "served": {
+  "url": "https://voltradeai-production.up.railway.app/api/data/swim/notam/tfrs",
+  "due_now": 31,
+  "served_of_due": 31,
+  "missing": [],
+  "served_not_due": [],
+  "faa_list": {
+   "status": "ok",
+   "read_at": 1795355409638,
+   "last_attempt_at": 1795355409233,
+   "last_cause": "ok",
+   "listed": 47,
+   "with_outline": 35,
+   "without_outline": 12,
+   "detail_pending": 0,
+   "also_in_feed": 0,
+   "not_drawn": [
+    {
+     "citation": "FDC 6/3366",
+     "type": "SECURITY",
+     "description": "USA, Thursday, April 16, 2026 through Sunday, April 16, 2028 UTC"
+    },
+    {
+     "citation": "FDC 5/3402",
+     "type": "SECURITY",
+     "description": "USA, Thursday, November 6, 2025 UTC"
+    },
+    {
+     "citation": "FDC 5/6379",
+     "type": "SECURITY",
+     "description": "USA, Wednesday, October 29, 2025 through Friday, October 29, 2027 UTC"
+    },
+    {
+     "citation": "FDC 5/7224",
+     "type": "SECURITY",
+     "description": "WASHINGTON, DC, Wednesday, September 3, 2025 UTC"
+    },
+    {
+     "citation": "FDC 5/6874",
+     "type": "SECURITY",
+     "description": "USA, Saturday, March 1, 2025 through Wednesday, March 31, 2027 UTC"
+    },
+    {
+     "citation": "FDC 4/9433",
+     "type": "SECURITY",
+     "description": "USA, Tuesday, September 3, 2024 UTC"
+    },
+    {
+     "citation": "FDC 4/2565",
+     "type": "SECURITY",
+     "description": "USA, Monday, June 24, 2024 UTC"
+    },
+    {
+     "citation": "FDC 4/1789",
+     "type": "SECURITY",
+     "description": "USA, Friday, June 21, 2024 UTC"
+    },
+    {
+     "citation": "FDC 2/8783",
+     "type": "SECURITY",
+     "description": "USA, Monday, February 28, 2022 UTC"
+    },
+    {
+     "citation": "FDC 1/5060",
+     "type": "SPECIAL",
+     "description": "USA, Wednesday, September 29, 2021 UTC"
+    },
+    {
+     "citation": "FDC 0/0367",
+     "type": "SECURITY",
+     "description": "USA, Wednesday, January 15, 2020 UTC"
+    },
+    {
+     "citation": "FDC 6/8818",
+     "type": "SECURITY",
+     "description": "Special Notice, USA"
+    }
+   ],
+   "restored": false,
+   "served": 31
+  }
+ },
+ "notices": [
+  {
+   "notice": "6/9306",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9276",
+   "faa_shapes": 4,
+   "ours": 4,
+   "matched": 4,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9186",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9141",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9071",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8989",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8986",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8983",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8704",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8702",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/7660",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/7165",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/6925",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/6924",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/4116",
+   "faa_shapes": 2,
+   "ours": 2,
+   "matched": 2,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2670",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2547",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2481",
+   "faa_shapes": 4,
+   "ours": 5,
+   "matched": 4,
+   "verdict": "partial",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2478",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/0100",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/5945",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/0708",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/4812",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2657",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2656",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2652",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2520",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/4143",
+   "faa_shapes": 3,
+   "ours": 3,
+   "matched": 3,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2698",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/0543",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "5/3679",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "5/3678",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "5/6914",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "4/9383",
+   "faa_shapes": 2,
+   "ours": 2,
+   "matched": 2,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "9/2934",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  }
+ ]
+}
