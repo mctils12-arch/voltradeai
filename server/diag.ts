@@ -442,6 +442,13 @@ export const DIAG_PROBES = [
   // ledger in counts (index, held, short days by date). Counts and dates only:
   // no manager, CIK, accession or filing URL; no network; no query parameters.
   "filings13f_completeness",
+  // ADDED 2026-11-22 ([PIPELINE]): read-only status of the nightly 13F
+  // new-position cluster detector (server/filings13fClusters.ts
+  // filings13fClustersStatus) — counts per quarter pair, coverage, the
+  // definitions, the newest pair's largest thinly held clusters. Public SEC
+  // filings data only (issuer name and CUSIP as filed); no price, no return;
+  // no network; no Python; no query parameters.
+  "filings13f_clusters",
   // ADDED 2026-11-21 ([PIPELINE]): read-only status of the nightly SEC XBRL
   // fundamentals read (server/xbrlFrames.ts xbrlFramesStatus) — the day
   // markers, the last night's per-frame counts and error text, free space.

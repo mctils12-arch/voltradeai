@@ -19,7 +19,7 @@ page requests it, not that the page shows every field.
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
 | HTTP routes | 274 | 5 | 5 | 27 | 14 |
-| Diagnostic probes (token-gated) | 37 | 15 | 1 | 12 | 0 |
+| Diagnostic probes (token-gated) | 37 | 16 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 258 in `datacore/layers.json` (255 live). The /data layers panel, the legend and
@@ -37,7 +37,7 @@ layers are not listed one by one here.
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
 
-## Partial (24)
+## Partial (25)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -55,6 +55,7 @@ layers are not listed one by one here.
 | probe | `options_entitlements` | `server/bot.ts /api/diag/options_entitlements` | Which options data the account is entitled to. Since 2026-11-20 the Book says which QUOTE feed applies (indicative today) under its options, through /api/bot/options-feed. The rest of the report (historical trades, bars, open interest per vendor) has no UI; it is an execution-layer Phase 0 fact. |
 | probe | `lazy_prices` | `server/bot.ts /api/diag/lazy_prices` | as above (backfill progress and gate reading) |
 | probe | `earnings_qoq` | `server/bot.ts /api/diag/earnings_qoq` | as above |
+| probe | `filings13f_clusters` | `server/bot.ts /api/diag/filings13f_clusters` | The nightly job is on Pipeline health with every other scheduled job, and Signal strength shows the 13F root's ladder position. Not on a page: the cluster list itself (securities several focused managers newly reported in a quarter). It is an interpreted reading whose gate-2 test is pre-registered and not yet run, so it waits for ladder gate 2. Placement after gate 2: a section of the 13F page. |
 | probe | `github_gate2` | `server/bot.ts /api/diag/github_gate2` | as above |
 | probe | `form4_completeness` | `server/bot.ts /api/diag/form4_completeness` | Per-day completeness of the Form 4 archive. CORRECTED 2026-11-21: the Form 4 page has shown each filed day against EDGAR's index since 2026-11-18 (complete / partial / sample, through /api/data/insider/history). Not on a page: the nightly pass's own last run and the refill's progress. Placement: one line under the Form 4 page header. |
 | probe | `filings13f_completeness` | `server/bot.ts /api/diag/filings13f_completeness` | 13F page: since 2026-11-21 the page asks by filed day and each day's line states it against EDGAR's index (complete / partial / sample, through /api/data/filings13f/history). Not on a page: the nightly pass's own last run and how far back the archive is complete. Placement: one line under the 13F page header. |

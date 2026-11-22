@@ -74,6 +74,7 @@ import { edgeP2Status } from "./edgeP2";
 import { PEAK_CATCHUP_DELAY_MS, PEAK_CATCHUP_MAX_ATTEMPTS, PEAK_CATCHUP_RETRY_MS, decidePeakCatchUp, peakCatchUpCmd, peakCatchUpFlag, peakCatchUpMarkerPath, readPeakCatchUpMarker, summarizePeakCatchUp, writePeakCatchUpMarker } from "./peakCatchUp";
 import { lazyPricesStatus } from "./lazyPrices";
 import { earningsQoqStatus } from "./earningsQoq";
+import { filings13fClustersStatus } from "./filings13fClusters";
 import { githubGate2Status } from "./githubGate2";
 import { form4CompletenessStatus } from "./edgarForm4Completeness";
 import { filings13fCompletenessStatus } from "./edgar13fCompleteness";
@@ -5153,6 +5154,12 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // test of the 8-K QoQ language-delta feature (server/earningsQoq.ts) —
           // headline fields only.
           return res.json(sanitizeDiag(earningsQoqStatus()));
+        }
+        case "filings13f_clusters": {
+          // ADDED 2026-11-22 ([PIPELINE]): read-only status of the nightly 13F
+          // new-position cluster detector (server/filings13fClusters.ts) — a
+          // count of as-filed records; no price, no return.
+          return res.json(sanitizeDiag(filings13fClustersStatus()));
         }
         case "github_gate2": {
           // ADDED 2026-11-12 ([PIPELINE]): read-only status of the weekly

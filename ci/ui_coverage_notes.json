@@ -447,6 +447,10 @@
    "partial",
    "13F page: since 2026-11-21 the page asks by filed day and each day's line states it against EDGAR's index (complete / partial / sample, through /api/data/filings13f/history). Not on a page: the nightly pass's own last run and how far back the archive is complete. Placement: one line under the 13F page header."
   ],
+  "filings13f_clusters": [
+   "partial",
+   "The nightly job is on Pipeline health with every other scheduled job, and Signal strength shows the 13F root's ladder position. Not on a page: the cluster list itself (securities several focused managers newly reported in a quarter). It is an interpreted reading whose gate-2 test is pre-registered and not yet run, so it waits for ladder gate 2. Placement after gate 2: a section of the 13F page."
+  ],
   "edgar_poll": [
    "partial",
    "EDGAR poller failures. Placement: Pipeline health."
