@@ -1,0 +1,791 @@
+{
+ "at": "2026-11-22T00:17:44.807Z",
+ "faa_listed": 61,
+ "text_unavailable": [],
+ "with_faa_shape": 49,
+ "without_faa_shape": 12,
+ "agree": 41,
+ "partial": 1,
+ "not_read": 7,
+ "disagree": 0,
+ "read_share": 0.857,
+ "agree_share_of_read": 0.976,
+ "faa_polygons": 62,
+ "faa_polygons_matched": 53,
+ "tolerance": "0.1 NM + 0.4% of the FAA shape's half-diagonal",
+ "notices": [
+  {
+   "notice": "6/9306",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/9287",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 0,
+   "read": 0,
+   "unread": 0,
+   "verdict": "not_read",
+   "matched": 0,
+   "worst_matched_nm": null,
+   "distances_nm": [
+    -1
+   ]
+  },
+  {
+   "notice": "6/9276",
+   "type": "SECURITY",
+   "faa_shapes": 4,
+   "areas_in_text": 4,
+   "read": 4,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 4,
+   "worst_matched_nm": 0.014,
+   "distances_nm": [
+    0.014,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "notice": "6/9186",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.025,
+   "distances_nm": [
+    0.025
+   ]
+  },
+  {
+   "notice": "6/9172",
+   "type": "SECURITY",
+   "faa_shapes": 4,
+   "areas_in_text": 4,
+   "read": 4,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 4,
+   "worst_matched_nm": 0.014,
+   "distances_nm": [
+    0.014,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "notice": "6/9141",
+   "type": "VIP",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.031,
+   "distances_nm": [
+    0.031
+   ]
+  },
+  {
+   "notice": "6/9128",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.023,
+   "distances_nm": [
+    0.023
+   ]
+  },
+  {
+   "notice": "6/9119",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.007,
+   "distances_nm": [
+    0.007
+   ]
+  },
+  {
+   "notice": "6/9071",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 0,
+   "unread": 1,
+   "verdict": "not_read",
+   "matched": 0,
+   "worst_matched_nm": null,
+   "distances_nm": [
+    -1
+   ]
+  },
+  {
+   "notice": "6/9014",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/9013",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/8989",
+   "type": "UAS PUBLIC GATHERING",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.006,
+   "distances_nm": [
+    0.006
+   ]
+  },
+  {
+   "notice": "6/8986",
+   "type": "UAS PUBLIC GATHERING",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 0,
+   "unread": 1,
+   "verdict": "not_read",
+   "matched": 0,
+   "worst_matched_nm": null,
+   "distances_nm": [
+    -1
+   ]
+  },
+  {
+   "notice": "6/8983",
+   "type": "VIP",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.031,
+   "distances_nm": [
+    0.031
+   ]
+  },
+  {
+   "notice": "6/8981",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.012,
+   "distances_nm": [
+    0.012
+   ]
+  },
+  {
+   "notice": "6/8704",
+   "type": "SPACE OPERATIONS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.013,
+   "distances_nm": [
+    0.013
+   ]
+  },
+  {
+   "notice": "6/8702",
+   "type": "SPACE OPERATIONS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.013,
+   "distances_nm": [
+    0.013
+   ]
+  },
+  {
+   "notice": "6/8612",
+   "type": "SPECIAL",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/8034",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.006,
+   "distances_nm": [
+    0.006
+   ]
+  },
+  {
+   "notice": "6/7878",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.012,
+   "distances_nm": [
+    0.012
+   ]
+  },
+  {
+   "notice": "6/7769",
+   "type": "UAS PUBLIC GATHERING",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.006,
+   "distances_nm": [
+    0.006
+   ]
+  },
+  {
+   "notice": "6/7767",
+   "type": "UAS PUBLIC GATHERING",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.009,
+   "distances_nm": [
+    0.009
+   ]
+  },
+  {
+   "notice": "6/7761",
+   "type": "UAS PUBLIC GATHERING",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.019,
+   "distances_nm": [
+    0.019
+   ]
+  },
+  {
+   "notice": "6/7660",
+   "type": "UAS PUBLIC GATHERING",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.003,
+   "distances_nm": [
+    0.003
+   ]
+  },
+  {
+   "notice": "6/7659",
+   "type": "UAS PUBLIC GATHERING",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.003,
+   "distances_nm": [
+    0.003
+   ]
+  },
+  {
+   "notice": "6/7165",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.008,
+   "distances_nm": [
+    0.008
+   ]
+  },
+  {
+   "notice": "6/6925",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.018,
+   "distances_nm": [
+    0.018
+   ]
+  },
+  {
+   "notice": "6/6924",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.017,
+   "distances_nm": [
+    0.017
+   ]
+  },
+  {
+   "notice": "6/4116",
+   "type": "SECURITY",
+   "faa_shapes": 2,
+   "areas_in_text": 2,
+   "read": 2,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 2,
+   "worst_matched_nm": 0.033,
+   "distances_nm": [
+    0,
+    0.033
+   ]
+  },
+  {
+   "notice": "6/2670",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/2547",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.062,
+   "distances_nm": [
+    0.062
+   ]
+  },
+  {
+   "notice": "6/2481",
+   "type": "SECURITY",
+   "faa_shapes": 4,
+   "areas_in_text": 5,
+   "read": 4,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 4,
+   "worst_matched_nm": 0.021,
+   "distances_nm": [
+    0.021,
+    0.015,
+    0.013,
+    0.021
+   ]
+  },
+  {
+   "notice": "6/2478",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.029,
+   "distances_nm": [
+    0.029
+   ]
+  },
+  {
+   "notice": "6/0100",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.006,
+   "distances_nm": [
+    0.006
+   ]
+  },
+  {
+   "notice": "6/5945",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/0708",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.006,
+   "distances_nm": [
+    0.006
+   ]
+  },
+  {
+   "notice": "6/4812",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/2657",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/2656",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/2652",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "6/2520",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.005,
+   "distances_nm": [
+    0.005
+   ]
+  },
+  {
+   "notice": "6/4143",
+   "type": "SECURITY",
+   "faa_shapes": 3,
+   "areas_in_text": 3,
+   "read": 2,
+   "unread": 1,
+   "verdict": "partial",
+   "matched": 2,
+   "worst_matched_nm": 0.077,
+   "distances_nm": [
+    0.077,
+    0,
+    9.338
+   ]
+  },
+  {
+   "notice": "6/2698",
+   "type": "HAZARDS",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.021,
+   "distances_nm": [
+    0.021
+   ]
+  },
+  {
+   "notice": "6/0543",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0,
+   "distances_nm": [
+    0
+   ]
+  },
+  {
+   "notice": "5/3679",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 0,
+   "unread": 1,
+   "verdict": "not_read",
+   "matched": 0,
+   "worst_matched_nm": null,
+   "distances_nm": [
+    -1
+   ]
+  },
+  {
+   "notice": "5/3678",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 0,
+   "unread": 1,
+   "verdict": "not_read",
+   "matched": 0,
+   "worst_matched_nm": null,
+   "distances_nm": [
+    -1
+   ]
+  },
+  {
+   "notice": "5/6914",
+   "type": "SECURITY",
+   "faa_shapes": 1,
+   "areas_in_text": 1,
+   "read": 1,
+   "unread": 0,
+   "verdict": "agree",
+   "matched": 1,
+   "worst_matched_nm": 0.006,
+   "distances_nm": [
+    0.006
+   ]
+  },
+  {
+   "notice": "4/9383",
+   "type": "SECURITY",
+   "faa_shapes": 2,
+   "areas_in_text": 0,
+   "read": 0,
+   "unread": 0,
+   "verdict": "not_read",
+   "matched": 0,
+   "worst_matched_nm": null,
+   "distances_nm": [
+    -1,
+    -1
+   ]
+  },
+  {
+   "notice": "9/2934",
+   "type": "VIP",
+   "faa_shapes": 1,
+   "areas_in_text": 0,
+   "read": 0,
+   "unread": 0,
+   "verdict": "not_read",
+   "matched": 0,
+   "worst_matched_nm": null,
+   "distances_nm": [
+    -1
+   ]
+  }
+ ],
+ "no_faa_shape": [
+  {
+   "notice": "6/3366",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "5/3402",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "5/6379",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "5/7224",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "5/6874",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "4/9433",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "4/2565",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "4/1789",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "1/5060",
+   "type": "SPECIAL",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "2/8783",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  },
+  {
+   "notice": "0/0367",
+   "type": "SECURITY",
+   "areas_in_text": 1,
+   "read": 0
+  },
+  {
+   "notice": "6/8818",
+   "type": "SECURITY",
+   "areas_in_text": 0,
+   "read": 0
+  }
+ ]
+}

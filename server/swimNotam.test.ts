@@ -4,6 +4,7 @@
 // had reached the sample buffer yet — capture now buckets them separately).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { parseNotamPayload, NotamStore, qlineCenter, notamTime, isTfr, NOTAM_TFR_DEFAULT_TTL_MS } from "./swimNotam";
 
 const msg = (o: { cls: string; q?: string; text: string; type?: string; id?: string; start?: string; end?: string; airspace?: string; coords?: string; radius?: string }) =>
@@ -65,7 +66,9 @@ test("store: active TFRs only (window, cancellation); non-TFRs are counted by cl
   assert.equal(s.stats().tfrs_without_shape, 0, "every restriction above carried a shape; the plain ILS notice is not counted");
   const bare = (x: string) => x.replace(/<event:coordinates>[^<]*<\/event:coordinates>/, "").replace(/<event:radius>[^<]*<\/event:radius>/, "");
   const shapeless = new NotamStore();
-  shapeless.ingest(bare(msg({ cls: "FDC", id: "6/4444", text: "TEMPORARY FLIGHT RESTRICTIONS WI AN AREA DEFINED AS 3NM RADIUS OF 370905N0834549W PURSUANT TO 14 CFR SECTION 91.137(A)(1)" })), now);
+  // (2026-11-22: the text of this fixture was "WI AN AREA DEFINED AS 3NM RADIUS OF 370905N0834549W", which is
+  // now READ, see the tests below; a wording the reader does not follow keeps this count's meaning)
+  shapeless.ingest(bare(msg({ cls: "FDC", id: "6/4444", text: "TEMPORARY FLIGHT RESTRICTIONS WITHIN A 3 NMR OF 370905N/0834549W PURSUANT TO 14 CFR SECTION 91.137(A)(1)" })), now);
   assert.deepEqual({ held: shapeless.stats().tfrs, without_shape: shapeless.stats().tfrs_without_shape, listed: shapeless.active(now).length }, { held: 0, without_shape: 1, listed: 0 });
   shapeless.ingest(bare(msg({ cls: "FDC", id: "6/4444", type: "C", text: "TEMPORARY FLIGHT RESTRICTIONS CANCELED" })), now);
   assert.equal(shapeless.stats().tfrs_without_shape, 1, "a cancellation is not a restriction that could not be drawn");
@@ -80,4 +83,55 @@ test("ids without a cross-over id stay unique per location", () => {
   const b = parseNotamPayload(strip(ILS, "KDAL"))[0];
   assert.equal(a.id, "KCNY:A1381/2026");
   assert.notEqual(a.id, b.id);
+});
+
+// ── the outline read from the notice's words (2026-11-22) ──────────────────
+// A REAL message: FDC 6/9306 as the FAA notice feed delivered it to
+// production on 2026-11-21 23:27Z (the capture's TFR sample, unedited). It
+// has no airspace geometry, no index point and no radius; before this change
+// the store dropped it while tfr.faa.gov listed it first.
+const FDC_9306 = fs.readFileSync(new URL("./__fixtures__/notam_fdc_6_9306.xml", import.meta.url), "utf8");
+const bareMsg = (x: string) => x.replace(/<event:coordinates>[^<]*<\/event:coordinates>/, "").replace(/<event:radius>[^<]*<\/event:radius>/, "");
+
+test("the real US notice production dropped: its outline is read from its text, labeled as such, and it is listed", () => {
+  const [r] = parseNotamPayload(FDC_9306);
+  assert.equal(r.classification, "FDC");
+  assert.equal(r.citation, "FDC 6/9306", "copied from the notice's own plain-text form");
+  assert.equal(r.center, null);
+  assert.equal(r.radiusNm, null);
+  assert.equal(r.start, Date.UTC(2026, 10, 22, 12, 0));
+  assert.equal(r.end, Date.UTC(2026, 10, 29, 23, 0), "an end marked EST (estimated) is still its end");
+  assert.deepEqual(r.geometry, {
+    kind: "polygon", from: "text", unread: 0,
+    rings: [[[37.866667, -79.875], [37.85, -79.833333], [37.808333, -79.866667], [37.816667, -79.9], [37.866667, -79.875]]],
+  });
+  const s = new NotamStore();
+  const now = Date.UTC(2026, 10, 22, 13, 0);
+  s.ingest(FDC_9306, now);
+  assert.deepEqual({ held: s.stats().tfrs, without_shape: s.stats().tfrs_without_shape, listed: s.active(now).length }, { held: 1, without_shape: 0, listed: 1 });
+  // it survives the keep-file round trip with its label
+  const back = new NotamStore();
+  assert.deepEqual(back.restore(JSON.parse(JSON.stringify(s.snapshot(now))), now), { tfrs: 1, dropped: 0 });
+  assert.equal((back.active(now)[0].geometry as { from?: string }).from, "text");
+  // and a cancellation, which carries no area in its words, removes it
+  s.ingest(FDC_9306.replace("<event:type>N</event:type>", "<event:type>C</event:type>").replace(/<event:text>[^<]*<\/event:text>/, "<event:text>TEMPORARY FLIGHT RESTRICTIONS CANCELED</event:text>"), now);
+  assert.deepEqual({ held: s.stats().tfrs, without_shape: s.stats().tfrs_without_shape }, { held: 0, without_shape: 0 });
+});
+
+test("which shape wins: geometry as sent, then the text's outline, then the index circle; a notice with no citation line has none", () => {
+  const AREA = "TEMPORARY FLIGHT RESTRICTIONS WI AN AREA DEFINED AS 3NM RADIUS OF 370905N0834549W (LOZ090020) SFC-3000FT PURSUANT TO 14 CFR SECTION 91.137(A)(1)";
+  const sent = parseNotamPayload(msg({ cls: "FDC", text: AREA, airspace: AIRSPACE }))[0];
+  assert.deepEqual(Object.keys(sent.geometry!).sort(), ["kind", "rings"], "geometry as sent is never labeled as read from text");
+  const words = parseNotamPayload(msg({ cls: "FDC", text: AREA }))[0].geometry as { kind: string; from?: string; rings: unknown[][] };
+  assert.deepEqual({ kind: words.kind, from: words.from, rings: words.rings.length, corners: words.rings[0].length }, { kind: "polygon", from: "text", rings: 1, corners: 73 },
+    "the text's own area is drawn in place of the index circle, which only encloses it");
+  // an area the reader cannot follow: the index circle, as before
+  const cut = parseNotamPayload(msg({ cls: "FDC", text: AREA.replace("0834549W", "0834549") }))[0];
+  assert.equal(cut.geometry!.kind, "circle");
+  // one area read, one not: what was read is drawn and the other is counted
+  const half = parseNotamPayload(bareMsg(msg({ cls: "FDC", text: `${AREA}. WI AN AREA DEFINED AS 380000N0840000W TO 380100N0840000 TO POINT OF ORIGIN` })))[0];
+  assert.deepEqual({ from: (half.geometry as { from?: string }).from, unread: (half.geometry as { unread?: number }).unread }, { from: "text", unread: 1 });
+  // the text is read only for a flight restriction: the same words on another notice make no shape
+  assert.equal(parseNotamPayload(msg({ cls: "DOM", text: AREA }))[0].geometry, null);
+  assert.equal(sent.citation, undefined, "the trimmed fixture has no plain-text form");
 });
