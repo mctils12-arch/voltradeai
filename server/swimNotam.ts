@@ -14,10 +14,15 @@
 // message carries airspace geometry (gml:posList inside an Airspace member);
 // otherwise the NOTAM's own Q-line circle (center + radius), labeled
 // "approximate" — the Q-line radius encloses the area, it is not the area.
-// No TFR has reached the sample buffer yet; capture now keeps TFR samples in
-// their own bucket so the first real one verifies this parser.
+// US FDC restriction notices carry NEITHER (read on production 2026-11-22:
+// FDC 6/9306 arrived with its area in the text only and was dropped), so
+// between the two sits a third, labeled shape: the outline read from the
+// notice's own words (swimNotamText.ts, `from: "text"`), checked against
+// the FAA's published shapes by scripts/tfr_text_gate1.ts. It is never
+// called the restriction's own geometry.
 
 import { parseXmlLite, findAll, findFirst, type XNode } from "./swimSfdps";
+import { textAreas } from "./swimNotamText";
 
 export const NOTAM_MAX_TFRS = 2_000;
 /** a TFR with no end time is kept this long after issue */
@@ -43,11 +48,21 @@ export interface NotamRecord {
   radiusNm: number | null;
   text: string | null;
   scenario: string | null;
+  /** an FDC notice as people cite it, "FDC 6/9306", copied from the notice's
+   *  own plain-text form ("!FDC 6/9306 ZDC ..."); absent when it has none */
+  citation?: string;
 }
 
 export interface TfrRecord extends NotamRecord {
-  geometry: { kind: "polygon"; rings: Array<Array<[number, number]>> } | { kind: "circle"; center: [number, number]; radiusNm: number; approximate: true } | null;
+  geometry:
+    | { kind: "polygon"; rings: Array<Array<[number, number]>> }
+    /** read from the notice's words, not sent as geometry; `unread` = areas the text defines that could not be followed */
+    | { kind: "polygon"; rings: Array<Array<[number, number]>>; from: "text"; unread: number }
+    | { kind: "circle"; center: [number, number]; radiusNm: number; approximate: true }
+    | null;
 }
+
+const CITATION_RE = /^\s*!(FDC \d\/\d{4})\b/;
 
 const txt = (n: XNode | null | undefined): string | null => {
   const t = n?.text?.trim();
@@ -106,6 +121,8 @@ export function parseNotamPayload(xml: string): TfrRecord[] {
     const n = findFirst(ets, "NOTAM");
     if (!n) continue;
     const ext = findFirst(ets, "EventExtension");
+    // the stored text is cut at 4,000 characters; the outline is read from all of it
+    const fullText = first(n, "text") ?? "";
     const rec: NotamRecord = {
       id: "", series: first(n, "series"), number: first(n, "number"), year: first(n, "year"), type: first(n, "type"),
       classification: first(ext, "classification"), location: first(ext, "icaoLocation") ?? first(n, "location"),
@@ -113,18 +130,24 @@ export function parseNotamPayload(xml: string): TfrRecord[] {
       start: notamTime(first(n, "effectiveStart")), end: notamTime(first(n, "effectiveEnd")),
       minFl: num(first(n, "minimumFL")), maxFl: num(first(n, "maximumFL")),
       center: qlineCenter(first(n, "coordinates")), radiusNm: num(first(n, "radius")),
-      text: (first(n, "text") ?? "").slice(0, 4000) || null, scenario: first(ets, "scenario"),
+      text: fullText.slice(0, 4000) || null, scenario: first(ets, "scenario"),
     };
     // FNS numbers are per location: the location keeps "20/2026" at KCNY and
     // "20/2026" elsewhere apart when no cross-over id is sent
     rec.id = first(ext, "xovernotamID")
       ? `${rec.classification ?? ""}:${first(ext, "xovernotamID")}`
       : `${rec.location ?? ""}:${rec.series ?? ""}${rec.number ?? ""}/${rec.year ?? ""}`;
+    const cite = CITATION_RE.exec(first(n, "simpleText") ?? "");
+    if (cite) rec.citation = cite[1];
     const tfr = isTfr(rec);
+    // sent geometry first; then the outline the text itself defines; then
+    // the index circle, which only encloses the area
+    const words = tfr && !rings.length ? textAreas(fullText) : null;
     out.push({
       ...rec,
       geometry: !tfr ? null
         : rings.length ? { kind: "polygon", rings }
+        : words && words.rings.length ? { kind: "polygon", rings: words.rings, from: "text", unread: words.unread }
         : rec.center && rec.radiusNm != null ? { kind: "circle", center: rec.center, radiusNm: rec.radiusNm, approximate: true }
         : null,
     });
@@ -139,8 +162,9 @@ export class NotamStore {
   notams = 0;
   parseErrors = 0;
   /** flight-restriction notices received since this process started that
-   *  carried neither airspace geometry nor an index circle, so they cannot be
-   *  drawn or tested against a track. Messages, not distinct notices (a
+   *  carried neither airspace geometry nor an index circle, and whose text
+   *  defines no area this reader can follow, so they cannot be drawn or
+   *  tested against a track. Messages, not distinct notices (a
    *  re-sent notice counts again). Why the map's list is shorter than the
    *  FAA's own (2026-11-21: 66 on tfr.faa.gov, 18 held here) starts here. */
   tfrsWithoutShape = 0;
@@ -152,11 +176,13 @@ export class NotamStore {
       this.notams++;
       const k = r.classification ?? "UNKNOWN";
       this.byClass[k] = (this.byClass[k] || 0) + 1;
+      // a cancellation first: it carries no area in its words, and a
+      // restriction drawn from its text must still be removable
+      if ((r.type ?? "").toUpperCase() === "C") { this.tfrs.delete(r.id); continue; }
       if (!r.geometry) {
-        if (isTfr(r) && (r.type ?? "").toUpperCase() !== "C") this.tfrsWithoutShape++;
+        if (isTfr(r)) this.tfrsWithoutShape++;
         continue;
       }
-      if ((r.type ?? "").toUpperCase() === "C") { this.tfrs.delete(r.id); continue; } // cancellation
       this.tfrs.set(r.id, r);
     }
     if (this.tfrs.size > NOTAM_MAX_TFRS) this.evict(now);

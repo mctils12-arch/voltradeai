@@ -8,22 +8,31 @@
 //   section the notice's own text cites (91.137 .. 91.145, 99.7), or, with no
 //   section cited, the ICAO Q-code subject "RT" (temporary restricted area).
 //   A notice that cites neither is "rule not cited"; it is never guessed.
-//   SHAPE is one of two things and the map draws them differently: the
-//   restriction's own outline when the notice carried airspace geometry, or
-//   the notice's index circle (centre and radius), which ENCLOSES the
-//   restriction and is larger than it. The index circle is drawn dashed.
+//   SHAPE is one of three things and the map draws them differently: the
+//   restriction's own outline when the notice carried airspace geometry
+//   (solid); the outline read from the notice's own words when it carried
+//   none, which is how US Flight Data Center notices arrive (dotted;
+//   server/swimNotamText.ts reads one published wording and leaves any area
+//   it cannot follow unread and counted); or the notice's index circle
+//   (centre and radius), which ENCLOSES the restriction and is larger than
+//   it (dashed). The text reading is checked against the FAA's own
+//   published shapes (scripts/tfr_text_gate1.ts; 2026-11-22: of 49 listed
+//   notices with an FAA shape, 42 read, 41 within tolerance of every FAA
+//   polygon, none read wrongly).
 //   LIMITS are the notice's index flight levels (000 = surface, 999 =
 //   unlimited); they can be wider than the limits written in the text, and
 //   the card says so.
 // NOT A COMPLETE LIST. Checked 2026-11-21 18:40Z against the FAA's own list
 // (tfr.faa.gov): 66 restrictions there, 18 held here, 1 of them in force.
 // The server lists a restriction only when the feed has sent its notice
-// since the server began keeping the list AND the notice carried a shape
-// (airspace geometry or an index circle). The status line, the legend and
-// every card say the list is not complete, and the status line counts the
-// restriction notices that arrived without a shape (route field
-// stats.tfrs_without_shape). Why most US notices are absent is open
-// (research/open_questions.md, 2026-11-21 flight restrictions).
+// since the server began keeping the list AND a shape could be had from it
+// (airspace geometry, an area its text defines, or an index circle). A
+// restriction issued before the list was kept (2026-11-21) is absent until
+// the FAA sends it again. The status line, the legend and every card say
+// the list is not complete, and the status line counts the restriction
+// notices that arrived without a shape (route field
+// stats.tfrs_without_shape). (research/open_questions.md, 2026-11-21 and
+// 2026-11-22 flight restrictions.)
 // The server's list is saved each minute and read back at a start; a
 // cancellation sent while the server was down is not known, so such a
 // restriction stays listed until its published end (card source line).
@@ -103,15 +112,18 @@ export function restrictionKind(text: string | null, qcode: string | null): Rest
 export type LonLat = [number, number];
 export interface FlightRestriction {
   id: string;
-  /** the notice as people cite it: "LDZL A4134/2026" */
+  /** the notice as people cite it: "LDZL A4134/2026", or "FDC 6/9306" when the notice carries that form */
   notice: string;
   location: string | null; classification: string | null; qcode: string | null;
   kind: RestrictionKind; rules: string[];
   issuedMs: number | null; startMs: number | null; endMs: number | null;
   /** index flight levels as sent (hundreds of feet; 0 = surface, 999 = unlimited) */
   minFl: number | null; maxFl: number | null;
-  /** "own" = the restriction's outline as sent; "enclosing" = the notice's index circle */
-  shape: "own" | "enclosing";
+  /** "own" = the restriction's outline as sent; "text" = the outline read from the notice's words;
+   *  "enclosing" = the notice's index circle */
+  shape: "own" | "text" | "enclosing";
+  /** shape "text" only: areas the text defines that could not be followed and are not drawn */
+  unreadAreas: number;
   /** outlines in GeoJSON order [lon, lat], each closed; several = several separate areas */
   rings: LonLat[][];
   /** where the symbol sits: the notice's index point, or the mean corner of the first outline */
@@ -193,7 +205,7 @@ export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_
     if (g.kind === "polygon") {
       rings = (Array.isArray(g.rings) ? g.rings : []).map(ownRing).filter((r): r is LonLat[] => !!r);
       if (!rings.length) { unreadable++; continue; }
-      shape = "own";
+      shape = g.from === "text" ? "text" : "own";
       const first = rings[0].slice(0, -1);
       center = qc ?? [first.reduce((s, p) => s + p[0], 0) / first.length, first.reduce((s, p) => s + p[1], 0) / first.length];
     } else if (g.kind === "circle") {
@@ -206,11 +218,11 @@ export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_
     const qcode = str(t.qcode);
     const startMs = fin(t.start) ? t.start : null;
     rows.push({
-      id, notice: id.replace(":", " "), location: str(t.location), classification: str(t.classification), qcode,
+      id, notice: str(t.citation) ?? id.replace(":", " "), location: str(t.location), classification: str(t.classification), qcode,
       kind: restrictionKind(text, qcode), rules: rulesCited(text),
       issuedMs: fin(t.issued) ? t.issued : null, startMs, endMs: fin(t.end) ? t.end : null,
       minFl: fin(t.minFl) ? t.minFl : null, maxFl: fin(t.maxFl) ? t.maxFl : null,
-      shape, rings, center, radiusNm, text, inForce: startMs === null || startMs <= now,
+      shape, unreadAreas: shape === "text" && fin(g.unread) && g.unread > 0 ? Math.floor(g.unread) : 0, rings, center, radiusNm, text, inForce: startMs === null || startMs <= now,
     });
   }
   // in force first, then the soonest to start; the cap cuts from the end
@@ -242,7 +254,7 @@ export function restrictionFeatures(rows: FlightRestriction[]): { areas: Feature
 /** said on the status line and in the legend */
 export const NOT_COMPLETE = "not the FAA's complete list";
 /** said on every card */
-export const NOT_COMPLETE_SENTENCE = "This is not the FAA's complete list: a restriction is here only when the feed has sent its notice, with a shape, since the server began keeping the list. The FAA's own list is at tfr.faa.gov.";
+export const NOT_COMPLETE_SENTENCE = "This is not the FAA's complete list: a restriction is here only when the feed has sent its notice since the server began keeping the list (2026-11-21) and a shape could be had from it. The FAA's own list is at tfr.faa.gov.";
 
 /** "3 min ago" / "45 s ago" / "2 h ago" */
 export function agoWords(ms: number, nowMs: number): string {
@@ -319,8 +331,12 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
   const rule = r.rules.length
     ? r.rules.map((x) => `14 CFR ${x} (${RULE_WORDS[x]})`).join(", ")
     : r.kind === "icao_temporary" ? "none cited; ICAO Q-code subject RT, temporary restricted area" : "none cited in the notice";
+  const areas = r.rings.length > 1 ? ` (${r.rings.length} areas)` : "";
   const shape = r.shape === "own"
-    ? `the restriction's own outline, as sent${r.rings.length > 1 ? ` (${r.rings.length} areas)` : ""}`
+    ? `the restriction's own outline, as sent${areas}`
+    : r.shape === "text"
+    ? `an outline read from the notice's text${areas}; the notice sent no geometry. Circles and arcs are drawn as short straight sides`
+      + (r.unreadAreas ? `. ${r.unreadAreas} more area${r.unreadAreas === 1 ? "" : "s"} in the text could not be read and ${r.unreadAreas === 1 ? "is" : "are"} not drawn` : "")
     : `a circle of ${u.km((r.radiusNm ?? 0) * NM_TO_KM, 1)} around the notice's index point. It encloses the restriction and is larger than it; the outline itself was not sent as geometry`;
   const cls = r.classification ? CLASSIFICATION_WORDS[r.classification.toUpperCase()] ?? r.classification : null;
   const facts = [
@@ -352,13 +368,15 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
     facts,
     sourceTag: "FAA notice feed",
     body: `${r.text ? `Notice text, as sent:\n${r.text}\n\n` : ""}`
-      + "The lower and upper limits are the notice's index values; they can be wider than the limits written in its text. "
+      + (r.minFl === null && r.maxFl === null
+      ? "This notice has no index limits; its lower and upper limits are written in its text. "
+      : "The lower and upper limits are the notice's index values; they can be wider than the limits written in its text. ")
       + `FAA notice feed (SWIM FNS NOTAM), as received. ${NOT_COMPLETE_SENTENCE} ${restart} Displayed as-is; not for flight planning or any operational use.`,
   };
 }
 
 // ── drawing ──────────────────────────────────────────────────────────────
-// The four MapLibre layers and two GeoJSON sources, added, updated and
+// The five MapLibre layers and two GeoJSON sources, added, updated and
 // removed here so the teardown is one tested function (RENDERING & MOTION
 // LAW IV). Nothing here listens to a map event (Law I).
 
@@ -373,10 +391,10 @@ export interface RestrictionMap {
 }
 export const RESTRICTION_SOURCES = ["flight-restrictions-areas", "flight-restrictions-pts"] as const;
 /** bottom to top */
-export const RESTRICTION_LAYERS = ["flight-restrictions-fill", "flight-restrictions-line", "flight-restrictions-line-enclosing", "flight-restrictions-sym"] as const;
+export const RESTRICTION_LAYERS = ["flight-restrictions-fill", "flight-restrictions-line", "flight-restrictions-line-text", "flight-restrictions-line-enclosing", "flight-restrictions-sym"] as const;
 /** the layers that open the card: the symbol and the outlines. The tinted
  *  inside does not, so a plane, airport or site inside a restriction keeps its click. */
-export const RESTRICTION_CLICK_LAYERS = ["flight-restrictions-sym", "flight-restrictions-line", "flight-restrictions-line-enclosing"];
+export const RESTRICTION_CLICK_LAYERS = ["flight-restrictions-sym", "flight-restrictions-line", "flight-restrictions-line-text", "flight-restrictions-line-enclosing"];
 export const RESTRICTION_ICON = "vt-airspace";
 
 /** Put the rows on the map: the first call adds sources and layers, later calls only replace the data. Returns true when it added them. */
@@ -396,6 +414,10 @@ export function drawRestrictions(map: RestrictionMap, rows: FlightRestriction[])
   map.addLayer({
     id: "flight-restrictions-line", type: "line", source: RESTRICTION_SOURCES[0], filter: ["==", ["get", "shape"], "own"],
     paint: { "line-color": ["get", "color"], "line-width": 1.6, "line-opacity": faint(0.95, 0.55) },
+  });
+  map.addLayer({
+    id: "flight-restrictions-line-text", type: "line", source: RESTRICTION_SOURCES[0], filter: ["==", ["get", "shape"], "text"],
+    paint: { "line-color": ["get", "color"], "line-width": 1.8, "line-dasharray": [0.6, 1.6], "line-opacity": faint(0.95, 0.55) },
   });
   map.addLayer({
     id: "flight-restrictions-line-enclosing", type: "line", source: RESTRICTION_SOURCES[0], filter: ["==", ["get", "shape"], "enclosing"],

@@ -235,7 +235,7 @@ function fakeMap() {
   };
 }
 
-test("drawing: two sources and four layers once, data replaced after that, everything removed on teardown", () => {
+test("drawing: two sources and five layers once, data replaced after that, everything removed on teardown", () => {
   const m = fakeMap();
   const v = parseFlightRestrictions(answer([ZAGREB, VIP]))!;
   assert.equal(drawRestrictions(m, v.rows), true, "the first draw adds the layers");
@@ -251,11 +251,15 @@ test("drawing: two sources and four layers once, data replaced after that, every
   assert.equal((m.layers.get("flight-restrictions-line")!.paint as Record<string, unknown>)["line-dasharray"], undefined);
   assert.deepEqual(m.layers.get("flight-restrictions-line-enclosing")!.filter, ["==", ["get", "shape"], "enclosing"]);
   assert.deepEqual(m.layers.get("flight-restrictions-line")!.filter, ["==", ["get", "shape"], "own"]);
+  // an outline read from the notice's text is dotted: a third style, never the solid "as sent" line
+  assert.deepEqual((m.layers.get("flight-restrictions-line-text")!.paint as Record<string, unknown>)["line-dasharray"], [0.6, 1.6]);
+  assert.deepEqual(m.layers.get("flight-restrictions-line-text")!.filter, ["==", ["get", "shape"], "text"]);
+  assert.ok(RESTRICTION_CLICK_LAYERS.includes("flight-restrictions-line-text"));
   // the tinted inside does not take clicks
   assert.ok(!RESTRICTION_CLICK_LAYERS.includes("flight-restrictions-fill"));
   // a refresh replaces the data and adds nothing
   assert.equal(drawRestrictions(m, [v.rows[0]]), false);
-  assert.equal(m.layers.size, 4);
+  assert.equal(m.layers.size, 5);
   assert.equal((m.sources.get("flight-restrictions-pts")!.data as { features: unknown[] }).features.length, 1);
   // teardown: layers first (a source in use cannot be removed), then the sources
   assert.equal(removeRestrictions(m), true);
@@ -266,4 +270,51 @@ test("drawing: two sources and four layers once, data replaced after that, every
   drawRestrictions(m, v.rows);
   m.breakIt();
   assert.equal(removeRestrictions(m), false);
+});
+
+// The production notice of 2026-11-21 23:27Z, FDC 6/9306, as server/swimNotam.ts
+// now serves it: no index point, no index limits, no Q-code, the outline read
+// from its words (server/swimNotam.test.ts parses the real message to this).
+const LEXINGTON = {
+  id: "KZDC:9306/", citation: "FDC 6/9306", series: null, number: "9306", year: null, type: "N", classification: "FDC", location: "KZDC", qcode: null,
+  issued: NOW - H, start: NOW - H, end: NOW + 8 * 24 * H, minFl: null, maxFl: null, center: null, radiusNm: null, scenario: "986",
+  text: "VA..AIRSPACE 20NM W LEXINGTON, VA..TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 14 CFR SECTION 91.137(A)(2) TEMPORARY FLIGHT RESTRICTIONS ARE IN EFFECT TO PROVIDE A SAFE ENVIRONMENT FOR FIRE FIGHTING ACFT OPS. WI AN AREA DEFINED AS 375200N0795230W (MOL272036.5) TO 375100N0795000W (MOL270034.6) TO 374830N0795200W (MOL266036.4) TO 374900N0795400W (MOL268037.9) TO POINT OF ORIGIN SFC-4000FT",
+  geometry: { kind: "polygon", from: "text", unread: 0, rings: [[[37.866667, -79.875], [37.85, -79.833333], [37.808333, -79.866667], [37.816667, -79.9], [37.866667, -79.875]]] },
+};
+
+test("a US notice whose outline was read from its text: its own third shape, cited as people cite it, and the card says how it was drawn", () => {
+  const v = parseFlightRestrictions(answer([LEXINGTON, VIP, ZAGREB]))!;
+  assert.equal(v.unreadable, 0);
+  const r = v.rows.find((x) => x.id === "KZDC:9306/")!;
+  assert.equal(r.shape, "text", "never 'own': the notice sent no geometry");
+  assert.equal(r.notice, "FDC 6/9306");
+  assert.equal(r.kind, "hazard");
+  assert.equal(r.unreadAreas, 0);
+  assert.deepEqual(r.rings[0][0], [-79.875, 37.866667], "GeoJSON order");
+  assert.ok(Math.abs(r.center[0] - -79.86875) < 1e-4 && Math.abs(r.center[1] - 37.835417) < 1e-4, "no index point: the symbol sits at the mean corner");
+  // the other two shapes keep their names, and no other row gains unread areas
+  assert.deepEqual(v.rows.map((x) => [x.notice, x.shape, x.unreadAreas]).sort(), [["FDC 6/1234", "own", 0], ["FDC 6/9306", "text", 0], ["LDZL A4134/2026", "enclosing", 0]]);
+  const f = restrictionFeatures(v.rows).areas.features.find((x) => x.properties.id === "KZDC:9306/")!;
+  assert.equal(f.properties.shape, "text");
+  const c = restrictionCard(r, NOW, U, true);
+  const fact = (label: string) => c.facts.find((x) => x.label === label)?.value;
+  assert.equal(c.title, "Flight restriction FDC 6/9306");
+  assert.equal(fact("Drawn shape"), "an outline read from the notice's text; the notice sent no geometry. Circles and arcs are drawn as short straight sides");
+  assert.equal(fact("Rule cited"), "14 CFR 91.137 (disaster or hazard area)");
+  assert.equal(fact("Lower limit"), "not given");
+  assert.equal(fact("Issued by"), "FAA Flight Data Center");
+  assert.match(c.body, /This notice has no index limits; its lower and upper limits are written in its text\. /);
+  assert.doesNotMatch(c.body, /index values/);
+  assert.match(c.body, /SFC-4000FT/, "the limits are in the notice text the card prints");
+  for (const x of c.stats) assert.ok(x.value.length <= 7 && x.label.length <= 7, `${x.label}: ${x.value}`);
+  assert.doesNotMatch(c.body + JSON.stringify(c.facts), /undefined|NaN|\bnull\b/);
+  // areas the text defines that could not be followed are said, with the count
+  const part = parseFlightRestrictions(answer([{ ...LEXINGTON, geometry: { ...LEXINGTON.geometry, unread: 2, rings: [LEXINGTON.geometry.rings[0], SQUARE] } }]))!.rows[0];
+  assert.equal(part.unreadAreas, 2);
+  assert.equal(restrictionCard(part, NOW, U, true).facts.find((x) => x.label === "Drawn shape")!.value,
+    "an outline read from the notice's text (2 areas); the notice sent no geometry. Circles and arcs are drawn as short straight sides. 2 more areas in the text could not be read and are not drawn");
+  // a server that does not send the citation: the id, as before
+  const { citation, ...old } = LEXINGTON;
+  assert.equal(citation, "FDC 6/9306");
+  assert.equal(parseFlightRestrictions(answer([old]))!.rows[0].notice, "KZDC 9306/");
 });

@@ -1719,6 +1719,7 @@ const LegendPanel = memo(function LegendPanel({
                       <LegendIcon key={k} icon="vt-airspace" color={RESTRICTION_KIND_COLOR[k]} label={RESTRICTION_KIND_LABEL[k]} />
                     ))}
                     <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px solid #cbd5e1" }} /> The restriction's own outline</span>
+                    <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px dotted #cbd5e1" }} /> Outline read from the notice's text</span>
                     <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px dashed #cbd5e1" }} /> A circle that encloses it (outline not sent)</span>
                     <span className="vt-legend-note">FAA notice feed, as received; not the FAA's complete list. Faint = starts within 6 hours. Not for flight planning.</span>
                   </>
@@ -10485,12 +10486,13 @@ export default function DataMapPage() {
   // ── Flight restrictions (RAW; GET /api/data/swim/notam/tfrs, the FAA notice
   // feed's restrictions in force now or starting within 6 hours). Parsing,
   // kind, shape, caps and every sentence are lib/air/flightRestrictions.ts.
-  // Drawn: a tinted area per restriction (its own outline solid; the notice's
-  // index circle, which is larger than the restriction, dashed), and one
+  // Drawn: a tinted area per restriction (its own outline solid; an outline
+  // read from the notice's text dotted; the notice's index circle, which is
+  // larger than the restriction, dashed), and one
   // vt-airspace symbol whose colour is the kind. RENDERING & MOTION LAW: no
   // map-event handler (I); at most 2,000 restrictions and 512 corners an
   // outline, thinned above that (IV); every request is aborted and both
-  // sources and all four layers removed on toggle-off (IV); the status line
+  // sources and all five layers removed on toggle-off (IV); the status line
   // says when the feed's last notice arrived, and a failed read keeps what is
   // drawn and says so (V). Off by default. ──
   const flightRestrictionRowsRef = useRef<{ rows: Map<string, FlightRestriction>; kept: boolean }>({ rows: new Map(), kept: false });

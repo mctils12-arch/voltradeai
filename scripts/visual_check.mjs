@@ -8247,7 +8247,9 @@ async function main() {
   // no shape, that the list is not the FAA's complete one, and when the last notice arrived. The legend
   // lists every kind with the same symbol the map draws. A symbol opens the card: four chips, none cut; Details says
   // which shape is drawn and that a circle is larger than the restriction; the card stays inside the window at 1440,
-  // 768 and 390. Switched off, both sources and all four layers are gone and no request follows.
+  // 768 and 390. Switched off, both sources and all five layers are gone and no request follows.
+  // 2026-11-22: a third fixture row is the real US notice FDC 6/9306, whose outline the server read from the notice's
+  // words: it is on the dotted layer (neither solid nor dashed), is cited "FDC 6/9306", and its card says how it was drawn.
   // `--page flightrestrictions` runs this battery alone.
   if (!only || only === "data" || only === "flightrestrictions") {
     const frFailures = [];
@@ -8265,16 +8267,20 @@ async function main() {
     const VIP = { ...base, id: "FDC:6/1234", classification: "FDC", location: "KZDC", qcode: null, start: FR_NOW + 2 * H, end: FR_NOW + 5 * H, minFl: 0, maxFl: 180, center: null, radiusNm: null,
       text: "TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 14 CFR SECTION 91.141 AIRCRAFT FLIGHT OPERATIONS ARE PROHIBITED",
       geometry: { kind: "polygon", rings: [[[38.6, -77.4], [38.6, -76.7], [39.2, -76.7], [39.2, -77.4], [38.6, -77.4]]] } };
+    const LEX = { ...base, series: null, year: null, number: "9306", id: "KZDC:9306/", citation: "FDC 6/9306", classification: "FDC", location: "KZDC", qcode: null, start: FR_NOW - H, end: FR_NOW + 190 * H,
+      minFl: null, maxFl: null, center: null, radiusNm: null,
+      text: "VA..AIRSPACE 20NM W LEXINGTON, VA..TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 14 CFR SECTION 91.137(A)(2) TEMPORARY FLIGHT RESTRICTIONS ARE IN EFFECT TO PROVIDE A SAFE ENVIRONMENT FOR FIRE FIGHTING ACFT OPS. WI AN AREA DEFINED AS 375200N0795230W (MOL272036.5) TO 375100N0795000W (MOL270034.6) TO 374830N0795200W (MOL266036.4) TO 374900N0795400W (MOL268037.9) TO POINT OF ORIGIN SFC-4000FT",
+      geometry: { kind: "polygon", from: "text", unread: 0, rings: [[[37.866667, -79.875], [37.85, -79.833333], [37.808333, -79.866667], [37.816667, -79.9], [37.866667, -79.875]]] } };
     const BROKEN = { ...base, id: "X:1", classification: "FDC", location: "KZNY", qcode: null, start: FR_NOW, end: FR_NOW + H, text: "TEMPORARY FLIGHT RESTRICTIONS", geometry: { kind: "circle", center: [40, -74], radiusNm: 0 } };
     const calls = [];
     await page.route("**/api/data/swim/notam/tfrs", (route) => {
       calls.push(Date.now());
       return route.fulfill({ contentType: "application/json", body: JSON.stringify({
-        at: FR_NOW, tfrs: [ZAG, VIP, BROKEN], stats: { notams: 423, tfrs: 18, tfrs_without_shape: 7, byClassification: {}, parseErrors: 0 },
+        at: FR_NOW, tfrs: [ZAG, VIP, LEX, BROKEN], stats: { notams: 423, tfrs: 18, tfrs_without_shape: 7, byClassification: {}, parseErrors: 0 },
         kept: { saved_every_s: 60, last_saved_at: FR_NOW - 30_000, last_save: "ok", restored: null },
         feed: { connected: true, last_message_at: FR_NOW - 12_000 }, source: "FAA SWIM FNS NOTAM (fixture)" }) });
     });
-    const LAYERS = ["flight-restrictions-fill", "flight-restrictions-line", "flight-restrictions-line-enclosing", "flight-restrictions-sym"];
+    const LAYERS = ["flight-restrictions-fill", "flight-restrictions-line", "flight-restrictions-line-text", "flight-restrictions-line-enclosing", "flight-restrictions-sym"];
     const mapState = () => page.evaluate((ids) => {
       const m = window.__vtMap;
       const has = (id) => { try { return !!m.getLayer(id); } catch { return false; } };
@@ -8286,6 +8292,7 @@ async function main() {
         symType: has("flight-restrictions-sym") ? m.getLayer("flight-restrictions-sym").type : null,
         icon: has("flight-restrictions-sym") ? m.getLayoutProperty("flight-restrictions-sym", "icon-image") : null,
         dash: has("flight-restrictions-line-enclosing") ? m.getPaintProperty("flight-restrictions-line-enclosing", "line-dasharray") : null,
+        textDash: has("flight-restrictions-line-text") ? m.getPaintProperty("flight-restrictions-line-text", "line-dasharray") : null,
         ownDash: has("flight-restrictions-line") ? m.getPaintProperty("flight-restrictions-line", "line-dasharray") ?? null : "missing",
         pts: uniq(q("flight-restrictions-pts")), areas: uniq(q("flight-restrictions-areas")),
       };
@@ -8363,31 +8370,38 @@ async function main() {
       for (let i = 0; i < 40; i++) {
         await page.waitForTimeout(300);
         st = await mapState();
-        if (st.layers.length === 4) break;
+        if (st.layers.length === 5) break;
       }
       // both fixture rows in view so querySourceFeatures can see them
       await page.evaluate(() => window.__vtMap.jumpTo({ center: [-30, 42], zoom: 1.6, pitch: 0, bearing: 0 }));
       for (let i = 0; i < 30; i++) {
         await page.waitForTimeout(300);
         st = await mapState();
-        if (st.pts.length === 2 && st.areas.length === 2) break;
+        if (st.pts.length === 3 && st.areas.length >= 2) break;
       }
       frInfo.layers = st.layers; frInfo.points = st.pts.map((p) => p.id);
-      if (st.layers.length !== 4 || st.sources.length !== 2) fail(`layers ${JSON.stringify(st.layers)} / sources ${JSON.stringify(st.sources)} (4 layers, 2 sources)`);
+      if (st.layers.length !== 5 || st.sources.length !== 2) fail(`layers ${JSON.stringify(st.layers)} / sources ${JSON.stringify(st.sources)} (5 layers, 2 sources)`);
       if (st.symType !== "symbol" || st.icon !== "vt-airspace") fail(`the point layer is a ${st.symType} drawing ${st.icon} (a symbol drawing vt-airspace)`);
       if (!Array.isArray(st.dash) || st.ownDash !== null) fail(`the index circle must be dashed and the restriction's own outline solid (dash ${JSON.stringify(st.dash)}, own ${JSON.stringify(st.ownDash)})`);
+      if (!Array.isArray(st.textDash) || JSON.stringify(st.textDash) === JSON.stringify(st.dash)) fail(`an outline read from the notice's text must have its own dotted line, unlike both others (text ${JSON.stringify(st.textDash)}, circle ${JSON.stringify(st.dash)})`);
       const wantPts = [
         { id: "FDC:6/1234", kind: "security", color: "#f87171", shape: "own", in_force: false },
+        { id: "KZDC:9306/", kind: "hazard", color: "#fb923c", shape: "text", in_force: true },
         { id: "LDZL:A4134/2026", kind: "icao_temporary", color: "#2dd4bf", shape: "enclosing", in_force: true },
       ];
       if (JSON.stringify(st.pts) !== JSON.stringify(wantPts)) fail(`the symbols carry ${JSON.stringify(st.pts)} (expected ${JSON.stringify(wantPts)})`);
-      if (JSON.stringify(st.areas) !== JSON.stringify(wantPts)) fail(`the areas carry ${JSON.stringify(st.areas)}`);
+      // at this world zoom the 3 NM Lexington area is smaller than a pixel and the map's tiler drops it; it is
+      // checked below, after the camera goes to it
+      const bigAreas = wantPts.filter((p) => p.id !== "KZDC:9306/");
+      if (JSON.stringify(st.areas.filter((p) => p.id !== "KZDC:9306/")) !== JSON.stringify(bigAreas)) fail(`the areas carry ${JSON.stringify(st.areas)}`);
       const row = await rowText();
       frInfo.row = row;
-      if (!row.includes("2 restrictions")) fail(`the layer row does not count 2 restrictions: "${row}"`);
-      if (!/1 in force, 1 starting within 6 hours of 18 held · 1 could not be read · 7 restriction notices arrived without a shape and are not drawn · not the FAA's complete list · last notice received \d+ (s|min) ago/.test(row)) fail(`the layer row's status reads "${row}"`);
+      if (!row.includes("3 restrictions")) fail(`the layer row does not count 3 restrictions: "${row}"`);
+      if (!/2 in force, 1 starting within 6 hours of 18 held · 1 could not be read · 7 restriction notices arrived without a shape and are not drawn · not the FAA's complete list · last notice received \d+ (s|min) ago/.test(row)) fail(`the layer row's status reads "${row}"`);
       const legend = await page.evaluate(() => Array.from(document.querySelectorAll('.vt-legend-item[data-vt-icon="vt-airspace"]')).map((el) => (el.textContent || "").trim()));
       frInfo.legend = legend.length;
+      const outlineChips = await page.evaluate(() => Array.from(document.querySelectorAll(".vt-legend-chip")).map((el) => (el.textContent || "").trim()).filter((t) => /outline|encloses/i.test(t)));
+      for (const t of ["The restriction's own outline", "Outline read from the notice's text", "A circle that encloses it (outline not sent)"]) if (!outlineChips.includes(t)) fail(`the legend lacks the outline style "${t}" (has ${JSON.stringify(outlineChips)})`);
       const wantLegend = ["Security (91.141, 99.7)", "Disaster, hazard or emergency (91.137 to 91.139)", "Space flight operations (91.143)", "Air show or major sporting event (91.145)", "Temporary restricted area (ICAO notice)", "Flight restriction, rule not cited"];
       if (JSON.stringify(legend) !== JSON.stringify(wantLegend)) fail(`the legend lists ${JSON.stringify(legend)}`);
       if (calls.length !== 1) fail(`switching the layer on made ${calls.length} requests (exactly 1)`);
@@ -8411,6 +8425,50 @@ async function main() {
         if (c?.title !== "Flight restriction FDC 6/1234" || !c.cat.startsWith("Security (91.141, 99.7) · starts ")) fail(`the second card reads "${c?.title}" / "${c?.cat}"`);
         if (!c?.chips.some((x) => x.l === "Starts") || !c?.chips.some((x) => x.l === "Upper" && x.v === "FL180")) fail(`the second card's chips read ${JSON.stringify(c?.chips.map((x) => [x.l, x.v]))}`);
         await page.screenshot({ path: path.join(OUT, "data-flightrestrictions-own-1440.png") }).catch(() => {});
+      }
+      // the real US notice: cited as people cite it, and the card says its outline was read from the text
+      if (await openCard("KZDC:9306/", -79.87, 37.835)) {
+        const near = await mapState();
+        const lexArea = near.areas.find((p) => p.id === "KZDC:9306/");
+        if (JSON.stringify(lexArea) !== JSON.stringify(wantPts[1])) fail(`zoomed to it, the text-outline area carries ${JSON.stringify(lexArea)} (expected ${JSON.stringify(wantPts[1])})`);
+        const drawnOn = await page.evaluate(() => {
+          const m = window.__vtMap;
+          const n = (id) => { try { return m.queryRenderedFeatures({ layers: [id] }).filter((f) => f.properties.id === "KZDC:9306/").length; } catch { return -1; } };
+          return { text: n("flight-restrictions-line-text"), own: n("flight-restrictions-line"), enclosing: n("flight-restrictions-line-enclosing") };
+        });
+        if (!(drawnOn.text > 0) || drawnOn.own !== 0 || drawnOn.enclosing !== 0) fail(`the text outline must be drawn by the dotted layer only: ${JSON.stringify(drawnOn)}`);
+        let c = await readCard();
+        if (c && !c.open) {
+          await page.locator('.vt-site-card[role="dialog"] button', { hasText: "DETAILS" }).first().click({ timeout: 2000 }).catch(() => {});
+          await page.waitForTimeout(250);
+          c = await readCard();
+        }
+        if (c?.title !== "Flight restriction FDC 6/9306" || !c.cat.startsWith("Disaster, hazard or emergency (91.137 to 91.139) · in force until ")) fail(`the text-outline card reads "${c?.title}" / "${c?.cat}"`);
+        if (c?.facts["Drawn shape"] !== "an outline read from the notice's text; the notice sent no geometry. Circles and arcs are drawn as short straight sides") fail(`the text-outline card's Drawn shape reads "${c?.facts["Drawn shape"]}"`);
+        if (c?.facts["Notice"] !== "FDC 6/9306" || c?.facts["Lower limit"] !== "not given") fail(`the text-outline card's facts read ${JSON.stringify(c?.facts)}`);
+        if (!c?.body.includes("This notice has no index limits; its lower and upper limits are written in its text.") || !c?.body.includes("SFC-4000FT")) fail("the text-outline card does not say where its limits are");
+        for (const x of c?.chips ?? []) if (x.cut > 1) fail(`text-outline card: the chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
+        if (/NaN|undefined|\bnull\b|Infinity/.test(c?.text ?? "")) fail("text-outline card: a bare NaN / undefined / null");
+        await page.screenshot({ path: path.join(OUT, "data-flightrestrictions-text-1440.png") }).catch(() => {});
+        // close in, so the dotted outline itself is in the picture a session reviews
+        await page.evaluate(() => window.__vtMap.jumpTo({ center: [-79.95, 37.835], zoom: 10.3, pitch: 0, bearing: 0 }));
+        await page.waitForTimeout(1500);
+        await page.screenshot({ path: path.join(OUT, "data-flightrestrictions-text-outline-1440.png") }).catch(() => {});
+        for (const w of [768, 390]) {
+          await page.setViewportSize({ width: w, height: w === 768 ? 1024 : 844 });
+          await page.waitForTimeout(1200);
+          if (w === 390) await page.click('[aria-label="Collapse layers panel"]', { timeout: 1500 }).catch(() => {});
+          await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+          const k = await readCard();
+          if (!k) fail(`${w}: the text-outline card is gone`);
+          else {
+            if (k.left < -1 || k.right > 1 || k.top < -1 || k.bottom > 1 || k.pageOver > 1) fail(`${w}: the text-outline card leaves the window (left ${k.left}, right +${k.right}, top ${k.top}, bottom +${k.bottom})`);
+            for (const x of k.chips) if (x.cut > 1) fail(`${w}: text-outline card chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
+          }
+          await page.screenshot({ path: path.join(OUT, `data-flightrestrictions-text-${w}.png`) }).catch(() => {});
+        }
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.waitForTimeout(1200);
       }
       // switched off: everything the layer added is removed, and nothing asks again
       await page.keyboard.press("Escape").catch(() => {});

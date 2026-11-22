@@ -263,7 +263,7 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
       // not only a flight restriction)
       feed: { connected: feed.connected, last_message_at: feed.lastMessageAt },
       source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use)",
-      note: "geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area; only 'polygon' is the restriction's own shape.",
+      note: "geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area. 'polygon' is the restriction's own shape as sent, unless it carries from:'text': then the outline was read from the notice's words (the notice sent no geometry), circles and arcs drawn as 5-degree straight sides, and `unread` counts areas the text defines that could not be followed.",
     });
   });
 
