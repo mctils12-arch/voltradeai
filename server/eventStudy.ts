@@ -20,11 +20,24 @@
  * HOW: walkforward.ts's long-job lane (detached process group, explicit
  * budget, thread caps, niceness 19, a peak-RSS budget enforced by the Python),
  * SEC at EVENT_STUDY_SEC_RATE req/s with the declared User-Agent. Never awaited
- * by a scheduler path; never started by a boot (first tick one interval later).
+ * by a scheduler path; never started synchronously by a boot.
  * OUTPUT (DATA_DIR/event_study, KB-sized): latest.json (last success: aggregate
  * tables only — no ticker, price or per-event row; Alpaca licence) and
- * last_run.json. The SEC cache (~15-25 MB of compact public-data rows) lives in
- * the CONTAINER tmp dir, never the volume.
+ * last_run.json.
+ * THE SEC CACHE (~15-25 MB estimated, compact public-data rows) AND DEPLOYS
+ * (2026-11-22): the cache used to live in the container tmp dir only. A merge to
+ * main replaces the container, so a killed run started again from zero, and one
+ * run is about 2.5 h of SEC requests. Saturday 2026-11-21 had seven deploys
+ * between 13:49Z and 20:57Z, the longest gap 2 h 21 min: no run could finish, the
+ * third Saturday without a result. The Python already checkpoints every stage
+ * into the cache, so the cache now lives on the volume (DATA_DIR/event_study/
+ * sec_cache) whenever eventStudyCachePlan allows it, and a replaced container
+ * carries on from the last checkpoint. It falls back to container tmp when the
+ * volume has less than EVENT_STUDY_CACHE_MIN_FREE_BYTES free, and a volume cache
+ * above EVENT_STUDY_CACHE_MAX_BYTES is deleted. The first tick is
+ * EVENT_STUDY_FIRST_TICK_MS after boot (lazyPricesBackfill.ts's pattern), not one
+ * 30-min interval later. A restarted container has no memory of the week's
+ * attempt, so inside the window it starts again: that is what resumes the run.
  * FLAG: VOLTRADE_EVENT_STUDY, default ON; present env var wins.
  */
 import crypto from "crypto";
@@ -39,9 +52,20 @@ import { version as pkgVersion } from "../package.json";
 
 export const EVENT_STUDY_SUBDIR = "event_study";
 /** ~40-45k SEC requests at 5/s is ~2.5 h (measured: ~3 s per insider zip, 52 zips), plus ~2 min of measurement:
- *  2x headroom, because a deploy wipes the container-tmp SEC cache and a killed run would restart from zero. */
+ *  2x headroom for a run that starts with an empty cache. */
 export const EVENT_STUDY_TIMEOUT_MS = 5 * 60 * 60_000;
 export const EVENT_STUDY_TICK_MS = 30 * 60_000;
+/** The first tick after boot: after boot settles, inside the container lifetimes of a busy merge day. */
+export const EVENT_STUDY_FIRST_TICK_MS = 2 * 60_000;
+/** The SEC cache's directory under the event-study root when it is kept on the volume. */
+export const EVENT_STUDY_CACHE_SUBDIR = "sec_cache";
+/** The cache goes on the volume only while this much stays free: the bot's 1 GiB headroom
+ *  (globalScopes.MIN_FREE_BYTES; the test pins the sum) plus a margin, as flightPlanVersions'
+ *  FPV_MIN_FREE_BYTES does. Below it the cache is container tmp, as before. */
+export const EVENT_STUDY_CACHE_MIN_FREE_BYTES = 1_073_741_824 + 256 * 1024 * 1024;
+/** A volume cache larger than this is deleted and the run uses container tmp: 8x the upper estimate, so an
+ *  estimate that turns out wrong cannot take the volume. */
+export const EVENT_STUDY_CACHE_MAX_BYTES = 200 * 1024 * 1024;
 /** Peak-RSS budget handed to event_reaction_panel.py (--max-rss-mb). */
 export const EVENT_STUDY_MAX_RSS_MB = 1200;
 export const EVENT_STUDY_STALE_DAYS = 27;
@@ -77,9 +101,64 @@ export function eventStudyCacheDir(env: Record<string, string | undefined> = pro
   return o && SAFE_PATH.test(o) ? o : path.join(os.tmpdir(), "voltrade_event_study");
 }
 
-export function eventStudyCmd(codeVersion: string = pkgVersion, env: Record<string, string | undefined> = process.env): string {
+export interface EventStudyCachePlan { dir: string; where: "override" | "volume" | "tmp"; reason: string }
+
+/** Pure: where this run's SEC cache lives. `root` is the event-study root, `freeBytes` the free space of
+ *  the file system holding it (null = unreadable), `volumeCacheBytes` the size of the volume cache today. */
+export function eventStudyCachePlan(env: Record<string, string | undefined>, s: {
+  root: string; freeBytes: number | null; volumeCacheBytes: number; tmpDir?: string;
+}): EventStudyCachePlan {
+  const o = env.VOLTRADE_EVENT_STUDY_CACHE_DIR;
+  if (o && SAFE_PATH.test(o)) return { dir: o, where: "override", reason: "VOLTRADE_EVENT_STUDY_CACHE_DIR" };
+  const tmpBase = s.tmpDir ?? os.tmpdir();
+  const tmp = (reason: string): EventStudyCachePlan => ({ dir: path.join(tmpBase, "voltrade_event_study"), where: "tmp", reason });
+  const vol = path.join(s.root, EVENT_STUDY_CACHE_SUBDIR);
+  const rel = path.relative(tmpBase, s.root);
+  if (!rel.startsWith("..") && !path.isAbsolute(rel)) return tmp("the event-study root is itself in the tmp dir (no volume here)");
+  if (!SAFE_PATH.test(vol)) return tmp("the volume path is not a plain path");
+  if (s.volumeCacheBytes > EVENT_STUDY_CACHE_MAX_BYTES) {
+    return tmp(`the volume cache is ${Math.round(s.volumeCacheBytes / 1e6)} MB, above the ${Math.round(EVENT_STUDY_CACHE_MAX_BYTES / 1e6)} MB cap`);
+  }
+  if (s.freeBytes === null) return tmp("the volume's free space could not be read");
+  if (s.freeBytes < EVENT_STUDY_CACHE_MIN_FREE_BYTES) {
+    return tmp(`${Math.floor(s.freeBytes / 1e6)} MB free on the volume, under the ${Math.round(EVENT_STUDY_CACHE_MIN_FREE_BYTES / 1e6)} MB this cache leaves free`);
+  }
+  return { dir: vol, where: "volume", reason: "kept across a container replacement" };
+}
+
+/** Bytes and files under a directory (0, 0 when absent). Sync: a few dozen files. */
+export function dirUsage(dir: string): { bytes: number; files: number } {
+  let bytes = 0, files = 0;
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.error("[event_study] unreadable dir", dir, e instanceof Error ? e.message : e);
+    return { bytes, files };
+  }
+  for (const ent of entries) {
+    const p = path.join(dir, ent.name);
+    if (ent.isDirectory()) { const u = dirUsage(p); bytes += u.bytes; files += u.files; }
+    else if (ent.isFile()) {
+      try { bytes += fs.statSync(p).size; files += 1; } catch (e) {
+        if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.error("[event_study] unreadable file", p, e instanceof Error ? e.message : e);
+      }
+    }
+  }
+  return { bytes, files };
+}
+
+function freeBytesAt(root: string): number | null {
+  try { const s = fs.statfsSync(root.startsWith("/data") ? "/data" : path.dirname(root)); return Number(s.bavail) * Number(s.bsize); } catch { return null; }
+}
+
+/** The plan on this machine, read now (statfs + the volume cache's size). */
+export function currentEventStudyCachePlan(env: Record<string, string | undefined> = process.env, root: string = eventStudyRoot(env)): EventStudyCachePlan & { volumeCacheBytes: number; volumeCacheFiles: number } {
+  const u = dirUsage(path.join(root, EVENT_STUDY_CACHE_SUBDIR));
+  return { ...eventStudyCachePlan(env, { root, freeBytes: freeBytesAt(root), volumeCacheBytes: u.bytes }), volumeCacheBytes: u.bytes, volumeCacheFiles: u.files };
+}
+
+export function eventStudyCmd(codeVersion: string = pkgVersion, env: Record<string, string | undefined> = process.env, cacheDir?: string): string {
   const v = /^[0-9A-Za-z.+-]{1,40}$/.test(codeVersion) ? codeVersion : "unknown";
-  const dir = eventStudyCacheDir(env);
+  const dir = cacheDir ?? eventStudyCacheDir(env);
   const d = SAFE_PATH.test(dir) ? dir : "/tmp/voltrade_event_study";
   return `python3 event_reaction_panel.py --run --nice 19 --max-rss-mb ${EVENT_STUDY_MAX_RSS_MB} --rate ${EVENT_STUDY_SEC_RATE} --workers ${EVENT_STUDY_WORKERS} --code-version ${v} --cache-dir ${d}`;
 }
@@ -207,16 +286,22 @@ export function parseEventStudySummary(stdout: string): RunOutcome {
   return { status: "error", detail: str(j.reason) ?? `status ${String(st)}` };
 }
 
-/** Run event_reaction_panel.py once (process-group kill on timeout). Never throws. */
-export async function runEventStudy(env: NodeJS.ProcessEnv, exec: WalkforwardExec = execGroupKill): Promise<RunOutcome> {
+/** Run event_reaction_panel.py once (process-group kill on timeout), its SEC cache where the plan says.
+ *  A volume cache above the cap is deleted first. Never throws. */
+export async function runEventStudy(env: NodeJS.ProcessEnv, exec: WalkforwardExec = execGroupKill,
+  plan: EventStudyCachePlan & { volumeCacheBytes?: number } = currentEventStudyCachePlan(env)): Promise<RunOutcome> {
   try {
-    const { stdout } = await exec(eventStudyCmd(pkgVersion, env), {
+    if (plan.where === "tmp" && (plan.volumeCacheBytes ?? 0) > EVENT_STUDY_CACHE_MAX_BYTES) {
+      console.error(`[event_study] ${plan.reason}: deleting it; this run's cache is container tmp`);
+      fs.rmSync(path.join(eventStudyRoot(env), EVENT_STUDY_CACHE_SUBDIR), { recursive: true, force: true });
+    }
+    const { stdout } = await exec(eventStudyCmd(pkgVersion, env, plan.dir), {
       timeout: EVENT_STUDY_TIMEOUT_MS, killSignal: "SIGKILL", env: { ...env, ...WALKFORWARD_ENV_CAPS }, maxBuffer: 1024 * 1024, encoding: "utf8",
     });
     return parseEventStudySummary(stdout);
   } catch (e) {
     const err = e as { killed?: boolean; signal?: string | null; code?: unknown; stdout?: string; stderr?: string; message?: string };
-    if (err.killed) return { status: "error", detail: `exceeded the ${Math.round(EVENT_STUDY_TIMEOUT_MS / 60_000)}-minute budget — process group killed (the SEC cache in container tmp resumes next week)` };
+    if (err.killed) return { status: "error", detail: `exceeded the ${Math.round(EVENT_STUDY_TIMEOUT_MS / 60_000)}-minute budget — process group killed (the SEC cache keeps what was fetched)` };
     const fromStdout = err.stdout ? parseEventStudySummary(err.stdout) : null;
     if (fromStdout && fromStdout.status === "error" && !fromStdout.detail.startsWith("unparseable")) return fromStdout;
     const tail = String(err.stderr || err.message || "").trim().slice(-160);
@@ -269,10 +354,16 @@ export function eventStudyStatus(env: Record<string, string | undefined> = proce
   const l = readJson(path.join(root, "latest.json"));
   const flag = eventStudyFlag(env);
   const surv = obj(l?.survivor_subset);
+  const plan = currentEventStudyCachePlan(env, root);
+  const used = plan.where === "volume" ? { bytes: plan.volumeCacheBytes, files: plan.volumeCacheFiles } : dirUsage(plan.dir);
   return {
     probe: "event_study",
     flag: { value: flag.value, source: flag.source, on: flag.on },
-    schedule: `Saturday ${EVENT_STUDY_WINDOW_START_MIN / 60}:00-${EVENT_STUDY_WINDOW_END_MIN / 60}:00 ET, once per ISO week, budget ${EVENT_STUDY_TIMEOUT_MS / 60_000} min, ${EVENT_STUDY_MAX_RSS_MB} MB, SEC ${EVENT_STUDY_SEC_RATE} req/s; waits for ${PANEL_READER_JOBS.join(", ")}`,
+    sec_cache: {
+      where: plan.where, reason: plan.reason, survives_a_deploy: plan.where !== "tmp", bytes: used.bytes, files: used.files,
+      volume_min_free_mb: Math.round(EVENT_STUDY_CACHE_MIN_FREE_BYTES / 1e6), max_mb: Math.round(EVENT_STUDY_CACHE_MAX_BYTES / 1e6),
+    },
+    schedule: `Saturday ${EVENT_STUDY_WINDOW_START_MIN / 60}:00-${EVENT_STUDY_WINDOW_END_MIN / 60}:00 ET, first tick ${EVENT_STUDY_FIRST_TICK_MS / 60_000} min after boot, once per ISO week per process (a restarted container starts again inside the window and resumes from the SEC cache), budget ${EVENT_STUDY_TIMEOUT_MS / 60_000} min, ${EVENT_STUDY_MAX_RSS_MB} MB, SEC ${EVENT_STUDY_SEC_RATE} req/s; waits for ${PANEL_READER_JOBS.join(", ")}`,
     panel_build: currentPanelBuild(panelRoot),
     study_code: studyCodeHash(codeDir),
     code_version: pkgVersion,
@@ -292,8 +383,8 @@ export function eventStudyStatus(env: Record<string, string | undefined> = proce
 // ── scheduler ────────────────────────────────────────────────────────────────
 let booted = false;
 
-/** Weekly tick (every EVENT_STUDY_TICK_MS, unref'd; first tick one interval
- *  after boot). One run at a time; the run is not awaited by any other path. */
+/** Weekly tick (unref'd; first tick EVENT_STUDY_FIRST_TICK_MS after boot, then every
+ *  EVENT_STUDY_TICK_MS). One run at a time; the run is not awaited by any other path. */
 export function bootEventStudy(env: NodeJS.ProcessEnv = process.env): void {
   if (booted) return;
   booted = true;
@@ -303,8 +394,7 @@ export function bootEventStudy(env: NodeJS.ProcessEnv = process.env): void {
   const tick = async () => {
     if (running) return;
     const root = eventStudyRoot(env);
-    let free: number | null = null;
-    try { const s = fs.statfsSync(root.startsWith("/data") ? "/data" : path.dirname(root)); free = Number(s.bavail) * Number(s.bsize); } catch { free = null; }
+    const free = freeBytesAt(root);
     const now = Date.now();
     const d = decideEventStudy(now, {
       enabled: eventStudyFlag(env).on, panelBuildId: currentPanelBuild(pricePanelRoot(env)), latest: eventStudyLatest(root),
@@ -331,5 +421,8 @@ export function bootEventStudy(env: NodeJS.ProcessEnv = process.env): void {
       running = false;
     }
   };
+  // The first tick is a short timeout, not the first interval: on a day of merges a container may be
+  // replaced before its first interval, and each minute it does live is fetch time the cache keeps.
+  setTimeout(() => { void tick(); }, EVENT_STUDY_FIRST_TICK_MS).unref?.();
   setInterval(() => { void tick(); }, EVENT_STUDY_TICK_MS).unref?.();
 }

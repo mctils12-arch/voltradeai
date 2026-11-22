@@ -23,10 +23,17 @@ functions. DIFFERENT — declared below (DEVIATIONS) before any panel run.
 OUTPUT (storage_config.EVENT_STUDY_DIR = DATA_DIR/event_study, the volume):
 latest.json (last success: aggregate tables only — no price, no ticker, no
 per-event row; Alpaca licence) and last_run.json (every run), KB-sized. The SEC
-cache (compact derived rows of public EDGAR data, re-fetchable) lives in the
-CONTAINER tmp dir, never the volume (short of space): <cache>/<build>-<ver>/,
-~15-25 MB (measured: ~40-100 KB of insider rows per quarter), older builds' dirs deleted on start. Raw downloads (insider zips,
-filing documents) are parsed in memory and never written.
+cache (compact derived rows of public EDGAR data, re-fetchable) is
+<cache>/<build>-<ver>/, ~15-25 MB estimated (measured: ~40-100 KB of insider
+rows per quarter; no full run has finished yet), older builds' dirs deleted on
+start. Raw downloads (insider zips, filing documents) are parsed in memory and
+never written. WHERE: this CLI's default is the container tmp dir. Since
+2026-11-22 the weekly job (server/eventStudy.ts) passes a directory on the
+volume while the volume has room, because a deploy replaces the container and
+a run of about 2.5 h restarted from zero each time (the Saturday of 11-21 had
+seven deploys and no finished run). A cache that outlives the process can hold
+a file cut short by a host fault, which a tmp cache never could, so every run
+starts with drop_unreadable_cache.
 
 SEC FAIR ACCESS: the repo's declared User-Agent and process-wide limiter
 (sec_filings_text.EdgarClient), here at --rate 5 req/s (under SEC's 10, leaving
@@ -40,6 +47,7 @@ CLI: python3 event_reaction_panel.py --run [--panel-root DIR] [--out-dir DIR]
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import io
 import json
@@ -52,6 +60,7 @@ import sys
 import tempfile
 import time
 import zipfile
+import zlib
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -225,6 +234,31 @@ def prepare_cache(base: str, build_id: str) -> str:
     d = os.path.join(base, keep)
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def drop_unreadable_cache(cache: str) -> List[str]:
+    """Delete what a killed or faulted earlier process left in the cache: a
+    *.tmp from an unfinished write, and any *.gz that does not read to its end
+    (a cut or damaged file; the trailer check is gzip's own). -> the relative
+    paths removed. A removed file is fetched again by its stage; without this a
+    damaged file on a cache that outlives the container would fail every run."""
+    dropped: List[str] = []
+    for dp, _dn, fns in os.walk(cache):
+        for fn in sorted(fns):
+            path = os.path.join(dp, fn)
+            bad = fn.endswith(".tmp")
+            if not bad and fn.endswith(".gz"):
+                try:
+                    with gzip.open(path, "rb") as f:
+                        while f.read(1 << 20):
+                            pass
+                except (OSError, EOFError, zlib.error) as e:
+                    er.log(f"cache: {os.path.relpath(path, cache)} unreadable ({type(e).__name__}); removed, will be fetched again")
+                    bad = True
+            if bad:
+                os.remove(path)     # this process is the cache's only writer: the file listed is there
+                dropped.append(os.path.relpath(path, cache))
+    return dropped
 
 
 def dir_bytes(d: str) -> int:
@@ -651,6 +685,7 @@ def run(panel_root: Optional[str] = None, out_dir: Optional[str] = None, cache_d
         return finish({"status": "skipped", "reason": "no complete price-panel build (current.json absent)"})
     as_of = str(build["manifest"]["as_of"])
     cache = prepare_cache(cache_dir or default_cache_dir(), build["build_id"])
+    cache_dropped = drop_unreadable_cache(cache)
 
     spy, sym_index = index_panel(build["dir"])
     if spy is None or len(spy.c) < er.MIN_HISTORY + 60:
@@ -773,6 +808,7 @@ def run(panel_root: Optional[str] = None, out_dir: Optional[str] = None, cache_d
         "size_breaks": breaks, "spy_days": [days[0], days[-1]], "panel_series_seen": int(diag[("_series_seen", "")]),
         "corrupt_panel_lines_skipped": len(pp.corrupt_lines()),
         "sec_cache_bytes": dir_bytes(cache),
+        "sec_cache_unreadable_dropped": cache_dropped,
     }
     verdicts = {t: summary[t]["verdict"] for t in er.EVENT_TYPES}
     payload = {

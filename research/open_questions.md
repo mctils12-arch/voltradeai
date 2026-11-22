@@ -8223,6 +8223,57 @@
     (server/swimConnector.ts payloadToString; 3 tests). Not yet read on
     production: 2026-11-21 ninth entry (v1).
 
+58. **[FOUND 2026-11-22 16:10Z, DAILY scheduled routine. FIXED the same day,
+    v1.0.1523; close marker waits for the Sat 2026-11-28 live run.]**
+    `event_study_weekly` (server/eventStudy.ts, the pre-registered
+    event-reaction study on the delisting-inclusive panel) HAS NEVER
+    FINISHED A RUN: 2026-11-14 ended insufficient (six SEC insider data
+    sets, fixed 11-16), 2026-11-21 ended "interrupted: the process exited
+    before this run finished" (/api/diag/heartbeats, recentErrors 2;
+    /api/diag/event_study `latest` null). /api/health has read jobs
+    degraded for it since; four sessions left it to the DAILY routine.
+    ROOT CAUSE, read from the code and the merge times (not assumed): one
+    run is about 2.5 h of SEC requests (40-45k at 5/s). The Python
+    checkpoints every stage into its cache directory, and the cache was in
+    the CONTAINER tmp dir, which a deploy discards. Saturday 11-21 had
+    seven merges to main inside or beside the 12:00Z-20:00Z window
+    (13:49, 14:25, 16:46, 17:28, 18:15, 19:05, 20:57Z); the longest gap was
+    2 h 21 min. Every replaced container started from zero, so no sequence
+    of starts could reach the end. Second, smaller cause: the first tick
+    was one 30-minute interval after boot, so each container gave away its
+    first half hour (the 2026-11-12 Lazy Prices finding, which named this
+    job among those still carrying the shape).
+    WHY NOW: since the DEPLOY WINDOW (2026-11-05) no PR merges in market
+    hours, so every deploy lands at night or on a weekend, which is when
+    the long jobs run.
+    FIX: (a) the job keeps the cache on the volume
+    (DATA_DIR/event_study/sec_cache) while the volume has at least 1 GiB +
+    256 MiB free, container tmp otherwise; a volume cache above 200 MB is
+    deleted (the 15-25 MB size is an estimate: no full run exists to
+    measure); VOLTRADE_EVENT_STUDY_CACHE_DIR still overrides. (b) first
+    tick 2 minutes after boot. (c) because a cache that outlives the
+    process can hold a damaged file, every run first deletes cache files
+    that do not read to their end and reports them
+    (`meta.sec_cache_unreadable_dropped`). (d) the probe says where the
+    cache is, whether it survives a deploy, its bytes and files.
+    REVERSES A RECORDED CHOICE: the 11-06 build kept the cache off the
+    volume because the volume is short of space. 25 MB against 1.62 GiB
+    free, behind a floor above the bot's own headroom and a hard cap, is
+    this session's judgement; the override env var sets it back with no
+    deploy (VOLTRADE_EVENT_STUDY_CACHE_DIR=/tmp/voltrade_event_study).
+    NOT FIXED HERE: the generator. Every merge redeploys, research-only
+    ones included (wishlist.md 2026-10-15 option A, the human's; UPDATE
+    2026-11-22 there).
+    CLOSE WHEN: `/api/diag/event_study` shows a `latest` with verdicts
+    after Sat 2026-11-28 07:00-20:00 ET. Read with it: `sec_cache.where`
+    (expected "volume"), `sec_cache.bytes` after the run (the first
+    measurement of the estimate), `latest.meta.sec_cache_unreadable_dropped`
+    (expected empty), and how many "interrupted" beats the Saturday took.
+    IF IT ENDS insufficient or error WITH the cache on the volume, the
+    cause is in the study's own stages (SEC 403/429, the 1,200 MB budget,
+    which no full run has tested): read `last_run.reason`, do not touch the
+    cache again.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -24913,3 +24964,10 @@ KNOWN LIMITS OF THE EVENT LIST (measured or reasoned 2026-11-22, none tuned):
 - (y6) NOT BUILT: the gate-2 runner (CUSIP to ticker through server/cusipResolver.ts's OpenFIGI cache or a Python equivalent; bars; the filter). Build it before 2027-02-16, from this text.
 - (y7) CROSS-SYSTEM TIES, stated honestly. REAL IF GATE 2 PASSES: thin clusters x Form 4 insider buys in the same name and quarter (both archives are complete against EDGAR's index); thin clusters x the XBRL record's shares outstanding once point-in-time market value exists (a real small-cap definition instead of the breadth proxy). NOT A TIE: the trading bot. Nothing reads this list.
 - CHECK AFTER DEPLOY (any session, after the first 05:00-06:00 ET window): `/api/diag/filings13f_clusters`: `last_run.status` ok; `latest.pairs` holds 2026-06-30 to 2026-09-30 with managers.both in the thousands; `clusters_by_class.thin` against the 80% prior above; `peak_rss_mb` under 700; `/api/health` jobs lists `filings13f_clusters_nightly` ok. Record the thin count in experiments.md and judge the prior.
+
+## 2026-11-22 (fourth entry) — the event study's SEC cache is kept across a deploy (KNOWN BROKEN #58, v1.0.1523): priors, what is left open
+- [PRIORS, written before the first run on the new code] 70% that Saturday 2026-11-28 ends with a `latest` result (against: SEC refusals over 40-45k requests, the 1,200 MB budget never tested on a full run, a Saturday with more deploys than fetch time). 95% that `sec_cache.where` reads "volume" on production (1.62 GiB free against a 1.25 GiB floor). 60% that the finished cache is at most 25 MB; 95% at most 200 MB.
+- (z1) CHECK AFTER DEPLOY (any session): `/api/diag/event_study` -> `sec_cache.where` "volume", `survives_a_deploy` true, `schedule` naming the 2-minute first tick. Then the CLOSE WHEN of KNOWN BROKEN #58 after 2026-11-28.
+- (z2) THE SAME SHAPE ELSEWHERE, not checked this session: which other long jobs keep state a deploy discards. Known: the Lazy Prices backfill downloads its pairs cache (about 51 quarterly SEC files) into container tmp on every start (its rows are checkpointed on the volume, so it loses minutes, not the night). Not read: walkforward_weekly, edge_p2_weekly, price_panel_build. One grep of `os.tmpdir()` and `tempfile` across the long-job lane's ten command files answers it; a job whose run is longer than a Saturday's longest gap between deploys (2 h 21 min on 11-21) and that restarts from zero is the next #58.
+- (z3) THE VOLUME. The floor (1 GiB + 256 MiB free) is above the bot's headroom, so the cache gives way first. The health check said 12 days to the 1 GiB guard if eviction stopped; if free space falls under the floor before 11-28 the job goes back to container tmp and says so in `sec_cache.reason`. That would be the volume-capacity decision (wishlist.md 2026-10-12) costing a research result, and should be added there as a measured cost.
+- (z4) NOT A SIGNAL. Nothing here changes what the study measures: the statistics, the pre-registration and the verdict rules are untouched, and a cached SEC row fetched on an earlier Saturday holds the same filings before the panel's as_of date as one fetched today.
