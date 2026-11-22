@@ -3,6 +3,17 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-22 (same scheduled PRODUCT session, after #1884 merged and deployed; Sun 13:50 ET = 18:50Z, MARKET CLOSED) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — the flight-restriction record judged on production: recording, 50 of 50 listed notices held, all five priors held (research only, v1.0.1525)
+VERSION: v1.0.1525 (main was v1.0.1524). No code.
+WHAT: the CHECK AFTER DEPLOY of the entry below ((y1)), read from /api/data/swim/notam/tfrs, /api/data/archive/stats, /api/data/streams and /api/health between 18:46Z and 18:50Z, 4 to 8 minutes after v1.0.1524 booted (#1884 merged 18:39Z, live 18:42Z).
+PRIORS (written in open_questions.md before the merge) AND RESULT: 90% recording with open = listed: HELD (`record.status` "recording", 50 = 50). 90% every served list row with `listed_since`, backfill on the first day: HELD (32 of 32). 85% the stream on the archive stats and "recent" on the Streams inventory: HELD (2 files; "live" at 8 minutes, "no-data" at 4 minutes because the inventory refreshes every 5). 70% first-day file 120 to 300 kB: HELD (205,409 bytes for the day file plus the state file). 70% a later day under 30 kB: not readable before 2026-11-24.
+NUMBERS: 50 listed (38 with an outline, 12 with none, 0 pending); 51 lines written by the first recorded read (50 `listed`, the `run` line).
+VERDICT: the record of US flight restrictions began 2026-11-22T18:43Z. It is a RAW record; nothing is derived from it.
+HEALTH AFTER THE DEPLOY: deploy gate ok, loop alive, server_version = main; the two standing WARNs (jobs degraded, Tier-2 daemon timeouts #18) unchanged.
+NOT DONE: the card was not opened in a browser against production; the route is what was read.
+NEXT: (y2) a bounded reading surface for the history; (x4); (x2); (w2); the XBRL second-night check; (y3) not before 2026-12-22.
+STARVED: yes — queued and not reached: (y2), (x4), (x2), (w2), the XBRL second-night check.
+
 ## 2026-11-22 (scheduled routine, PRODUCT prompt, Sun 13:07 ET = 18:07Z, MARKET CLOSED) [PIPELINE] — T-DATACORE primary (server/faaTfrArchive.ts + test, new; server/faaTfrList.ts: two readers on the store, the cut kept, one call after a read; server/swimCapture.ts: the route's answer; datacore/manifests/flightrestrictions.json, new) with its UI half (client/src/lib/air/flightRestrictions.ts + test; scripts/visual_check.mjs); shared last-and-minimal: datacore/layers.json (one sentence), ci/counter_baseline.txt (three pins), research/open_questions.md, package.json — US flight restrictions: every appearance on and removal from the FAA's public list is written down, and a restriction's card says since when it has been listed ((x5), v1.0.1524)
 VERSION: v1.0.1524 (main was v1.0.1523, read at commit time).
 TERRITORY: T-DATACORE primary, T-CLIENT for the UI counterpart in the same PR (UI INTEGRATION). No strategy, parameter, sizing or measurement code. Nothing in the trading path reads this.
