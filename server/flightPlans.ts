@@ -42,6 +42,7 @@ import { SwimPlanStore, startSfdps, sfdpsStatus, routePointsOf, SFDPS_ENV_PREFIX
 import { laddRegistry, LADD_WITHHELD_NOTE } from "./laddRegistry";
 import { swimEnvVarNames, swimProductsEnvStatus } from "./swimConnector";
 import { registerSwimCaptureRoutes, startSwimCapture, startSwimStoreKeep } from "./swimCapture";
+import { bootFaaTfrList } from "./faaTfrList";
 import {
   crossTrackNm, densifyPlan, estimateVerticalProfile, haversineNm, initialBearingDeg, angleDiffDeg,
   polylineLengthNm, replanFromPosition, typicalCruiseFt, cumulativeNm, FT_PER_M,
@@ -1464,6 +1465,8 @@ export function registerFlightPlanRoutes(app: Express, ctx: PlanContext = getFli
   // put back the programs and flight restrictions the last process saved, then save each minute
   // (a no-op unless the TFMS or NOTAM feed is configured). Runs in this tick, before any message is handled.
   try { startSwimStoreKeep(); } catch (e: unknown) { console.error("[flightPlans] SWIM store keep:", errMsg(e)); }
+  // the FAA's public list of flight restrictions (tfr.faa.gov): the standing ones the feed never re-sends
+  try { bootFaaTfrList(); } catch (e: unknown) { console.error("[flightPlans] FAA restriction list:", errMsg(e)); }
   registerSwimCaptureRoutes(app);
 
   app.get("/api/data/aircraft/plan-status", (_req, res) => {

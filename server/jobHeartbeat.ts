@@ -27,6 +27,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { tier2Disabled, tier3Disabled } from "./bisectionFlags";
+import { swimMissingEnv } from "./swimConnector";
 
 export type BeatPhase = "start" | "finish";
 export type BeatStatus = "ok" | "error" | "skipped";
@@ -312,6 +313,20 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
       return v === "1" || v === "true" || v === "on" || v === "yes";
     },
     disabledReason: "VOLTRADE_FORM4_COMPLETENESS off",
+  },
+  {
+    // faaTfrList.ts bootFaaTfrList: first pass 90 s after boot, then every
+    // 30 min, day and night: the FAA's public list of flight restrictions
+    // (one request) and the detail file of each listed notice not yet read
+    // (about 50 on a first boot at 1.5 s spacing, two to four a day after).
+    id: "faa_tfr_list", label: "FAA flight-restriction list read (tfr.faa.gov, every 30 min)",
+    source: "server/faaTfrList.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 30 * MIN, graceMs: 20 * MIN, maxRunMs: 10 * MIN,
+    enabledWhen: (env) => {
+      const v = String(env.VOLTRADE_FAA_TFR_LIST ?? "").trim().toLowerCase();
+      return !(v === "off" || v === "0" || v === "false" || v === "no") && swimMissingEnv("SWIM_NOTAM", env as NodeJS.ProcessEnv).length === 0;
+    },
+    disabledReason: "VOLTRADE_FAA_TFR_LIST off, or the FAA notice feed is not configured",
   },
   {
     // firesCompleteness.ts bootFiresCompleteness: first tick 2 min after boot,
