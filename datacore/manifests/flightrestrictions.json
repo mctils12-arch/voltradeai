@@ -1,0 +1,29 @@
+{
+ "stream": "flightrestrictions",
+ "storage": "append-only JSONL day-files under <archive>/flightrestrictions/ by the UTC date of OUR read of the FAA's list (gz after 2 days); beside them, not part of the record: _open.json (the notices listed at the last recorded read)",
+ "written_by": "server/faaTfrArchive.ts recordFaaTfrRead, called by server/faaTfrList.ts after each list read that succeeded (every 30 minutes; change-only: a line when a notice appears on or leaves the list, one `run` line a day)",
+ "source": "FAA public list of flight restrictions, https://tfr.faa.gov/tfrapi/exportTfrList (the list) and https://tfr.faa.gov/download/detail_<y>_<nnnn>.xml (one notice: text as issued, dates, each area's outline and limits); keyless. Outlines checked against the FAA's shape service 2026-11-22 (research/tfr_list_gate1_2026-11-22.json: 35 of 36 notices agree on every polygon, 1 differs by area count, 0 disagree)",
+ "license": "US government work, public domain",
+ "attribution": "Federal Aviation Administration, tfr.faa.gov",
+ "schema_version": 1,
+ "field_map": {
+  "kind": "listed (on the list now, not at the read before) | detail (the detail file of a notice whose `listed` line had row null) | left (no longer on the list) | run (once per UTC day, at the first read: the counts)",
+  "seen": "UTC time of OUR read that showed the change. Thirty-minute resolution. Not the FAA's issue or cancel time: `row.issued` is the FAA's issue time",
+  "prev_read / last_listed": "the read before `seen`: a `listed` notice appeared between prev_read and seen; a `left` notice left between last_listed and seen. A gap wider than 30 minutes means the server or tfr.faa.gov was down in between",
+  "backfill": "true on a notice already listed when recording began: `seen` is then the start of the record and says nothing about when the notice appeared",
+  "notice / citation": "the FAA's notice number (\"6/9306\") and the form people cite (\"FDC 6/9306\")",
+  "list": "the FAA list's own words for the notice: type (SECURITY, HAZARDS, VIP, SPACE OPERATIONS ...), facility, state, description",
+  "row": "the notice as the map is served it (server/faaTfrList.ts FaaTfrRow): text as issued (first 4,000 characters), issued/start/end in ms UTC, geometry.rings = the FAA's outline of each area as [lat, lon] corners (at most 512 a ring, 32 areas), faa.areas = each area's lower and upper limit as written (feet above sea level ALT, above the ground HEI, or a flight level) and whether it is scheduled for certain hours; geometry null = the FAA publishes no outline for the notice",
+  "published_start / published_end": "on a `left` line: the period the notice itself gave (null = none published, a standing restriction, or its detail file was never read). Whether the notice left before its published end is not written; it is the comparison of `seen` with published_end",
+  "run": "listed, with_outline, without_outline, detail_pending at that read. A day with a run line and nothing else is a day on which nothing appeared or left; a day with no file is a day not recorded"
+ },
+ "confidence_model": "RAW record of a US government publication (RAW OVERLAYS vs SIGNALS, CLAUDE.md): no score, no ranking, no predictive claim, no ladder gating required to show it. Known limits: (1) thirty-minute resolution: a restriction listed and delisted between two reads is never seen; (2) hours when the server or tfr.faa.gov was down are a gap, stated by prev_read / last_listed on the next lines; (3) a changed restriction is a new notice number at the FAA, so it is one `left` and one `listed` line and nothing links them; (4) US restrictions on the FAA's public list only: other countries' notices (the notice feed) are not in this record; (5) a restart between appending a read's lines and writing _open.json repeats those lines at the next read with a later `seen`: keep the earliest; (6) a read missing more than half of at least 10 recorded notices is not recorded the first time and is recorded if the next read says the same; (7) a list answer cut at the reader's cap of 500 is not recorded; (8) an area the FAA schedules for certain hours is listed for its whole period.",
+ "geo_fields": [
+  "row.geometry.rings ([lat, lon] corners, the FAA's outline)"
+ ],
+ "entity_key": "notice",
+ "sentiment": null,
+ "started": "2026-11-22",
+ "cadence": "a `run` line daily; a line whenever a notice appears on or leaves the FAA's list (the list is read every 30 minutes)",
+ "_note": "Universal archive envelope (approved 2026-07-04). Recorded because tfr.faa.gov publishes the restrictions in force now and no history: once a notice is delisted its outline, limits and listing are gone from that site (open_questions.md 2026-11-21 (u3)(2), 2026-11-22 (x5))."
+}

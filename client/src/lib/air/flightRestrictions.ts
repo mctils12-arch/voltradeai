@@ -137,6 +137,9 @@ export interface FlightRestriction {
   shape: "own" | "text" | "enclosing" | "faa";
   /** shape "faa" only: what the FAA's list and detail file say about the notice; null on a feed row */
   faa: FaaFacts | null;
+  /** shape "faa" only: since when the server's own record of the FAA's list has held this notice
+   *  (backfill = it was already listed when that record began); null = the server does not say */
+  listedSince: { firstSeenMs: number; backfill: boolean } | null;
   /** shape "text" only: areas the text defines that could not be followed and are not drawn */
   unreadAreas: number;
   /** outlines in GeoJSON order [lon, lat], each closed; several = several separate areas */
@@ -228,6 +231,10 @@ function faaFacts(v: unknown): FaaFacts {
     .map((a) => ({ name: str(a.name), lower: faaLimit(a.lower), upper: faaLimit(a.upper), scheduled: a.scheduled === true }));
   return { type: o ? str(o.type) : null, rule: o ? str(o.rule) : null, place: o ? str(o.place) : null, areas, areasWithoutOutline: o && fin(o.areas_without_outline) ? o.areas_without_outline : 0 };
 }
+function listedSince(v: unknown): FlightRestriction["listedSince"] {
+  const o = obj(v);
+  return o && fin(o.first_seen) && o.first_seen > 0 ? { firstSeenMs: o.first_seen, backfill: o.backfill === true } : null;
+}
 const LIST_STATUS = ["off", "never", "ok", "stale", "unreachable"] as const;
 function faaListView(v: unknown): FaaListView | null {
   const o = obj(v);
@@ -276,7 +283,7 @@ export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_
       kind: restrictionKind(text, qcode), rules: rulesCited(text),
       issuedMs: fin(t.issued) ? t.issued : null, startMs, endMs: fin(t.end) ? t.end : null,
       minFl: fin(t.minFl) ? t.minFl : null, maxFl: fin(t.maxFl) ? t.maxFl : null,
-      shape, faa: shape === "faa" ? faaFacts(t.faa) : null,
+      shape, faa: shape === "faa" ? faaFacts(t.faa) : null, listedSince: shape === "faa" ? listedSince(t.listed_since) : null,
       unreadAreas: shape === "text" && fin(g.unread) && g.unread > 0 ? Math.floor(g.unread) : 0, rings, center, radiusNm, text, inForce: startMs === null || startMs <= now,
     });
   }
@@ -473,6 +480,19 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
 /** said on a feed row's card when the FAA's public list is being read */
 export const FEED_ROW_WITH_LIST_SENTENCE = "This restriction came from the notice feed. The US restrictions on the FAA's own public list (tfr.faa.gov) are read every 30 minutes and drawn with the FAA's outline; a notice that is only in the feed, like this one, is here only when the feed has sent it since the server began keeping the list (2026-11-21).";
 
+/** said on a list row's card when the server reports its record of the list */
+export const LIST_RECORD_SENTENCE = "This server writes down when each restriction appears on the FAA's list and when it leaves, to the half hour; tfr.faa.gov itself shows only the current list.";
+
+/** "first seen there Nov 22 14:30Z ..." / "already listed when this server's record of the list began, ..." */
+export function listedSinceWords(l: { firstSeenMs: number; backfill: boolean }, nowMs: number): string {
+  // zuluAt leaves the year out; a standing restriction can be on the list for years
+  const y = new Date(l.firstSeenMs).getUTCFullYear();
+  const at = `${zuluAt(l.firstSeenMs, nowMs)}${y === new Date(nowMs).getUTCFullYear() ? "" : `, ${y}`}`;
+  return l.backfill
+    ? `already listed when this server's record of the list began, ${at}`
+    : `first seen there ${at}, by this server's read of the list (every 30 minutes)`;
+}
+
 /** The card of a restriction read from the FAA's public list (shape "faa"). */
 function listCard(r: FlightRestriction, nowMs: number, u: UnitWords, list: FaaListView | null): RestrictionCard {
   const f = r.faa ?? { type: null, rule: null, place: null, areas: [], areasWithoutOutline: 0 };
@@ -498,6 +518,7 @@ function listCard(r: FlightRestriction, nowMs: number, u: UnitWords, list: FaaLi
     scheduled ? { label: "Hours", value: "certain hours only, written in the notice text; listed here for its whole period" } : null,
     ...areaFacts,
     r.issuedMs !== null ? { label: "Issued", value: zuluAt(r.issuedMs, nowMs) } : null,
+    r.listedSince ? { label: "On the FAA's list", value: listedSinceWords(r.listedSince, nowMs) } : null,
     r.location ? { label: "FAA facility", value: r.location } : null,
     { label: "Issued by", value: CLASSIFICATION_WORDS.FDC },
   ].filter((x): x is { label: string; value: string } => !!x);
@@ -516,6 +537,7 @@ function listCard(r: FlightRestriction, nowMs: number, u: UnitWords, list: FaaLi
     body: `${r.text ? `Notice text, as the FAA publishes it:\n${r.text}\n\n` : ""}`
       + `FAA public list of flight restrictions (tfr.faa.gov)${read}. The outline and the limits are the FAA's own, copied as published. `
       + "A restriction stays here while the FAA lists it and is removed at the first read after the FAA takes it off its list. "
+      + (r.listedSince ? LIST_RECORD_SENTENCE + " " : "")
       + "Displayed as-is; not for flight planning or any operational use.",
   };
 }

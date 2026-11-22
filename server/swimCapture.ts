@@ -28,6 +28,7 @@ import { NotamStore, TFR_TEXT_RE, type TfrRecord } from "./swimNotam";
 import { trackMap } from "./heapDiag";
 import { createSwimKeeper, type SwimKeeper, type SwimKeepView } from "./swimStoreKeep";
 import { sharedFaaTfrList, faaTfrListEnabled } from "./faaTfrList";
+import { faaTfrListedSince, faaTfrArchiveView } from "./faaTfrArchive";
 
 // TFMS parser (written against the captured samples): every TFMS payload is
 // profiled AND parsed into programs / airport configs / per-flight
@@ -222,7 +223,11 @@ export function flightRestrictionsAnswer(now: number, env: NodeJS.ProcessEnv = p
   const keptFeed = new Set(feedRows.filter(sentGeometry).map((t) => t.citation).filter((c): c is string => !!c));
   const listCites = list.citations(now);
   const fromFeed = feedRows.filter((t) => !t.citation || !listCites.has(t.citation) || sentGeometry(t));
-  const fromList = list.active(now).filter((r) => !keptFeed.has(r.citation));
+  // since when our record of the list has held each listed notice (faaTfrArchive.ts); absent = not in the record
+  const fromList = list.active(now).filter((r) => !keptFeed.has(r.citation)).map((r) => {
+    const since = faaTfrListedSince(r.number);
+    return since ? { ...r, listed_since: since } : r;
+  });
   const feed = swimProductStatus("NOTAM");
   return {
     at: now, tfrs: [...fromFeed, ...fromList], stats: st.stats(), kept: keptFor("notam"),
@@ -230,9 +235,9 @@ export function flightRestrictionsAnswer(now: number, env: NodeJS.ProcessEnv = p
     // feed is connected and when its newest message arrived (any notice,
     // not only a flight restriction)
     feed: { connected: feed.connected, last_message_at: feed.lastMessageAt },
-    faa_list: { ...list.coverage(now, faaTfrListEnabled(env), st.citations()), served: fromList.length },
+    faa_list: { ...list.coverage(now, faaTfrListEnabled(env), st.citations()), served: fromList.length, record: faaTfrArchiveView(env) },
     source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use); rows with source 'faa_list' are from the FAA's public list at tfr.faa.gov",
-    note: "A row with source 'faa_list' was read from the FAA's public list (tfr.faa.gov), not from the notice feed: its geometry (from:'faa_list') is the FAA's own published outline, its limits are in faa.areas, and `faa_list` says when that list was read and how many listed notices have no published outline. Every other row is from the notice feed: geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area. 'polygon' is the restriction's own shape as sent, unless it carries from:'text': then the outline was read from the notice's words (the notice sent no geometry), circles and arcs drawn as 5-degree straight sides, and `unread` counts areas the text defines that could not be followed.",
+    note: "A row with source 'faa_list' was read from the FAA's public list (tfr.faa.gov), not from the notice feed: its geometry (from:'faa_list') is the FAA's own published outline, its limits are in faa.areas, and `faa_list` says when that list was read and how many listed notices have no published outline. `listed_since` on such a row is our own record of the list (first_seen = our read that first held the notice; backfill true = it was already listed when recording began), and `faa_list.record` is that record's state. Every other row is from the notice feed: geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area. 'polygon' is the restriction's own shape as sent, unless it carries from:'text': then the outline was read from the notice's words (the notice sent no geometry), circles and arcs drawn as 5-degree straight sides, and `unread` counts areas the text defines that could not be followed.",
   };
 }
 
