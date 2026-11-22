@@ -1,7 +1,7 @@
 // eventStudy — weekly job + read-only status for event_reaction_panel.py (the
 // pre-registered event-reaction study on the delisting-inclusive panel).
 // Run: npx tsx --test server/eventStudy.test.ts
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -13,10 +13,12 @@ import {
   EVENT_STUDY_TIMEOUT_MS, EVENT_STUDY_STALE_DAYS, EVENT_STUDY_MIN_FREE_BYTES, EVENT_STUDY_WINDOW_START_MIN,
   EVENT_STUDY_WINDOW_END_MIN, EVENT_STUDY_FILES, EVENT_STUDY_SEC_RATE, PANEL_READER_JOBS,
   nextEventStudyRetry, EVENT_STUDY_SEC_GAP_REASON, EVENT_STUDY_MAX_ATTEMPTS, EVENT_STUDY_RETRY_WAIT_MS, type EventStudyRetry,
+  eventStudyCachePlan, currentEventStudyCachePlan, dirUsage, bootEventStudy, EVENT_STUDY_CACHE_MIN_FREE_BYTES,
+  EVENT_STUDY_CACHE_MAX_BYTES, EVENT_STUDY_CACHE_SUBDIR, EVENT_STUDY_FIRST_TICK_MS, EVENT_STUDY_TICK_MS,
 } from "./eventStudy";
 import { WALKFORWARD_ENV_CAPS, WF_WINDOW_START_MIN, type WalkforwardExec } from "./walkforward";
 import { WINDOW_START_MIN as PANEL_BUILD_START_MIN } from "./pricePanel";
-import { JOB_REGISTRY, type HeartbeatFile } from "./jobHeartbeat";
+import { JOB_REGISTRY, heartbeatStore, type HeartbeatFile } from "./jobHeartbeat";
 import { sanitizeDiag, DIAG_PROBES } from "./diag";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -116,7 +118,7 @@ test("run: own long-job lane — budget, SIGKILL group, thread caps, parsed summ
   assert.equal(eventStudyCmd("1.0.9; rm -rf /"), eventStudyCmd("unknown"));
 });
 
-test("cache dir: container tmp by default (never the volume), safe override only", () => {
+test("cache dir: with the environment alone it is container tmp, safe override only (since 2026-11-22 the job asks eventStudyCachePlan, which may choose the volume)", () => {
   const d = eventStudyCacheDir({});
   assert.ok(!d.startsWith("/data"), d);
   assert.ok(eventStudyCmd("1.0.1", {}).endsWith(`--cache-dir ${d}`));
@@ -269,4 +271,122 @@ test("the tick keeps the retry record: cleared before each attempt, set from the
   assert.match(tick, /lastAttemptWeek = d\.week;\n\s*const before = retry;\n\s*retry = null;/);
   assert.match(tick, /const out = await runEventStudy\(env\);\n\s*retry = nextEventStudyRetry\(before, d\.week, out, Date\.now\(\)\);/);
   assert.match(tick, /attempt \$\{retry\.attempts\} of \$\{EVENT_STUDY_MAX_ATTEMPTS\}/);
+});
+
+// 2026-11-21: seven deploys between 13:49Z and 20:57Z, the longest gap 2 h 21 min. One run is about 2.5 h of SEC
+// requests and its cache was in the container tmp dir, so every replaced container started from zero: the third
+// Saturday without a result. The Python checkpoints every stage into the cache; the cache has to outlive the container.
+const VOL_ROOT = "/data/voltrade/event_study";
+const ROOMY = 10 * EVENT_STUDY_CACHE_MIN_FREE_BYTES;
+
+test("SEC cache plan: on the volume while it has room, so a replaced container resumes; container tmp otherwise", () => {
+  const vol = eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: ROOMY, volumeCacheBytes: 0, tmpDir: "/tmp" });
+  assert.deepEqual({ dir: vol.dir, where: vol.where }, { dir: `${VOL_ROOT}/${EVENT_STUDY_CACHE_SUBDIR}`, where: "volume" });
+  // a cache already there keeps being used (that is the resume)
+  assert.equal(eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: ROOMY, volumeCacheBytes: 21_000_000, tmpDir: "/tmp" }).where, "volume");
+  // exactly at the floor is allowed, one byte under is not
+  assert.equal(eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: EVENT_STUDY_CACHE_MIN_FREE_BYTES, volumeCacheBytes: 0, tmpDir: "/tmp" }).where, "volume");
+  const low = eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: EVENT_STUDY_CACHE_MIN_FREE_BYTES - 1, volumeCacheBytes: 0, tmpDir: "/tmp" });
+  assert.deepEqual({ dir: low.dir, where: low.where }, { dir: "/tmp/voltrade_event_study", where: "tmp" });
+  assert.match(low.reason, /MB free on the volume/);
+  assert.equal(eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: null, volumeCacheBytes: 0, tmpDir: "/tmp" }).where, "tmp", "unreadable free space never writes to the volume");
+  const big = eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: ROOMY, volumeCacheBytes: EVENT_STUDY_CACHE_MAX_BYTES + 1, tmpDir: "/tmp" });
+  assert.equal(big.where, "tmp");
+  assert.match(big.reason, /above the \d+ MB cap/);
+  assert.equal(eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: ROOMY, volumeCacheBytes: EVENT_STUDY_CACHE_MAX_BYTES, tmpDir: "/tmp" }).where, "volume");
+  // no volume (local, CI): the root is in the tmp dir, so the "volume" would be tmp anyway
+  assert.equal(eventStudyCachePlan({}, { root: "/tmp/event_study", freeBytes: ROOMY, volumeCacheBytes: 0, tmpDir: "/tmp" }).where, "tmp");
+  // the env override still wins, and an unsafe one is still ignored
+  assert.deepEqual(eventStudyCachePlan({ VOLTRADE_EVENT_STUDY_CACHE_DIR: "/scratch/es" }, { root: VOL_ROOT, freeBytes: 0, volumeCacheBytes: 0, tmpDir: "/tmp" }),
+    { dir: "/scratch/es", where: "override", reason: "VOLTRADE_EVENT_STUDY_CACHE_DIR" });
+  assert.equal(eventStudyCachePlan({ VOLTRADE_EVENT_STUDY_CACHE_DIR: "/x; rm -rf /" }, { root: VOL_ROOT, freeBytes: ROOMY, volumeCacheBytes: 0, tmpDir: "/tmp" }).where, "volume");
+  assert.equal(eventStudyCachePlan({}, { root: "/data/vol trade/event_study", freeBytes: ROOMY, volumeCacheBytes: 0, tmpDir: "/tmp" }).where, "tmp", "a path that is not plain never reaches the shell");
+});
+
+test("SEC cache limits: the floor is the bot's 1 GiB headroom plus 256 MiB; the cap is far above the estimate and far under the floor's margin of error", () => {
+  const gs = fs.readFileSync(path.join(here, "globalScopes.ts"), "utf8");
+  const m = /export const MIN_FREE_BYTES = ([0-9_]+);/.exec(gs);
+  assert.ok(m, "globalScopes.MIN_FREE_BYTES is a literal");
+  assert.equal(EVENT_STUDY_CACHE_MIN_FREE_BYTES, Number(m![1].replace(/_/g, "")) + 256 * 1024 * 1024);
+  assert.ok(EVENT_STUDY_CACHE_MAX_BYTES >= 4 * 25_000_000, "the 15-25 MB estimate may be wrong by 4x without losing the resume");
+  assert.ok(EVENT_STUDY_CACHE_MAX_BYTES <= 256 * 1024 * 1024, "a full cache cannot take the volume under the bot's headroom");
+});
+
+test("run: the plan's directory is the one the Python is given; a volume cache above the cap is deleted before the run", async () => {
+  const cmds: string[] = [];
+  const ok: WalkforwardExec = async (cmd) => { cmds.push(cmd); return { stdout: '{"status":"skipped","reason":"x"}\n', stderr: "" }; };
+  await runEventStudy({ PATH: "/usr/bin" }, ok, eventStudyCachePlan({}, { root: VOL_ROOT, freeBytes: ROOMY, volumeCacheBytes: 0, tmpDir: "/tmp" }));
+  assert.ok(cmds[0].endsWith(`--cache-dir ${VOL_ROOT}/${EVENT_STUDY_CACHE_SUBDIR}`), cmds[0]);
+  assert.equal(eventStudyCmd("1.0.1", {}, "/x; rm -rf /"), eventStudyCmd("1.0.1", {}, "/tmp/voltrade_event_study"), "an unsafe directory never reaches the shell");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "es-cap-"));
+  try {
+    const cache = path.join(tmp, "event_study", EVENT_STUDY_CACHE_SUBDIR, "b20261029-c1", "form345");
+    fs.mkdirSync(cache, { recursive: true });
+    fs.writeFileSync(path.join(cache, "2016q1.pairs.json.gz"), "abc");
+    fs.writeFileSync(path.join(cache, "..", "listing.json.gz"), "12345");
+    assert.deepEqual(dirUsage(path.join(tmp, "event_study", EVENT_STUDY_CACHE_SUBDIR)), { bytes: 8, files: 2 });
+    assert.deepEqual(dirUsage(path.join(tmp, "absent")), { bytes: 0, files: 0 });
+    const cur = currentEventStudyCachePlan({ DATA_DIR: tmp });
+    assert.equal(cur.volumeCacheBytes, 8);
+    assert.equal(cur.where, "tmp", "a root in the tmp dir is not a volume");
+    // under the cap: nothing is deleted
+    await runEventStudy({ DATA_DIR: tmp }, ok, { dir: "/tmp/voltrade_event_study", where: "tmp", reason: "low", volumeCacheBytes: 8 });
+    assert.ok(fs.existsSync(path.join(cache, "2016q1.pairs.json.gz")));
+    // over the cap: deleted, and the run still starts (on tmp)
+    await runEventStudy({ DATA_DIR: tmp }, ok, { dir: "/tmp/voltrade_event_study", where: "tmp", reason: "over the cap", volumeCacheBytes: EVENT_STUDY_CACHE_MAX_BYTES + 1 });
+    assert.ok(!fs.existsSync(path.join(tmp, "event_study", EVENT_STUDY_CACHE_SUBDIR)));
+    assert.ok(cmds[cmds.length - 1].endsWith("--cache-dir /tmp/voltrade_event_study"));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("status: the probe says where the SEC cache is, whether it survives a deploy, and how large it is", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "es-st-"));
+  try {
+    const es = path.join(tmp, "event_study");
+    const st = eventStudyStatus({ DATA_DIR: tmp }, es, path.join(tmp, "pp"), root);
+    const c = st.sec_cache as Record<string, unknown>;
+    assert.equal(c.where, "tmp");
+    assert.equal(c.survives_a_deploy, false);
+    assert.equal(typeof c.bytes, "number");
+    assert.equal(c.volume_min_free_mb, Math.round(EVENT_STUDY_CACHE_MIN_FREE_BYTES / 1e6));
+    const over = path.join(tmp, "kept");
+    fs.mkdirSync(over);
+    fs.writeFileSync(path.join(over, "a.json.gz"), "1234567");
+    const st2 = eventStudyStatus({ DATA_DIR: tmp, VOLTRADE_EVENT_STUDY_CACHE_DIR: over }, es, path.join(tmp, "pp"), root);
+    assert.deepEqual({ ...(st2.sec_cache as Record<string, unknown>), volume_min_free_mb: 0, max_mb: 0 },
+      { where: "override", reason: "VOLTRADE_EVENT_STUDY_CACHE_DIR", survives_a_deploy: true, bytes: 7, files: 1, volume_min_free_mb: 0, max_mb: 0 });
+    assert.deepEqual(sanitizeDiag(st2), st2, "fits the diag depth/size caps unchanged");
+    assert.match(String(st.schedule), /first tick 2 min after boot/);
+    assert.ok(!JSON.stringify(st2.sec_cache).includes(over), "no path in the probe");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("boot: the first tick lands FIRST_TICK_MS after boot, not one 30-min interval later; nothing runs synchronously", () => {
+  // Would have failed before 2026-11-22: the first tick was one EVENT_STUDY_TICK_MS after boot, so a container
+  // replaced inside 30 minutes never looked at the week. Observed without Python: with no price-panel build in
+  // DATA_DIR the tick's decision is "skip", which it records as a finished heartbeat run.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "es-boot-"));
+  const runs = () => (heartbeatStore().snapshot().jobs.event_study_weekly ?? []).length;
+  assert.ok(EVENT_STUDY_FIRST_TICK_MS >= 60_000 && EVENT_STUDY_FIRST_TICK_MS <= 5 * 60_000 && EVENT_STUDY_FIRST_TICK_MS < EVENT_STUDY_TICK_MS);
+  mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: SAT_09_ET });
+  try {
+    const before = runs();
+    bootEventStudy({ DATA_DIR: tmp, PATH: "/usr/bin" });
+    assert.equal(runs(), before, "never ticks synchronously on boot");
+    mock.timers.tick(EVENT_STUDY_FIRST_TICK_MS - 1);
+    assert.equal(runs(), before, "not before the first-tick delay");
+    mock.timers.tick(1);
+    assert.equal(runs(), before + 1, "the week is looked at FIRST_TICK_MS after boot");
+    const last = heartbeatStore().snapshot().jobs.event_study_weekly!.slice(-1)[0];
+    assert.match(String(last.detail), /no complete price-panel build yet/);
+    mock.timers.tick(EVENT_STUDY_TICK_MS);
+    assert.equal(runs(), before + 1, "one process does not spend the week twice");
+  } finally {
+    mock.timers.reset();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });

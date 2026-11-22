@@ -586,3 +586,46 @@ def test_the_insufficient_reason_names_each_quarter_with_its_cause(tmp_path, mon
     # the Node scheduler retries the week on this exact prefix
     ts = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "server", "eventStudy.ts")).read()
     assert f'EVENT_STUDY_SEC_GAP_REASON = "{erp.FORM345_GAP_REASON}"' in ts
+
+
+# 2026-11-22: the weekly job now keeps the SEC cache on the volume, so a file a
+# killed or faulted process left behind is still there for the next run. On the
+# container tmp dir that could not happen (the dir went with the container).
+def test_unreadable_cache_files_are_dropped_and_readable_ones_kept(tmp_path):
+    import gzip
+    cache = erp.prepare_cache(str(tmp_path / "cache"), "b20261029")
+    os.makedirs(os.path.join(cache, "form345"))
+    good = os.path.join(cache, "listing.json.gz")
+    er._jdump(good, {"listed": {"1": "AAA"}, "on_exchange": ["1"]})
+    kept_q = os.path.join(cache, "form345", "2016q1.pairs.json.gz")
+    er._jdump(kept_q, [["AAA", "1", "2016-02-01"]])
+    # a file cut short (the gzip trailer is missing)
+    cut = os.path.join(cache, "submissions.json.gz")
+    er._jdump(cut, {str(i): {"s": {"x": "y" * 50}, "f4": []} for i in range(400)})
+    blob = open(cut, "rb").read()
+    open(cut, "wb").write(blob[: len(blob) // 2])
+    # a file that is not gzip at all, and the leftover of an unfinished write
+    junk = os.path.join(cache, "e4_class.json.gz")
+    open(junk, "wb").write(b"not a gzip stream")
+    left = os.path.join(cache, "form345", "2016q2.pairs.json.gz.tmp")
+    open(left, "wb").write(gzip.compress(b"[]"))
+    dropped = erp.drop_unreadable_cache(cache)
+    assert sorted(dropped) == ["e4_class.json.gz", os.path.join("form345", "2016q2.pairs.json.gz.tmp"), "submissions.json.gz"]
+    assert not os.path.exists(cut) and not os.path.exists(junk) and not os.path.exists(left)
+    assert er._jload(good)["listed"] == {"1": "AAA"}
+    assert er._jload(kept_q) == [["AAA", "1", "2016-02-01"]]
+    assert erp.drop_unreadable_cache(cache) == []          # a clean cache loses nothing
+
+
+def test_a_run_survives_a_damaged_cache_file_and_reports_it(tmp_path):
+    # Before the cleanup this run died in gzip on the first stage that read the file,
+    # and on a cache that outlives the container it would have died every Saturday.
+    root, cache = _offline_world(tmp_path)
+    d = os.path.join(cache, "b20261029-c1")
+    stray = os.path.join(d, "form345", "1999q1.pairs.json.gz")
+    open(stray, "wb").write(b"\x1f\x8b\x08\x00 cut")
+    res = erp.run(root, str(tmp_path / "out"), cache, 4000, "1.0.test", client=_NoNetwork())
+    assert res["status"] == "ok", res
+    latest = json.load(open(os.path.join(str(tmp_path / "out"), "latest.json")))
+    assert latest["meta"]["sec_cache_unreadable_dropped"] == [os.path.join("form345", "1999q1.pairs.json.gz")]
+    assert not os.path.exists(stray)
