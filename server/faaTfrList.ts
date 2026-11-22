@@ -46,6 +46,7 @@ import { archiveBaseDir } from "./datacoreArchive";
 import { beat } from "./jobHeartbeat";
 import { parseXmlLite, findAll, findFirst, type XNode } from "./swimSfdps";
 import { swimMissingEnv } from "./swimConnector";
+import { faaTfrArchiveEnabled, loadFaaTfrArchive, recordFaaTfrRead } from "./faaTfrArchive";
 
 export const FAA_TFR_LIST_URL = "https://tfr.faa.gov/tfrapi/exportTfrList";
 export const faaTfrDetailUrl = (noticeId: string) => `https://tfr.faa.gov/download/detail_${noticeId.replace("/", "_")}.xml`;
@@ -274,6 +275,8 @@ export class FaaTfrListStore {
   restored = false;
   passes = 0;
   detailFailures = 0;
+  /** notices the last list answer held beyond FAA_TFR_MAX_LISTED (0 on every read so far) */
+  lastListCut = 0;
 
   /** a successful list read: rows of notices no longer listed are dropped (the FAA ended or cancelled them) */
   setList(entries: FaaListEntry[], now: number): void {
@@ -283,6 +286,10 @@ export class FaaTfrListStore {
     for (const k of Array.from(this.rows.keys())) if (!listed.has(k)) this.rows.delete(k);
   }
   setRow(row: FaaTfrRow): void { this.rows.set(row.number, row); }
+  /** the notices of the last list read, in the FAA's order */
+  listed(): readonly FaaListEntry[] { return this.entries; }
+  /** the detail row read for a listed notice ("6/9306"), with or without an outline */
+  rowOf(notice: string): FaaTfrRow | undefined { return this.rows.get(notice); }
   /** listed notices whose detail file has not been read */
   pending(): FaaListEntry[] { return this.entries.filter((e) => !this.rows.has(e.notice)); }
   fresh(now: number): boolean { return this.readAt !== null && now - this.readAt <= FAA_TFR_STALE_MS; }
@@ -372,9 +379,9 @@ export async function runFaaTfrPass(store: FaaTfrListStore, o: { fetch?: FaaFetc
       // an answer that is not an array is not "no restrictions": the FAA always lists the standing ones
       if (res.cause === "ok" && !Array.isArray(parsed)) res.cause = "not_a_list";
       if (res.cause === "ok") {
-        const { entries } = parseFaaList(parsed);
+        const { entries, cut } = parseFaaList(parsed);
         if (!entries.length) res.cause = "not_a_list";
-        else { store.setList(entries, clock()); res.listed = entries.length; res.changed = true; }
+        else { store.setList(entries, clock()); store.lastListCut = cut; res.listed = entries.length; res.changed = true; }
       }
     }
   } catch (e) { res.cause = causeOf(e); }
@@ -428,12 +435,15 @@ export async function saveFaaTfrList(store: FaaTfrListStore, file = faaTfrKeepFi
 let timers: Array<ReturnType<typeof setTimeout>> = [];
 let running = false;
 /** Start the reads: the saved list is put back now, the first pass runs 90 s after boot, then every 30 minutes. */
-export function bootFaaTfrList(env: NodeJS.ProcessEnv = process.env, o: { file?: string; fetch?: FaaFetch } = {}): boolean {
+export function bootFaaTfrList(env: NodeJS.ProcessEnv = process.env, o: { file?: string; fetch?: FaaFetch; archiveBaseDir?: string } = {}): boolean {
   if (timers.length || !faaTfrListEnabled(env)) return false;
   const store = sharedFaaTfrList();
   const file = o.file ?? faaTfrKeepFile();
   const back = restoreFaaTfrList(store, file);
   if (back) console.log(`[faaTfrList] ${back} listed restrictions put back from the last read`);
+  // the record of what appeared on and left the list (faaTfrArchive.ts)
+  const recording = faaTfrArchiveEnabled(env);
+  if (recording) void loadFaaTfrArchive(o.archiveBaseDir);
   const tick = async () => {
     if (running) return;
     running = true;
@@ -441,9 +451,15 @@ export function bootFaaTfrList(env: NodeJS.ProcessEnv = process.env, o: { file?:
     try {
       const r = await runFaaTfrPass(store, { fetch: o.fetch });
       if (r.changed) await saveFaaTfrList(store, file);
-      const detail = `${r.cause}: ${r.listed} listed, ${r.details_read} detail files read, ${r.details_failed} failed`;
-      beat("faa_tfr_list", "finish", r.cause === "ok" ? "ok" : "error", detail);
-      if (r.cause !== "ok" || r.details_failed) console.error(`[faaTfrList] pass ${detail}`);
+      // only a list read that succeeded is recorded: an unreachable FAA is a gap, not an ending
+      const rec = recording && r.cause === "ok" && store.readAt !== null
+        ? await recordFaaTfrRead({ entries: store.listed(), rowOf: (n) => store.rowOf(n), now: store.readAt, cut: store.lastListCut, baseDir: o.archiveBaseDir })
+        : null;
+      const recBad = !!rec && rec.status !== "recorded";
+      const detail = `${r.cause}: ${r.listed} listed, ${r.details_read} detail files read, ${r.details_failed} failed`
+        + (rec ? `; record ${rec.status}${rec.listed || rec.left ? ` (${rec.listed} appeared, ${rec.left} left)` : ""}` : "");
+      beat("faa_tfr_list", "finish", r.cause === "ok" && !recBad ? "ok" : "error", detail);
+      if (r.cause !== "ok" || r.details_failed || recBad) console.error(`[faaTfrList] pass ${detail}`);
     } catch (e) {
       beat("faa_tfr_list", "finish", "error", e instanceof Error ? e.message : String(e));
     } finally {

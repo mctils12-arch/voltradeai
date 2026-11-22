@@ -8277,12 +8277,14 @@ async function main() {
     // 2026-11-22: the same notice as the server sends it once the FAA's public list is read (server/faaTfrList.ts builds
     // this row from the FAA's real detail file for FDC 6/9306), and a four-area notice with its limits as that file writes them
     let withList = false;
-    const LEX_LIST = { id: "FAA:6/9306", source: "faa_list", citation: "FDC 6/9306", classification: "FDC", series: null, number: "6/9306", year: null, type: null, qcode: null, scenario: null,
+    // listed_since: the server's own record of the FAA's list (server/faaTfrArchive.ts, 2026-11-22): 6/9306 was
+    // first seen at a read of ours; 6/9276 was already listed when the record began
+    const LEX_LIST = { listed_since: { first_seen: FR_NOW - 26 * H, backfill: false }, id: "FAA:6/9306", source: "faa_list", citation: "FDC 6/9306", classification: "FDC", series: null, number: "6/9306", year: null, type: null, qcode: null, scenario: null,
       location: "ZDC", issued: FR_NOW - 14 * H, start: FR_NOW - H, end: FR_NOW + 190 * H, minFl: null, maxFl: null, center: null, radiusNm: null, text: LEX.text,
       geometry: { kind: "polygon", from: "faa_list", rings: LEX.geometry.rings },
       faa: { type: "HAZARDS", rule: "91.137(a)(2)", place: "20NM W LEXINGTON, VIRGINIA", areas_without_outline: 0,
         areas: [{ name: "Hazard Area1", lower: { value: 0, uom: "FT", ref: "ALT" }, upper: { value: 4000, uom: "FT", ref: "ALT" }, scheduled: true }] } };
-    const MAYPORT_LIST = { ...LEX_LIST, id: "FAA:6/9276", citation: "FDC 6/9276", number: "6/9276", location: "ZJX", start: FR_NOW + 2 * H, end: FR_NOW + 70 * H,
+    const MAYPORT_LIST = { ...LEX_LIST, listed_since: { first_seen: FR_NOW - 3 * H, backfill: true }, id: "FAA:6/9276", citation: "FDC 6/9276", number: "6/9276", location: "ZJX", start: FR_NOW + 2 * H, end: FR_NOW + 70 * H,
       text: "!FDC 6/9276 ZJX FL..AIRSPACE MAYPORT, FL..TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 49 USC 40103(B)(3), THE FEDERAL AVIATION ADMINISTRATION (FAA) CLASSIFIES THE AIRSPACE DEFINED IN THIS NOTAM AS 'NATIONAL DEFENSE AIRSPACE'. PURSUANT TO 14 CFR 99.7 SPECIAL SECURITY INSTRUCTIONS",
       geometry: { kind: "polygon", from: "faa_list", rings: [[[30.5, -81.6], [30.5, -81.2], [30.2, -81.2], [30.2, -81.6], [30.5, -81.6]], [[30.9, -81.5], [30.9, -81.3], [30.7, -81.3], [30.7, -81.5], [30.9, -81.5]]] },
       faa: { type: "SECURITY", rule: "99.7", place: "MAYPORT, FLORIDA", areas_without_outline: 0, areas: [
@@ -8547,6 +8549,9 @@ async function main() {
         if (!c?.chips.some((x) => x.l === "Lower" && x.v === "surface") || !c?.chips.some((x) => x.l === "Upper" && x.v === "4000ft")) fail(`list: the chips read ${JSON.stringify(c?.chips.map((x) => [x.l, x.v]))}`);
         if (!/FAA public list of flight restrictions \(tfr\.faa\.gov\), read \d+ min ago\. The outline and the limits are the FAA's own, copied as published\./.test(c?.body ?? "")) fail("list: the card body does not name the FAA's public list and when it was read");
         if ((c?.body ?? "").includes("This is not the FAA's complete list") || (c?.body ?? "").includes("SWIM FNS NOTAM")) fail("list: a list row's card speaks as a feed row's");
+        // since when the server's record of the list has held the notice: our read's time, said as ours
+        if (!/^first seen there [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}Z, by this server's read of the list \(every 30 minutes\)$/.test(c?.facts["On the FAA's list"] || "")) fail(`list: "On the FAA's list" reads "${c?.facts["On the FAA's list"]}"`);
+        if (!(c?.body ?? "").includes("This server writes down when each restriction appears on the FAA's list and when it leaves")) fail("list: the card body does not say the list's comings and goings are recorded");
         if (/NaN|undefined|\bnull\b|Infinity/.test(c?.text ?? "")) fail("list: a bare NaN / undefined / null on the card");
         for (const x of c?.chips ?? []) if (x.cut > 1) fail(`list: the chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
         if (c && (c.left < -1 || c.right > 1 || c.top < -1 || c.bottom > 1 || c.pageOver > 1)) fail(`list 1440: the card leaves the window (left ${c.left}, right +${c.right}, top ${c.top}, bottom +${c.bottom})`);
@@ -8581,6 +8586,7 @@ async function main() {
         if (!c?.chips.some((x) => x.l === "Lower" && x.v === "varies") || !c?.chips.some((x) => x.l === "Upper" && x.v === "varies")) fail(`list: the several-area chips read ${JSON.stringify(c?.chips.map((x) => [x.l, x.v]))}`);
         if (!/^surface to [\d,.]+ (ft|m) above sea level$/.test(c?.facts["Area A"] || "") || !/above sea level to [\d,.]+ (ft|m) above sea level$/.test(c?.facts["Area B"] || "")) fail(`list: the per-area limits read ${JSON.stringify([c?.facts["Area A"], c?.facts["Area B"]])}`);
         if (!(c?.facts["Drawn shape"] || "").startsWith("the FAA's published outline for this notice (2 areas)")) fail(`list: the several-area Drawn shape reads "${c?.facts["Drawn shape"]}"`);
+        if (!/^already listed when this server's record of the list began, (\d{2}:\d{2}Z|[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}Z)$/.test(c?.facts["On the FAA's list"] || "")) fail(`list: a notice listed before the record began reads "${c?.facts["On the FAA's list"]}"`);
         for (const x of c?.chips ?? []) if (x.cut > 1) fail(`list: several-area chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
         await page.screenshot({ path: path.join(OUT, "data-flightrestrictions-list-areas-1440.png") }).catch(() => {});
       }

@@ -10,7 +10,7 @@ import {
   periodWords, restrictionCard, agoWords, chipTime, limitChip, drawRestrictions, removeRestrictions,
   RESTRICTION_LAYERS, RESTRICTION_SOURCES, RESTRICTION_CLICK_LAYERS, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, RULE_WORDS, CIRCLE_POINTS,
   FLIGHT_RESTRICTION_MAX_RING_POINTS, FLIGHT_RESTRICTIONS_MAX_FEATURES, FLIGHT_RESTRICTIONS_HEAP_BUDGET_BYTES,
-  listWords, listOk, faaLimitWords, faaLimitChip, FEED_ROW_WITH_LIST_SENTENCE,
+  listWords, listOk, faaLimitWords, faaLimitChip, FEED_ROW_WITH_LIST_SENTENCE, LIST_RECORD_SENTENCE, listedSinceWords,
 } from "./flightRestrictions.ts";
 import { haversineNm } from "../../../../shared/flightPlanGeometry.ts";
 
@@ -439,4 +439,35 @@ test("a feed row's card says where it stands against the FAA's list only when th
   }
   // the fourth argument alone (the call every older caller makes) is unchanged
   assert.equal(restrictionCard(v.rows[0], NOW, U, true).body, restrictionCard(v.rows[0], NOW, U, true, null).body);
+});
+
+// ── since when the server's record of the FAA's list has held a notice (server/faaTfrArchive.ts, 2026-11-22) ──
+test("a list row says since when it has been on the FAA's list, as this server's record has it; a row the server says nothing for is unchanged", () => {
+  const first = NOW - 26 * H; // 2026-11-20 16:07Z
+  const v = parseFlightRestrictions(listAnswer([
+    { ...LIST_ROW, listed_since: { first_seen: first, backfill: false } },
+    { ...MAYPORT, listed_since: { first_seen: NOW - 3 * H, backfill: true } },
+  ], LIST_OK))!;
+  const seen = v.rows.find((x) => x.id === "FAA:6/9306")!, began = v.rows.find((x) => x.id === "FAA:6/9276")!;
+  assert.deepEqual(seen.listedSince, { firstSeenMs: first, backfill: false });
+  assert.deepEqual(began.listedSince, { firstSeenMs: NOW - 3 * H, backfill: true });
+  const fact = (r: typeof seen) => restrictionCard(r, NOW, U, true, v.faaList).facts.find((f) => f.label === "On the FAA's list")?.value;
+  assert.equal(fact(seen), "first seen there Nov 20 16:07Z, by this server's read of the list (every 30 minutes)");
+  // already listed when the record began: the time is the record's start, and the card does not call it the notice's
+  assert.equal(fact(began), "already listed when this server's record of the list began, 15:07Z");
+  assert.ok(restrictionCard(seen, NOW, U, true, v.faaList).body.includes(LIST_RECORD_SENTENCE));
+  // another year is written out (a standing restriction stays listed for years)
+  assert.equal(listedSinceWords({ firstSeenMs: Date.UTC(2025, 2, 4, 9, 30), backfill: false }, NOW), "first seen there Mar 4 09:30Z, 2025, by this server's read of the list (every 30 minutes)");
+
+  // an older server, or a notice the record does not hold: no fact, no sentence, the card as it was
+  const plain = parseFlightRestrictions(listAnswer([LIST_ROW], LIST_OK))!.rows[0];
+  assert.equal(plain.listedSince, null);
+  const card = restrictionCard(plain, NOW, U, true, v.faaList);
+  assert.equal(card.facts.some((f) => f.label === "On the FAA's list"), false);
+  assert.ok(!card.body.includes(LIST_RECORD_SENTENCE));
+  // a malformed value is not a time; a feed row never carries one
+  for (const bad of [null, "then", {}, { first_seen: "x" }, { first_seen: 0 }, { first_seen: -5, backfill: true }]) {
+    assert.equal(parseFlightRestrictions(listAnswer([{ ...LIST_ROW, listed_since: bad }], LIST_OK))!.rows[0].listedSince, null, JSON.stringify(bad));
+  }
+  assert.equal(parseFlightRestrictions(listAnswer([{ ...ZAGREB, listed_since: { first_seen: first, backfill: false } }], LIST_OK))!.rows[0].listedSince, null);
 });
