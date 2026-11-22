@@ -9320,7 +9320,7 @@ print(json.dumps({'files': count}))
   // server/dailyLine.ts's; this is the I/O. Once per trading day: the first
   // DAILY_LINE_CHECK_MS tick at/after the broker calendar's close + 20 min,
   // until ET midnight. The line is SAVED (DATA_DIR/voltrade_daily_line.json,
-  // newest 60) BEFORE its one "DAILY-LINE" audit row, and the newest saved
+  // newest DAILY_LINE_KEEP) BEFORE its one "DAILY-LINE" audit row, and the newest saved
   // day is the claim, so a restart neither writes a day twice nor skips it.
   // Until the close + 90 min a line waits for every input (the cheap reads
   // first, so a missing one never costs the full fill walk); after that it is

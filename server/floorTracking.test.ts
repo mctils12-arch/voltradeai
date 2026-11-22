@@ -2,8 +2,10 @@
 // ([RULE-REVIEW] measurement, 2026-11-12). Pins every number's definition
 // against arithmetic written out here, the pre-registered trigger against the
 // study's own text, and the honesty rules: a missing input is null with a
-// reason, the entry session is in no window, the drawdown leg is never "not
-// met" while the study holds no limit for it.
+// reason, the entry session is in no window. Since 2026-11-22 the drawdown
+// leg has its limit (research/floor_study_drawdown_limit_2026-11-22.json) and
+// is evaluated: it reads "not met" only of a full 63-session window with
+// every close on record, and "met" as soon as the fall is past the limit.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -15,10 +17,11 @@ import {
   FLOOR_TRACKING_MODE, FLOOR_TRACKING_TRIGGER_TEXT, FLOOR_TRACKING_LIMIT_PP, FLOOR_TRACKING_WINDOW_SESSIONS,
   FLOOR_TRACKING_LEVERED_MULTIPLE, FLOOR_TRACKING_MV_CHECK_TOL, FLOOR_TRACKING_STUDY_REBALANCES, FLOOR_TRACKING_STUDY_SESSIONS,
   FLOOR_TRACKING_DEFINITIONS, FLOOR_TRACKING_FILLS_LISTED,
+  FLOOR_DRAWDOWN_LIMIT_PCT, FLOOR_DRAWDOWN_WINDOW_SESSIONS, FLOOR_DRAWDOWN_LIMIT_SOURCE, largestFall,
   type FloorTrackingBars, type FloorTrackingConfig, type FloorTrackingInputs, type FloorTrackingReport, type FloorTrackingSession,
 } from "./floorTracking";
 import { sanitizeDiag } from "./diag";
-import type { DailyLine, PositionLite } from "./dailyLine";
+import { DAILY_LINE_KEEP, type DailyLine, type PositionLite } from "./dailyLine";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, "..");
@@ -175,7 +178,7 @@ test("the entry session is shown with its shortfall and is in no window", () => 
   assert.deepEqual([r.turnover.window.sessions, r.turnover.window.core.dollars, r.turnover.window.cash_fund.filled, r.turnover.window.rebalance_sessions], [3, 0, 0, 0]);
 });
 
-test("the rollback trigger: too little history is said plainly, and the drawdown leg is never 'not met'", () => {
+test("the rollback trigger: too little history is said plainly, and the drawdown leg is never 'not met' on a partial window", () => {
   const t = floorTracking(live()).rollback_trigger;
   assert.equal(t.text, FLOOR_TRACKING_TRIGGER_TEXT);
   assert.equal(t.status, "undetermined");
@@ -183,9 +186,16 @@ test("the rollback trigger: too little history is said plainly, and the drawdown
   assert.deepEqual([t.tracking.limit_pp, t.tracking.window_sessions, t.tracking.sessions_measured, t.tracking.windows_evaluated, t.tracking.worst], [3, 20, 3, 0, null]);
   assert.equal(t.tracking.reason, "3 measured sessions, a window needs 20 in a row");
   assert.ok(t.tracking.so_far && t.tracking.so_far.sessions === 3 && t.tracking.so_far.beyond_limit === false);
-  assert.deepEqual([t.drawdown.status, t.drawdown.limit_pct], ["not_evaluable", null]);
-  assert.match(t.drawdown.reason, /recorded no 95th-percentile 3-month drawdown/);
-  assert.match(t.summary, /^tracking: 3 measured sessions, a window needs 20 in a row; [+-]0\.\d\dpp so far; drawdown leg not evaluated/);
+  // the account's closes on the stored records: 11-05 89,888.90 (the 11-06 line's last_equity), 11-06 89,160.63,
+  // 11-09 90,582.83, 11-10 90,363.79; the 11-11 close is on no line of this fixture (the next line would carry it)
+  const d = t.drawdown;
+  assert.deepEqual([d.status, d.limit_pct, d.window_sessions, d.sessions_measured], ["not_enough_history", -14.64, 63, 4]);
+  assert.equal(d.drawdown_pct, r2((89_160.63 / 89_888.9 - 1) * 100));
+  assert.equal(d.drawdown_pct, -0.81);
+  assert.deepEqual([d.peak, d.trough], [{ day: "2026-11-05", equity: 89_888.9 }, { day: "2026-11-06", equity: 89_160.63 }]);
+  assert.deepEqual([d.from, d.to, d.missing, d.beyond_limit], ["2026-11-05", "2026-11-11", ["2026-11-11"], false]);
+  assert.match(d.reason ?? "", /^1 session with no closing equity on record \(2026-11-11\): a fall through it is not seen$/);
+  assert.match(t.summary, /^tracking: 3 measured sessions, a window needs 20 in a row; [+-]0\.\d\dpp so far; drawdown -0\.81% in 4 of 63 sessions \(limit -14\.64%; 1 unread\)$/);
 });
 
 // ── a long run: one position held at 0.80x of capital, SPY +1% a session, the target set away from it ──
@@ -243,14 +253,15 @@ test("rollback trigger MET: a 20-session window more than 3 pp from the rule, wi
   assert.equal(r.stored.sessions, 25);
 });
 
-test("tracking inside the limit: the leg reads not_met, the trigger stays undetermined (no drawdown limit on record)", () => {
+test("tracking inside the limit: the leg reads not_met, the trigger stays undetermined (the drawdown window is not full)", () => {
   const x = run(25, 0.85);                               // 0.05x under target: about -1 pp over 20 sessions
   const r = floorTracking(x.inputs);
   const t = r.rollback_trigger;
   assert.equal(t.tracking.status, "not_met");
   assert.ok(Math.abs(t.tracking.worst?.tracking_pp ?? 99) < FLOOR_TRACKING_LIMIT_PP);
   assert.equal(t.status, "undetermined", "one leg inside its limit does not clear a two-leg trigger");
-  assert.match(t.summary, /^tracking within 3 pp over 20 sessions \(worst -\d\.\d\dpp, .*; 6 windows\); drawdown leg not evaluated/);
+  assert.match(t.summary, /^tracking within 3 pp over 20 sessions \(worst -\d\.\d\dpp, .*; 6 windows\); drawdown 0\.00% in 25 of 63 sessions \(limit -14\.64%; 1 unread\)$/);
+  assert.equal(t.drawdown.status, "not_enough_history");
   assert.doesNotMatch(r.message, /ROLLBACK TRIGGER MET/);
   assert.match(r.message, /rollback trigger undetermined: tracking within 3 pp over 20 sessions/);
 });
@@ -563,9 +574,16 @@ test("the trigger is the study's own sentence, its two numbers are the code's, a
   assert.deepEqual([Number(m[1]), Number(m[2])], [FLOOR_TRACKING_LIMIT_PP, FLOOR_TRACKING_WINDOW_SESSIONS]);
   const results = JSON.parse(fs.readFileSync(path.join(repo, "research", "floor_study_2026-11-05.json"), "utf8"));
   assert.deepEqual([results.exposure.V1_rebalances, results.window.sessions], [FLOOR_TRACKING_STUDY_REBALANCES, FLOOR_TRACKING_STUDY_SESSIONS]);
-  // the study's results hold no drawdown percentile: the second leg has no limit to test (if one is ever recorded,
-  // this fails and the leg must be built, not left "not evaluable")
+  // the study's own results file holds no drawdown percentile and stays as published; the second leg's limit was
+  // computed from the study's code on 2026-11-22 and lives in its own file, which the leg's two numbers are read from
   assert.doesNotMatch(JSON.stringify(results), /percentile|p95|drawdown_3m|3m_dd/i);
+  const limit = JSON.parse(fs.readFileSync(path.join(repo, "research", "floor_study_drawdown_limit_2026-11-22.json"), "utf8"));
+  assert.deepEqual([limit.V1_volmanaged.p95_pct, limit.V1_volmanaged.window_sessions], [FLOOR_DRAWDOWN_LIMIT_PCT, FLOOR_DRAWDOWN_WINDOW_SESSIONS]);
+  assert.equal(limit.reproduction.reproduces_study, true);
+  assert.deepEqual(limit.window, results.window);
+  assert.ok(FLOOR_DRAWDOWN_LIMIT_SOURCE.startsWith("research/floor_study_drawdown_limit_2026-11-22.json"));
+  assert.match(FLOOR_TRACKING_TRIGGER_TEXT, /95th-percentile 3-month drawdown$/);
+  assert.ok(DAILY_LINE_KEEP >= FLOOR_DRAWDOWN_WINDOW_SESSIONS + 1, "a 63-session window needs 64 stored lines: each line carries the close before its session");
   const vm = fs.readFileSync(path.join(repo, "floor_vol_managed.py"), "utf8");
   assert.equal(Number(/^LEVERAGE_OF_LEVERED = ([\d.]+)/m.exec(vm)?.[1]), FLOOR_TRACKING_LEVERED_MULTIPLE);
 });
@@ -577,7 +595,7 @@ test("the report passes the diag sanitizer untouched, and the module stays pure"
     assert.equal(r.message, floorTrackingMessage(r));
     assert.equal(r.definitions, FLOOR_TRACKING_DEFINITIONS);
   }
-  for (const k of ["capital", "target_exposure", "held_exposure", "spy_pct", "rule_pct", "floor_pct", "tracking_pp", "exposure_pp", "other_pp", "cash_fund", "window", "entry", "turnover"]) {
+  for (const k of ["capital", "target_exposure", "held_exposure", "spy_pct", "rule_pct", "floor_pct", "tracking_pp", "exposure_pp", "other_pp", "cash_fund", "window", "entry", "turnover", "account_drawdown"]) {
     assert.ok(FLOOR_TRACKING_DEFINITIONS[k]?.length > 20, `no definition for ${k}`);
   }
   assert.equal(floorTracking(run(60, 1.0).inputs).sessions.length, 60, "the stored history at its longest fits the sanitizer's 200-row cap");
@@ -585,6 +603,97 @@ test("the report passes the diag sanitizer untouched, and the module stays pure"
   for (const banned of ["node:fs", "from \"fs\"", "fetch(", "alpaca(", "process.env", "/v2/", "Date.now()"]) {
     assert.ok(!src.includes(banned), `floorTracking.ts must stay pure (found ${banned})`);
   }
-  assert.match(floorTracking(live()).message, /^2026-11-11 floor \+1\.05% vs rule \+0\.96% \(0\.73x of SPY \+1\.32%\): tracking \+0\.09pp \| last 3 of 20 sessions \+0\.03pp \| entry 11-06 -0\.72pp \(in no window\) \| rollback trigger undetermined: tracking: 3 measured sessions, a window needs 20 in a row; [+-]0\.\d\dpp so far; drawdown leg not evaluated \(the study recorded no limit\) \| turnover: 0 rebalance sessions in 3 \(study pace 1\.9 per 20\), \$0 core traded$/);
+  assert.match(floorTracking(live()).message, /^2026-11-11 floor \+1\.05% vs rule \+0\.96% \(0\.73x of SPY \+1\.32%\): tracking \+0\.09pp \| last 3 of 20 sessions \+0\.03pp \| entry 11-06 -0\.72pp \(in no window\) \| rollback trigger undetermined: tracking: 3 measured sessions, a window needs 20 in a row; [+-]0\.\d\dpp so far; drawdown -0\.81% in 4 of 63 sessions \(limit -14\.64%; 1 unread\) \| turnover: 0 rebalance sessions in 3 \(study pace 1\.9 per 20\), \$0 core traded$/);
   assert.equal(FLOOR_TRACKING_FILLS_LISTED, 20);
+});
+
+// ── the trigger's second leg: the account's drawdown against the backtest's 95th-percentile 3-month drawdown ──
+// A flat SPY run (tracking 0 every session) whose account equity is set here: closes[k] is the account's close of
+// days[k]; line k carries closes[k-1] as its last_equity, and the newest line reads its own close.
+function equityRun(closes: number[], o: { noLastClose?: boolean; dropPrior?: number } = {}): FloorTrackingInputs {
+  const n = closes.length - 1;
+  const x = run(n, 0.8, { flat: true });
+  const lines = x.inputs.lines.map((l, i) => {
+    const k = i + 1;                                     // lines[i] is the session of days[k]
+    const day: Record<string, unknown> = { last_equity: o.dropPrior === k ? null : closes[k - 1] };
+    if (k === n && !o.noLastClose) { day.equity = closes[k] + 37; day.equity_end = closes[k]; }
+    return { ...l, account_vs_spy: { day } } as unknown as DailyLine;
+  });
+  return { ...x.inputs, lines };
+}
+
+test("largestFall: the largest fall from a high to a LATER low, with the two closes it runs between", () => {
+  const pts = [100, 110, 99, 105, 120, 108].map((equity, k) => ({ day: `d${k}`, equity }));
+  const f = largestFall(pts);
+  assert.ok(f);
+  near(f.pct, (99 / 110 - 1) * 100, 1e-9);               // -10% from 110, not the later -10% from 120 (the first is kept on a tie)
+  assert.deepEqual([f.peak.day, f.trough.day], ["d1", "d2"]);
+  assert.equal(largestFall([{ day: "a", equity: 1 }, { day: "b", equity: 2 }])?.pct, 0, "never falls");
+  near(largestFall([{ day: "a", equity: 100 }, { day: "b", equity: 50 }, { day: "c", equity: 200 }, { day: "d", equity: 150 }])?.pct ?? null, -50, 1e-9);
+  assert.equal(largestFall([{ day: "a", equity: 1 }]), null);
+});
+
+test("drawdown leg: a partial window inside the limit is 'not enough history', with the fall, its two closes and the newest line's own close reading", () => {
+  // 100,000 -> 104,000 -> 95,680 (-8.00% from the high) -> 97,000
+  const r = floorTracking(equityRun([100_000, 104_000, 99_000, 95_680, 97_000]));
+  const d = r.rollback_trigger.drawdown;
+  assert.deepEqual([d.status, d.sessions_measured, d.drawdown_pct, d.beyond_limit, d.missing], ["not_enough_history", 4, -8, false, []]);
+  assert.deepEqual([d.peak?.equity, d.trough?.equity], [104_000, 95_680]);
+  assert.equal(d.reason, "4 sessions since the floor entered, a window needs 63");
+  assert.equal(d.limit_source, FLOOR_DRAWDOWN_LIMIT_SOURCE);
+  assert.equal(r.rollback_trigger.status, "undetermined");
+  assert.match(r.rollback_trigger.summary, /; drawdown -8\.00% in 4 of 63 sessions \(limit -14\.64%\)$/);
+  // the newest session's close is its line's close reading (equity_end), not the after-hours read beside it
+  const last = floorTracking(equityRun([100_000, 104_000, 99_000, 95_680, 80_000])).rollback_trigger.drawdown;
+  assert.deepEqual([last.trough?.equity, last.drawdown_pct], [80_000, r2((80_000 / 104_000 - 1) * 100)]);
+});
+
+test("drawdown leg MET: a fall past the limit trips the trigger at once, on a partial window, whatever the tracking leg says", () => {
+  // the limit is strict: -14.64% exactly is not beyond it
+  const at = floorTracking(equityRun([100_000, 85_360, 85_360])).rollback_trigger;
+  assert.deepEqual([at.drawdown.drawdown_pct, at.drawdown.status, at.status], [-14.64, "not_enough_history", "undetermined"]);
+  const r = floorTracking(equityRun([100_000, 101_000, 90_000, 86_000, 88_000]));
+  const t = r.rollback_trigger;
+  assert.equal(t.drawdown.drawdown_pct, r2((86_000 / 101_000 - 1) * 100));
+  assert.ok((t.drawdown.drawdown_pct ?? 0) < FLOOR_DRAWDOWN_LIMIT_PCT);
+  assert.deepEqual([t.drawdown.status, t.drawdown.beyond_limit, t.drawdown.reason], ["met", true, null]);
+  assert.equal(t.tracking.status, "not_enough_history");
+  assert.equal(t.status, "met", "either leg met is the trigger met");
+  assert.match(t.summary, /; account drawdown -14\.85% BEYOND -14\.64% \(\d{4}-\d\d-\d\d to \d{4}-\d\d-\d\d\)$/);
+  assert.match(r.message, /^ROLLBACK TRIGGER MET: tracking: /);
+  assert.ok(r.message.length <= 490);
+});
+
+test("drawdown leg NOT MET needs a full 63-session window with every close on record; then both legs inside their limits clear the trigger", () => {
+  const closes = (n: number) => Array.from({ length: n + 1 }, (_, k) => 100_000 - (k % 7 === 3 ? 4_000 : 0));   // dips of 4%, never more
+  const short = floorTracking(equityRun(closes(62))).rollback_trigger;
+  assert.deepEqual([short.drawdown.status, short.drawdown.sessions_measured, short.status], ["not_enough_history", 62, "undetermined"]);
+  const full = floorTracking(equityRun(closes(63)));
+  const t = full.rollback_trigger;
+  assert.deepEqual([t.drawdown.status, t.drawdown.sessions_measured, t.drawdown.drawdown_pct, t.drawdown.reason], ["not_met", 63, -4, null]);
+  assert.equal(t.tracking.status, "not_met");
+  assert.equal(t.status, "not_met");
+  assert.match(t.summary, /; drawdown -4\.00% within -14\.64% over 63 sessions$/);
+  assert.match(full.message, /rollback trigger not_met: /);
+  // one close on no line: a fall through it would not be seen, so the leg does not say "not met"
+  const gap = floorTracking(equityRun(closes(63), { dropPrior: 30 })).rollback_trigger;
+  assert.equal(gap.drawdown.status, "not_enough_history");
+  assert.equal(gap.drawdown.missing.length, 1);
+  assert.equal(gap.status, "undetermined");
+  // the newest line with no close reading: the same
+  assert.equal(floorTracking(equityRun(closes(63), { noLastClose: true })).rollback_trigger.drawdown.status, "not_enough_history");
+});
+
+test("drawdown leg: only the newest 63 sessions count, and a store of DAILY_LINE_KEEP lines is enough for a full window", () => {
+  // a -30% fall that ended more than 63 sessions ago is outside the window
+  const old = [100_000, 70_000, ...Array.from({ length: 63 }, () => 70_000)];
+  const t = floorTracking(equityRun(old)).rollback_trigger.drawdown;
+  assert.deepEqual([t.sessions_measured, t.drawdown_pct, t.status], [63, 0, "not_met"]);
+  assert.equal(floorTracking(equityRun(Array.from({ length: DAILY_LINE_KEEP + 1 }, () => 100_000))).rollback_trigger.drawdown.status, "not_met");
+});
+
+test("drawdown leg: with nothing measured it carries its limit and says why it is not evaluated", () => {
+  const d = floorTracking(live({ lines: [] })).rollback_trigger.drawdown;
+  assert.deepEqual([d.status, d.limit_pct, d.drawdown_pct, d.sessions_measured], ["not_evaluable", FLOOR_DRAWDOWN_LIMIT_PCT, null, 0]);
+  assert.ok(d.reason && d.reason.length > 10);
 });

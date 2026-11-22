@@ -79,7 +79,9 @@ export const DAILY_LINE_PARTIAL_AFTER_MIN = 90;
 /** The earliest a line can be due: a 13:00 half-day close + the delay. */
 export const DAILY_LINE_EARLIEST_MIN = 13 * 60 + DAILY_LINE_DELAY_MIN;
 export const DAILY_LINE_CHECK_MS = 5 * 60_000;
-export const DAILY_LINE_KEEP = 60;
+// 64 since 2026-11-22 (was 60): the floor's drawdown leg (server/floorTracking.ts) needs the 64 closes of a
+// 63-session window, and each line carries the close before its session.
+export const DAILY_LINE_KEEP = 64;
 /** The human's "since" date: the equity curve's first day. */
 export const DAILY_LINE_SINCE = "2026-05-06";
 /** A previous line older than this does not open the option window (the

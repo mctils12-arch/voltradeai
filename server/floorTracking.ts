@@ -7,6 +7,9 @@
 //      rolling 20 sessions.
 //   2. The PRE-REGISTERED ROLLBACK TRIGGER (research/floor_study_2026-11-05.md,
 //      quoted verbatim in FLOOR_TRACKING_TRIGGER_TEXT), evaluated mechanically.
+//      Both legs since 2026-11-22: tracking, and the account's drawdown
+//      against the backtest's 95th-percentile 3-month drawdown
+//      (FLOOR_DRAWDOWN_LIMIT_PCT; `account_drawdown` in the definitions).
 //   3. TURNOVER: the floor's orders and dollars traded per session and over the
 //      window, beside the study's pace.
 //
@@ -17,7 +20,7 @@
 // Nothing is stored: every call recomputes from the inputs.
 //
 // INPUTS (existing records only)
-//   - the stored daily lines (server/dailyLine.ts, the newest 60). Per
+//   - the stored daily lines (server/dailyLine.ts, the newest DAILY_LINE_KEEP). Per
 //     session: the floor's target (floor.target_x, read from the floor's own
 //     state file after the close), the prior close's equity (Alpaca
 //     last_equity) and the floor's market value when the line was written;
@@ -110,6 +113,14 @@ export const FLOOR_TRACKING_TRIGGER_SOURCE = "research/floor_study_2026-11-05.md
 /** "> 3 pp over any 20 sessions": the two numbers of the trigger's tracking leg. Pre-registered, not tunable. */
 export const FLOOR_TRACKING_LIMIT_PP = 3;
 export const FLOOR_TRACKING_WINDOW_SESSIONS = 20;
+/** The trigger's second leg, "the backtest's 95th-percentile 3-month drawdown": of every 63-session window of the
+ *  study's V1 backtest (1993-02-01 to 2026-11-04, 8,437 windows), the fall from a high to a later low inside the
+ *  window that 95% of the windows stayed above. Computed 2026-11-22 from the study's own code and inputs
+ *  (scripts/floor_drawdown_limit.py; research/floor_study_drawdown_limit_2026-11-22.json, where two other readings
+ *  of the same words are recorded beside it). test_floor_drawdown_limit.py pins both numbers to that file. Not tunable. */
+export const FLOOR_DRAWDOWN_LIMIT_PCT = -14.64;
+export const FLOOR_DRAWDOWN_WINDOW_SESSIONS = 63;
+export const FLOOR_DRAWDOWN_LIMIT_SOURCE = "research/floor_study_drawdown_limit_2026-11-22.json (V1_volmanaged.p95_pct)";
 /** The levered ticker is a 2x daily fund (floor_vol_managed.py LEVERAGE_OF_LEVERED; the test pins the two together). */
 export const FLOOR_TRACKING_LEVERED_MULTIPLE = 2;
 /** A session whose rebuilt core value is further than this from its daily line's reading is void. The line reads its
@@ -321,9 +332,9 @@ export type FloorTriggerLegStatus = "met" | "not_met" | "not_enough_history" | "
 export interface FloorRollbackTrigger {
   text: string;
   source: string;
-  /** met when the tracking leg is met. Never "not met": the drawdown leg has no limit on record, so a tracking leg
-   *  inside its limit leaves the trigger undetermined */
-  status: "met" | "undetermined";
+  /** met when either leg is met; not_met only when BOTH legs are evaluated and inside their limits; otherwise
+   *  undetermined (one leg inside its limit does not clear a two-leg trigger) */
+  status: "met" | "not_met" | "undetermined";
   summary: string;
   tracking: {
     status: FloorTriggerLegStatus;
@@ -338,7 +349,31 @@ export interface FloorRollbackTrigger {
     so_far: (FloorTrackingWindow & { beyond_limit: boolean }) | null;
     reason: string | null;
   };
-  drawdown: { status: FloorTriggerLegStatus; limit_pct: number | null; reason: string };
+  drawdown: FloorDrawdownLeg;
+}
+
+/** One closing value of the account in the drawdown leg's series. */
+export interface FloorEquityPoint { day: string; equity: number }
+
+export interface FloorDrawdownLeg {
+  /** met = the fall is past the limit (a partial window can already be); not_met = a full window, every close read,
+   *  inside the limit; not_enough_history = fewer than window_sessions since the floor entered, or a close missing */
+  status: FloorTriggerLegStatus;
+  limit_pct: number | null;
+  limit_source: string;
+  window_sessions: number;
+  /** sessions the measured closes span: the newest window_sessions since the floor entered, at most */
+  sessions_measured: number;
+  /** the largest fall from a high to a later low among those closes, in percent of the high (0 or negative) */
+  drawdown_pct: number | null;
+  peak: FloorEquityPoint | null;
+  trough: FloorEquityPoint | null;
+  from: string | null;
+  to: string | null;
+  /** sessions in the span whose closing equity no daily line recorded: a fall through one of them is not seen */
+  missing: string[];
+  beyond_limit: boolean;
+  reason: string | null;
 }
 
 export interface FloorTurnoverSummary {
@@ -430,6 +465,7 @@ export const FLOOR_TRACKING_DEFINITIONS: Record<string, string> = {
   cash_fund: "the T-bill fund's P&L, measured the same way; reported beside the core and not inside floor_pct",
   window: "over consecutive sessions: prod(1 + floor_pct) - prod(1 + rule_pct), in percentage points",
   entry: "a session the floor entered with no base or levered shares: shown with its shortfall against the rule, in no window",
+  account_drawdown: "the trigger's second leg. The account's closing equity, session by session, from the close before the floor's first fill: each session's close is the next daily line's last_equity (Alpaca's own 16:00 ET close), and the newest session's is its own line's close reading. Over the newest 63 sessions of that series: the largest fall from a high to a later low, in percent of the high. The limit is the same measure's 95th percentile over every 63-session window of the study's backtest. Sessions before the floor are not in it: they were another floor's",
   turnover: "orders = sent in the session, any status; filled = orders with a fill in the session; dollars = filled shares x average fill price. Legacy floor tickers are not counted",
 };
 
@@ -454,6 +490,10 @@ interface RawSession {
   coreDollars: number;
   /** an entry session's shortfall against the rule, in percentage points; null on every other session */
   entryShortfall: number | null;
+  /** the account's equity at the previous session's close (the line's last_equity); null when the line holds none */
+  equityPrev: number | null;
+  /** the account's equity at this session's close as its own line read it (equity_end, else equity) */
+  equityClose: number | null;
 }
 
 function compound(rs: readonly RawSession[]): { floor: number; rule: number } {
@@ -504,12 +544,58 @@ function studyPace(): FloorTurnover["study"] {
   };
 }
 
-/** The trigger's second leg. The study's results hold no 95th-percentile 3-month drawdown, so there is no number to
- *  set the account against: the leg says so and is never read as "not met". */
-function drawdownLeg(): FloorRollbackTrigger["drawdown"] {
+/** The largest fall from a high to a later low in a series of closes. Null with fewer than two closes. */
+export function largestFall(points: readonly FloorEquityPoint[]): { pct: number; peak: FloorEquityPoint; trough: FloorEquityPoint } | null {
+  if (points.length < 2) return null;
+  let peak = points[0];
+  let worst = { pct: 0, peak: points[0], trough: points[0] };
+  for (const p of points) {
+    if (p.equity > peak.equity) peak = p;
+    const pct = (p.equity / peak.equity - 1) * 100;
+    if (pct < worst.pct) worst = { pct, peak, trough: p };
+  }
+  return worst;
+}
+
+const noDrawdown = (reason: string): FloorDrawdownLeg => ({
+  status: "not_evaluable", limit_pct: FLOOR_DRAWDOWN_LIMIT_PCT, limit_source: FLOOR_DRAWDOWN_LIMIT_SOURCE, window_sessions: FLOOR_DRAWDOWN_WINDOW_SESSIONS,
+  sessions_measured: 0, drawdown_pct: null, peak: null, trough: null, from: null, to: null, missing: [], beyond_limit: false, reason,
+});
+
+/** The trigger's second leg: the account's largest fall from a high to a later low over the newest
+ *  FLOOR_DRAWDOWN_WINDOW_SESSIONS sessions since the floor entered, against FLOOR_DRAWDOWN_LIMIT_PCT. A fall already
+ *  past the limit is "met" whatever the window's length (a longer window can only hold a larger fall); "not met" is
+ *  said only of a full window with every close read. Sessions before the floor's first fill are another floor's and
+ *  are not in the series. */
+function drawdownLeg(raws: readonly RawSession[]): FloorDrawdownLeg {
+  if (!raws.length) return noDrawdown("no session of the floor is stored");
+  // the close of every session from the one before the floor's first: session k's close is session k+1's
+  // last_equity (Alpaca's own close), else what session k's own line read at its close
+  const closes: Array<{ day: string; equity: number | null }> = [{ day: raws[0].row.prev_day, equity: raws[0].equityPrev }];
+  for (let k = 0; k < raws.length; k++) {
+    const next = k + 1 < raws.length ? raws[k + 1].equityPrev : null;
+    closes.push({ day: raws[k].row.day, equity: next ?? raws[k].equityClose });
+  }
+  const W = FLOOR_DRAWDOWN_WINDOW_SESSIONS;
+  const span = closes.slice(-(W + 1));
+  const read = span.filter((c): c is FloorEquityPoint => c.equity !== null && c.equity > 0);
+  const missing = span.filter((c) => !(c.equity !== null && c.equity > 0)).map((c) => c.day);
+  const fall = largestFall(read);
+  if (!fall) return { ...noDrawdown("fewer than two closing equities are recorded since the floor entered"), missing };
+  const sessions = span.length - 1;
+  // judged on the figure the report prints (two decimals), so the status never disagrees with the number beside it
+  const pct = r2(fall.pct);
+  const beyond = pct < FLOOR_DRAWDOWN_LIMIT_PCT;
+  const full = sessions >= W && !missing.length;
   return {
-    status: "not_evaluable", limit_pct: null,
-    reason: "the study recorded no 95th-percentile 3-month drawdown (research/floor_study_2026-11-05.json holds no such figure), so this leg has no limit to test the account against",
+    status: beyond ? "met" : full ? "not_met" : "not_enough_history",
+    limit_pct: FLOOR_DRAWDOWN_LIMIT_PCT, limit_source: FLOOR_DRAWDOWN_LIMIT_SOURCE, window_sessions: W, sessions_measured: sessions,
+    drawdown_pct: pct,
+    peak: { day: fall.peak.day, equity: r2(fall.peak.equity) }, trough: { day: fall.trough.day, equity: r2(fall.trough.equity) },
+    from: span[0].day, to: span[span.length - 1].day, missing, beyond_limit: beyond,
+    reason: beyond || full ? null
+      : missing.length ? `${missing.length} session${missing.length === 1 ? "" : "s"} with no closing equity on record (${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", ..." : ""}): a fall through ${missing.length === 1 ? "it" : "them"} is not seen`
+        : `${sessions} session${sessions === 1 ? "" : "s"} since the floor entered, a window needs ${W}`,
   };
 }
 
@@ -562,7 +648,7 @@ function shell(i: FloorTrackingInputs, status: FloorTrackingReport["status"], re
         status: "not_evaluable", limit_pp: FLOOR_TRACKING_LIMIT_PP, window_sessions: FLOOR_TRACKING_WINDOW_SESSIONS,
         sessions_measured: 0, windows_evaluated: 0, worst: null, so_far: null, reason: why,
       },
-      drawdown: drawdownLeg(),
+      drawdown: noDrawdown(why),
     },
     turnover: {
       basis: FLOOR_TRACKING_DEFINITIONS.turnover, window: noTurnover, stored: noTurnover,
@@ -658,6 +744,8 @@ function measureSession(cfg: FloorTrackingConfig, day: string, prev: string, lin
   const vmLine = line !== null && lineMode === FLOOR_TRACKING_MODE;
   const lastEquity = num(rec(rec(line?.account_vs_spy).day).last_equity);
   const capital = lastEquity !== null && lastEquity > 0 ? cfg.capitalPct * lastEquity : null;
+  const dayPair = rec(rec(line?.account_vs_spy).day);
+  const closeEquity = num(dayPair.equity_end) ?? num(dayPair.equity);
   const targetX = vmLine ? num(floorBlock.target_x) : null;
   const target = targetX !== null && targetX >= 0 ? targetX / cfg.capitalPct : null;
   const spyRet = base.closeEnd !== null && base.closePrev !== null ? base.closeEnd / base.closePrev - 1 : null;
@@ -699,6 +787,8 @@ function measureSession(cfg: FloorTrackingConfig, day: string, prev: string, lin
     floorRet: measured ? floorRet : null, ruleRet: measured ? ruleRet : null, capital, coreDollars: coreCell.dollars,
     // the entry's shortfall against the rule: its P&L from the fills to the close, less the target held from the previous close
     entryShortfall: entry && sound && corePnl !== null && rulePnl !== null && capital !== null ? ((corePnl - rulePnl) / capital) * 100 : null,
+    equityPrev: lastEquity !== null && lastEquity > 0 ? lastEquity : null,
+    equityClose: closeEquity !== null && closeEquity > 0 ? closeEquity : null,
     row: {
       day, prev_day: prev, entry,
       spy_pct: r4n(spyRet === null ? null : spyRet * 100),
@@ -751,7 +841,16 @@ function trackingLeg(raws: readonly RawSession[]): FloorRollbackTrigger["trackin
   };
 }
 
-function triggerOf(tracking: FloorRollbackTrigger["tracking"]): FloorRollbackTrigger {
+/** The drawdown leg in a few words (the audit row is 490 characters for the whole report). */
+function drawdownWords(d: FloorDrawdownLeg): string {
+  if (d.drawdown_pct === null) return `drawdown not evaluated (${d.reason ?? "no closes"})`;
+  const pct = `${d.drawdown_pct.toFixed(2)}%`, limit = `${(d.limit_pct ?? 0).toFixed(2)}%`;
+  if (d.status === "met") return `account drawdown ${pct} BEYOND ${limit} (${d.peak?.day} to ${d.trough?.day})`;
+  if (d.status === "not_met") return `drawdown ${pct} within ${limit} over ${d.window_sessions} sessions`;
+  return `drawdown ${pct} in ${d.sessions_measured} of ${d.window_sessions} sessions (limit ${limit}${d.missing.length ? `; ${d.missing.length} unread` : ""})`;
+}
+
+function triggerOf(tracking: FloorRollbackTrigger["tracking"], drawdown: FloorDrawdownLeg): FloorRollbackTrigger {
   const { worst, so_far: soFar } = tracking;
   const limitTxt = `${tracking.limit_pp} pp over ${tracking.window_sessions} sessions`;
   const soFarTxt = soFar ? `; ${signed(soFar.tracking_pp, "pp")} so far${soFar.beyond_limit ? ` (already past ${tracking.limit_pp} pp)` : ""}` : "";
@@ -759,9 +858,10 @@ function triggerOf(tracking: FloorRollbackTrigger["tracking"]): FloorRollbackTri
     ? `tracking ${tracking.status === "met" ? "BEYOND" : "within"} ${limitTxt} (worst ${signed(worst.tracking_pp, "pp")}, ${worst.from} to ${worst.to}; ${tracking.windows_evaluated} window${tracking.windows_evaluated === 1 ? "" : "s"})`
     : `tracking: ${tracking.reason}${soFarTxt}`;
   return {
-    text: FLOOR_TRACKING_TRIGGER_TEXT, source: FLOOR_TRACKING_TRIGGER_SOURCE, status: tracking.status === "met" ? "met" : "undetermined",
-    summary: `${trackingTxt}; drawdown leg not evaluated (the study recorded no limit)`,
-    tracking, drawdown: drawdownLeg(),
+    text: FLOOR_TRACKING_TRIGGER_TEXT, source: FLOOR_TRACKING_TRIGGER_SOURCE,
+    status: tracking.status === "met" || drawdown.status === "met" ? "met" : tracking.status === "not_met" && drawdown.status === "not_met" ? "not_met" : "undetermined",
+    summary: `${trackingTxt}; ${drawdownWords(drawdown)}`,
+    tracking, drawdown,
   };
 }
 
@@ -837,7 +937,7 @@ export function floorTracking(i: FloorTrackingInputs): FloorTrackingReport {
   }
   if (!raws.length) body.reason = `the floor held no ${cfg.base} or ${cfg.levered} and filled no order in the stored sessions (${firstLine} to ${lastLine})`;
 
-  body.rollback_trigger = triggerOf(trackingLeg(raws));
+  body.rollback_trigger = triggerOf(trackingLeg(raws), drawdownLeg(raws));
   const W = FLOOR_TRACKING_WINDOW_SESSIONS;
   const measured = raws.filter((s) => s.floorRet !== null);
   const tail = raws.slice(-W);

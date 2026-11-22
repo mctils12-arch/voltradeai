@@ -423,7 +423,7 @@ layers are not listed one by one here.
 | probe | `regime_counterfactual` | `server/bot.ts /api/diag/regime_counterfactual` | What the regime engine changed versus the old rule (counts, no P&L). Since 2026-11-20 a line in the Why panel's regime section, through /api/bot/regime-counterfactual. |
 | probe | `tax` | `server/bot.ts /api/diag/tax` | tax card |
 | probe | `sleeves` | `server/bot.ts /api/diag/sleeves` | expectancy by sleeve |
-| probe | `floor_tracking` | `server/bot.ts /api/diag/floor_tracking` | The base holding against its own rule. Since 2026-11-20 the Why panel's 'Base holding' section shows the sentence, the per-session table, the rollback line and turnover, through /api/bot/floor-tracking. |
+| probe | `floor_tracking` | `server/bot.ts /api/diag/floor_tracking` | The base holding against its own rule. Since 2026-11-20 the Why panel's 'Base holding' section shows the sentence, the per-session table, the rollback line and turnover, through /api/bot/floor-tracking. Since 2026-11-22 the rollback line's sentence also carries the account's drawdown against its limit (the trigger's second leg); the page shows the server's sentence as it is. |
 | probe | `account` | `server/bot.ts /api/diag/account` | account tiles |
 | probe | `equity_curve` | `server/bot.ts /api/diag/equity_curve` | scoreboard / equity curve |
 | probe | `orders` | `server/bot.ts /api/diag/orders` | Open and recent orders. Since 2026-11-20 the Orders panel's 'Order history' lists every order with its price-ladder step, through the owner route /api/bot/order-history. |
