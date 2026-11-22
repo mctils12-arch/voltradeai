@@ -1,0 +1,327 @@
+{
+ "at": "2026-11-22T13:08:08.552Z",
+ "faa_listed": 48,
+ "list_rows_malformed": 0,
+ "outline": {
+  "compared": 36,
+  "agree": 35,
+  "partial": 1,
+  "not_read": 0,
+  "disagree": 0,
+  "shape_service_polygons": 46,
+  "matched": 46,
+  "worst_matched_nm": 0,
+  "tolerance": "0.1 NM + 0.4% of the shape-service polygon's half-diagonal"
+ },
+ "coverage": {
+  "with_outline": 36,
+  "no_outline_in_faa_file": [
+   "6/3366",
+   "5/3402",
+   "5/6379",
+   "5/7224",
+   "5/6874",
+   "4/9433",
+   "4/2565",
+   "4/1789",
+   "1/5060",
+   "2/8783",
+   "0/0367",
+   "6/8818"
+  ],
+  "detail_unread": [],
+  "shape_service_has_one_we_lack": [],
+  "verdict": "PASS"
+ },
+ "served": null,
+ "notices": [
+  {
+   "notice": "6/9306",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9276",
+   "faa_shapes": 4,
+   "ours": 4,
+   "matched": 4,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9186",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9141",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9128",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/9071",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8989",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8986",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8983",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8704",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/8702",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/7660",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/7165",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/6925",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/6924",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/4116",
+   "faa_shapes": 2,
+   "ours": 2,
+   "matched": 2,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2670",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2547",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2481",
+   "faa_shapes": 4,
+   "ours": 5,
+   "matched": 4,
+   "verdict": "partial",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2478",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/0100",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/5945",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/0708",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/4812",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2657",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2656",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2652",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2520",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/4143",
+   "faa_shapes": 3,
+   "ours": 3,
+   "matched": 3,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/2698",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "6/0543",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "5/3679",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "5/3678",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "5/6914",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "4/9383",
+   "faa_shapes": 2,
+   "ours": 2,
+   "matched": 2,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  },
+  {
+   "notice": "9/2934",
+   "faa_shapes": 1,
+   "ours": 1,
+   "matched": 1,
+   "verdict": "agree",
+   "worst_matched_nm": 0
+  }
+ ]
+}

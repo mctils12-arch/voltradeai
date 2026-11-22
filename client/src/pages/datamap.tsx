@@ -24,7 +24,7 @@ import {
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, siteHostCountry, testedAtHome } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, faaCardStats, type FaaEventType } from "@/lib/faaAirports";
-import { parseFlightRestrictions, drawRestrictions, removeRestrictions, RESTRICTION_CLICK_LAYERS, restrictionCard, statusWords as flightRestrictionStatus, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, FLIGHT_RESTRICTIONS_REFRESH_MS, type FlightRestriction } from "@/lib/air/flightRestrictions";
+import { parseFlightRestrictions, drawRestrictions, removeRestrictions, RESTRICTION_CLICK_LAYERS, restrictionCard, statusWords as flightRestrictionStatus, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, FLIGHT_RESTRICTIONS_REFRESH_MS, type FlightRestriction, type FaaListView } from "@/lib/air/flightRestrictions";
 import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
 import EarningsView from "./earnings";
@@ -1721,7 +1721,7 @@ const LegendPanel = memo(function LegendPanel({
                     <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px solid #cbd5e1" }} /> The restriction's own outline</span>
                     <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px dotted #cbd5e1" }} /> Outline read from the notice's text</span>
                     <span className="vt-legend-chip"><i style={{ borderRadius: 2, border: "1.5px dashed #cbd5e1" }} /> A circle that encloses it (outline not sent)</span>
-                    <span className="vt-legend-note">FAA notice feed, as received; not the FAA's complete list. Faint = starts within 6 hours. Not for flight planning.</span>
+                    <span className="vt-legend-note">FAA public list (US) and FAA notice feed, each named on its card. The layer's status line says when the FAA's list was read; without that read this is not the FAA's complete list. Faint = starts within 6 hours. Not for flight planning.</span>
                   </>
                 )}
               </div>
@@ -10484,9 +10484,11 @@ export default function DataMapPage() {
   }, [enabled.faa_airports, mapReady, setStatus]);
 
   // ── Flight restrictions (RAW; GET /api/data/swim/notam/tfrs, the FAA notice
-  // feed's restrictions in force now or starting within 6 hours). Parsing,
+  // feed's restrictions in force now or starting within 6 hours, and the US
+  // restrictions on the FAA's own public list, each row labelled). Parsing,
   // kind, shape, caps and every sentence are lib/air/flightRestrictions.ts.
-  // Drawn: a tinted area per restriction (its own outline solid; an outline
+  // Drawn: a tinted area per restriction (its own outline, as sent or as the
+  // FAA publishes it, solid; an outline
   // read from the notice's text dotted; the notice's index circle, which is
   // larger than the restriction, dashed), and one
   // vt-airspace symbol whose colour is the kind. RENDERING & MOTION LAW: no
@@ -10495,12 +10497,12 @@ export default function DataMapPage() {
   // sources and all five layers removed on toggle-off (IV); the status line
   // says when the feed's last notice arrived, and a failed read keeps what is
   // drawn and says so (V). Off by default. ──
-  const flightRestrictionRowsRef = useRef<{ rows: Map<string, FlightRestriction>; kept: boolean }>({ rows: new Map(), kept: false });
+  const flightRestrictionRowsRef = useRef<{ rows: Map<string, FlightRestriction>; kept: boolean; list: FaaListView | null }>({ rows: new Map(), kept: false, list: null });
   useEffect(() => {
     const map = mapRef.current;
     if (!enabled.flight_restrictions) {
       removeRestrictions(map);
-      flightRestrictionRowsRef.current = { rows: new Map(), kept: false };
+      flightRestrictionRowsRef.current = { rows: new Map(), kept: false, list: null };
       setStatus("flight_restrictions", "off");
       return;
     }
@@ -10520,7 +10522,7 @@ export default function DataMapPage() {
         const v = parseFlightRestrictions(await r.json());
         if (stop || mine.signal.aborted) return;
         if (!v) throw new Error("shape");
-        flightRestrictionRowsRef.current = { rows: new Map(v.rows.map((x) => [x.id, x])), kept: v.kept };
+        flightRestrictionRowsRef.current = { rows: new Map(v.rows.map((x) => [x.id, x])), kept: v.kept, list: v.faaList };
         drawRestrictions(map, v.rows);
         // once per run of this effect: the layers can outlive a run (the map
         // becoming ready again), the click handlers do not
@@ -10530,7 +10532,7 @@ export default function DataMapPage() {
             const held = flightRestrictionRowsRef.current;
             const row = held.rows.get(e.features?.[0]?.properties?.id ?? "");
             if (!row) return;
-            const card = restrictionCard(row, Date.now(), { km: (km, digits) => fmtKm(km, digits), meters: (m) => fmtMeters(m) }, held.kept);
+            const card = restrictionCard(row, Date.now(), { km: (km, digits) => fmtKm(km, digits), meters: (m) => fmtMeters(m) }, held.kept, held.list);
             const dossierKey = `flightrestriction:${row.id}:${Date.now()}`;
             setDetail({ kind: "flightrestriction", ...card, dossierKey });
             // a restriction is not an Everything Graph node: place-only dossier at its symbol

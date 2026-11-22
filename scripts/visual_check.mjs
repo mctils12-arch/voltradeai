@@ -8250,6 +8250,9 @@ async function main() {
   // 768 and 390. Switched off, both sources and all five layers are gone and no request follows.
   // 2026-11-22: a third fixture row is the real US notice FDC 6/9306, whose outline the server read from the notice's
   // words: it is on the dotted layer (neither solid nor dashed), is cited "FDC 6/9306", and its card says how it was drawn.
+  // 2026-11-22 (second): switched on again with an answer that carries rows from the FAA's public list
+  // (server/faaTfrList.ts): solid outline, a card that names the FAA's list and its limits, and a status line that
+  // says when the list was read in place of "not the FAA's complete list".
   // `--page flightrestrictions` runs this battery alone.
   if (!only || only === "data" || only === "flightrestrictions") {
     const frFailures = [];
@@ -8271,14 +8274,29 @@ async function main() {
       minFl: null, maxFl: null, center: null, radiusNm: null,
       text: "VA..AIRSPACE 20NM W LEXINGTON, VA..TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 14 CFR SECTION 91.137(A)(2) TEMPORARY FLIGHT RESTRICTIONS ARE IN EFFECT TO PROVIDE A SAFE ENVIRONMENT FOR FIRE FIGHTING ACFT OPS. WI AN AREA DEFINED AS 375200N0795230W (MOL272036.5) TO 375100N0795000W (MOL270034.6) TO 374830N0795200W (MOL266036.4) TO 374900N0795400W (MOL268037.9) TO POINT OF ORIGIN SFC-4000FT",
       geometry: { kind: "polygon", from: "text", unread: 0, rings: [[[37.866667, -79.875], [37.85, -79.833333], [37.808333, -79.866667], [37.816667, -79.9], [37.866667, -79.875]]] } };
+    // 2026-11-22: the same notice as the server sends it once the FAA's public list is read (server/faaTfrList.ts builds
+    // this row from the FAA's real detail file for FDC 6/9306), and a four-area notice with its limits as that file writes them
+    let withList = false;
+    const LEX_LIST = { id: "FAA:6/9306", source: "faa_list", citation: "FDC 6/9306", classification: "FDC", series: null, number: "6/9306", year: null, type: null, qcode: null, scenario: null,
+      location: "ZDC", issued: FR_NOW - 14 * H, start: FR_NOW - H, end: FR_NOW + 190 * H, minFl: null, maxFl: null, center: null, radiusNm: null, text: LEX.text,
+      geometry: { kind: "polygon", from: "faa_list", rings: LEX.geometry.rings },
+      faa: { type: "HAZARDS", rule: "91.137(a)(2)", place: "20NM W LEXINGTON, VIRGINIA", areas_without_outline: 0,
+        areas: [{ name: "Hazard Area1", lower: { value: 0, uom: "FT", ref: "ALT" }, upper: { value: 4000, uom: "FT", ref: "ALT" }, scheduled: true }] } };
+    const MAYPORT_LIST = { ...LEX_LIST, id: "FAA:6/9276", citation: "FDC 6/9276", number: "6/9276", location: "ZJX", start: FR_NOW + 2 * H, end: FR_NOW + 70 * H,
+      text: "!FDC 6/9276 ZJX FL..AIRSPACE MAYPORT, FL..TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 49 USC 40103(B)(3), THE FEDERAL AVIATION ADMINISTRATION (FAA) CLASSIFIES THE AIRSPACE DEFINED IN THIS NOTAM AS 'NATIONAL DEFENSE AIRSPACE'. PURSUANT TO 14 CFR 99.7 SPECIAL SECURITY INSTRUCTIONS",
+      geometry: { kind: "polygon", from: "faa_list", rings: [[[30.5, -81.6], [30.5, -81.2], [30.2, -81.2], [30.2, -81.6], [30.5, -81.6]], [[30.9, -81.5], [30.9, -81.3], [30.7, -81.3], [30.7, -81.5], [30.9, -81.5]]] },
+      faa: { type: "SECURITY", rule: "99.7", place: "MAYPORT, FLORIDA", areas_without_outline: 0, areas: [
+        { name: "Area A", lower: { value: 0, uom: "FT", ref: "HEI" }, upper: { value: 2500, uom: "FT", ref: "ALT" }, scheduled: false },
+        { name: "Area B", lower: { value: 1700, uom: "FT", ref: "ALT" }, upper: { value: 14000, uom: "FT", ref: "ALT" }, scheduled: false }] } };
     const BROKEN = { ...base, id: "X:1", classification: "FDC", location: "KZNY", qcode: null, start: FR_NOW, end: FR_NOW + H, text: "TEMPORARY FLIGHT RESTRICTIONS", geometry: { kind: "circle", center: [40, -74], radiusNm: 0 } };
     const calls = [];
     await page.route("**/api/data/swim/notam/tfrs", (route) => {
       calls.push(Date.now());
       return route.fulfill({ contentType: "application/json", body: JSON.stringify({
-        at: FR_NOW, tfrs: [ZAG, VIP, LEX, BROKEN], stats: { notams: 423, tfrs: 18, tfrs_without_shape: 7, byClassification: {}, parseErrors: 0 },
+        at: FR_NOW, tfrs: withList ? [ZAG, VIP, LEX_LIST, MAYPORT_LIST] : [ZAG, VIP, LEX, BROKEN], stats: { notams: 423, tfrs: 18, tfrs_without_shape: withList ? 0 : 7, byClassification: {}, parseErrors: 0 },
         kept: { saved_every_s: 60, last_saved_at: FR_NOW - 30_000, last_save: "ok", restored: null },
-        feed: { connected: true, last_message_at: FR_NOW - 12_000 }, source: "FAA SWIM FNS NOTAM (fixture)" }) });
+        feed: { connected: true, last_message_at: FR_NOW - 12_000 }, source: "FAA SWIM FNS NOTAM (fixture)",
+        ...(withList ? { faa_list: { status: "ok", read_at: FR_NOW - 4 * 60_000, last_attempt_at: FR_NOW - 4 * 60_000, last_cause: "ok", listed: 48, with_outline: 36, without_outline: 12, detail_pending: 0, also_in_feed: 1, not_drawn: [], restored: false, served: 2 } } : {}) }) });
     });
     const LAYERS = ["flight-restrictions-fill", "flight-restrictions-line", "flight-restrictions-line-text", "flight-restrictions-line-enclosing", "flight-restrictions-sym"];
     const mapState = () => page.evaluate((ids) => {
@@ -8483,6 +8501,97 @@ async function main() {
       if (await page.locator('.vt-legend-item[data-vt-icon="vt-airspace"]').count()) fail("switched off, the legend still lists flight restrictions");
       if (calls.length !== callsOn) fail(`switching off made ${calls.length - callsOn} more requests`);
       frInfo.calls = calls.length;
+      // ── the same layer once the server has read the FAA's public list (2026-11-22) ──
+      // Two rows come from the list. They are drawn with the solid line (the FAA's own outline), their cards
+      // name the FAA's public list as the source and carry the limits as the FAA's file writes them, and the
+      // status line says when the list was read and how many listed notices have no outline, in place of
+      // "not the FAA's complete list".
+      withList = true;
+      if (!(await flip("flight_restrictions", true))) fail("list: the layer would not switch on again");
+      await page.evaluate(() => window.__vtMap.jumpTo({ center: [-30, 42], zoom: 1.6, pitch: 0, bearing: 0 }));
+      let ls = null;
+      for (let i = 0; i < 40; i++) {
+        await page.waitForTimeout(300);
+        ls = await mapState();
+        if (ls.layers.length === 5 && ls.pts.length === 4) break;
+      }
+      const wantList = [
+        { id: "FAA:6/9276", kind: "security", color: "#f87171", shape: "own", in_force: false, from_list: true },
+        { id: "FAA:6/9306", kind: "hazard", color: "#fb923c", shape: "own", in_force: true, from_list: true },
+        { id: "FDC:6/1234", kind: "security", color: "#f87171", shape: "own", in_force: false },
+        { id: "LDZL:A4134/2026", kind: "icao_temporary", color: "#2dd4bf", shape: "enclosing", in_force: true },
+      ];
+      if (JSON.stringify(ls.pts) !== JSON.stringify(wantList)) fail(`list: the symbols carry ${JSON.stringify(ls.pts)} (expected ${JSON.stringify(wantList)})`);
+      const lrow = await rowText();
+      frInfo.listRow = lrow;
+      if (!/2 in force, 2 starting within 6 hours \(2 from the FAA's public list, 2 from the notice feed, which holds 18\) · FAA public list read 4 min ago: 48 US restrictions listed, 36 with a published outline, 12 with none \(not drawn\) · other countries: only what the notice feed has sent · last notice received \d+ (s|min) ago/.test(lrow)) fail(`list: the layer row's status reads "${lrow}"`);
+      if (lrow.includes("not the FAA's complete list")) fail("list: the status line still says the list is not complete while the FAA's list is read and fresh");
+      if (await openCard("FAA:6/9306", -79.87, 37.835)) {
+        const on = await page.evaluate(() => {
+          const m = window.__vtMap;
+          const n = (id) => { try { return m.queryRenderedFeatures({ layers: [id] }).filter((f) => f.properties.id === "FAA:6/9306").length; } catch { return -1; } };
+          return { text: n("flight-restrictions-line-text"), own: n("flight-restrictions-line"), enclosing: n("flight-restrictions-line-enclosing") };
+        });
+        if (!(on.own > 0) || on.text !== 0 || on.enclosing !== 0) fail(`list: the FAA's outline must be drawn by the solid layer only: ${JSON.stringify(on)}`);
+        let c = await readCard();
+        if (c && !c.open) {
+          await page.locator('.vt-site-card[role="dialog"] button', { hasText: "DETAILS" }).first().click({ timeout: 2000 }).catch(() => {});
+          await page.waitForTimeout(250);
+          c = await readCard();
+        }
+        if (c?.title !== "Flight restriction FDC 6/9306" || !c.cat.startsWith("Disaster, hazard or emergency (91.137 to 91.139) · in force until ")) fail(`list: the card reads "${c?.title}" / "${c?.cat}"`);
+        if (c?.facts["Drawn shape"] !== "the FAA's published outline for this notice, copied from tfr.faa.gov; it was not sent by the notice feed") fail(`list: Drawn shape reads "${c?.facts["Drawn shape"]}"`);
+        if (c?.facts["FAA list type"] !== "HAZARDS" || c?.facts["Place"] !== "20NM W LEXINGTON, VIRGINIA" || c?.facts["Lower limit"] !== "surface") fail(`list: the card's facts read ${JSON.stringify(c?.facts)}`);
+        if (!/^[\d,.]+ (ft|m) above sea level$/.test(c?.facts["Upper limit"] || "")) fail(`list: Upper limit reads "${c?.facts["Upper limit"]}" (a height through the unit formatter, above sea level)`);
+        if (!(c?.facts["Hours"] || "").startsWith("certain hours only")) fail(`list: the card does not say the restriction is scheduled for certain hours (${JSON.stringify(c?.facts["Hours"])})`);
+        if (!c?.chips.some((x) => x.l === "Lower" && x.v === "surface") || !c?.chips.some((x) => x.l === "Upper" && x.v === "4000ft")) fail(`list: the chips read ${JSON.stringify(c?.chips.map((x) => [x.l, x.v]))}`);
+        if (!/FAA public list of flight restrictions \(tfr\.faa\.gov\), read \d+ min ago\. The outline and the limits are the FAA's own, copied as published\./.test(c?.body ?? "")) fail("list: the card body does not name the FAA's public list and when it was read");
+        if ((c?.body ?? "").includes("This is not the FAA's complete list") || (c?.body ?? "").includes("SWIM FNS NOTAM")) fail("list: a list row's card speaks as a feed row's");
+        if (/NaN|undefined|\bnull\b|Infinity/.test(c?.text ?? "")) fail("list: a bare NaN / undefined / null on the card");
+        for (const x of c?.chips ?? []) if (x.cut > 1) fail(`list: the chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
+        if (c && (c.left < -1 || c.right > 1 || c.top < -1 || c.bottom > 1 || c.pageOver > 1)) fail(`list 1440: the card leaves the window (left ${c.left}, right +${c.right}, top ${c.top}, bottom +${c.bottom})`);
+        await page.evaluate(() => window.__vtMap.jumpTo({ center: [-79.95, 37.835], zoom: 10.3, pitch: 0, bearing: 0 }));
+        await page.waitForTimeout(1500);
+        await page.screenshot({ path: path.join(OUT, "data-flightrestrictions-list-1440.png") }).catch(() => {});
+        for (const w of [768, 390]) {
+          await page.setViewportSize({ width: w, height: w === 768 ? 1024 : 844 });
+          await page.waitForTimeout(1200);
+          if (w === 390) await page.click('[aria-label="Collapse layers panel"]', { timeout: 1500 }).catch(() => {});
+          await page.click('.vt-legend-head[aria-expanded="true"]', { timeout: 800 }).catch(() => {});
+          const k = await readCard();
+          if (!k) fail(`list ${w}: the card is gone`);
+          else {
+            if (k.left < -1 || k.right > 1 || k.top < -1 || k.bottom > 1 || k.pageOver > 1) fail(`list ${w}: the card leaves the window (left ${k.left}, right +${k.right}, top ${k.top}, bottom +${k.bottom})`);
+            for (const x of k.chips) if (x.cut > 1) fail(`list ${w}: chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
+          }
+          await page.screenshot({ path: path.join(OUT, `data-flightrestrictions-list-${w}.png`) }).catch(() => {});
+        }
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.waitForTimeout(1200);
+      }
+      // a notice with several areas: the chips say the limits vary and each area has its own row
+      if (await openCard("FAA:6/9276", -81.4, 30.35)) {
+        let c = await readCard();
+        if (c && !c.open) {
+          await page.locator('.vt-site-card[role="dialog"] button', { hasText: "DETAILS" }).first().click({ timeout: 2000 }).catch(() => {});
+          await page.waitForTimeout(250);
+          c = await readCard();
+        }
+        if (c?.title !== "Flight restriction FDC 6/9276" || !c.cat.startsWith("Security (91.141, 99.7) · starts ")) fail(`list: the several-area card reads "${c?.title}" / "${c?.cat}"`);
+        if (!c?.chips.some((x) => x.l === "Lower" && x.v === "varies") || !c?.chips.some((x) => x.l === "Upper" && x.v === "varies")) fail(`list: the several-area chips read ${JSON.stringify(c?.chips.map((x) => [x.l, x.v]))}`);
+        if (!/^surface to [\d,.]+ (ft|m) above sea level$/.test(c?.facts["Area A"] || "") || !/above sea level to [\d,.]+ (ft|m) above sea level$/.test(c?.facts["Area B"] || "")) fail(`list: the per-area limits read ${JSON.stringify([c?.facts["Area A"], c?.facts["Area B"]])}`);
+        if (!(c?.facts["Drawn shape"] || "").startsWith("the FAA's published outline for this notice (2 areas)")) fail(`list: the several-area Drawn shape reads "${c?.facts["Drawn shape"]}"`);
+        for (const x of c?.chips ?? []) if (x.cut > 1) fail(`list: several-area chip "${x.l}: ${x.v}" is cut by ${x.cut}px`);
+        await page.screenshot({ path: path.join(OUT, "data-flightrestrictions-list-areas-1440.png") }).catch(() => {});
+      }
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.click('[aria-label="Close details"]', { timeout: 1500 }).catch(() => {});
+      if (!(await page.locator(".vt-layer-panel").count())) await page.click(".vt-map-fab", { timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      if (!(await flip("flight_restrictions", false))) fail("list: the layer would not switch off");
+      await page.waitForTimeout(800);
+      const off2 = await mapState();
+      if (off2.layers.length || off2.sources.length) fail(`list: switched off, the map still holds ${JSON.stringify(off2.layers)} ${JSON.stringify(off2.sources)}`);
     } catch (e) {
       fail("battery crashed: " + String(e?.message || e).split("\n")[0]);
     }

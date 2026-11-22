@@ -10,6 +10,7 @@ import {
   periodWords, restrictionCard, agoWords, chipTime, limitChip, drawRestrictions, removeRestrictions,
   RESTRICTION_LAYERS, RESTRICTION_SOURCES, RESTRICTION_CLICK_LAYERS, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, RULE_WORDS, CIRCLE_POINTS,
   FLIGHT_RESTRICTION_MAX_RING_POINTS, FLIGHT_RESTRICTIONS_MAX_FEATURES, FLIGHT_RESTRICTIONS_HEAP_BUDGET_BYTES,
+  listWords, listOk, faaLimitWords, faaLimitChip, FEED_ROW_WITH_LIST_SENTENCE,
 } from "./flightRestrictions.ts";
 import { haversineNm } from "../../../../shared/flightPlanGeometry.ts";
 
@@ -317,4 +318,125 @@ test("a US notice whose outline was read from its text: its own third shape, cit
   const { citation, ...old } = LEXINGTON;
   assert.equal(citation, "FDC 6/9306");
   assert.equal(parseFlightRestrictions(answer([old]))!.rows[0].notice, "KZDC 9306/");
+});
+
+// ── rows read from the FAA's public list (server/faaTfrList.ts, 2026-11-22) ──
+// The row is what the server builds from the FAA's real detail file for
+// FDC 6/9306 (server/__fixtures__/faa_tfr_list/detail_6_9306.xml); the second
+// is 6/9276's four areas with their limits as that file writes them.
+const LIST_ROW = {
+  id: "FAA:6/9306", source: "faa_list", citation: "FDC 6/9306", classification: "FDC", series: null, number: "6/9306", year: null, type: null, qcode: null, scenario: null,
+  location: "ZDC", issued: NOW - 19 * H, start: NOW - 6 * H, end: NOW + 7 * 24 * H, minFl: null, maxFl: null, center: null, radiusNm: null,
+  text: "!FDC 6/9306 ZDC VA..AIRSPACE 20NM W LEXINGTON, VA..TEMPORARY FLIGHT RESTRICTIONS WI AN AREA DEFINED AS 375200N0795230W ... PURSUANT TO 14 CFR SECTION 91.137(A)(2)",
+  geometry: { kind: "polygon", from: "faa_list", rings: [[[37.866667, -79.875], [37.85, -79.833333], [37.808333, -79.866667], [37.816667, -79.9], [37.866667, -79.875]]] },
+  faa: { type: "HAZARDS", rule: "91.137(a)(2)", place: "20NM W LEXINGTON, VIRGINIA", areas_without_outline: 0,
+    areas: [{ name: "Hazard Area1", lower: { value: 0, uom: "FT", ref: "ALT" }, upper: { value: 4000, uom: "FT", ref: "ALT" }, scheduled: true }] },
+};
+const MAYPORT = {
+  ...LIST_ROW, id: "FAA:6/9276", citation: "FDC 6/9276", number: "6/9276", location: "ZJX", start: NOW + 2 * H, end: NOW + 3 * 24 * H,
+  text: "!FDC 6/9276 ZJX FL..AIRSPACE MAYPORT, FL..TEMPORARY FLIGHT RESTRICTIONS. PURSUANT TO 49 USC 40103(B)(3) ... 14 CFR 99.7",
+  geometry: { kind: "polygon", from: "faa_list", rings: [SQUARE, SQUARE.map(([la, lo]) => [la + 1, lo])] },
+  faa: { type: "SECURITY", rule: "99.7", place: "MAYPORT, FLORIDA", areas_without_outline: 1, areas: [
+    { name: "Area A", lower: { value: 0, uom: "FT", ref: "HEI" }, upper: { value: 2500, uom: "FT", ref: "ALT" }, scheduled: false },
+    { name: null, lower: { value: 320, uom: "FL", ref: "ALT" }, upper: { value: 430, uom: "FL", ref: "ALT" }, scheduled: false },
+    { name: "Area E", lower: { value: 1200, uom: "FT", ref: "ALT" }, upper: null, scheduled: false },
+  ] },
+};
+const LIST_OK = { status: "ok", read_at: NOW - 4 * 60_000, last_attempt_at: NOW - 4 * 60_000, last_cause: "ok", listed: 48, with_outline: 36, without_outline: 12, detail_pending: 0, also_in_feed: 1, not_drawn: [], restored: false, served: 2 };
+const listAnswer = (tfrs: unknown[], faa_list: unknown) => ({ at: NOW, tfrs, stats: { tfrs: 230, tfrs_without_shape: 0 }, kept: {}, feed: { connected: true, last_message_at: NOW - 20_000 }, faa_list });
+
+test("a row from the FAA's public list: its own fourth shape, the FAA's outline, and what the FAA's file says about it", () => {
+  const v = parseFlightRestrictions(listAnswer([LIST_ROW, MAYPORT, ZAGREB], LIST_OK))!;
+  assert.equal(v.unreadable, 0);
+  const r = v.rows.find((x) => x.id === "FAA:6/9306")!;
+  assert.equal(r.shape, "faa");
+  assert.equal(r.notice, "FDC 6/9306");
+  assert.equal(r.kind, "hazard");
+  assert.equal(r.inForce, true);
+  assert.deepEqual(r.rings[0][0], [-79.875, 37.866667]);
+  assert.deepEqual(r.faa, { type: "HAZARDS", rule: "91.137(a)(2)", place: "20NM W LEXINGTON, VIRGINIA", areasWithoutOutline: 0,
+    areas: [{ name: "Hazard Area1", lower: { value: 0, uom: "FT", ref: "ALT" }, upper: { value: 4000, uom: "FT", ref: "ALT" }, scheduled: true }] });
+  // a feed row never carries the list's facts
+  assert.equal(v.rows.find((x) => x.id === "LDZL:A4134/2026")!.faa, null);
+  assert.deepEqual(v.faaList, { status: "ok", readAt: NOW - 4 * 60_000, listed: 48, withOutline: 36, withoutOutline: 12, pending: 0, alsoInFeed: 1, served: 2 });
+  // drawn on the solid line with the outlines the feed sent, never on the dotted or dashed one; its source rides apart
+  const f = restrictionFeatures(v.rows).areas.features.find((x) => x.properties.id === "FAA:6/9306")!;
+  assert.equal(f.properties.shape, "own");
+  assert.equal(f.properties.from_list, true);
+  assert.equal(restrictionFeatures(v.rows).areas.features.find((x) => x.properties.id === "LDZL:A4134/2026")!.properties.from_list, undefined);
+});
+
+test("the status line with the FAA's list read: when, how many listed, how many have no outline, and what is still feed-only", () => {
+  const v = parseFlightRestrictions(listAnswer([LIST_ROW, MAYPORT, ZAGREB], LIST_OK))!;
+  const s = statusWords(v, NOW);
+  assert.equal(s, "2 in force, 1 starting within 6 hours (2 from the FAA's public list, 1 from the notice feed, which holds 230)"
+    + " · FAA public list read 4 min ago: 48 US restrictions listed, 36 with a published outline, 12 with none (not drawn) · other countries: only what the notice feed has sent"
+    + " · last notice received 20 s ago");
+  assert.ok(!s.includes("not the FAA's complete list"));
+  assert.match(listWords({ ...v.faaList!, pending: 3, withoutOutline: 0 }, NOW)!, /36 with a published outline, 3 not yet read ·/);
+});
+
+test("the status line without a usable read of the FAA's list says the layer is not complete, and why", () => {
+  const base = parseFlightRestrictions(listAnswer([ZAGREB], LIST_OK))!.faaList!;
+  assert.equal(listWords({ ...base, status: "never", readAt: null }, NOW), "not the FAA's complete list: the FAA's public list has not been read yet");
+  assert.equal(listWords({ ...base, status: "unreachable", readAt: null }, NOW), "not the FAA's complete list: the FAA's public list could not be reached");
+  assert.equal(listWords({ ...base, status: "stale", readAt: NOW - 30 * H }, NOW), "not the FAA's complete list: the FAA's public list was last read 30 h ago, too long ago to show");
+  assert.equal(listWords({ ...base, status: "off" }, NOW), "not the FAA's complete list: the FAA's public list is not being read");
+  assert.equal(listOk({ ...base, status: "stale" }), false);
+  assert.equal(listOk(null), false);
+  // an older server (no faa_list in the answer): the words the layer has always said
+  const old = parseFlightRestrictions({ ...listAnswer([ZAGREB], undefined) })!;
+  assert.equal(old.faaList, null);
+  assert.equal(listWords(null, NOW), null);
+  assert.ok(statusWords(old, NOW).includes(" · not the FAA's complete list · "));
+  // a status the client does not know is not read as ok
+  assert.equal(parseFlightRestrictions(listAnswer([ZAGREB], { ...LIST_OK, status: "fine" }))!.faaList, null);
+});
+
+test("the list row's card: named as the FAA's list, the FAA's outline, limits as the FAA's file writes them through the unit formatter", () => {
+  const v = parseFlightRestrictions(listAnswer([LIST_ROW, MAYPORT], LIST_OK))!;
+  const one = restrictionCard(v.rows.find((x) => x.id === "FAA:6/9306")!, NOW, U, true, v.faaList);
+  assert.equal(one.title, "Flight restriction FDC 6/9306");
+  assert.equal(one.sourceTag, "FAA public list");
+  const fact = (c: typeof one, label: string) => c.facts.find((f) => f.label === label)?.value;
+  assert.equal(fact(one, "Drawn shape"), "the FAA's published outline for this notice, copied from tfr.faa.gov; it was not sent by the notice feed");
+  assert.equal(fact(one, "FAA list type"), "HAZARDS");
+  assert.equal(fact(one, "Place"), "20NM W LEXINGTON, VIRGINIA");
+  assert.equal(fact(one, "Lower limit"), "surface");
+  assert.equal(fact(one, "Upper limit"), "1219 m above sea level");
+  assert.equal(fact(one, "Hours"), "certain hours only, written in the notice text; listed here for its whole period");
+  assert.equal(fact(one, "Rule cited"), "14 CFR 91.137 (disaster or hazard area)");
+  assert.deepEqual(one.stats.map((s) => s.value).slice(2), ["surface", "4000ft"]);
+  assert.match(one.body, /^Notice text, as the FAA publishes it:\n!FDC 6\/9306/);
+  assert.match(one.body, /FAA public list of flight restrictions \(tfr\.faa\.gov\), read 4 min ago\. The outline and the limits are the FAA's own, copied as published\./);
+  assert.ok(!one.body.includes("notice feed (SWIM"), "a list row is never called a feed row");
+  assert.match(one.body, /not for flight planning or any operational use\.$/);
+
+  const many = restrictionCard(v.rows.find((x) => x.id === "FAA:6/9276")!, NOW, U, true, v.faaList);
+  assert.equal(fact(many, "Area A"), "surface to 762 m above sea level");
+  assert.equal(fact(many, "Area 2"), "FL320 (9754 m) to FL430 (13106 m)");
+  assert.equal(fact(many, "Area E"), "366 m above sea level to not given");
+  assert.equal(fact(many, "Hours"), undefined);
+  assert.equal(fact(many, "Drawn shape"), "the FAA's published outline for this notice (2 areas), copied from tfr.faa.gov; it was not sent by the notice feed. 1 more area of this notice has no published outline and is not drawn");
+  assert.deepEqual(many.stats.map((s) => s.value).slice(2), ["varies", "varies"]);
+  assert.equal(many.stats[0].label, "Starts");
+
+  assert.equal(faaLimitWords({ value: 3000, uom: "FT", ref: "HEI" }, U), "914 m above the ground");
+  assert.equal(faaLimitWords({ value: 3000, uom: "FT", ref: null }, U), "914 m (reference not given)");
+  assert.equal(faaLimitChip(null), "n/a");
+  assert.equal(faaLimitChip({ value: 430, uom: "FL", ref: "ALT" }), "FL430");
+});
+
+test("a feed row's card says where it stands against the FAA's list only when that list was read", () => {
+  const v = parseFlightRestrictions(listAnswer([ZAGREB], LIST_OK))!;
+  const withList = restrictionCard(v.rows[0], NOW, U, true, v.faaList);
+  assert.ok(withList.body.includes(FEED_ROW_WITH_LIST_SENTENCE));
+  assert.ok(!withList.body.includes("This is not the FAA's complete list"));
+  for (const list of [null, { ...v.faaList!, status: "unreachable" as const, readAt: null }]) {
+    const without = restrictionCard(v.rows[0], NOW, U, true, list);
+    assert.ok(without.body.includes("This is not the FAA's complete list"));
+    assert.ok(!without.body.includes(FEED_ROW_WITH_LIST_SENTENCE));
+  }
+  // the fourth argument alone (the call every older caller makes) is unchanged
+  assert.equal(restrictionCard(v.rows[0], NOW, U, true).body, restrictionCard(v.rows[0], NOW, U, true, null).body);
 });

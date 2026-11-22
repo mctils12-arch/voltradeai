@@ -203,6 +203,13 @@ export class NotamStore {
       .sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
   }
 
+  /** The citations ("FDC 6/9306") of every restriction held, in force or not. */
+  citations(): Set<string> {
+    const out = new Set<string>();
+    for (const t of Array.from(this.tfrs.values())) if (t.citation) out.add(t.citation);
+    return out;
+  }
+
   /** The flight restrictions not yet ended: what a restart must not lose. */
   snapshot(now: number = Date.now()): TfrRecord[] {
     this.evict(now);

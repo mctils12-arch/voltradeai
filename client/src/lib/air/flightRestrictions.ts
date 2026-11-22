@@ -22,6 +22,19 @@
 //   LIMITS are the notice's index flight levels (000 = surface, 999 =
 //   unlimited); they can be wider than the limits written in the text, and
 //   the card says so.
+// TWO SOURCES, EACH LABELLED (2026-11-22). The server also reads the FAA's
+// own public list of flight restrictions (tfr.faa.gov, server/faaTfrList.ts)
+// every 30 minutes: a row with source "faa_list" is a listed US restriction
+// drawn with the FAA's own published outline (shape "faa", solid), with the
+// limits of each of its areas as the FAA's file writes them. When both the
+// list and the feed hold a notice, the server sends the list's row. The
+// status line says when the list was read and how many listed notices have
+// no published outline (they are named by the route and never drawn). With
+// the list read and fresh the layer holds every US restriction the FAA
+// lists with an outline; notices from other countries still come from the
+// feed alone. When the list has not been read, could not be reached or is
+// older than 24 hours, the wording below (written before the list existed)
+// is what the layer says:
 // NOT A COMPLETE LIST. Checked 2026-11-21 18:40Z against the FAA's own list
 // (tfr.faa.gov): 66 restrictions there, 18 held here, 1 of them in force.
 // The server lists a restriction only when the feed has sent its notice
@@ -120,8 +133,10 @@ export interface FlightRestriction {
   /** index flight levels as sent (hundreds of feet; 0 = surface, 999 = unlimited) */
   minFl: number | null; maxFl: number | null;
   /** "own" = the restriction's outline as sent; "text" = the outline read from the notice's words;
-   *  "enclosing" = the notice's index circle */
-  shape: "own" | "text" | "enclosing";
+   *  "enclosing" = the notice's index circle; "faa" = the FAA's published outline, from its public list */
+  shape: "own" | "text" | "enclosing" | "faa";
+  /** shape "faa" only: what the FAA's list and detail file say about the notice; null on a feed row */
+  faa: FaaFacts | null;
   /** shape "text" only: areas the text defines that could not be followed and are not drawn */
   unreadAreas: number;
   /** outlines in GeoJSON order [lon, lat], each closed; several = several separate areas */
@@ -131,6 +146,20 @@ export interface FlightRestriction {
   radiusNm: number | null;
   text: string | null;
   inForce: boolean;
+}
+/** one height limit as the FAA's file writes it: feet above sea level (ALT) or above the ground (HEI), or a flight level */
+export interface FaaLimit { value: number; uom: "FT" | "FL"; ref: "ALT" | "HEI" | "STD" | null }
+export interface FaaAreaLimits { name: string | null; lower: FaaLimit | null; upper: FaaLimit | null; scheduled: boolean }
+export interface FaaFacts { type: string | null; rule: string | null; place: string | null; areas: FaaAreaLimits[]; areasWithoutOutline: number }
+/** the server's read of the FAA's public list, as the route reports it */
+export interface FaaListView {
+  status: "off" | "never" | "ok" | "stale" | "unreachable";
+  readAt: number | null;
+  listed: number; withOutline: number; withoutOutline: number; pending: number;
+  /** listed notices the feed's own store also holds; null = not said */
+  alsoInFeed: number | null;
+  /** rows in this answer that came from the list */
+  served: number;
 }
 export interface NoticeFeed { connected: boolean; lastMessageAt: number | null }
 export interface FlightRestrictionsView {
@@ -148,6 +177,8 @@ export interface FlightRestrictionsView {
   /** true = the server saves its list across a restart */
   kept: boolean;
   source: string | null;
+  /** null = the server does not read the FAA's public list (an older server) */
+  faaList: FaaListView | null;
 }
 
 const latOk = (v: unknown): v is number => fin(v) && Math.abs(v) <= 90;
@@ -186,6 +217,29 @@ function ownRing(raw: unknown): LonLat[] | null {
   return pts;
 }
 
+function faaLimit(v: unknown): FaaLimit | null {
+  const o = obj(v);
+  if (!o || !fin(o.value) || o.value < 0 || (o.uom !== "FT" && o.uom !== "FL")) return null;
+  return { value: o.value, uom: o.uom, ref: o.ref === "ALT" || o.ref === "HEI" || o.ref === "STD" ? o.ref : null };
+}
+function faaFacts(v: unknown): FaaFacts {
+  const o = obj(v);
+  const areas = (o && Array.isArray(o.areas) ? o.areas : []).map(obj).filter((a): a is Record<string, unknown> => !!a)
+    .map((a) => ({ name: str(a.name), lower: faaLimit(a.lower), upper: faaLimit(a.upper), scheduled: a.scheduled === true }));
+  return { type: o ? str(o.type) : null, rule: o ? str(o.rule) : null, place: o ? str(o.place) : null, areas, areasWithoutOutline: o && fin(o.areas_without_outline) ? o.areas_without_outline : 0 };
+}
+const LIST_STATUS = ["off", "never", "ok", "stale", "unreachable"] as const;
+function faaListView(v: unknown): FaaListView | null {
+  const o = obj(v);
+  const status = o ? LIST_STATUS.find((x) => x === o.status) : undefined;
+  if (!o || !status) return null;
+  const n = (x: unknown) => (fin(x) && x >= 0 ? Math.floor(x) : 0);
+  return {
+    status, readAt: fin(o.read_at) ? o.read_at : null, listed: n(o.listed), withOutline: n(o.with_outline), withoutOutline: n(o.without_outline),
+    pending: n(o.detail_pending), alsoInFeed: fin(o.also_in_feed) ? o.also_in_feed : null, served: n(o.served),
+  };
+}
+
 /** GET /api/data/swim/notam/tfrs -> the layer's rows; null on another shape. */
 export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_MAX_FEATURES): FlightRestrictionsView | null {
   const o = obj(raw);
@@ -205,7 +259,7 @@ export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_
     if (g.kind === "polygon") {
       rings = (Array.isArray(g.rings) ? g.rings : []).map(ownRing).filter((r): r is LonLat[] => !!r);
       if (!rings.length) { unreadable++; continue; }
-      shape = g.from === "text" ? "text" : "own";
+      shape = g.from === "text" ? "text" : g.from === "faa_list" ? "faa" : "own";
       const first = rings[0].slice(0, -1);
       center = qc ?? [first.reduce((s, p) => s + p[0], 0) / first.length, first.reduce((s, p) => s + p[1], 0) / first.length];
     } else if (g.kind === "circle") {
@@ -222,7 +276,8 @@ export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_
       kind: restrictionKind(text, qcode), rules: rulesCited(text),
       issuedMs: fin(t.issued) ? t.issued : null, startMs, endMs: fin(t.end) ? t.end : null,
       minFl: fin(t.minFl) ? t.minFl : null, maxFl: fin(t.maxFl) ? t.maxFl : null,
-      shape, unreadAreas: shape === "text" && fin(g.unread) && g.unread > 0 ? Math.floor(g.unread) : 0, rings, center, radiusNm, text, inForce: startMs === null || startMs <= now,
+      shape, faa: shape === "faa" ? faaFacts(t.faa) : null,
+      unreadAreas: shape === "text" && fin(g.unread) && g.unread > 0 ? Math.floor(g.unread) : 0, rings, center, radiusNm, text, inForce: startMs === null || startMs <= now,
     });
   }
   // in force first, then the soonest to start; the cap cuts from the end
@@ -235,7 +290,7 @@ export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_
     held: stats && fin(stats.tfrs) ? stats.tfrs : null,
     withoutShape: stats && fin(stats.tfrs_without_shape) ? stats.tfrs_without_shape : null,
     feed: feed ? { connected: feed.connected === true, lastMessageAt: fin(feed.last_message_at) ? feed.last_message_at : null } : null,
-    kept: !!kept, source: str(o.source),
+    kept: !!kept, source: str(o.source), faaList: faaListView(o.faa_list),
   };
 }
 
@@ -244,7 +299,9 @@ export interface FeatureCollection { type: "FeatureCollection"; features: Featur
 
 /** The two sources the layer draws: the areas (one MultiPolygon per restriction) and one symbol point each. */
 export function restrictionFeatures(rows: FlightRestriction[]): { areas: FeatureCollection; points: FeatureCollection } {
-  const props = (r: FlightRestriction) => ({ id: r.id, kind: r.kind, color: RESTRICTION_KIND_COLOR[r.kind], shape: r.shape, in_force: r.inForce });
+  // `shape` here is the LINE STYLE: the FAA's published outline is drawn like an outline the feed sent (solid);
+  // where it came from is `from_list` (on list rows only), and the card names the source
+  const props = (r: FlightRestriction) => ({ id: r.id, kind: r.kind, color: RESTRICTION_KIND_COLOR[r.kind], shape: r.shape === "faa" ? "own" : r.shape, in_force: r.inForce, ...(r.shape === "faa" ? { from_list: true } : {}) });
   return {
     areas: { type: "FeatureCollection", features: rows.map((r) => ({ type: "Feature", geometry: { type: "MultiPolygon", coordinates: r.rings.map((ring) => [ring]) }, properties: props(r) })) },
     points: { type: "FeatureCollection", features: rows.map((r) => ({ type: "Feature", geometry: { type: "Point", coordinates: r.center }, properties: props(r) })) },
@@ -271,11 +328,34 @@ export function feedWords(v: FlightRestrictionsView, nowMs: number): string {
   return f.lastMessageAt !== null && nowMs - f.lastMessageAt > NOTICE_FEED_QUIET_MS ? `notice feed quiet, ${last}` : last;
 }
 
+/** true = the FAA's public list was read and is fresh enough to be served */
+export const listOk = (l: FaaListView | null | undefined): boolean => !!l && l.status === "ok" && l.readAt !== null;
+
+/** What the status line says about the FAA's public list; null = an older server that does not read it. */
+export function listWords(l: FaaListView | null, nowMs: number): string | null {
+  if (!l) return null;
+  if (listOk(l)) {
+    const parts = [
+      `${l.withOutline} with a published outline`,
+      l.withoutOutline ? `${l.withoutOutline} with none (not drawn)` : null,
+      l.pending ? `${l.pending} not yet read` : null,
+    ].filter(Boolean).join(", ");
+    return `FAA public list read ${agoWords(l.readAt as number, nowMs)}: ${l.listed} US restriction${l.listed === 1 ? "" : "s"} listed, ${parts} · other countries: only what the notice feed has sent`;
+  }
+  const why = l.status === "off" ? "the FAA's public list is not being read"
+    : l.status === "stale" && l.readAt !== null ? `the FAA's public list was last read ${agoWords(l.readAt, nowMs)}, too long ago to show`
+    : l.status === "unreachable" ? "the FAA's public list could not be reached"
+    : "the FAA's public list has not been read yet";
+  return `${NOT_COMPLETE}: ${why}`;
+}
+
 /** The layer's status line in the layers panel. */
 export function statusWords(v: FlightRestrictionsView, nowMs: number): string {
   const n = v.rows.length;
   const starting = v.rows.filter((r) => !r.inForce).length;
-  const held = v.held !== null ? ` of ${v.held} held` : "";
+  const fromList = v.rows.filter((r) => r.shape === "faa").length;
+  // with rows from the list on the map, "of N held" would mix two sources: the feed's count is said apart
+  const held = v.held !== null ? (fromList ? ` (${fromList} from the FAA's public list, ${n - fromList} from the notice feed, which holds ${v.held})` : ` of ${v.held} held`) : "";
   const head = n === 0
     ? `None in force or starting within 6 hours${v.held !== null ? ` among the ${v.held} held from the FAA notice feed` : ""}`
     : `${n - starting} in force, ${starting} starting within 6 hours${held}`;
@@ -283,7 +363,7 @@ export function statusWords(v: FlightRestrictionsView, nowMs: number): string {
     v.cut ? `${v.cut} more not drawn (limit ${FLIGHT_RESTRICTIONS_MAX_FEATURES.toLocaleString("en-US")})` : null,
     v.unreadable ? `${v.unreadable} could not be read` : null,
     v.withoutShape ? `${v.withoutShape} restriction notice${v.withoutShape === 1 ? "" : "s"} arrived without a shape and ${v.withoutShape === 1 ? "is" : "are"} not drawn` : null,
-    NOT_COMPLETE,
+    listWords(v.faaList, nowMs) ?? NOT_COMPLETE,
     feedWords(v, nowMs),
   ].filter(Boolean);
   return [head, ...tail].join(" · ");
@@ -297,6 +377,20 @@ export function limitWords(fl: number | null, u: UnitWords): string {
   if (fl <= 0) return "surface";
   if (fl >= 999) return "unlimited";
   return `FL${String(Math.round(fl)).padStart(3, "0")} (${u.meters(fl * FL_TO_M)})`;
+}
+
+const FT_TO_M = 0.3048;
+/** an FAA-file limit in words: "surface" / "4,000 ft above sea level" / "3,000 ft above the ground" / "FL430 (43,000 ft)" */
+export function faaLimitWords(l: FaaLimit | null, u: UnitWords): string {
+  if (!l) return "not given";
+  if (l.value === 0) return "surface";
+  if (l.uom === "FL") return `FL${String(Math.round(l.value)).padStart(3, "0")} (${u.meters(l.value * FL_TO_M)})`;
+  return `${u.meters(l.value * FT_TO_M)} ${l.ref === "HEI" ? "above the ground" : l.ref === "ALT" ? "above sea level" : "(reference not given)"}`;
+}
+/** the same limit for a chip, as the FAA's file writes it: "surface" / "4000ft" / "FL430" / "n/a" */
+export function faaLimitChip(l: FaaLimit | null): string {
+  if (!l) return "n/a";
+  return l.value === 0 ? "surface" : l.uom === "FL" ? `FL${String(Math.round(l.value)).padStart(3, "0")}` : `${Math.round(l.value)}ft`;
 }
 
 /** A chip holds about seven characters (the card draws four across): "surface" / "unlim." / "FL085" / "n/a".
@@ -327,7 +421,8 @@ export interface RestrictionCard {
 }
 
 /** Everything the detail card shows for one restriction. */
-export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWords, kept: boolean): RestrictionCard {
+export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWords, kept: boolean, list: FaaListView | null = null): RestrictionCard {
+  if (r.shape === "faa") return listCard(r, nowMs, u, list);
   const rule = r.rules.length
     ? r.rules.map((x) => `14 CFR ${x} (${RULE_WORDS[x]})`).join(", ")
     : r.kind === "icao_temporary" ? "none cited; ICAO Q-code subject RT, temporary restricted area" : "none cited in the notice";
@@ -371,7 +466,57 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
       + (r.minFl === null && r.maxFl === null
       ? "This notice has no index limits; its lower and upper limits are written in its text. "
       : "The lower and upper limits are the notice's index values; they can be wider than the limits written in its text. ")
-      + `FAA notice feed (SWIM FNS NOTAM), as received. ${NOT_COMPLETE_SENTENCE} ${restart} Displayed as-is; not for flight planning or any operational use.`,
+      + `FAA notice feed (SWIM FNS NOTAM), as received. ${listOk(list) ? FEED_ROW_WITH_LIST_SENTENCE : NOT_COMPLETE_SENTENCE} ${restart} Displayed as-is; not for flight planning or any operational use.`,
+  };
+}
+
+/** said on a feed row's card when the FAA's public list is being read */
+export const FEED_ROW_WITH_LIST_SENTENCE = "This restriction came from the notice feed. The US restrictions on the FAA's own public list (tfr.faa.gov) are read every 30 minutes and drawn with the FAA's outline; a notice that is only in the feed, like this one, is here only when the feed has sent it since the server began keeping the list (2026-11-21).";
+
+/** The card of a restriction read from the FAA's public list (shape "faa"). */
+function listCard(r: FlightRestriction, nowMs: number, u: UnitWords, list: FaaListView | null): RestrictionCard {
+  const f = r.faa ?? { type: null, rule: null, place: null, areas: [], areasWithoutOutline: 0 };
+  const rule = r.rules.length
+    ? r.rules.map((x) => `14 CFR ${x} (${RULE_WORDS[x]})`).join(", ")
+    : f.rule ? `none of the flight-restriction sections in its text; the FAA's file names "${f.rule}"` : "none cited in the notice";
+  const areas = r.rings.length > 1 ? ` (${r.rings.length} areas)` : "";
+  const one = f.areas.length === 1 ? f.areas[0] : null;
+  const scheduled = f.areas.some((a) => a.scheduled);
+  const areaFacts = one
+    ? [{ label: "Lower limit", value: faaLimitWords(one.lower, u) }, { label: "Upper limit", value: faaLimitWords(one.upper, u) }]
+    : f.areas.map((a, i) => ({ label: a.name ? a.name : `Area ${i + 1}`, value: `${faaLimitWords(a.lower, u)} to ${faaLimitWords(a.upper, u)}` }));
+  const facts = [
+    { label: "Notice", value: r.notice },
+    { label: "Kind", value: RESTRICTION_KIND_LABEL[r.kind] },
+    { label: "Rule cited", value: rule },
+    f.type ? { label: "FAA list type", value: f.type } : null,
+    f.place ? { label: "Place", value: f.place } : null,
+    { label: "Drawn shape", value: `the FAA's published outline for this notice${areas}, copied from tfr.faa.gov; it was not sent by the notice feed`
+      + (f.areasWithoutOutline ? `. ${f.areasWithoutOutline} more area${f.areasWithoutOutline === 1 ? "" : "s"} of this notice ${f.areasWithoutOutline === 1 ? "has" : "have"} no published outline and ${f.areasWithoutOutline === 1 ? "is" : "are"} not drawn` : "") },
+    r.startMs !== null ? { label: r.inForce ? "In force since" : "Starts", value: zuluAt(r.startMs, nowMs) } : null,
+    { label: "Ends", value: r.endMs !== null ? zuluAt(r.endMs, nowMs) : "no end published" },
+    scheduled ? { label: "Hours", value: "certain hours only, written in the notice text; listed here for its whole period" } : null,
+    ...areaFacts,
+    r.issuedMs !== null ? { label: "Issued", value: zuluAt(r.issuedMs, nowMs) } : null,
+    r.location ? { label: "FAA facility", value: r.location } : null,
+    { label: "Issued by", value: CLASSIFICATION_WORDS.FDC },
+  ].filter((x): x is { label: string; value: string } => !!x);
+  const read = list && list.readAt !== null ? `, read ${agoWords(list.readAt, nowMs)}` : "";
+  return {
+    title: `Flight restriction ${r.notice}`,
+    subtitle: `${RESTRICTION_KIND_LABEL[r.kind]} · ${periodWords(r, nowMs)}`,
+    stats: [
+      { label: r.inForce ? "Status" : "Starts", value: r.inForce ? "active" : chipTime(r.startMs, nowMs) },
+      { label: "Ends", value: chipTime(r.endMs, nowMs) },
+      { label: "Lower", value: one ? faaLimitChip(one.lower) : f.areas.length ? "varies" : "n/a" },
+      { label: "Upper", value: one ? faaLimitChip(one.upper) : f.areas.length ? "varies" : "n/a" },
+    ],
+    facts,
+    sourceTag: "FAA public list",
+    body: `${r.text ? `Notice text, as the FAA publishes it:\n${r.text}\n\n` : ""}`
+      + `FAA public list of flight restrictions (tfr.faa.gov)${read}. The outline and the limits are the FAA's own, copied as published. `
+      + "A restriction stays here while the FAA lists it and is removed at the first read after the FAA takes it off its list. "
+      + "Displayed as-is; not for flight planning or any operational use.",
   };
 }
 
@@ -412,6 +557,8 @@ export function drawRestrictions(map: RestrictionMap, rows: FlightRestriction[])
     paint: { "fill-color": ["get", "color"], "fill-opacity": faint(0.16, 0.05) },
   });
   map.addLayer({
+    // solid: an outline that is the restriction's own, as the feed sent it or as the FAA
+    // publishes it (a list row's feature carries shape "own" and from_list true)
     id: "flight-restrictions-line", type: "line", source: RESTRICTION_SOURCES[0], filter: ["==", ["get", "shape"], "own"],
     paint: { "line-color": ["get", "color"], "line-width": 1.6, "line-opacity": faint(0.95, 0.55) },
   });

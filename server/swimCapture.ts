@@ -24,9 +24,10 @@ import type { Express } from "express";
 import { startSwimProduct, swimProductStatus, swimProductsEnvStatus, SWIM_PRODUCTS, type SwimConnectorHandle } from "./swimConnector";
 import { checkDiagToken, diagEnabled } from "./diag";
 import { TfmsStore } from "./swimTfms";
-import { NotamStore, TFR_TEXT_RE } from "./swimNotam";
+import { NotamStore, TFR_TEXT_RE, type TfrRecord } from "./swimNotam";
 import { trackMap } from "./heapDiag";
 import { createSwimKeeper, type SwimKeeper, type SwimKeepView } from "./swimStoreKeep";
+import { sharedFaaTfrList, faaTfrListEnabled } from "./faaTfrList";
 
 // TFMS parser (written against the captured samples): every TFMS payload is
 // profiled AND parsed into programs / airport configs / per-flight
@@ -206,6 +207,35 @@ export function keptFor(which: "tfms" | "notam", v: SwimKeepView | null = swimKe
  *  by NAME, transport status, per-hour cadence and the content-free shape
  *  profile) and GET /api/data/swim/samples (diag-token: raw samples to write
  *  the parsers against). */
+/** What GET /api/data/swim/notam/tfrs answers: the notice feed's rows and the
+ *  rows read from the FAA's public list (faaTfrList.ts), each labelled with
+ *  where it came from. ONE ROW PER NOTICE: when both hold an FDC notice, the
+ *  FAA's published outline is served and the feed's row is left out, unless
+ *  the feed's row carries airspace geometry as sent (then the feed's stays).
+ *  `faa_list` is the coverage check against the FAA's list at its last read. */
+export function flightRestrictionsAnswer(now: number, env: NodeJS.ProcessEnv = process.env) {
+  const st = sharedNotamStore();
+  st.evict(now);
+  const list = sharedFaaTfrList();
+  const feedRows = st.active(now);
+  const sentGeometry = (t: TfrRecord) => t.geometry?.kind === "polygon" && !("from" in t.geometry);
+  const keptFeed = new Set(feedRows.filter(sentGeometry).map((t) => t.citation).filter((c): c is string => !!c));
+  const listCites = list.citations(now);
+  const fromFeed = feedRows.filter((t) => !t.citation || !listCites.has(t.citation) || sentGeometry(t));
+  const fromList = list.active(now).filter((r) => !keptFeed.has(r.citation));
+  const feed = swimProductStatus("NOTAM");
+  return {
+    at: now, tfrs: [...fromFeed, ...fromList], stats: st.stats(), kept: keptFor("notam"),
+    // how old the list is (RENDERING & MOTION LAW V): whether the notice
+    // feed is connected and when its newest message arrived (any notice,
+    // not only a flight restriction)
+    feed: { connected: feed.connected, last_message_at: feed.lastMessageAt },
+    faa_list: { ...list.coverage(now, faaTfrListEnabled(env), st.citations()), served: fromList.length },
+    source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use); rows with source 'faa_list' are from the FAA's public list at tfr.faa.gov",
+    note: "A row with source 'faa_list' was read from the FAA's public list (tfr.faa.gov), not from the notice feed: its geometry (from:'faa_list') is the FAA's own published outline, its limits are in faa.areas, and `faa_list` says when that list was read and how many listed notices have no published outline. Every other row is from the notice feed: geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area. 'polygon' is the restriction's own shape as sent, unless it carries from:'text': then the outline was read from the notice's words (the notice sent no geometry), circles and arcs drawn as 5-degree straight sides, and `unread` counts areas the text defines that could not be followed.",
+  };
+}
+
 export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv = process.env): void {
   app.get("/api/data/swim/products", (_req, res) => {
     const envStatus = swimProductsEnvStatus(env);
@@ -251,20 +281,8 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
   // exact polygon when the NOTAM carries airspace geometry, else its Q-line
   // circle labeled approximate
   app.get("/api/data/swim/notam/tfrs", (_req, res) => {
-    const st = sharedNotamStore();
-    const now = Date.now();
-    st.evict(now);
-    const feed = swimProductStatus("NOTAM");
     res.set("Cache-Control", "public, max-age=60");
-    res.json({
-      at: now, tfrs: st.active(now), stats: st.stats(), kept: keptFor("notam"),
-      // how old the list is (RENDERING & MOTION LAW V): whether the notice
-      // feed is connected and when its newest message arrived (any notice,
-      // not only a flight restriction)
-      feed: { connected: feed.connected, last_message_at: feed.lastMessageAt },
-      source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use)",
-      note: "geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area. 'polygon' is the restriction's own shape as sent, unless it carries from:'text': then the outline was read from the notice's words (the notice sent no geometry), circles and arcs drawn as 5-degree straight sides, and `unread` counts areas the text defines that could not be followed.",
-    });
+    res.json(flightRestrictionsAnswer(Date.now(), env));
   });
 
   app.get("/api/data/swim/samples", (req, res) => {
