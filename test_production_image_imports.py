@@ -288,6 +288,29 @@ def test_earnings_qoq_job_command_runs_in_the_production_image_layout(tmp_path):
     assert "earnings8k" in str(summary.get("reason")), summary
 
 
+def test_filings13f_clusters_job_command_runs_in_the_production_image_layout(tmp_path):
+    """The nightly 13F cluster job's command (server/filings13fClusters.ts), run
+    as written with cwd = the image layout (the class of the 2026-11-15 break)."""
+    src = open(os.path.join(REPO, "server", "filings13fClusters.ts"), encoding="utf-8").read()
+    m = re.search(r"return `(python3 [^`]+)`;", src)
+    assert m, "filings13fClustersCmd's command template not found"
+    cmd = m.group(1).replace("${FILINGS13F_CLUSTERS_MAX_RSS_MB}", "700").replace("${v}", "0.0.0-test")
+    assert "${" not in cmd, cmd
+    assert cmd.split()[1] in _server_python_commands(), "the command scan must see this job's file"
+    layout, data = tmp_path / "app", tmp_path / "data"
+    layout.mkdir(); data.mkdir()
+    _image_layout(str(layout))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["DATA_DIR"] = str(data)
+    argv = [sys.executable] + cmd.split()[1:]
+    r = subprocess.run(argv, cwd=str(layout), env=env, capture_output=True, text=True, timeout=300)
+    assert "can't open file" not in r.stderr and "ModuleNotFoundError" not in r.stderr, r.stderr[-2000:]
+    summary = json.loads((r.stdout.strip().split("\n") or [""])[-1])
+    # an empty volume has no 13F archive: the honest outcome is "skipped"
+    assert summary.get("status") == "skipped", summary
+    assert "filings13f" in str(summary.get("reason")), summary
+
+
 @pytest.mark.parametrize("name,attr", EARNINGS_MOVED)
 def test_earnings_language_scripts_shim_serves_the_root_module(name, attr):
     root_file = os.path.join(REPO, name + ".py")

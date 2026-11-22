@@ -55,9 +55,14 @@
    "status": "gate1_pass",
    "current_gate": 1,
    "detail_route": "#/data/filings13f",
-   "last_update_date": "2026-07-05",
-   "note": "Gate 1 (parser accuracy on hand-checked real filings) PASSED; gate 2 (new-position clustering vs forward returns) waits for a second consecutive quarterly filing period in the archive, earliest useful cut ~Oct-Nov 2026.",
-   "source_ref": "open_questions.md:5857-5871"
+   "last_update_date": "2026-11-22",
+   "note": "Gate 1 (parser accuracy on hand-checked real filings) PASSED 2026-07-05; archive completeness against EDGAR's daily index has run nightly since 2026-11-19 (probe filings13f_completeness). 2026-11-22: the two-quarter condition is met (the Q3-2026 season closed 2026-11-16) and the cluster DETECTOR is built and runs itself: filings13f_clusters.py (repo root) under the nightly job filings13f_clusters_nightly (server/filings13fClusters.ts, 05:00-06:00 ET, probe filings13f_clusters). It lists securities that at least 3 focused managers newly reported in a quarter, dated by the third entrant's filing day, split by how many held the issuer the quarter before (thin 1-10, no prior holder, broad), plus the thin near misses as the comparison set. It reads no price. Gate 2 is NOT attempted: the test is pre-registered in open_questions.md (2026-11-22) before any forward return exists; its runner (CUSIP to ticker, bars, the liquidity filter) is a later change. The 60-trading-day window of the first season's events closes about 2027-02-12; that first look is informational and cannot pass the gate (one season is one cluster of dates); the registered verdict needs three seasons, about 2027-08.",
+   "readiness_trigger": {
+    "type": "date",
+    "not_before": "2027-02-16",
+    "source_note": "First season's 60-trading-day returns exist from about 2027-02-12 (entry the day after the 2026-11-16 deadline). On/after not_before: read /api/diag/filings13f_clusters for the event and comparison counts, build the gate-2 runner exactly as pre-registered in open_questions.md 2026-11-22 (no definition may change after a return is seen), and run the first, informational look. The registered verdict is not before three seasons have matured (about 2027-08-13)."
+   },
+   "source_ref": "open_questions.md 2026-11-22 entry (gate-2 pre-registration); open_questions.md:12283-12298 (hypothesis as filed 2026-07-05); filings13f_clusters.py (definitions); server/filings13fClusters.ts; experiments.md 2026-11-22 EDGE entry"
   },
   {
    "id": "usaspending_contracts",

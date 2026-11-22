@@ -361,6 +361,22 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_XBRL_FRAMES off",
   },
   {
+    // filings13fClusters.ts bootFilings13fClusters: 20-min tick, one run per ET
+    // day started inside 05:00-06:00 (filings13f_clusters.py over the volume's
+    // 13F archive, seconds): the list of securities several focused managers
+    // newly reported in a quarter. No price is read. A day whose run finished
+    // before a restart is not run again (last_run.json).
+    id: "filings13f_clusters_nightly", label: "13F new-position clusters (nightly, 05:00-06:00 ET)",
+    source: "server/filings13fClusters.ts", kind: "daily", tz: "America/New_York", dueMin: 5 * 60,
+    graceMs: 90 * MIN, maxRunMs: 30 * MIN, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_13F_CLUSTERS;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_13F_CLUSTERS off",
+  },
+  {
     // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,
