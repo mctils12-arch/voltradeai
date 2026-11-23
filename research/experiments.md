@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-22 (same scheduled EDGE session, after #1889 merged and deployed; Sun 22:15 ET = 2026-11-23 03:15Z, MARKET CLOSED) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — the two recorded gate-2 verdicts judged on production: both priors held (research only, v1.0.1530)
+VERSION: v1.0.1530 (main was v1.0.1529). No code.
+WHAT: the CHECK AFTER DEPLOY of the entry below, read at 03:15Z, one minute after v1.0.1529 was live (#1889 merged 03:11Z, live 03:14Z).
+PRIORS (written in the entry below before the merge) AND RESULT: 95% that the 8-K root is no longer listed under "in validation": HELD. /api/data/signal-products `in_validation` reads one root, cftc_cot_positioning. 95% that `python3 scripts/ladder_verdict_check.py` reads 2 AGREES: HELD.
+ALSO READ: /api/data/signal-ladder gives both roots gate2_fail; by_status gate2_fail 11, gate2_pending 1, gate1_pass 13. /api/health serving gates ok, server_version = main.
+NOT DONE: /api/v1/signals itself was not read (it needs an API key this session does not hold); it is built from the same function as the public route that was read. The Signals page was not opened in a browser.
+NEXT: unchanged from the entry below.
+STARVED: yes — queued and not reached: (ac2), (x4), (ab2), (x2), (w2), (aa4).
+
 ## 2026-11-22 (scheduled routine, EDGE prompt, Sun 21:35 ET = 2026-11-23 02:35Z, MARKET CLOSED) [RESEARCH] — shared tooling and research only (scripts/ladder_verdict_check.py + test, new; scripts/session_health_check.py: one check; datacore/signal_ladder.json: two rows and the field's description; research/*; package.json) — two registered gate-2 verdicts read and recorded, both FAIL (8-K earnings-language QoQ delta; GitHub engineering momentum); reading a registered verdict against the ladder is now a check every session start runs (v1.0.1529)
 VERSION: v1.0.1529 (main was v1.0.1528, read at commit time).
 TERRITORY: research/* and scripts/ tooling, plus the shared datacore/signal_ladder.json. No strategy, parameter, sizing, risk-limit or measurement code. Nothing in the trading path reads any of it.
