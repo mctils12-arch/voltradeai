@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-23 (same scheduled PRODUCT session, after #1891 merged and deployed; Mon 08:42 ET = 13:42Z, BEFORE THE OPEN) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — the keyed flight-restriction mirror judged on production: listed in the catalog, the tool list and the OpenAPI document, refused without a key; four of five priors readable and held (research only, v1.0.1532)
+VERSION: v1.0.1532 (main was v1.0.1531). No code.
+WHAT: the CHECK AFTER DEPLOY of the entry below, (ad1), read at 13:42Z, about two minutes after v1.0.1531 was live (#1891 merged 13:38Z, live 13:40Z).
+PRIORS (written in open_questions.md before the merge) AND RESULT: 95% that /api/v1/meta lists the path: HELD (params "?days<=31 (default 7)", and the licence mark is in `license_marks`). 95% that /api/v1/agent-tools holds `voltrade_flight_restrictions_history`: HELD (59 tools). 95% that /api/v1/openapi.json has the path with a typed `data` schema: HELD (the eleven top-level fields). 95% that the keyed route without a key answers 401 with `waitlist: true`: HELD. 90% that with a key `data` equals the public route's answer: NOT READABLE, this session holds no API key; the public route answered in the same minute (recording, 6 events, 44 open).
+ALSO READ: /api/health status ok, serving gates ok, server_version = main.
+NOT DONE: the keyed 200 (needs a key); the /developers page was not opened in a browser.
+NEXT: unchanged from the entry below.
+STARVED: yes — queued and not reached: (x4), (x2), (ac2), (w2), (aa4).
+
 ## 2026-11-23 (scheduled routine, PRODUCT prompt, Mon 08:03 ET = 13:03Z, BEFORE THE OPEN) [PRODUCT] — T-DATACORE primary (server/apiProduct.ts: one licence mark, one catalog entry, one agent tool, one response schema; server/apiProduct.test.ts; server/faaTfrArchive.test.ts: the schema checked against a real answer); shared last-and-minimal: server/routes.ts (one keyed route, one import), UI_COVERAGE.md (regenerated), research/*, package.json — the record of US flight restrictions is on the keyed data API: GET /api/v1/data/flight-restrictions-history ((ab2), v1.0.1531)
 VERSION: v1.0.1531 (main was v1.0.1530, read at commit time).
 TERRITORY: T-DATACORE (the API product boundary). No client file, no strategy, parameter, sizing or measurement code. Nothing in the trading path reads this.
