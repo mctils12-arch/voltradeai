@@ -163,6 +163,16 @@ BASE_CONFIG = {
     # (6) that tiered_strategy.py's own get_regime_caps() fallback already
     # assumed when this key didn't exist.
     "MAX_OPTIONS_POSITIONS": 6,    # Max total open OPTIONS (CSP) positions
+    # 2026-11-23 [REPAIR] KNOWN BROKEN #18: seconds after a full scan starts
+    # at which the options scanner's per-ticker stage starts no new ticker.
+    # Reason: the daemon abandons run_full_scan at 300 s and the stage alone
+    # ran about 200 s (4 of 23 scans returned nothing, 16:52-20:16Z). 240
+    # leaves 60 s for what follows it (the tier engine's 45 s prefetch cap and
+    # its 15 s shadow cap). Expected effect: no scan lost to the stage; on a
+    # slow scan the smallest movers are not read (counted at
+    # /api/diag/timings, phase options_stage_deadline). A resource bound, not
+    # a trade rule. 0 or less turns it off.
+    "SCAN_OPTIONS_STAGE_DEADLINE_SEC": 240.0,
     "MAX_OPTIONS_PCT":      0.08,  # Max 8% per options position (v1.0.34: was 10%)
     "OPTIONS_SCALE":        2.0,   # v1.0.23 optimized: 2x options sizing (was 1x)
     "KELLY_DIVISOR":        3.0,   # Third-Kelly: divide full Kelly by 3 — was 4.0 (quarter-Kelly)
