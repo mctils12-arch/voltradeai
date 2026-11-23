@@ -8288,6 +8288,63 @@
     which no full run has tested): read `last_run.reason`, do not touch the
     cache again.
 
+59. **[FOUND 2026-11-23 16:20Z, voltrade-daily-midday routine. FIXED the same day,
+    v1.0.1533; close marker waits for the read after the deploy.]**
+    THE REGIME ENGINE READ A BAR HISTORY WITH A HOLE IN IT AS CONSECUTIVE
+    SESSIONS, and its volatility percentile has read about 0.09 too low
+    since the engine went live (2026-10-28).
+    EVIDENCE: `/api/diag/bars_coverage` (2026-11-23 16:16Z): SPY on the IEX
+    feed is 1,591 bars, first 2018-11-01; AAPL and IWM are 1,590 bars from
+    2020-07-27. SPY is the same history plus ONE bar 634 calendar days
+    earlier. `/api/diag/regime` shows the engine on exactly that series
+    (`inputs.sessions` 1591, `first_date` 2018-11-01, SPY source alpaca).
+    MECHANISM: `regime_engine.align` puts the stray bar next to 2020-07-27,
+    so `ewma_vol_series` (20-session half-life) sees a 21-month move as one
+    day's return. The inflated values stay in the percentile's own history
+    (`vol_pct_window` 2,520 sessions, so until 2030) and in the mean that
+    sets `sigma_target`. Every later session is ranked against a history
+    that looks more volatile than it was.
+    REPRODUCED from Yahoo closes with the same code: SPY cut to 2020-07-27
+    plus the one stray bar gives, for 2026-11-20, percentile 0.7338, vol
+    state NORMAL, raw composite BEAR, exposure 0.5, budget 0.1686.
+    Production's persisted state for that day: 0.7269, NORMAL, BEAR, 0.5,
+    0.1686. Without the stray bar: 0.8401, CRISIS (the VIX curve was
+    inverted), exposure 0.25. On the whole 2014-2026 history: 0.8298,
+    CRISIS, 0.25. The stray bar alone makes the difference; the short
+    history does not.
+    WHAT IT DID LIVE: Monday's decisions ran on Friday's state. The
+    short-put crisis guard (`csp_verdict`, "no new short puts") was not
+    raised, the options sizing floor stayed at 0.5, the stock multiplier
+    at 0.5. The tier engine proposed puts all morning: AAL sent at 15:07Z
+    (1 contract, unfilled, swept at 15:19Z), IREN and SOFI refused by the
+    fair-value check, not by the regime. No fill. The risk budget (0.17)
+    does not read the percentile and was right throughout.
+    BEFORE AND AFTER ON THE SAME BARS (1,086 sessions with a percentile in
+    both, 2022-07-28 to 2026-11-23): percentile +0.092 on average (0 to
+    +0.32); vol state differs on 268 sessions (CRISIS 35 -> 98, ELEVATED
+    19 -> 89, LOW 430 -> 311); composite on 96; exposure multiplier on 75
+    (mean 0.786 -> 0.769). The exposure path on SPY (lag 2, 5 bp): CAGR
+    8.84% -> 8.68%, max drawdown -8.41% both, Sharpe 0.839 -> 0.836.
+    FIX: `regime_engine.drop_before_gap` / `contiguous_closes`: a step of
+    more than 10 calendar days between two bars is a hole; the series is
+    kept from its last hole on, when at least 504 bars follow it (the
+    percentile's own minimum; a shorter remainder would read as calm, so
+    the series then stays whole and the hole is reported `cut: false`).
+    Applied in `fetch_closes` and to a cached file in `build_inputs`. What
+    was cut is in the state at `inputs.sources.gap_dropped`. PARAMS_VERSION
+    2026-10-28.1 -> 2026-11-23.1 so the state recomputes once after the
+    deploy and records before and after are told apart.
+    RATCHET: test_regime_bar_gap.py (14 tests; all 14 fail on the tree
+    without the fix).
+    NOT FIXED HERE: the feed. The SIP feed holds 2,738 SPY bars from
+    2016-01-04 (same probe); the engine still reads 6.3 years where its
+    own text says ten ((ae2) in the 2026-11-23 16:11Z section). Other
+    readers of IEX daily bars were not audited for the same stray bar
+    ((ae3)).
+    CLOSE WHEN: `/api/diag/regime` shows `inputs.first_date` 2020-07-27,
+    `inputs.sources.gap_dropped.SPY.bars` 1 and `params_version`
+    2026-11-23.1.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -25031,3 +25088,11 @@ KNOWN LIMITS OF THE EVENT LIST (measured or reasoned 2026-11-22, none tuned):
 - OPS GOTCHA (2026-11-23): in the session container `pip` installs for /usr/bin/python3 (3.13) and `python3` is /usr/local/bin/python3 (3.11). `pip install -r requirements.txt` then leaves `python3 -m pytest` and the server tests that shell out to Python failing on missing modules. Use `python3 -m pip install -r requirements.txt -r requirements-dev.txt pytest`, then `python3 -m pip install --ignore-installed Pillow` (the system Pillow is the 3.13 build and shadows it: `cannot import name '_imaging'`).
 - STILL OPEN FROM BEFORE, unchanged: (x4), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2)-(aa5), (z1)-(z3), (ab3), (ab4), (ac1)-(ac4).
 - [READ, (ad1), production 13:42Z, v1.0.1531, two minutes after it was live] /api/v1/meta, /api/v1/agent-tools (59 tools) and /api/v1/openapi.json each hold the flight-restriction history; the route without a key answers 401 with `waitlist: true`. The four 95% priors HELD. The 90% prior (keyed `data` equals the public answer) is NOT READ: no session holds an API key. Left for the human or a session given one.
+## 2026-11-23 (16:11Z; Monday, market open) — the regime engine's bar history had a hole (KNOWN BROKEN #59, v1.0.1533); found while running (aa3); priors for the check after deploy; what is left open
+- [FOUND AND FIXED] KNOWN BROKEN #59 above: one stray SPY bar 21 months before the rest put the engine's volatility percentile about 0.09 low. Friday's state read NORMAL where the same code on a whole history reads CRISIS. experiments.md 2026-11-23 (midday).
+- (ae1) CHECK AFTER DEPLOY, PRIORS WRITTEN BEFORE THE MERGE. /api/diag/regime: `inputs.first_date` 2020-07-27, `inputs.sources.gap_dropped.SPY` = {bars 1, last_dropped 2018-11-01, gap_days 634, cut true}, `params_version` 2026-11-23.1: 95% each (one code path). For the state as of 2026-11-23, if SPY closes within 1% of 724: `vol_state` CRISIS and `exposure_multiplier` 0.25: 85%; `stress_flags.vol_pct_own_history` between 0.88 and 0.94: 80% (production's bars are dividend-adjusted, the reproduction's are not). If the deploy lands while the state is still as of 2026-11-20: that day re-reads CRISIS, 0.25: 85%. No `[REGIME] update_state failed` row and no stale state: 95%.
+- (ae2) THE ENGINE READS 6.3 YEARS, ITS TEXT SAYS TEN. `fetch_bars_alpaca` asks the IEX feed (`alpaca_feed.bars_feed`), which starts 2020-07-27; the SIP feed answers the same account with 2,738 bars from 2016-01-04 (probe bars_coverage, `entitled`, for a window ending the day before). On 2026-11-20 the two histories agree once the stray bar is gone (0.8401 against 0.8298), so this is not urgent. What the short history lacks: the 2018 falls and March 2020, the sessions the CRISIS threshold was written for. TESTABLE FORM: the engine's states on SIP 2016+ against IEX 2020+ over their common sessions; count the sessions whose vol state differs. PRIOR: under 5% of sessions. A feed change is its own PR (RULE REVIEW: it moves a live reading), with the end of the request window kept a day back.
+- (ae3) OTHER READERS OF THE SAME BARS, NOT AUDITED. Any code that reads a long daily SPY series from the IEX feed and treats rows as consecutive carries the same stray bar: any request reaching back before 2020-07-27. Read so far: `etf_data_sources.compute_returns_for_symbols` asks 1,900 days and `flows_model.fetch_closes` 760 (both start after the hole: clean today); the regime engine asked 3,800 and was the one hit. Not read: the walk-forward, the price panel and the backtest's bar fetches (their own stores and feeds). TESTABLE FORM: one script that runs `regime_engine.drop_before_gap` over what each reader fetches and prints the holes. Measurement before any change.
+- (ae4) THE BIASED READING BACKTESTED A HAIR BETTER (Sharpe 0.839 against 0.836, same drawdown, 1,086 sessions, one path). That is not evidence for looser volatility thresholds: one sample, a 0.003 gap, and the bias was an accident whose size decays with time. Recorded so a later session does not rediscover it as a finding. If the thresholds are ever reviewed it is by RULE REVIEW on the long history ((ae2) first), not from this.
+- (aa3), FIRST RUN, SCRIPT NOT LANDED (it is its own PR; this one is the repair). On Yahoo closes 2014-07-29 to 2026-11-23 with the definitions (aa3) named (fall = SPY 10% under its running high, peak on or after 2018-01-01; R = first session after the peak whose raw composite is not the held label; T = first session from R on whose filtered composite is not; loss = close T over close R): 6 falls, the label followed in 5. Peaks 2018-01-26 (lag 3 sessions, loss -2.39%), 2018-09-20 (12, -3.05%), 2020-02-19 (3, -5.24%), 2022-01-03 (5, +0.91%), 2025-02-19 (5, -3.72%), 2026-10-06 (raw left 2026-11-05, not followed by 11-23). MEDIAN LAG 5 sessions (prior 4), MEDIAN LOSS -3.05% (prior 3% to 5%: held at its edge), worst -5.24%. In every one of the 5 the risk budget was under 0.5 inside the lag. The third prior was mis-stated: `csp_verdict` does not read the label at all (it reads the vol state and the stress flags), so the lag cannot delay it; it blocked on every lag session in 2 falls, on some in 1, on none in 2 (2022, 2025). WHO READS THE LABEL ALONE: `tiered_strategy.py` lines 728 and 1553 (T2 and T3 open only when `ctx.regime` is BULL), the options sizing floor (0.5 while `csp` is allowed, 0.25 otherwise), the dip guard (`dip_buy` allowed), and the label written on shadow records and entries. In a lag the label still says BULL to those four; what stood in front of them this month was the tier macro guard and the budget. The 2023 fall (-10.3%) sits inside the 2022 one by this definition (no new high between). n = 5: a description, not a rate. NEXT for (aa3): land scripts/regime_label_lag_study.py with its test and result file (the definitions above are complete), then decide whether T2/T3 should read the raw composite or the budget; that is a RULE REVIEW with its own ablation.
+- STILL OPEN FROM BEFORE, unchanged: (x4), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2), (aa4), (aa5), (z1)-(z3), (ab3), (ab4), (ac1)-(ac4), (ad2), (ad3).
