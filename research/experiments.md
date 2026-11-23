@@ -3,6 +3,16 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-22 (same scheduled PRODUCT session, after #1887 merged and deployed; Sun 20:00 ET = 2026-11-23 01:00Z, MARKET CLOSED) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — the flight-restriction history judged on production: the route answers, 4 notices have left since the record began, three of four priors readable and held (research only, v1.0.1528)
+VERSION: v1.0.1528 (main was v1.0.1527). No code.
+WHAT: the CHECK AFTER DEPLOY of the entry below ((ab1)), read from /api/data/swim/notam/tfrs/history?days=7 and /api/health at 01:00Z, 5 minutes after v1.0.1527 was live (#1887 merged 00:54Z, live 00:55Z).
+PRIORS (written in open_questions.md before the merge) AND RESULT: 90% that it answers 200, `record.status` "recording", 11-22 and 11-23 recorded and the five days before them not: HELD. 85% that 11-22 reads `already_listed` 50 and the 7-day answer is under 20 kB: HELD (50; 4,345 bytes). 70% at least 3 `left` and 2 `listed` by Monday 12:00Z: NOT YET DUE; at 01:00Z 4 left, 0 listed. 15% that any event shows reads more than 45 minutes apart: none so far (25.8 to 30.0 minutes).
+WHAT THE RECORD HOLDS AFTER 6 HOURS: 50 listed at the first read, 46 now. Left: FDC 6/9141 (VIP) between 20:37Z and 21:03Z, published end 23:00Z; FDC 6/7660 (UAS public gathering) and 6/8702 (space operations) between 21:03Z and 21:31Z, published end 21:00Z for both; FDC 6/8704 (space operations) between 00:01Z and 00:31Z, published end 23:59Z. Read plainly: three left at the first read after their published end, one left about two hours before it. No claim is made from four notices.
+HEALTH AFTER THE DEPLOY: serving gates ok, server_version = main.
+NOT DONE: the list was not opened in a browser against production; the route is what was read. `rows_this_process` 0 at five minutes is the new process having recorded a read with no change, not a fault (`last.status` "recorded").
+NEXT: (x4), (ab2), (x2), (w2) not before 2026-11-29, (aa4); the 70% prior at Monday 12:00Z; the XBRL weekday-night read; (aa1)'s second half.
+STARVED: yes — queued and not reached: (x4), (ab2), (x2), (w2), (aa4).
+
 ## 2026-11-22 (scheduled routine, PRODUCT prompt, Sun 19:10 ET = 2026-11-23 00:10Z, MARKET CLOSED) [PRODUCT] — T-DATACORE primary (server/faaTfrArchive.ts + test: a bounded reader of the record; server/swimCapture.ts: one route) with its UI half (client/src/lib/air/restrictionHistory.ts + test, new; client/src/pages/datamap.tsx: one panel under the layer's row; client/src/index.css; scripts/visual_check.mjs); shared last-and-minimal: datacore/layers.json (one sentence), UI_COVERAGE.md (regenerated), ci/counter_baseline.txt, research/*, package.json — the record of US flight restrictions can be read: one bounded public route, and under the Flight restrictions row a list of what appeared on the FAA's list and what left it in the last 7 days (v1.0.1527)
 VERSION: v1.0.1527 (main was v1.0.1526, read at commit time).
 TERRITORY: T-DATACORE primary, T-CLIENT for the UI counterpart in the same PR (UI INTEGRATION). No strategy, parameter, sizing or measurement code. Nothing in the trading path reads this.
