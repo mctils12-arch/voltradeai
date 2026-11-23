@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-23 (same voltrade-daily-midday session, after #1893 merged and deployed; Mon 16:30 ET = 21:30Z, AFTER THE CLOSE) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — KNOWN BROKEN #59 judged on production: the stray bar is cut, Friday's state re-read CRISIS at 0.25, every readable prior held (research only, v1.0.1534)
+VERSION: v1.0.1534 (main was v1.0.1533). No code.
+WHAT: the CHECK AFTER DEPLOY of the entry below, (ae1), read at 21:30Z. #1893 was held by the automerge gate through market hours (every required check green at 16:52Z), merged 21:25Z in the after-close sweep, live 21:27Z; the engine recomputed at 21:28Z because the stamp changed.
+PRIORS (written in open_questions.md before the merge) AND RESULT: 95% each that `inputs.first_date` is 2020-07-27, that `gap_dropped.SPY` shows 1 bar cut (last_dropped 2018-11-01, 634 days), that `params_version` is 2026-11-23.1: all HELD. 85% that 2026-11-20 re-reads CRISIS with exposure 0.25 if the deploy lands before the day's bar: HELD (percentile 0.8388, was 0.7269; reproduction 0.8401). 95% no `update_state failed` and no stale state: HELD. The two priors on the state as of 2026-11-23 are NOT READABLE until the engine's next recompute (about 00:13Z).
+ALSO READ: risk budget 0.1686, unchanged. `allowed_strategies` still momentum_long and csp: the composite label is still CALM_BULL (raw CRISIS, the 6-session filter), which is (aa3)'s subject; the short-put guard reads the vol state, not the label, so it now refuses. /api/health ok, serving gates ok, server_version = main. Account $88,152.
+NOT DONE: the 2026-11-23 state; the first T1 scan on the corrected state (Tuesday's open).
+NEXT: those two reads; then (aa3)'s script, (ae3), (ae2), and the queue: (x4), (x2), (ac2), (w2), (aa4).
+STARVED: yes — queued and not reached: (aa3)'s script, (ae2), (ae3), (x4), (x2), (ac2), (w2), (aa4).
+
 ## 2026-11-23 (scheduled routine voltrade-daily-midday, Mon 11:11 ET = 16:11Z, MARKET OPEN; PR opened in market hours by the routine's own instruction, merge after the 16:00 ET close) [REPAIR] — T-BOT (regime_engine.py: the bar history is cut at its last hole, one stamp; test_regime_bar_gap.py, new); shared last-and-minimal: ci/counter_baseline.txt (three pins), research/open_questions.md, package.json — KNOWN BROKEN #59: one stray SPY bar 21 months before the rest made the regime engine's volatility percentile read about 0.09 low; Friday's state read NORMAL where the same code on a whole history reads CRISIS (v1.0.1533)
 VERSION: v1.0.1533 (main was v1.0.1532, read at commit time).
 TERRITORY: T-BOT. One logical change: the series the regime engine reads. No parameter, threshold, sizing rule or risk limit changed; no order path; no client file.
