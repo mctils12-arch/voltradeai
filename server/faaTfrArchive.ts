@@ -308,4 +308,185 @@ export function faaTfrArchiveView(env: Record<string, string | undefined> = proc
   };
 }
 
-export function _resetFaaTfrArchiveForTests(): void { current = null; lastResult = null; rowsThisProcess = 0; }
+
+// ── reading the record back ((y2), 2026-11-22/23) ─────────────────────────
+// A bounded read of the newest day files: what appeared on and left the
+// FAA's list, WITHOUT the outlines and the notice text (the day files hold
+// both; a history list needs neither). Bounded by days, by file size and by
+// events (RENDERING & MOTION LAW IV: the record grows forever, a read of it
+// must not). The answer is kept for a minute, so a burst of readers is one
+// read of the files.
+
+export const FAA_TFR_HISTORY_DEFAULT_DAYS = 7;
+export const FAA_TFR_HISTORY_MAX_DAYS = 31;
+export const FAA_TFR_HISTORY_MAX_EVENTS = 500;
+/** a day file above this on disk is not read and is said (the first day of a run is about 0.2 MB, a later day far less) */
+export const FAA_TFR_HISTORY_MAX_FILE_BYTES = 8 * 1024 * 1024;
+export const FAA_TFR_HISTORY_CACHE_MS = 60_000;
+const DAY_MS = 86_400_000;
+
+export interface FaaTfrHistoryEvent {
+  kind: "listed" | "left";
+  /** our read that showed the change (ISO, UTC) */
+  seen: string;
+  /** the read before it: the notice appeared (or left) between `prev_read` and `seen`; null = none recorded */
+  prev_read: string | null;
+  notice: string; citation: string;
+  list: ListFields;
+  /** left only: our read that first held the notice, and whether it was already listed when the record began */
+  first_seen: string | null; first_seen_backfill: boolean;
+  /** the period the notice itself published (null = none published, or its detail file was not read) */
+  published_start: string | null; published_end: string | null;
+  /** listed only: whether the FAA publishes an outline for it (null = its detail file was not read in this window) */
+  outline: boolean | null;
+}
+export interface FaaTfrHistoryDay {
+  day: string;
+  /** false = no file for the day: the day was not recorded (or is before the record began) */
+  recorded: boolean;
+  /** the day's `run` line: the counts at its first read */
+  run: { listed: number; with_outline: number; without_outline: number; detail_pending: number } | null;
+  /** notices that appeared / left on the day, after repeats are dropped */
+  listed: number; left: number;
+  /** notices written as already listed when a recording run began (not appearances; not in `events`) */
+  already_listed: number;
+  /** lines that could not be read as a line of this record */
+  unreadable_lines: number;
+  /** set when the file was not read: "too_large" | "read_failed" */
+  skipped: "too_large" | "read_failed" | null;
+}
+export interface FaaTfrHistory {
+  days_requested: number;
+  from_day: string; to_day: string;
+  days: FaaTfrHistoryDay[];
+  /** newest first; at most FAA_TFR_HISTORY_MAX_EVENTS */
+  events: FaaTfrHistoryEvent[];
+  /** older events left out by the cap */
+  events_cut: number;
+}
+
+export function faaTfrHistoryDays(raw: unknown): number {
+  const n = typeof raw === "string" && /^\d{1,4}$/.test(raw.trim()) ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 1 ? Math.min(FAA_TFR_HISTORY_MAX_DAYS, n) : FAA_TFR_HISTORY_DEFAULT_DAYS;
+}
+
+const strOrNull = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+const isoOk = (v: unknown): v is string => typeof v === "string" && Number.isFinite(Date.parse(v));
+function listOf(v: unknown): ListFields {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  return { type: strOrNull(o.type), facility: strOrNull(o.facility), state: strOrNull(o.state), description: strOrNull(o.description) };
+}
+
+/** The lines of consecutive day files, oldest day first -> the history. Pure.
+ *  REPEATS: a restart between appending a read's lines and writing the state
+ *  repeats them at the next read with a later `seen` (the manifest's limit
+ *  5). A `listed` line for a notice already listed with no `left` between is
+ *  such a repeat, and so is a second `left` with no `listed` between: the
+ *  earliest is kept. */
+export function buildFaaTfrHistory(files: ReadonlyArray<{ day: string; lines: readonly string[] | null; skipped?: "too_large" | "read_failed" | null }>, maxEvents = FAA_TFR_HISTORY_MAX_EVENTS): Pick<FaaTfrHistory, "days" | "events" | "events_cut"> {
+  const days: FaaTfrHistoryDay[] = [];
+  const events: FaaTfrHistoryEvent[] = [];
+  // per notice: the last line kind seen in this window, and its `listed` event (a `detail` line completes it)
+  const last = new Map<string, "listed" | "left">();
+  const listedEvent = new Map<string, FaaTfrHistoryEvent>();
+  for (const f of files) {
+    const d: FaaTfrHistoryDay = { day: f.day, recorded: f.lines !== null || !!f.skipped, run: null, listed: 0, left: 0, already_listed: 0, unreadable_lines: 0, skipped: f.skipped ?? null };
+    days.push(d);
+    for (const line of f.lines ?? []) {
+      if (!line) continue;
+      let r: Record<string, unknown> | null = null;
+      try { const p = JSON.parse(line); r = p && typeof p === "object" && !Array.isArray(p) ? p : null; } catch { r = null; }
+      if (!r || !isoOk(r.seen)) { d.unreadable_lines++; continue; }
+      if (r.kind === "run") {
+        const n = (v: unknown) => (fin(v) && v >= 0 ? Math.floor(v) : 0);
+        if (!d.run) d.run = { listed: n(r.listed), with_outline: n(r.with_outline), without_outline: n(r.without_outline), detail_pending: n(r.detail_pending) };
+        continue;
+      }
+      const notice = typeof r.notice === "string" && NOTICE_RE.test(r.notice) ? r.notice : null;
+      if (!notice) { d.unreadable_lines++; continue; }
+      const row = (r.row && typeof r.row === "object" ? r.row : null) as { start?: unknown; end?: unknown; geometry?: unknown } | null;
+      if (r.kind === "listed") {
+        if (last.get(notice) === "listed") continue; // a repeat
+        last.set(notice, "listed");
+        if (r.backfill === true) { d.already_listed++; continue; }
+        const e: FaaTfrHistoryEvent = {
+          kind: "listed", seen: r.seen, prev_read: isoOk(r.prev_read) ? r.prev_read : null, notice, citation: `FDC ${notice}`, list: listOf(r.list),
+          first_seen: null, first_seen_backfill: false,
+          published_start: row && fin(row.start) ? iso(row.start) : null, published_end: row && fin(row.end) ? iso(row.end) : null,
+          outline: row ? !!row.geometry : null,
+        };
+        events.push(e); listedEvent.set(notice, e); d.listed++;
+      } else if (r.kind === "detail") {
+        const e = listedEvent.get(notice);
+        if (e && e.outline === null && row) {
+          e.published_start = fin(row.start) ? iso(row.start) : null;
+          e.published_end = fin(row.end) ? iso(row.end) : null;
+          e.outline = !!row.geometry;
+        }
+      } else if (r.kind === "left") {
+        if (last.get(notice) === "left") continue; // a repeat
+        last.set(notice, "left"); listedEvent.delete(notice);
+        events.push({
+          kind: "left", seen: r.seen, prev_read: isoOk(r.last_listed) ? r.last_listed : null, notice, citation: `FDC ${notice}`, list: listOf(r.list),
+          first_seen: isoOk(r.first_seen) ? r.first_seen : null, first_seen_backfill: r.backfill === true,
+          published_start: isoOk(r.published_start) ? r.published_start : null, published_end: isoOk(r.published_end) ? r.published_end : null,
+          outline: null,
+        });
+        d.left++;
+      } else {
+        d.unreadable_lines++;
+      }
+    }
+  }
+  events.reverse(); // the files are in time order: newest first for the reader
+  const cut = Math.max(0, events.length - maxEvents);
+  if (cut) events.length = maxEvents;
+  days.reverse();
+  return { days, events, events_cut: cut };
+}
+
+const gunzip = promisify(zlib.gunzip);
+
+async function readDayLines(dir: string, day: string): Promise<{ lines: string[] | null; skipped: "too_large" | "read_failed" | null }> {
+  for (const name of [`${day}.jsonl`, `${day}.jsonl.gz`]) {
+    const fp = path.join(dir, name);
+    try {
+      const st = await fs.promises.stat(fp);
+      if (st.size > FAA_TFR_HISTORY_MAX_FILE_BYTES) return { lines: null, skipped: "too_large" };
+      const buf = await fs.promises.readFile(fp);
+      const text = (name.endsWith(".gz") ? await gunzip(buf, { maxOutputLength: 8 * FAA_TFR_HISTORY_MAX_FILE_BYTES }) : buf).toString("utf8");
+      return { lines: text.split("\n"), skipped: null };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code === "ENOENT") continue;
+      console.error(`[faaTfrArchive] ${name} not read: ${(e as NodeJS.ErrnoException)?.code ?? (e instanceof Error ? e.message.slice(0, 80) : "error")}`);
+      return { lines: null, skipped: "read_failed" };
+    }
+  }
+  return { lines: null, skipped: null };
+}
+
+const historyCache = new Map<string, { at: number; value: Promise<FaaTfrHistory> }>();
+
+/** The last `days` UTC days of the record, ending with the day of `now`. Never throws: a day that cannot be read is said on its row. */
+export function readFaaTfrHistory(input: { days?: number; now: number; baseDir?: string }): Promise<FaaTfrHistory> {
+  const days = Math.min(FAA_TFR_HISTORY_MAX_DAYS, Math.max(1, Math.floor(input.days ?? FAA_TFR_HISTORY_DEFAULT_DAYS)));
+  const dir = faaTfrArchiveDir(input.baseDir);
+  const toDay = iso(input.now).slice(0, 10);
+  const key = `${dir}|${days}|${toDay}`;
+  const hit = historyCache.get(key);
+  if (hit && input.now - hit.at < FAA_TFR_HISTORY_CACHE_MS && input.now >= hit.at) return hit.value;
+  const value = (async (): Promise<FaaTfrHistory> => {
+    const end = Date.parse(toDay);
+    const files: Array<{ day: string; lines: string[] | null; skipped: "too_large" | "read_failed" | null }> = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const day = iso(end - i * DAY_MS).slice(0, 10);
+      files.push({ day, ...(await readDayLines(dir, day)) });
+    }
+    return { days_requested: days, from_day: files[0].day, to_day: toDay, ...buildFaaTfrHistory(files) };
+  })();
+  if (historyCache.size > 2 * FAA_TFR_HISTORY_MAX_DAYS) historyCache.clear();
+  historyCache.set(key, { at: input.now, value });
+  return value;
+}
+
+export function _resetFaaTfrArchiveForTests(): void { current = null; lastResult = null; rowsThisProcess = 0; historyCache.clear(); }

@@ -8253,6 +8253,8 @@ async function main() {
   // 2026-11-22 (second): switched on again with an answer that carries rows from the FAA's public list
   // (server/faaTfrList.ts): solid outline, a card that names the FAA's list and its limits, and a status line that
   // says when the list was read in place of "not the FAA's complete list".
+  // 2026-11-23: under the layer's row, the server's record of the FAA's list read back (GET
+  // /api/data/swim/notam/tfrs/history): what appeared and what left in the last 7 days, checked at 1440, 768 and 390.
   // `--page flightrestrictions` runs this battery alone.
   if (!only || only === "data" || only === "flightrestrictions") {
     const frFailures = [];
@@ -8299,6 +8301,52 @@ async function main() {
         kept: { saved_every_s: 60, last_saved_at: FR_NOW - 30_000, last_save: "ok", restored: null },
         feed: { connected: true, last_message_at: FR_NOW - 12_000 }, source: "FAA SWIM FNS NOTAM (fixture)",
         ...(withList ? { faa_list: { status: "ok", read_at: FR_NOW - 4 * 60_000, last_attempt_at: FR_NOW - 4 * 60_000, last_cause: "ok", listed: 48, with_outline: 36, without_outline: 12, detail_pending: 0, also_in_feed: 1, not_drawn: [], restored: false, served: 2 } } : {}) }) });
+    });
+    // 2026-11-23: the server's record of the FAA's list, read back (GET /api/data/swim/notam/tfrs/history,
+    // lib/air/restrictionHistory.ts): the list under the layer's row. One notice left, one appeared, one appeared
+    // after a gap between reads; the record began inside the window. `historyFails` makes the route answer 500.
+    const historyCalls = [];
+    let historyFails = false;
+    const hIso = (ms) => new Date(ms).toISOString();
+    const hDay = (ms) => hIso(ms).slice(0, 10);
+    const H_START = FR_NOW - 24 * H; // the UTC day of hDayRow(1), at any hour the harness runs
+    const hDayRow = (n, over) => ({ day: hDay(FR_NOW - n * 24 * H), recorded: true, run: { listed: 48, with_outline: 36, without_outline: 12, detail_pending: 0 }, listed: 0, left: 0, already_listed: 0, unreadable_lines: 0, skipped: null, ...over });
+    const HISTORY = {
+      at: FR_NOW, days_requested: 7, from_day: hDay(FR_NOW - 6 * 24 * H), to_day: hDay(FR_NOW),
+      days: [hDayRow(0, { listed: 2, left: 1 }), hDayRow(1, { already_listed: 48 }), ...[2, 3, 4, 5, 6].map((n) => hDayRow(n, { recorded: false, run: null }))],
+      events: [
+        { kind: "left", seen: hIso(FR_NOW - 2 * H), prev_read: hIso(FR_NOW - 2.5 * H), notice: "6/9141", citation: "FDC 6/9141", list: { type: "VIP", facility: "ZDC", state: "VA", description: "Middleburg, VA, Saturday, November 21, 2026 through Sunday, November 22, 2026 Local" },
+          first_seen: hIso(H_START), first_seen_backfill: true, published_start: hIso(FR_NOW - 40 * H), published_end: hIso(FR_NOW - 3 * H), outline: null },
+        { kind: "listed", seen: hIso(FR_NOW - 5 * H), prev_read: hIso(FR_NOW - 5.5 * H), notice: "6/9306", citation: "FDC 6/9306", list: { type: "HAZARDS", facility: "ZDC", state: "VA", description: "20NM W LEXINGTON, VA, Sunday, November 22, 2026 through Sunday, November 29, 2026 UTC" },
+          first_seen: null, first_seen_backfill: false, published_start: hIso(FR_NOW - H), published_end: hIso(FR_NOW + 190 * H), outline: true },
+        { kind: "listed", seen: hIso(FR_NOW - 9 * H), prev_read: hIso(FR_NOW - 12 * H), notice: "6/9402", citation: "FDC 6/9402", list: { type: "SPACE OPERATIONS", facility: "ZMA", state: "FL", description: "CAPE CANAVERAL, FL, Monday, November 23, 2026 through Tuesday, November 24, 2026 UTC" },
+          first_seen: null, first_seen_backfill: false, published_start: null, published_end: null, outline: false },
+      ],
+      events_cut: 0, limits: { max_days: 31, max_events: 500 },
+      record: { status: "recording", started_at: H_START, last_recorded_read: FR_NOW - 4 * 60_000, open: 48, last: { at: FR_NOW - 4 * 60_000, status: "recorded", rows: 0 }, rows_this_process: 3 },
+      source: "fixture", note: "fixture",
+    };
+    await page.route("**/api/data/swim/notam/tfrs/history**", (route) => {
+      historyCalls.push(Date.now());
+      if (historyFails) return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "the record could not be read" }) });
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify(HISTORY) });
+    });
+    const readHistory = () => page.evaluate(() => {
+      const el = document.querySelector('[data-testid="restriction-history"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const panel = el.closest(".vt-layer-panel")?.getBoundingClientRect() ?? null;
+      const t = (n) => (n.textContent || "").replace(/\s+/g, " ").trim();
+      const rows = Array.from(el.querySelectorAll("li"));
+      return {
+        state: el.getAttribute("data-state"), head: t(el.querySelector('[data-testid="restriction-history-head"]') ?? document.createElement("i")),
+        rows: rows.map((li) => ({ kind: li.getAttribute("data-kind"), text: t(li), over: Math.round(li.scrollWidth - li.clientWidth) })),
+        notes: Array.from(el.querySelectorAll(".vt-legend-note")).map(t), text: t(el),
+        // how far the block reaches past its panel, and past the window
+        pastPanel: panel ? Math.round(Math.max(0, r.right - panel.right, panel.left - r.left)) : null,
+        pastWindow: Math.round(Math.max(0, r.right - window.innerWidth, -r.left)),
+        smallest: Math.min(...Array.from(el.querySelectorAll("li, .vt-legend-note")).map((n) => parseFloat(getComputedStyle(n).fontSize))),
+      };
     });
     const LAYERS = ["flight-restrictions-fill", "flight-restrictions-line", "flight-restrictions-line-text", "flight-restrictions-line-enclosing", "flight-restrictions-sym"];
     const mapState = () => page.evaluate((ids) => {
@@ -8594,6 +8642,56 @@ async function main() {
       await page.click('[aria-label="Close details"]', { timeout: 1500 }).catch(() => {});
       if (!(await page.locator(".vt-layer-panel").count())) await page.click(".vt-map-fab", { timeout: 2000 }).catch(() => {});
       await page.waitForTimeout(300);
+      // ── the record read back, under the layer's row (2026-11-23) ──
+      // One request when the layer goes on. The sentence says the window, the counts and when the record began;
+      // each row is the FAA's words and the two reads the change lies between; a gap between reads and a notice
+      // with no outline are said. Nothing leaves the panel or the window at 1440, 768 and 390. Switched off the
+      // list is gone; switched on with the route failing it says it could not be read.
+      const histAt = async (w) => {
+        if (!(await page.locator(".vt-layer-panel").count())) await page.click(".vt-map-fab", { timeout: 2000 }).catch(() => {});
+        await page.waitForTimeout(400);
+        await page.evaluate(() => document.querySelector('[data-testid="restriction-history"]')?.scrollIntoView({ block: "center" }));
+        await page.waitForTimeout(500);
+        const h = await readHistory();
+        if (!h) { fail(`history ${w}: no list under the layer's row`); return; }
+        frInfo[`history${w}`] = { rows: h.rows.length, pastPanel: h.pastPanel, pastWindow: h.pastWindow, smallest: h.smallest };
+        if (h.state !== "ok") fail(`history ${w}: state "${h.state}"`);
+        if (!/^This server's record of the FAA's list, last 7 days: 2 appeared, 1 left\. The record began [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}Z; nothing before that is in it\.$/.test(h.head)) fail(`history ${w}: the sentence reads "${h.head}"`);
+        if (JSON.stringify(h.rows.map((r) => r.kind)) !== JSON.stringify(["left", "listed", "listed"])) fail(`history ${w}: rows ${JSON.stringify(h.rows.map((r) => r.kind))}`);
+        const [left, listed, gap] = h.rows.map((r) => r.text);
+        if (!/^− ?FDC 6\/9141 · VIP · Middleburg, VA left the list between .*Z and .*Z; its published end was .*Z; on the list since before the record began$/.test(left || "")) fail(`history ${w}: the leaving row reads "${left}"`);
+        if (!/^\+ ?FDC 6\/9306 · HAZARDS · 20NM W LEXINGTON, VA appeared between .*Z and .*Z; published end [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}Z$/.test(listed || "")) fail(`history ${w}: the appearing row reads "${listed}"`);
+        if (!/FDC 6\/9402 · SPACE OPERATIONS · CAPE CANAVERAL, FL appeared between .* \(the two reads were 3\.0 h apart: the list was not read in between\); no outline published, not drawn$/.test(gap || "")) fail(`history ${w}: the row after a gap reads "${gap}"`);
+        if (/early|cancel/i.test(h.text)) fail(`history ${w}: the list gives a verdict the record does not hold`);
+        if (!h.notes.some((n) => n.startsWith("+ appeared on the FAA's list, − left it."))) fail(`history ${w}: the key to the two marks is missing`);
+        if (/NaN|undefined|\bnull\b|Infinity/.test(h.text)) fail(`history ${w}: a bare NaN / undefined / null`);
+        if (h.pastPanel > 1 || h.pastWindow > 1) fail(`history ${w}: the list reaches ${h.pastPanel}px past its panel, ${h.pastWindow}px past the window`);
+        for (const r of h.rows) if (r.over > 1) fail(`history ${w}: a row is cut by ${r.over}px`);
+        if (h.smallest < 10) fail(`history ${w}: text at ${h.smallest}px`);
+        await page.screenshot({ path: path.join(OUT, `data-flightrestrictions-history-${w}.png`) }).catch(() => {});
+      };
+      if (historyCalls.length !== 2) fail(`history: ${historyCalls.length} requests over two switch-ons (2)`);
+      await histAt(1440);
+      for (const w of [768, 390]) {
+        await page.setViewportSize({ width: w, height: w === 768 ? 1024 : 844 });
+        await page.waitForTimeout(1200);
+        await histAt(w);
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.waitForTimeout(1200);
+      if (!(await page.locator(".vt-layer-panel").count())) await page.click(".vt-map-fab", { timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const histCallsOn = historyCalls.length;
+      if (!(await flip("flight_restrictions", false))) fail("history: the layer would not switch off");
+      await page.waitForTimeout(600);
+      if (await readHistory()) fail("history: switched off, the list is still under the row");
+      historyFails = true;
+      if (!(await flip("flight_restrictions", true))) fail("history: the layer would not switch on again");
+      let failed = null;
+      for (let i = 0; i < 20 && failed?.state !== "error"; i++) { await page.waitForTimeout(300); failed = await readHistory(); }
+      if (failed?.state !== "error" || !failed.text.includes("The record of the FAA's list could not be read; trying again in 5 minutes.")) fail(`history: with the route failing the list reads ${JSON.stringify(failed && { state: failed.state, text: failed.text })}`);
+      if (historyCalls.length !== histCallsOn + 1) fail(`history: off and on again made ${historyCalls.length - histCallsOn} requests (1)`);
+      frInfo.historyCalls = historyCalls.length;
       if (!(await flip("flight_restrictions", false))) fail("list: the layer would not switch off");
       await page.waitForTimeout(800);
       const off2 = await mapState();

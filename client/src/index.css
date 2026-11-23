@@ -4210,6 +4210,20 @@ body.vt-map-fullscreen .vt-map-page { top: 0; bottom: 0; }
 .vt-field-unit:hover { background: rgba(77, 159, 255, 0.12); }
 .vt-field-note { flex-basis: 100%; font-size: 10px; line-height: 1.4; }
 
+/* ── flight-restriction history (the record of the FAA's list, inside the
+   Flight restrictions layer row; lib/air/restrictionHistory.ts) ───────── */
+.vt-restriction-history { flex-direction: column; align-items: stretch; gap: 6px; }
+.vt-restriction-history .vt-legend-note { display: block; font-size: 10.5px; line-height: 1.45; }
+.vt-restriction-history-skel { display: block; height: 12px; width: 70%; border-radius: 4px; }
+.vt-restriction-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.vt-restriction-history-list li {
+  display: flex; gap: 7px; align-items: baseline;
+  font-size: 11px; line-height: 1.45; color: var(--text-secondary); overflow-wrap: anywhere;
+}
+.vt-restriction-history-list li > b { flex: 0 0 9px; font-family: var(--font-mono); font-weight: 600; color: var(--text-tertiary); }
+.vt-restriction-history-list li[data-kind="listed"] > b { color: var(--accent-green); }
+.vt-restriction-history-list strong { font-family: var(--font-mono); font-weight: 500; font-size: 10.5px; color: var(--text-primary); }
+
 /* ── GIBS time-scrubber (worldview_globe.md G2a) ──────────────────────── */
 .vt-gibs-scrubber { display: inline-flex; align-items: center; gap: 4px; }
 .vt-gibs-scrubber button {

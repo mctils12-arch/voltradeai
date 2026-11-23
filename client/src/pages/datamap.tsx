@@ -24,6 +24,7 @@ import {
 } from "@/lib/mapIcons";
 import { decodePurpose, decodeType, testingAgency, yieldContext, blastRadiusKm, decodeSite, siteLocationNote, siteHostCountry, testedAtHome } from "@/lib/nukeCodes";
 import { AIRPORT_COORDS, faaEventColor, faaEventLabel, faaCardStats, type FaaEventType } from "@/lib/faaAirports";
+import { parseRestrictionHistory, historyHeadWords, historyRows, HISTORY_FOOT, RESTRICTION_HISTORY_URL, RESTRICTION_HISTORY_REFRESH_MS, type RestrictionHistoryView } from "@/lib/air/restrictionHistory";
 import { parseFlightRestrictions, drawRestrictions, removeRestrictions, RESTRICTION_CLICK_LAYERS, restrictionCard, statusWords as flightRestrictionStatus, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, FLIGHT_RESTRICTIONS_REFRESH_MS, type FlightRestriction, type FaaListView } from "@/lib/air/flightRestrictions";
 import { BORDER_CROSSING_COORDS, borderDelayColor, borderDelayLabel, borderLaneLabel, type BorderCrossingCoord } from "@/lib/cbpBorderCrossings";
 import FilingsView from "./filings";
@@ -1394,6 +1395,68 @@ function FpsChip() {
     return () => cancelAnimationFrame(raf);
   }, []);
   return <div className="vt-fps-chip" aria-label="Frames per second (debug)">{fps} fps</div>;
+}
+
+/** FLIGHT-RESTRICTION HISTORY ([PRODUCT] 2026-11-22, open_questions (y2)):
+ *  what appeared on and left the FAA's public list, from the server's own
+ *  record of it (GET /api/data/swim/notam/tfrs/history). Sits inside the
+ *  Flight restrictions layer row while the layer is on, like the tracked
+ *  planes block inside the aircraft row. RAW: two reads and the FAA's words
+ *  per line; every sentence is lib/air/restrictionHistory.ts. One abortable
+ *  request, repeated every 5 minutes while the tab is visible; a failed read
+ *  keeps the list it had and says so. Not a map layer: no map event. */
+function RestrictionHistoryPanel() {
+  const [view, setView] = useState<RestrictionHistoryView | null>(null);
+  const [state, setState] = useState<"loading" | "ok" | "error">("loading");
+  useEffect(() => {
+    let ctl: AbortController | null = null;
+    let stop = false;
+    const load = async () => {
+      ctl?.abort();
+      const mine = (ctl = new AbortController());
+      try {
+        const r = await fetch(RESTRICTION_HISTORY_URL, { signal: mine.signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const v = parseRestrictionHistory(await r.json());
+        if (stop || mine.signal.aborted) return;
+        if (!v) throw new Error("shape");
+        setView(v);
+        setState("ok");
+      } catch {
+        if (stop || mine.signal.aborted) return;
+        setState("error");
+      }
+    };
+    void load();
+    const off = pollWhenVisible(load, RESTRICTION_HISTORY_REFRESH_MS);
+    return () => { stop = true; ctl?.abort(); off(); };
+  }, []);
+  const now = Date.now();
+  const list = view ? historyRows(view, now) : null;
+  return (
+    <div className="vt-field-controls vt-restriction-history" role="group" aria-label="Flight restrictions: recently appeared and left" data-testid="restriction-history" data-state={state}>
+      {!view && state === "loading" && <span className="vt-hist-skel vt-restriction-history-skel" role="status" aria-label="Reading the record of the FAA's list" />}
+      {!view && state === "error" && <span className="vt-legend-note">The record of the FAA's list could not be read; trying again in 5 minutes.</span>}
+      {view && list && (
+        <>
+          <span className="vt-legend-note" data-testid="restriction-history-head">{historyHeadWords(view, now)}</span>
+          {list.rows.length > 0 && (
+            <ul className="vt-restriction-history-list">
+              {list.rows.map((r) => (
+                <li key={r.key} data-kind={r.mark === "+" ? "listed" : "left"}>
+                  <b aria-hidden>{r.mark}</b>
+                  <span><strong>{r.head}</strong> {r.body}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {list.more > 0 && <span className="vt-legend-note">{list.more} earlier change{list.more === 1 ? "" : "s"} in this window not shown here.</span>}
+          {list.rows.length > 0 && <span className="vt-legend-note">{HISTORY_FOOT}</span>}
+          {state === "error" && <span className="vt-legend-note">The last read failed; this is the answer before it. Trying again in 5 minutes.</span>}
+        </>
+      )}
+    </div>
+  );
 }
 
 /** NONSTOP TRACKED PLANES (human directive 2026-08-08: "something in the
@@ -14234,6 +14297,7 @@ export default function DataMapPage() {
         {l.id === "aircraft" && on && (
           <TrackedPlanesPanel onOpen={openWatchedCb} />
         )}
+        {l.id === "flight_restrictions" && on && <RestrictionHistoryPanel />}
         {l.id === "aircraft" && on && (
           // GNSS integrity anomaly — a SIGNAL derived from this RAW layer's
           // own archive (gate 2 passed, gate 1 partial), same "doesn't

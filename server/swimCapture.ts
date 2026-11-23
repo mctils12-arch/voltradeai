@@ -28,7 +28,7 @@ import { NotamStore, TFR_TEXT_RE, type TfrRecord } from "./swimNotam";
 import { trackMap } from "./heapDiag";
 import { createSwimKeeper, type SwimKeeper, type SwimKeepView } from "./swimStoreKeep";
 import { sharedFaaTfrList, faaTfrListEnabled } from "./faaTfrList";
-import { faaTfrListedSince, faaTfrArchiveView } from "./faaTfrArchive";
+import { faaTfrListedSince, faaTfrArchiveView, readFaaTfrHistory, faaTfrHistoryDays, FAA_TFR_HISTORY_MAX_DAYS, FAA_TFR_HISTORY_MAX_EVENTS } from "./faaTfrArchive";
 
 // TFMS parser (written against the captured samples): every TFMS payload is
 // profiled AND parsed into programs / airport configs / per-flight
@@ -241,6 +241,20 @@ export function flightRestrictionsAnswer(now: number, env: NodeJS.ProcessEnv = p
   };
 }
 
+/** What GET /api/data/swim/notam/tfrs/history answers: the server's own
+ *  record of the FAA's public list, read back bounded (days, events). RAW:
+ *  two reads of ours and the FAA's own words per line; no verdict. */
+export async function flightRestrictionHistoryAnswer(now: number, daysRaw: unknown, env: NodeJS.ProcessEnv = process.env, baseDir?: string) {
+  const h = await readFaaTfrHistory({ days: faaTfrHistoryDays(daysRaw), now, baseDir });
+  return {
+    at: now, ...h,
+    limits: { max_days: FAA_TFR_HISTORY_MAX_DAYS, max_events: FAA_TFR_HISTORY_MAX_EVENTS },
+    record: faaTfrArchiveView(env),
+    source: "This server's own record of the FAA's public list of flight restrictions (tfr.faa.gov), read every 30 minutes; US government work, public domain",
+    note: "Each event is one change our reads of the FAA's list showed. kind 'listed': the notice was on the list at `seen` and not at `prev_read` (it appeared between the two). kind 'left': it was on the list at `prev_read` and not at `seen`. Thirty-minute resolution; `prev_read` more than about 30 minutes before `seen` means the server or tfr.faa.gov was down in between. `published_end` is the end the notice itself gave: whether a notice left before it is the reader's comparison with `seen`, not a field. Notices already listed when a recording run began are counted per day (`already_listed`) and are not events: their first read says nothing about when they appeared. A day with `recorded` false has no file: it was not recorded, or it is before the record began (`record.started_at`). A changed restriction is a new notice number at the FAA, so it is one 'left' and one 'listed' and nothing links them. US restrictions only. The outlines and the notice text are in the record's day files, not in this answer. Displayed as-is; not for flight planning or any operational use.",
+  };
+}
+
 export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv = process.env): void {
   app.get("/api/data/swim/products", (_req, res) => {
     const envStatus = swimProductsEnvStatus(env);
@@ -288,6 +302,19 @@ export function registerSwimCaptureRoutes(app: Express, env: NodeJS.ProcessEnv =
   app.get("/api/data/swim/notam/tfrs", (_req, res) => {
     res.set("Cache-Control", "public, max-age=60");
     res.json(flightRestrictionsAnswer(Date.now(), env));
+  });
+
+  // what appeared on and left the FAA's public list (our own record of it,
+  // faaTfrArchive.ts): the newest ?days= UTC days, without outlines or text
+  app.get("/api/data/swim/notam/tfrs/history", async (req, res) => {
+    try {
+      const body = await flightRestrictionHistoryAnswer(Date.now(), (req.query as Record<string, unknown>).days, env);
+      res.set("Cache-Control", "public, max-age=60");
+      res.json(body);
+    } catch (e) {
+      console.error(`[swimCapture] flight-restriction history not read: ${e instanceof Error ? e.message.slice(0, 120) : "error"}`);
+      res.status(500).json({ error: "the record could not be read" });
+    }
   });
 
   app.get("/api/data/swim/samples", (req, res) => {
