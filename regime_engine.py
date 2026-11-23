@@ -92,7 +92,11 @@ from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger("voltrade.regime")
 
-PARAMS_VERSION = "2026-10-28.1"
+# 2026-11-23: no parameter changed. The series the engine reads did (KNOWN BROKEN #59, the
+# bars before a hole in the feed are dropped), so states computed before and after are not
+# the same measure; the new stamp separates them in every record that carries it and makes
+# update_state recompute once after the deploy instead of waiting for the next bar.
+PARAMS_VERSION = "2026-11-23.1"
 
 SECTOR_ETFS = ["XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLC", "XLRE"]
 BREADTH_BASKET = SECTOR_ETFS + ["IWM", "MDY"]
@@ -907,6 +911,65 @@ def _yahoo_closes(symbol, days, timeout=20):
     return out
 
 
+# 2026-11-23 (KNOWN BROKEN #59): a bar history is only usable from its last hole. The
+# IEX feed returned SPY's history as 2020-07-27 onward plus ONE bar on 2018-11-01; read as
+# consecutive sessions that is a 21-month move in "one day", which the EWMA volatility
+# carries for hundreds of sessions and the 10-year percentile history keeps until 2030.
+# On 2026-11-20 it put the engine's volatility percentile at 0.73 (NORMAL) where the same
+# code on a whole history reads 0.83-0.84 (CRISIS with the VIX curve inverted).
+# The longest real closure of the US market since 1933 put two sessions 7 calendar days
+# apart (2001-09-10 and 2001-09-17); a step of more than 10 between two bars is a hole in the feed.
+MAX_BAR_GAP_DAYS = 10
+# A cut that would leave less than the volatility percentile's own minimum history is not
+# made: a short series reads "no percentile" as NORMAL and every untested trend vote as up,
+# which is a quieter reading than the truth. The series then stays whole and the hole is
+# reported with cut=False.
+MIN_BARS_AFTER_GAP = DEFAULT_PARAMS["vol_pct_min_obs"]
+
+
+def drop_before_gap(series, max_gap_days=MAX_BAR_GAP_DAYS, min_keep=MIN_BARS_AFTER_GAP):
+    """({date: close} from the last hole on, what was found or None). A hole is more
+    than `max_gap_days` calendar days between two consecutive bars. The cut is made only
+    when at least `min_keep` bars follow the hole; otherwise the series is returned whole
+    and the record says cut=False. Dates that are not ISO days leave the series as it is."""
+    days = sorted(series or {})
+    cut = None
+    try:
+        prev = None
+        for i, d in enumerate(days):
+            cur = datetime.strptime(d, "%Y-%m-%d").date()
+            if prev is not None and (cur - prev).days > max_gap_days:
+                cut = (i, (cur - prev).days)
+            prev = cur
+    except (TypeError, ValueError):
+        return series, None
+    if cut is None:
+        return series, None
+    i, gap = cut
+    info = {"bars": i, "first_kept": days[i], "last_dropped": days[i - 1], "gap_days": gap, "cut": True}
+    if len(days) - i < min_keep:
+        return series, dict(info, bars=0, first_kept=days[0], cut=False, bars_after_hole=len(days) - i)
+    return {d: series[d] for d in days[i:]}, info
+
+
+def contiguous_closes(closes, sources):
+    """Every series cut at its last hole; each hole found is recorded under
+    sources["gap_dropped"] (absent when there is none) and logged. Idempotent for a cut
+    series; an uncut hole (cut=False) is reported again on every read."""
+    out, dropped = {}, {}
+    for sym, series in (closes or {}).items():
+        kept, info = drop_before_gap(series)
+        out[sym] = kept
+        if info:
+            dropped[sym] = info
+    sources = dict(sources or {})
+    if dropped:
+        prior = sources.get("gap_dropped") if isinstance(sources.get("gap_dropped"), dict) else {}
+        sources["gap_dropped"] = {**prior, **dropped}
+        log.warning(f"[REGIME] a hole in the bar history (cut=True: the bars before it were dropped): {dropped}")
+    return out, sources
+
+
 def fetch_closes(symbols, days=3800, fetch_alpaca=None, fetch_yahoo=None):
     """{symbol: {date: close}} plus {symbol: source}. Alpaca batch first (equities),
     Yahoo for anything missing and for the index family. Pure w.r.t. the injected fetchers."""
@@ -940,7 +1003,7 @@ def fetch_closes(symbols, days=3800, fetch_alpaca=None, fetch_yahoo=None):
         except Exception as e:
             log.warning(f"[REGIME] yahoo closes failed for {sym}: {e}")
             sources[sym] = "missing"
-    return out, sources
+    return contiguous_closes(out, sources)
 
 
 def fetch_ebp(timeout=10, fetch=None):
@@ -993,7 +1056,9 @@ def build_inputs(gating="SPY", days=3800, fetch_alpaca=None, fetch_yahoo=None, u
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     cached = _read_json(cache) if use_cache else None
     if cached and cached.get("day") == today and cached.get("closes", {}).get(gating):
-        closes, sources, hit = cached["closes"], cached.get("sources", {}), True
+        # a cache written before 2026-11-23 still holds the bars before a hole
+        closes, sources = contiguous_closes(cached["closes"], cached.get("sources", {}))
+        hit = True
     else:
         closes, sources = fetch_closes(symbols, days, fetch_alpaca, fetch_yahoo)
         hit = False
