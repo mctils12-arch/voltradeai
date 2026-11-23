@@ -1673,6 +1673,39 @@ _CANDIDATES_CACHE_TTL = 60  # 1 minute — candidates change during the day
 SETUP7_SURFACE_SCORE_SCAN_BUDGET_SEC = 60.0
 
 
+# [REPAIR 2026-11-23] KNOWN BROKEN #18, the root cause: the per-ticker stage
+# below had no wall-clock bound. Its length is (candidates / 3 per second)
+# through the one Alpaca token bucket, so about 540 candidates is about 200 s
+# of a run_full_scan RPC that the daemon abandons at 300 s. Production
+# 2026-11-23 16:52-20:16Z: the 19 scans that finished took 239-296 s and 4
+# did not finish, and a scan that does not finish returns nothing to Node (no
+# stock trades, no options, 120 s back-off). Every earlier fix removed one
+# cost from the stage; none bounded it. scan_options(deadline_ts=...) now
+# stops STARTING tickers once the caller's clock passes deadline_ts. The
+# candidates are ordered anchors first, then the day's largest movers, so the
+# ones not reached are the smallest movers. A resource governor, as the
+# Setup-7 budget above is: it changes how many candidates are read, never how
+# one is scored. The count and the first names are kept here and written to
+# the scan's timing file by bot_engine (read at /api/diag/timings).
+_DEADLINE_STATS_NAMES_KEPT = 10
+_LAST_DEADLINE_STATS: Dict[str, Any] = {}
+
+
+def stage_deadline_passed(deadline_ts: Optional[float], now: Optional[float] = None) -> bool:
+    """True once the wall clock is at or past deadline_ts. None (no deadline
+    given: the CLI and the tests that call scan_options() bare) never passes."""
+    if deadline_ts is None:
+        return False
+    return (time.time() if now is None else now) >= deadline_ts
+
+
+def last_deadline_stats() -> Dict[str, Any]:
+    """What the last scan_options() call's per-ticker stage did with its
+    deadline: {deadline_given, candidates, not_reached, first_not_reached,
+    stage_secs}. Empty before the first scan of this process."""
+    return dict(_LAST_DEADLINE_STATS)
+
+
 def _get_options_candidates(snap_data: dict = None) -> list:
     """
     Two-stage filter to get all options-eligible stocks from the full 11,635 universe.
@@ -1877,9 +1910,12 @@ def _get_options_candidates(snap_data: dict = None) -> list:
 #  SECTION 4: MAIN SCAN FUNCTION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def scan_options() -> dict:
+def scan_options(deadline_ts: Optional[float] = None) -> dict:
     """
     Main entry point. Runs all 6 options setup detectors in parallel.
+
+    deadline_ts (time.time() seconds, optional): the per-ticker stage starts
+    no new ticker at or after it; see stage_deadline_passed's comment block.
 
     Returns:
         {
@@ -2006,9 +2042,16 @@ def scan_options() -> dict:
     # Setup-3 earnings refusals, appended by the _check_ticker workers (list.append
     # is atomic under the GIL) and recorded once, serially, after the fan-out.
     setup3_earnings_refusals: list = []
+    # Tickers the stage did not start because the deadline had passed
+    # (list.append is atomic under the GIL, as above).
+    deadline_not_reached: list = []
+    _stage_t0 = time.time()
 
     def _check_ticker(candidate: tuple) -> List[dict]:
         tkr, price, setup_hint = candidate
+        if stage_deadline_passed(deadline_ts):
+            deadline_not_reached.append(tkr)
+            return []
         if not price or price < 10:
             return []
         found = []
@@ -2124,6 +2167,20 @@ def scan_options() -> dict:
         for results in pool.map(_check_ticker, candidates):
             opportunities.extend(results)
 
+    _LAST_DEADLINE_STATS.clear()
+    _LAST_DEADLINE_STATS.update({
+        "deadline_given": deadline_ts is not None,
+        "candidates": len(candidates),
+        "not_reached": len(deadline_not_reached),
+        "first_not_reached": list(deadline_not_reached[:_DEADLINE_STATS_NAMES_KEPT]),
+        "stage_secs": round(time.time() - _stage_t0, 2),
+    })
+    if deadline_not_reached:
+        logger.warning(
+            f"Options scan deadline: {len(deadline_not_reached)} of {len(candidates)} candidate(s) "
+            f"not read this scan (the smallest movers), first: "
+            f"{', '.join(deadline_not_reached[:_DEADLINE_STATS_NAMES_KEPT])}")
+
     # ── SETUP 3 EARNINGS RULE (2026-11-04): say why, then the counterfactuals
     _s3_names = ", ".join(
         f"{r['ticker']}({r['days_to_earnings']}d)" if r.get("days_to_earnings") is not None else r["ticker"]
@@ -2162,7 +2219,8 @@ def scan_options() -> dict:
         "vxx_ratio":      vxx_ratio,
         "spy_vs_ma50":    spy_vs_ma50,
         "regime":         regime,
-        "scanned":        len(candidates) + len(earnings_tickers[:30]),
+        "scanned":        len(candidates) - len(deadline_not_reached) + len(earnings_tickers[:30]),
+        "deadline_not_reached": len(deadline_not_reached),
         "duration_secs":  duration,
         "best_score":     unique_opps[0]["score"] if unique_opps else 0,
     }
@@ -2228,6 +2286,7 @@ def get_options_trades(
     current_tickers: list,
     max_new: int = 2,
     min_score: float = 70.0,
+    deadline_ts: Optional[float] = None,
 ) -> list:
     """
     Run the options scanner and return ready-to-use trade recommendations
@@ -2242,6 +2301,8 @@ def get_options_trades(
         current_tickers: Currently held tickers (skip if already in portfolio)
         max_new:         Max number of new options trades to return per scan
         min_score:       Minimum score threshold (default 70 — higher bar for options)
+        deadline_ts:     Passed to scan_options(): its per-ticker stage starts no
+                         new ticker at or after this time.time() value (None: no bound)
 
     Returns:
         List of trade dicts ready for options_execution.execute_options_trade()
@@ -2264,7 +2325,7 @@ def get_options_trades(
         _short_week = False
         _trading_days = 5
 
-    scan_result = scan_options()
+    scan_result = scan_options(deadline_ts=deadline_ts)
     opps = scan_result.get("opportunities", [])
 
     # Enforce minimum score floor
