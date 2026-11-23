@@ -923,6 +923,45 @@ QUIET_ARCHIVES_KNOWN = {
 }
 
 
+def _load_ladder_verdict_check():
+    """scripts/ladder_verdict_check.py, loaded by path so this file works both
+    as a script and when a test loads it by spec."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ladder_verdict_check.py")
+    spec = importlib.util.spec_from_file_location("ladder_verdict_check", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def gather_ladder_verdicts(base_url, diag_token):
+    """Each registered gate verdict on production against the ladder file's
+    status for the same root; None when the ladder file cannot be read."""
+    try:
+        lvc = _load_ladder_verdict_check()
+        return lvc.check_all(lambda probe: lvc.fetch_probe(base_url, probe, diag_token))
+    except (OSError, ValueError, KeyError) as e:
+        print(f"[session_health_check] ladder verdict check failed: {e}", file=sys.stderr)
+        return None
+
+
+# [RESEARCH 2026-11-23] a gate test that runs itself writes a registered
+# verdict nobody is told about: github_gate2's FAIL sat five days under a
+# ladder row reading gate1_pass. WARN, never ALARM: it is bookkeeping owed,
+# not a system fault.
+def check_ladder_verdicts(results):
+    label = "Ladder verdicts"
+    if results is None:
+        return finding(WARN, label, "datacore/signal_ladder.json's registered_verdict blocks could not be checked",
+                       "run python3 scripts/ladder_verdict_check.py")
+    if not results:
+        return finding(OK, label, "no root carries a registered_verdict block")
+    needs_action, line = _load_ladder_verdict_check().summarize(results)
+    if needs_action:
+        return finding(WARN, label, line, "judge the run and record it (ROOT VALIDATION LADDER: layer of death in experiments.md)")
+    return finding(OK, label, line)
+
+
 def check_quiet_archives(inventory):
     label = "Polled archives"
     streams = inventory.get("streams") if isinstance(inventory, dict) else None
@@ -1141,6 +1180,7 @@ def main():
 
     if diag_token:
         findings.append(check_edgar_archives(gather_edgar(args.base_url, diag_token)))
+        findings.append(check_ladder_verdicts(gather_ladder_verdicts(args.base_url, diag_token)))
     findings.append(check_quiet_archives(_fetch_json(f"{args.base_url}/api/data/streams")))
 
     if not args.no_ops:
