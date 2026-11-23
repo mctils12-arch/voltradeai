@@ -7747,6 +7747,12 @@
     CLOSE WHEN: `/api/diag/earnings_qoq` shows a `latest` with a
     root_verdict (or an honest Python-side error/skip) after Sun 11-22
     18:00-19:00 ET.
+    **ITEM #53 CLOSED 2026-11-23** (EDGE session, read from production
+    02:40Z): the Sunday run started 2026-11-22T23:01:37Z, the Python ran
+    232.7 s at a 354 MB peak and wrote `latest` with a root_verdict
+    (FAIL, 1,844 pairs). The verdict itself is recorded in
+    datacore/signal_ladder.json and experiments.md (2026-11-23 [RESEARCH]
+    entry).
 
 54. **[FOUND 2026-11-16, [PRODUCT] scheduled routine — RECURRENCE of #23's
     fact (HEALTH OF THE LOOP rule 4). FIXED v1.0.1409; close marker waits
@@ -7768,6 +7774,14 @@
     CLOSE WHEN: `/api/diag/github_gate2` shows a `latest` with a verdict
     (PASS/FAIL/WAITING) after Sun 11-22 19:00-20:00 ET; note which feed
     `source.prices` names and whether `feed_fallback` is set.
+    **ITEM #54 CLOSED 2026-11-23** (EDGE session, read from production
+    02:40Z): the Sunday run started 2026-11-23T00:01:37Z and finished in
+    561 ms, `latest.verdict` FAIL, 16 of 15 usable weeks, 15 of 15 tickers
+    priced, `source.prices` "alpaca /v2/stocks/bars adjustment=all
+    feed=sip", `feed_fallback` null. The first sufficient run was the
+    Tuesday catch-up (2026-11-18T00:27Z, FAIL), also on sip. The verdict
+    itself is recorded in datacore/signal_ladder.json and experiments.md
+    (2026-11-23 [RESEARCH] entry).
 
 55. **[FOUND 2026-11-17 20:16Z, DAILY scheduled routine — RECURRENCE of
     #21's symptom (HEALTH OF THE LOOP rule 4: root-cause analysis, no
@@ -24998,3 +25012,12 @@ KNOWN LIMITS OF THE EVENT LIST (measured or reasoned 2026-11-22, none tuned):
 - (ab4) THE FIRST MEASUREMENT IS NOW ONE REQUEST: (y3)(i)-(iii) (how many appear a week by type; the share leaving before their published end by type; the widest gap between reads) can be computed from this route's answer at 31 days, with no file access. Still not before 2026-12-22, and the priors of (y3) stand as written.
 - STILL OPEN FROM BEFORE, unchanged: (x4), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2)-(aa5), (z1)-(z3).
 - [READ, (ab1), production 01:00Z, v1.0.1527, 5 minutes after it was live] The route answers 200 in 4,345 bytes; record "recording"; 11-22 and 11-23 recorded, the five days before not; 11-22 `already_listed` 50. Events: 4 left, 0 listed, reads 25.8 to 30.0 minutes apart. Two priors HELD (90%, 85%); the 70% one (3 left and 2 listed by Monday 12:00Z) is half met and not yet due; the 15% one (a gap over 45 minutes) has not happened. Three of the four notices left at the first read after their published end; FDC 6/9141 (VIP) left about two hours before its own. Four notices: nothing is claimed. NOT DONE: the list opened in a browser against production.
+
+## 2026-11-23 (02:35Z; Sunday night ET) — two registered gate-2 verdicts read and recorded (both FAIL); the reading is now a check (v1.0.1529)
+- [READ, production 02:40Z] /api/diag/earnings_qoq `latest.first_sufficient_run`: FAIL (2026-11-22T23:05Z, 1,844 pairs). /api/diag/github_gate2 `latest.first_sufficient_run`: FAIL (2026-11-18T00:27Z, 15 weeks, t = 0.110). Both recorded in datacore/signal_ladder.json as gate2_fail, layer of death gate 2 (SIGNAL). KNOWN BROKEN #53 and #54 closed on the same read. experiments.md 2026-11-23 [RESEARCH] entry.
+- [BUILT] scripts/ladder_verdict_check.py and the "Ladder verdicts" line of scripts/session_health_check.py: a root carrying `registered_verdict` {probe, path, gate} is compared with its probe at every session start; DRIFT is a WARN. Two roots carry the block.
+- (ac1) THE SIMILARITY FEATURE, AS A NEW TEST, NOT A RE-READING. In the failed run the secondary feature (F2, cosine similarity of this quarter's release to the last) read PASS and REPLICATES at 1, 3 and 5 days (half spread 1.7% / 3.8% / 3.7%, Spearman 0.07 / 0.13 / 0.13, both months at or above 0.05). It was the secondary of 2 variants, so that reading is worth half of what it looks and may not be promoted. TESTABLE FORM, registered here before any such filing has a return: the same script, the same rule, PRIMARY = similarity, restricted to pairs whose later filing is dated after 2026-11-20 (none of them is in the failed run), run once when at least 500 such pairs have a 5-day return (the January-February 2027 season; not before 2027-02-15). ROOT PASS = PASS, outlier-robust and REPLICATES at 2 of 3 horizons, as before; variants = 1; no second look. PRIOR: 30% PASS. Why not higher: the alpha is against SPY and not size-matched, the sample was two months of one falling tape, and the "Lazy Prices" effect this resembles is a 10-K effect measured over months, not a press-release effect over days. Who is on the other side if it is real: readers of the release who price the numbers and not the sameness of the wording; capacity is small-cap sized. Ladder path: gate 2 only; gate 3 needs costs on names this small. NEEDS (own PR, T-BOT measurement): a `--later-filing-after DATE` and `--primary` argument on earnings_language_qoq_gate2.py, tested, before 2027-02-15.
+- (ac2) SELF-RUNNING TESTS WITH NO LADDER ROOT. `event_study_weekly` (diag probe event_study) and the Lazy Prices sort (probe lazy_prices) run on production and write verdicts; neither has a root in datacore/signal_ladder.json, so neither can carry a `registered_verdict` block and both stay outside the new check. Each needs a root (status from its research/ entries, by a session that reads them) and the dotted path to its registered verdict; lazy_prices reports `verdict` as an object, so its path needs reading first. The 13F new-position cluster test gets its block when its gate-2 runner exists (not before 2027-02-16).
+- (ac3) THE TWO FAILED ROOTS STILL CARRY A `readiness_trigger`, so scripts/ladder_readiness_check.py goes on listing them READY (it prints the status, gate2_fail, beside them). test_ladder_readiness_check.py pins sec_8k_earnings_language as a root that carries one. The usaspending precedent (2026-08-15) removed the trigger and repointed the test; do the same in its own change, or repoint the 8-K trigger at (ac1)'s 2027-02-15 date.
+- (ac4) ANGLE, logged because ACTIVE ANGLE-HUNTING asks for it, speculative: the GitHub panel failed pooled, and its own prior said a third of the panel at most would carry structure. A per-ticker split now is fishing and was not computed. A form that is not fishing: one pre-named subgroup fixed from a field that exists before any return (orgs whose product IS the public repository: MDB, ESTC, FROG, by the watchlist's own notes), tested only on weeks after 2026-11-23, 15 usable weeks, same rule. PRIOR: 15% PASS; three names give at most one top and one bottom a week, so the test may be unable to pass at all. Compute its power from the archived spreads before registering it; if under 30%, discard.
+- STILL OPEN FROM BEFORE, unchanged: (x4), (ab2), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2)-(aa5), (z1)-(z3), (ab3), (ab4).
