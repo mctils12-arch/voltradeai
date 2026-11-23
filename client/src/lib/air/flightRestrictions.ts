@@ -163,6 +163,20 @@ export interface FaaListView {
   alsoInFeed: number | null;
   /** rows in this answer that came from the list */
   served: number;
+  /** the server's running check of the outlines it reads from notice text against the FAA's own; null = not said */
+  textCheck: TextCheckView | null;
+}
+/** For the notices the FAA lists with an outline and the notice feed also sent: the outline the server read from
+ *  the feed's text against the FAA's published one, judged once per notice (server/faaTfrTextCheck.ts). */
+export interface TextCheckView {
+  sinceMs: number | null;
+  /** agree + partial + disagree */
+  compared: number;
+  agree: number; partial: number; disagree: number;
+  /** the feed sent the notice and no outline could be read from its words (a floor) */
+  notRead: number;
+  /** the largest distance among agreeing notices, nautical miles */
+  worstAgreeNm: number | null;
 }
 export interface NoticeFeed { connected: boolean; lastMessageAt: number | null }
 export interface FlightRestrictionsView {
@@ -235,6 +249,16 @@ function listedSince(v: unknown): FlightRestriction["listedSince"] {
   const o = obj(v);
   return o && fin(o.first_seen) && o.first_seen > 0 ? { firstSeenMs: o.first_seen, backfill: o.backfill === true } : null;
 }
+function textCheckView(v: unknown): TextCheckView | null {
+  const o = obj(v);
+  const n = (x: unknown) => (fin(x) && x >= 0 ? Math.floor(x) : null);
+  const agree = o ? n(o.agree) : null, partial = o ? n(o.partial) : null, disagree = o ? n(o.disagree) : null, notRead = o ? n(o.not_read) : null;
+  if (!o || agree === null || partial === null || disagree === null || notRead === null) return null;
+  return {
+    sinceMs: fin(o.since) && o.since > 0 ? o.since : null, compared: agree + partial + disagree, agree, partial, disagree, notRead,
+    worstAgreeNm: fin(o.worst_agree_nm) && o.worst_agree_nm >= 0 ? o.worst_agree_nm : null,
+  };
+}
 const LIST_STATUS = ["off", "never", "ok", "stale", "unreachable"] as const;
 function faaListView(v: unknown): FaaListView | null {
   const o = obj(v);
@@ -244,6 +268,7 @@ function faaListView(v: unknown): FaaListView | null {
   return {
     status, readAt: fin(o.read_at) ? o.read_at : null, listed: n(o.listed), withOutline: n(o.with_outline), withoutOutline: n(o.without_outline),
     pending: n(o.detail_pending), alsoInFeed: fin(o.also_in_feed) ? o.also_in_feed : null, served: n(o.served),
+    textCheck: textCheckView(o.text_check),
   };
 }
 
@@ -356,6 +381,24 @@ export function listWords(l: FaaListView | null, nowMs: number): string | null {
   return `${NOT_COMPLETE}: ${why}`;
 }
 
+/** What the running check of the text reader has found, for the status line and a text-drawn row's card.
+ *  null = the server does not say, or no notice has been in both sources yet (nothing is claimed from none). */
+export function textCheckWords(l: FaaListView | null, nowMs: number): string | null {
+  const c = l?.textCheck;
+  if (!c || c.compared + c.notRead === 0) return null;
+  const since = c.sinceMs !== null ? ` since ${zuluAt(c.sinceMs, nowMs)}` : "";
+  const n = c.compared + c.notRead;
+  // kept short: the status line already carries the list's and the feed's words
+  const head = `our reading of notice text checked against the FAA's outline on ${n} notice${n === 1 ? "" : "s"}${since}`;
+  const parts = [
+    c.compared ? `${c.agree} of ${c.compared} read match${c.compared === 1 && c.agree === 1 ? "es" : ""}` : null,
+    c.partial ? `${c.partial} in part` : null,
+    c.disagree ? `${c.disagree} differ${c.disagree === 1 ? "s" : ""}` : null,
+    c.notRead ? `${c.notRead} not read` : null,
+  ].filter(Boolean).join(", ");
+  return `${head}: ${parts}`;
+}
+
 /** The layer's status line in the layers panel. */
 export function statusWords(v: FlightRestrictionsView, nowMs: number): string {
   const n = v.rows.length;
@@ -371,6 +414,7 @@ export function statusWords(v: FlightRestrictionsView, nowMs: number): string {
     v.unreadable ? `${v.unreadable} could not be read` : null,
     v.withoutShape ? `${v.withoutShape} restriction notice${v.withoutShape === 1 ? "" : "s"} arrived without a shape and ${v.withoutShape === 1 ? "is" : "are"} not drawn` : null,
     listWords(v.faaList, nowMs) ?? NOT_COMPLETE,
+    textCheckWords(v.faaList, nowMs),
     feedWords(v, nowMs),
   ].filter(Boolean);
   return [head, ...tail].join(" · ");
@@ -441,11 +485,14 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
       + (r.unreadAreas ? `. ${r.unreadAreas} more area${r.unreadAreas === 1 ? "" : "s"} in the text could not be read and ${r.unreadAreas === 1 ? "is" : "are"} not drawn` : "")
     : `a circle of ${u.km((r.radiusNm ?? 0) * NM_TO_KM, 1)} around the notice's index point. It encloses the restriction and is larger than it; the outline itself was not sent as geometry`;
   const cls = r.classification ? CLASSIFICATION_WORDS[r.classification.toUpperCase()] ?? r.classification : null;
+  // how far a text-drawn outline can be trusted: the server's own running check of that reader, not a claim about this notice
+  const checked = r.shape === "text" ? textCheckWords(list, nowMs) : null;
   const facts = [
     { label: "Notice", value: r.notice },
     { label: "Kind", value: RESTRICTION_KIND_LABEL[r.kind] },
     { label: "Rule cited", value: rule },
     { label: "Drawn shape", value: shape },
+    checked ? { label: "Reader checked", value: `${checked[0].toUpperCase()}${checked.slice(1)}. These are the notices both the feed and the FAA's list held; it is a check of the reader, not of this notice` } : null,
     r.startMs !== null ? { label: r.inForce ? "In force since" : "Starts", value: zuluAt(r.startMs, nowMs) } : null,
     { label: "Ends", value: r.endMs !== null ? zuluAt(r.endMs, nowMs) : "no end published" },
     { label: "Lower limit", value: limitWords(r.minFl, u) },

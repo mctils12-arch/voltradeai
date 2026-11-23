@@ -8300,7 +8300,9 @@ async function main() {
         at: FR_NOW, tfrs: withList ? [ZAG, VIP, LEX_LIST, MAYPORT_LIST] : [ZAG, VIP, LEX, BROKEN], stats: { notams: 423, tfrs: 18, tfrs_without_shape: withList ? 0 : 7, byClassification: {}, parseErrors: 0 },
         kept: { saved_every_s: 60, last_saved_at: FR_NOW - 30_000, last_save: "ok", restored: null },
         feed: { connected: true, last_message_at: FR_NOW - 12_000 }, source: "FAA SWIM FNS NOTAM (fixture)",
-        ...(withList ? { faa_list: { status: "ok", read_at: FR_NOW - 4 * 60_000, last_attempt_at: FR_NOW - 4 * 60_000, last_cause: "ok", listed: 48, with_outline: 36, without_outline: 12, detail_pending: 0, also_in_feed: 1, not_drawn: [], restored: false, served: 2 } } : {}) }) });
+        ...(withList ? { faa_list: { status: "ok", read_at: FR_NOW - 4 * 60_000, last_attempt_at: FR_NOW - 4 * 60_000, last_cause: "ok", listed: 48, with_outline: 36, without_outline: 12, detail_pending: 0, also_in_feed: 1, not_drawn: [], restored: false, served: 2,
+          // 2026-11-23: the text reader's running check (server/faaTfrTextCheck.ts), said on the status line
+          text_check: { since: FR_NOW - 26 * H, last_judged_at: FR_NOW - H, compared: 8, agree: 7, partial: 1, disagree: 0, not_read: 2, feed_sent_geometry: 0, worst_agree_nm: 0.031, tolerance: "fixture", not_agreeing: [], dropped: 0 } } } : {}) }) });
     });
     // 2026-11-23: the server's record of the FAA's list, read back (GET /api/data/swim/notam/tfrs/history,
     // lib/air/restrictionHistory.ts): the list under the layer's row. One notice left, one appeared, one appeared
@@ -8574,7 +8576,7 @@ async function main() {
       if (JSON.stringify(ls.pts) !== JSON.stringify(wantList)) fail(`list: the symbols carry ${JSON.stringify(ls.pts)} (expected ${JSON.stringify(wantList)})`);
       const lrow = await rowText();
       frInfo.listRow = lrow;
-      if (!/2 in force, 2 starting within 6 hours \(2 from the FAA's public list, 2 from the notice feed, which holds 18\) · FAA public list read 4 min ago: 48 US restrictions listed, 36 with a published outline, 12 with none \(not drawn\) · other countries: only what the notice feed has sent · last notice received \d+ (s|min) ago/.test(lrow)) fail(`list: the layer row's status reads "${lrow}"`);
+      if (!/2 in force, 2 starting within 6 hours \(2 from the FAA's public list, 2 from the notice feed, which holds 18\) · FAA public list read 4 min ago: 48 US restrictions listed, 36 with a published outline, 12 with none \(not drawn\) · other countries: only what the notice feed has sent · our reading of notice text checked against the FAA's outline on 10 notices since [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}Z: 7 of 8 read match, 1 in part, 2 not read · last notice received \d+ (s|min) ago/.test(lrow)) fail(`list: the layer row's status reads "${lrow}"`);
       if (lrow.includes("not the FAA's complete list")) fail("list: the status line still says the list is not complete while the FAA's list is read and fresh");
       if (await openCard("FAA:6/9306", -79.87, 37.835)) {
         const on = await page.evaluate(() => {

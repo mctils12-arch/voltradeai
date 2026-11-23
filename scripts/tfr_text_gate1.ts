@@ -38,38 +38,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { textAreas } from "../server/swimNotamText";
 
-export type Ring = Array<[number, number]>; // [lat, lon]
-const NM_PER_DEG = 60;
-
-/** distance in NM from p to the segment a-b, on a local flat map around p (shapes here are tens of NM across) */
-function segDistNm(p: [number, number], a: [number, number], b: [number, number]): number {
-  const k = Math.cos((p[0] * Math.PI) / 180);
-  const ax = (a[1] - p[1]) * k * NM_PER_DEG, ay = (a[0] - p[0]) * NM_PER_DEG;
-  const bx = (b[1] - p[1]) * k * NM_PER_DEG, by = (b[0] - p[0]) * NM_PER_DEG;
-  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
-  const t = l2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
-  return Math.hypot(ax + t * dx, ay + t * dy);
-}
-function oneWayNm(from: Ring, to: Ring): number {
-  let worst = 0;
-  for (const p of from) {
-    let best = Infinity;
-    for (let i = 0; i + 1 < to.length; i++) best = Math.min(best, segDistNm(p, to[i], to[i + 1]));
-    worst = Math.max(worst, best);
-  }
-  return worst;
-}
-/** the larger one-way corner-to-outline distance between two closed outlines, NM */
-export function outlineDistanceNm(a: Ring, b: Ring): number {
-  return Math.max(oneWayNm(a, b), oneWayNm(b, a));
-}
-export function halfDiagonalNm(r: Ring): number {
-  let la0 = 90, la1 = -90, lo0 = 180, lo1 = -180;
-  for (const [la, lo] of r) { la0 = Math.min(la0, la); la1 = Math.max(la1, la); lo0 = Math.min(lo0, lo); lo1 = Math.max(lo1, lo); }
-  const k = Math.cos((((la0 + la1) / 2) * Math.PI) / 180);
-  return Math.hypot((la1 - la0) * NM_PER_DEG, (lo1 - lo0) * k * NM_PER_DEG) / 2;
-}
-export const toleranceNm = (faa: Ring) => 0.1 + 0.004 * halfDiagonalNm(faa);
+// the measure, the tolerance and the verdict rule live in server/faaTfrTextCheck.ts, where the same check
+// runs on production for every notice the feed and the FAA's list both hold (2026-11-23): one rule, two uses
+import { judgeOutlines, outlineDistanceNm, halfDiagonalNm, toleranceNm, type Ring } from "../server/faaTfrTextCheck";
+export { outlineDistanceNm, halfDiagonalNm, toleranceNm, type Ring };
 
 export type Verdict = "agree" | "partial" | "not_read" | "disagree";
 export interface NoticeResult {
@@ -79,17 +51,10 @@ export interface NoticeResult {
 /** Compare one notice: the FAA's polygons against the outlines read from its text. */
 export function judgeNotice(notice: string, type: string | null, faa: Ring[], text: string): NoticeResult {
   const t = textAreas(text);
-  const distances = faa.map((f) => (t.rings.length ? Math.min(...t.rings.map((r) => outlineDistanceNm(f, r))) : Infinity));
-  const ok = faa.map((f, i) => distances[i] <= toleranceNm(f));
-  const matched = ok.filter(Boolean).length;
-  const verdict: Verdict = !t.rings.length ? "not_read"
-    : matched === faa.length && t.unread === 0 ? "agree"
-    : matched > 0 ? "partial" : "disagree";
-  const md = distances.filter((_, i) => ok[i]);
+  const j = judgeOutlines(faa, t.rings, t.unread);
   return {
-    notice, type, faa_shapes: faa.length, areas_in_text: t.areasInText, read: t.rings.length, unread: t.unread, verdict, matched,
-    worst_matched_nm: md.length ? Math.round(Math.max(...md) * 1000) / 1000 : null,
-    distances_nm: distances.map((d) => (Number.isFinite(d) ? Math.round(d * 1000) / 1000 : -1)),
+    notice, type, faa_shapes: faa.length, areas_in_text: t.areasInText, read: t.rings.length, unread: t.unread, verdict: j.verdict, matched: j.matched,
+    worst_matched_nm: j.worst_matched_nm, distances_nm: j.distances_nm,
   };
 }
 

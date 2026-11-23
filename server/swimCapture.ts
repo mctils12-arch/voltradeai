@@ -28,6 +28,7 @@ import { NotamStore, TFR_TEXT_RE, type TfrRecord } from "./swimNotam";
 import { trackMap } from "./heapDiag";
 import { createSwimKeeper, type SwimKeeper, type SwimKeepView } from "./swimStoreKeep";
 import { sharedFaaTfrList, faaTfrListEnabled } from "./faaTfrList";
+import { sharedFaaTfrTextCheck, saveFaaTfrTextCheck, type FaaTfrTextCheck } from "./faaTfrTextCheck";
 import { faaTfrListedSince, faaTfrArchiveView, readFaaTfrHistory, faaTfrHistoryDays, FAA_TFR_HISTORY_MAX_DAYS, FAA_TFR_HISTORY_MAX_EVENTS } from "./faaTfrArchive";
 
 // TFMS parser (written against the captured samples): every TFMS payload is
@@ -213,7 +214,10 @@ export function keptFor(which: "tfms" | "notam", v: SwimKeepView | null = swimKe
  *  where it came from. ONE ROW PER NOTICE: when both hold an FDC notice, the
  *  FAA's published outline is served and the feed's row is left out, unless
  *  the feed's row carries airspace geometry as sent (then the feed's stays).
- *  `faa_list` is the coverage check against the FAA's list at its last read. */
+ *  `faa_list` is the coverage check against the FAA's list at its last read;
+ *  `faa_list.text_check` counts, for the notices both sources held, whether the
+ *  outline our reader made from the feed's text is the FAA's own (judged once
+ *  per notice, before the feed's row is left out). */
 export function flightRestrictionsAnswer(now: number, env: NodeJS.ProcessEnv = process.env) {
   const st = sharedNotamStore();
   st.evict(now);
@@ -235,10 +239,24 @@ export function flightRestrictionsAnswer(now: number, env: NodeJS.ProcessEnv = p
     // feed is connected and when its newest message arrived (any notice,
     // not only a flight restriction)
     feed: { connected: feed.connected, last_message_at: feed.lastMessageAt },
-    faa_list: { ...list.coverage(now, faaTfrListEnabled(env), st.citations()), served: fromList.length, record: faaTfrArchiveView(env) },
+    faa_list: { ...list.coverage(now, faaTfrListEnabled(env), st.citations()), served: fromList.length, record: faaTfrArchiveView(env), text_check: sharedFaaTfrTextCheck().view() },
     source: "FAA SWIM FNS NOTAM (SCDS, NDRB pre-approved for public release; not for operational use); rows with source 'faa_list' are from the FAA's public list at tfr.faa.gov",
-    note: "A row with source 'faa_list' was read from the FAA's public list (tfr.faa.gov), not from the notice feed: its geometry (from:'faa_list') is the FAA's own published outline, its limits are in faa.areas, and `faa_list` says when that list was read and how many listed notices have no published outline. `listed_since` on such a row is our own record of the list (first_seen = our read that first held the notice; backfill true = it was already listed when recording began), and `faa_list.record` is that record's state. Every other row is from the notice feed: geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area. 'polygon' is the restriction's own shape as sent, unless it carries from:'text': then the outline was read from the notice's words (the notice sent no geometry), circles and arcs drawn as 5-degree straight sides, and `unread` counts areas the text defines that could not be followed.",
+    note: "A row with source 'faa_list' was read from the FAA's public list (tfr.faa.gov), not from the notice feed: its geometry (from:'faa_list') is the FAA's own published outline, its limits are in faa.areas, and `faa_list` says when that list was read and how many listed notices have no published outline. `listed_since` on such a row is our own record of the list (first_seen = our read that first held the notice; backfill true = it was already listed when recording began), and `faa_list.record` is that record's state. Every other row is from the notice feed: geometry.kind 'circle' with approximate:true is the NOTAM Q-line circle, which ENCLOSES the area. 'polygon' is the restriction's own shape as sent, unless it carries from:'text': then the outline was read from the notice's words (the notice sent no geometry), circles and arcs drawn as 5-degree straight sides, and `unread` counts areas the text defines that could not be followed. `faa_list.text_check` is the running check of that reader: for each notice the FAA lists with an outline and the feed also sent, our outline against the FAA's (agree / partial / disagree within the stated tolerance, not_read = the feed sent it and no outline could be read from its words), judged once per notice by this server since `since`; it counts only notices both sources held, and not_read is a floor.",
   };
+}
+
+/** The text reader's running check (faaTfrTextCheck.ts), run after each read of the FAA's list: every notice
+ *  the list holds with the FAA's outline and the feed has also sent is judged once, and a new verdict is
+ *  saved. Returns the words for the list job's line; null when nothing was newly judged. */
+export async function runFlightRestrictionTextCheck(now: number = Date.now(), o: { check?: FaaTfrTextCheck; file?: string } = {}): Promise<string | null> {
+  const check = o.check ?? sharedFaaTfrTextCheck(o.file);
+  const st = sharedNotamStore();
+  // every feed row not yet ended, in force or not: a notice is judged as soon as both sources hold it
+  const added = check.observe(sharedFaaTfrList().outlined(now), st.active(now, Number.POSITIVE_INFINITY), st.unshapedCitations(), now);
+  if (!added) return null;
+  const saved = await saveFaaTfrTextCheck(check, o.file);
+  const v = check.view();
+  return `text reader checked on ${added} more notice${added === 1 ? "" : "s"} (${v.agree} of ${v.compared} compared agree so far${saved ? "" : "; verdicts not saved"})`;
 }
 
 /** What GET /api/data/swim/notam/tfrs/history answers: the server's own

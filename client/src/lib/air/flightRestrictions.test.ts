@@ -10,7 +10,7 @@ import {
   periodWords, restrictionCard, agoWords, chipTime, limitChip, drawRestrictions, removeRestrictions,
   RESTRICTION_LAYERS, RESTRICTION_SOURCES, RESTRICTION_CLICK_LAYERS, RESTRICTION_KIND_COLOR, RESTRICTION_KIND_LABEL, RESTRICTION_KIND_ORDER, RULE_WORDS, CIRCLE_POINTS,
   FLIGHT_RESTRICTION_MAX_RING_POINTS, FLIGHT_RESTRICTIONS_MAX_FEATURES, FLIGHT_RESTRICTIONS_HEAP_BUDGET_BYTES,
-  listWords, listOk, faaLimitWords, faaLimitChip, FEED_ROW_WITH_LIST_SENTENCE, LIST_RECORD_SENTENCE, listedSinceWords,
+  listWords, listOk, textCheckWords, faaLimitWords, faaLimitChip, FEED_ROW_WITH_LIST_SENTENCE, LIST_RECORD_SENTENCE, listedSinceWords,
 } from "./flightRestrictions.ts";
 import { haversineNm } from "../../../../shared/flightPlanGeometry.ts";
 
@@ -358,7 +358,7 @@ test("a row from the FAA's public list: its own fourth shape, the FAA's outline,
     areas: [{ name: "Hazard Area1", lower: { value: 0, uom: "FT", ref: "ALT" }, upper: { value: 4000, uom: "FT", ref: "ALT" }, scheduled: true }] });
   // a feed row never carries the list's facts
   assert.equal(v.rows.find((x) => x.id === "LDZL:A4134/2026")!.faa, null);
-  assert.deepEqual(v.faaList, { status: "ok", readAt: NOW - 4 * 60_000, listed: 48, withOutline: 36, withoutOutline: 12, pending: 0, alsoInFeed: 1, served: 2 });
+  assert.deepEqual(v.faaList, { status: "ok", readAt: NOW - 4 * 60_000, listed: 48, withOutline: 36, withoutOutline: 12, pending: 0, alsoInFeed: 1, served: 2, textCheck: null });
   // drawn on the solid line with the outlines the feed sent, never on the dotted or dashed one; its source rides apart
   const f = restrictionFeatures(v.rows).areas.features.find((x) => x.properties.id === "FAA:6/9306")!;
   assert.equal(f.properties.shape, "own");
@@ -470,4 +470,41 @@ test("a list row says since when it has been on the FAA's list, as this server's
     assert.equal(parseFlightRestrictions(listAnswer([{ ...LIST_ROW, listed_since: bad }], LIST_OK))!.rows[0].listedSince, null, JSON.stringify(bad));
   }
   assert.equal(parseFlightRestrictions(listAnswer([{ ...ZAGREB, listed_since: { first_seen: first, backfill: false } }], LIST_OK))!.rows[0].listedSince, null);
+});
+
+test("the text reader's running check: said only when a notice has been in both sources, in counts, on the status line and on a text-drawn row's card", () => {
+  const SINCE = NOW - 26 * H;
+  const check = (o: Record<string, unknown>) => ({ since: SINCE, last_judged_at: NOW - H, compared: 0, agree: 0, partial: 0, disagree: 0, not_read: 0, feed_sent_geometry: 0, worst_agree_nm: null, tolerance: "t", not_agreeing: [], dropped: 0, ...o });
+  const view = (tc: unknown, rows: unknown[] = [LIST_ROW]) => parseFlightRestrictions(listAnswer(rows, { ...LIST_OK, text_check: tc }))!;
+  // an older server, a malformed block, and a check that has judged nothing yet: nothing is said
+  for (const tc of [undefined, null, "x", { agree: "8" }, { agree: 1, partial: 0, disagree: 0 }, { agree: -1, partial: 0, disagree: 0, not_read: 0 }]) assert.equal(view(tc).faaList!.textCheck, null, JSON.stringify(tc));
+  const none = view(check({}));
+  assert.deepEqual(none.faaList!.textCheck, { sinceMs: SINCE, compared: 0, agree: 0, partial: 0, disagree: 0, notRead: 0, worstAgreeNm: null });
+  assert.equal(textCheckWords(none.faaList, NOW), null);
+  assert.equal(textCheckWords(null, NOW), null);
+  assert.ok(!statusWords(none, NOW).includes("checked against"));
+
+  const all = view(check({ compared: 8, agree: 8, worst_agree_nm: 0.031 }));
+  assert.deepEqual(all.faaList!.textCheck, { sinceMs: SINCE, compared: 8, agree: 8, partial: 0, disagree: 0, notRead: 0, worstAgreeNm: 0.031 });
+  const w = textCheckWords(all.faaList, NOW)!;
+  assert.match(w, /^our reading of notice text checked against the FAA's outline on 8 notices since \S.*Z: 8 of 8 read match$/);
+  // on the status line between the list's words and the feed's
+  assert.match(statusWords(all, NOW), / · other countries: only what the notice feed has sent · our reading of notice text checked .*: 8 of 8 read match · last notice received 20 s ago$/);
+
+  // the server's `compared` is not trusted over its own parts
+  const mixed = view(check({ compared: 99, agree: 5, partial: 1, disagree: 1, not_read: 2 }));
+  assert.equal(mixed.faaList!.textCheck!.compared, 7);
+  assert.match(textCheckWords(mixed.faaList, NOW)!, /on 9 notices since .*: 5 of 7 read match, 1 in part, 1 differs, 2 not read$/);
+  assert.match(textCheckWords(view(check({ agree: 1, disagree: 2 })).faaList, NOW)!, /: 1 of 3 read match, 2 differ$/);
+  assert.match(textCheckWords(view(check({ not_read: 1 })).faaList, NOW)!, /on 1 notice since .*: 1 not read$/);
+  assert.match(textCheckWords(view(check({ agree: 1, since: null })).faaList, NOW)!, /on 1 notice: 1 of 1 read matches$/);
+
+  // the card of a row drawn from its text carries the check; a row with any other shape does not
+  const withText = view(check({ agree: 8 }), [LEXINGTON, MAYPORT, ZAGREB]);
+  const textRow = withText.rows.find((x) => x.shape === "text")!;
+  const fact = restrictionCard(textRow, NOW, U, true, withText.faaList).facts.find((x) => x.label === "Reader checked")!;
+  assert.match(fact.value, /^Our reading of notice text checked against the FAA's outline on 8 notices since .*: 8 of 8 read match\. These are the notices both the feed and the FAA's list held; it is a check of the reader, not of this notice$/);
+  for (const r of withText.rows.filter((x) => x.shape !== "text")) assert.equal(restrictionCard(r, NOW, U, true, withText.faaList).facts.find((x) => x.label === "Reader checked"), undefined, r.id);
+  assert.equal(restrictionCard(textRow, NOW, U, true, none.faaList).facts.find((x) => x.label === "Reader checked"), undefined, "nothing judged, nothing said");
+  assert.equal(restrictionCard(textRow, NOW, U, true).facts.find((x) => x.label === "Reader checked"), undefined);
 });
