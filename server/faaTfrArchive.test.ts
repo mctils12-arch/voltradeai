@@ -10,13 +10,14 @@ import zlib from "node:zlib";
 import {
   diffFaaListRead, readFaaTfrArchiveState, recordFaaTfrRead, loadFaaTfrArchive, faaTfrListedSince, faaTfrArchiveView, faaTfrArchiveEnabled,
   faaTfrArchiveDir, gzipOldFaaTfrDays, _resetFaaTfrArchiveForTests, FAA_TFR_MASS_LEAVE_MIN, FAA_TFR_ARCHIVE_STATE_VERSION,
+  buildFaaTfrHistory, readFaaTfrHistory, faaTfrHistoryDays, FAA_TFR_HISTORY_DEFAULT_DAYS, FAA_TFR_HISTORY_MAX_DAYS, FAA_TFR_HISTORY_MAX_EVENTS, FAA_TFR_HISTORY_MAX_FILE_BYTES,
   type FaaTfrArchiveRow, type FaaTfrArchiveState,
 } from "./faaTfrArchive";
 import {
   parseFaaList, parseFaaDetail, FaaTfrListStore, runFaaTfrPass, faaTfrDetailUrl, sharedFaaTfrList, _resetFaaTfrListForTests,
   FAA_TFR_LIST_URL, FAA_TFR_MAX_LISTED, type FaaFetch, type FaaListEntry, type FaaTfrRow,
 } from "./faaTfrList";
-import { flightRestrictionsAnswer, _resetSwimCaptureForTests } from "./swimCapture";
+import { flightRestrictionsAnswer, flightRestrictionHistoryAnswer, _resetSwimCaptureForTests } from "./swimCapture";
 
 const FX = path.join("server", "__fixtures__", "faa_tfr_list");
 const file = (n: string) => fs.readFileSync(path.join(FX, n), "utf8");
@@ -257,4 +258,144 @@ test("end to end on the real FAA files: a pass of the list reader is recorded, a
     _resetFaaTfrArchiveForTests();
     fs.rmSync(base, { recursive: true, force: true });
   }
+});
+
+// ── reading the record back ((y2)) ────────────────────────────────────────
+const DAY = 86_400_000;
+const isoT = (ms: number) => new Date(ms).toISOString();
+const dayOf = (ms: number) => isoT(ms).slice(0, 10);
+
+/** three reads through the real recorder: 3 listed at T0; 6/9276 appears at T0+30min; 6/6925 leaves a day later */
+async function recordThreeReads(base: string): Promise<void> {
+  const rec = (ns: readonly string[], now: number) => recordFaaTfrRead({ entries: ns.map(entry), rowOf, now, baseDir: base, freeBytes: plenty });
+  await rec(["6/9306", "6/6925", "1/5060"], T0);
+  await rec(["6/9306", "6/6925", "1/5060", "6/9276"], T0 + HALF);
+  await rec(["6/9306", "1/5060", "6/9276"], T0 + DAY);
+}
+
+test("history: what appeared and what left, newest first, with the two reads each change lies between and none of the outline or text", async () => {
+  _resetFaaTfrArchiveForTests();
+  const base = tmpBase();
+  try {
+    await recordThreeReads(base);
+    const h = await readFaaTfrHistory({ days: 3, now: T0 + DAY + HALF, baseDir: base });
+    assert.deepEqual([h.days_requested, h.from_day, h.to_day], [3, dayOf(T0 - DAY), dayOf(T0 + DAY)]);
+    assert.deepEqual(h.events.map((e) => [e.kind, e.notice, e.seen, e.prev_read]), [
+      ["left", "6/6925", isoT(T0 + DAY), isoT(T0 + HALF)],
+      ["listed", "6/9276", isoT(T0 + HALF), isoT(T0)],
+    ]);
+    const [left, listed] = h.events;
+    // the leaving line carries since when the record held it and the end the notice itself published
+    const r6925 = ROWS.get("6/6925")!;
+    assert.deepEqual([left.first_seen, left.first_seen_backfill, left.published_end, left.outline], [isoT(T0), true, r6925.end === null ? null : isoT(r6925.end), null]);
+    assert.equal(left.list.type, entry("6/6925").type);
+    const r9276 = ROWS.get("6/9276")!;
+    assert.deepEqual([listed.first_seen, listed.published_start, listed.published_end, listed.outline], [null, isoT(r9276.start!), isoT(r9276.end!), !!r9276.geometry]);
+    assert.equal(listed.citation, "FDC 6/9276");
+    // newest day first; the day before the record began has no file and says so
+    assert.deepEqual(h.days.map((d) => [d.day, d.recorded, d.listed, d.left, d.already_listed, d.run?.listed ?? null]), [
+      [dayOf(T0 + DAY), true, 0, 1, 0, 3],
+      [dayOf(T0), true, 1, 0, 3, 3],
+      [dayOf(T0 - DAY), false, 0, 0, 0, null],
+    ]);
+    assert.equal(h.events_cut, 0);
+    // bounded payload: no outline, no text, whatever the day files hold
+    const body = JSON.stringify(h);
+    assert.equal(/rings|geometry|"text"/.test(body), false);
+    assert.ok(body.length < 3000, `history of two events is ${body.length} bytes`);
+    assert.ok(fs.statSync(path.join(faaTfrArchiveDir(base), `${dayOf(T0)}.jsonl`)).size > 3 * body.length, "the day file is the heavy one");
+  } finally { _resetFaaTfrArchiveForTests(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test("history: a compressed day reads the same as it did before it was compressed", async () => {
+  _resetFaaTfrArchiveForTests();
+  const base = tmpBase();
+  try {
+    await recordThreeReads(base);
+    const now = T0 + DAY + HALF;
+    const before = await readFaaTfrHistory({ days: 3, now, baseDir: base });
+    assert.equal(await gzipOldFaaTfrDays(faaTfrArchiveDir(base), T0 + 4 * DAY), 2);
+    assert.deepEqual(fs.readdirSync(faaTfrArchiveDir(base)).filter((f) => !f.startsWith("_")).sort(), [`${dayOf(T0)}.jsonl.gz`, `${dayOf(T0 + DAY)}.jsonl.gz`]);
+    _resetFaaTfrArchiveForTests(); // drops the minute's kept answer
+    assert.deepEqual(await readFaaTfrHistory({ days: 3, now, baseDir: base }), before);
+  } finally { _resetFaaTfrArchiveForTests(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test("history: lines repeated after a restart are counted once, the earliest kept; a notice that leaves and is listed again is two changes", () => {
+  const L = (kind: string, notice: string, at: number, extra: object = {}) => JSON.stringify({ kind, seen: isoT(at), notice, citation: `FDC ${notice}`, list: { type: "HAZARDS", facility: "ZDC", state: "VA", description: null }, ...extra });
+  const h = buildFaaTfrHistory([{ day: dayOf(T0), lines: [
+    L("listed", "6/0001", T0, { prev_read: isoT(T0 - HALF), backfill: false, row: null }),
+    L("listed", "6/0001", T0 + HALF, { prev_read: isoT(T0), backfill: false, row: null }), // the repeat
+    L("detail", "6/0001", T0 + HALF, { first_seen: isoT(T0), row: { start: T0, end: T0 + DAY, geometry: null } }),
+    L("left", "6/0001", T0 + 2 * HALF, { last_listed: isoT(T0 + HALF), first_seen: isoT(T0), backfill: false, detail: true, published_start: isoT(T0), published_end: isoT(T0 + DAY) }),
+    L("left", "6/0001", T0 + 3 * HALF, { last_listed: isoT(T0 + 2 * HALF), first_seen: isoT(T0), backfill: false, detail: true, published_start: null, published_end: null }), // the repeat
+    L("listed", "6/0001", T0 + 4 * HALF, { prev_read: isoT(T0 + 3 * HALF), backfill: false, row: null }),
+    "not json", JSON.stringify({ kind: "listed", seen: isoT(T0), notice: "../etc" }), JSON.stringify({ kind: "other", seen: isoT(T0), notice: "6/0002" }), "",
+  ] }]);
+  assert.deepEqual(h.events.map((e) => [e.kind, e.seen]), [["listed", isoT(T0 + 4 * HALF)], ["left", isoT(T0 + 2 * HALF)], ["listed", isoT(T0)]]);
+  // the detail line that followed completes the first appearance: its period, and that the FAA publishes no outline for it
+  assert.deepEqual([h.events[2].published_end, h.events[2].outline], [isoT(T0 + DAY), false]);
+  // the second appearance has no detail line yet: not known, and said as null
+  assert.deepEqual([h.events[0].published_end, h.events[0].outline], [null, null]);
+  assert.deepEqual([h.days[0].listed, h.days[0].left, h.days[0].unreadable_lines, h.days[0].run], [2, 1, 3, null]);
+});
+
+test("history is bounded: days, events and file size each have a ceiling, and what is left out is said", async () => {
+  assert.deepEqual([undefined, "", "0", "-3", "abc", "7", "31", "32", "4000", "12345", "2.5"].map(faaTfrHistoryDays),
+    [FAA_TFR_HISTORY_DEFAULT_DAYS, FAA_TFR_HISTORY_DEFAULT_DAYS, FAA_TFR_HISTORY_DEFAULT_DAYS, FAA_TFR_HISTORY_DEFAULT_DAYS, FAA_TFR_HISTORY_DEFAULT_DAYS, 7, 31, FAA_TFR_HISTORY_MAX_DAYS, FAA_TFR_HISTORY_MAX_DAYS, FAA_TFR_HISTORY_DEFAULT_DAYS, FAA_TFR_HISTORY_DEFAULT_DAYS]);
+  // events: the oldest are the ones cut
+  const many = Array.from({ length: 30 }, (_, i) => JSON.stringify({ kind: "listed", seen: isoT(T0 + i * HALF), prev_read: null, backfill: false, notice: `6/${String(1000 + i)}`, list: {}, row: null }));
+  const cut = buildFaaTfrHistory([{ day: dayOf(T0), lines: many }], 10);
+  assert.deepEqual([cut.events.length, cut.events_cut, cut.events[0].notice, cut.events[9].notice, cut.days[0].listed], [10, 20, "6/1029", "6/1020", 30]);
+  assert.ok(FAA_TFR_HISTORY_MAX_EVENTS <= 500 && FAA_TFR_HISTORY_MAX_DAYS <= 31);
+  _resetFaaTfrArchiveForTests();
+  const base = tmpBase();
+  try {
+    const dir = faaTfrArchiveDir(base);
+    fs.mkdirSync(dir, { recursive: true });
+    // a day file above the ceiling is not read, and its row says why; a request for 400 days reads 31
+    fs.writeFileSync(path.join(dir, `${dayOf(T0)}.jsonl`), Buffer.alloc(FAA_TFR_HISTORY_MAX_FILE_BYTES + 1, 0x20));
+    const h = await readFaaTfrHistory({ days: 400, now: T0, baseDir: base });
+    assert.equal(h.days.length, FAA_TFR_HISTORY_MAX_DAYS);
+    assert.deepEqual([h.days[0].day, h.days[0].recorded, h.days[0].skipped, h.events.length], [dayOf(T0), true, "too_large", 0]);
+    // no record at all: every day unrecorded, nothing thrown
+    const empty = await readFaaTfrHistory({ days: 2, now: T0, baseDir: path.join(base, "nowhere") });
+    assert.deepEqual(empty.days.map((d) => d.recorded), [false, false]);
+  } finally { _resetFaaTfrArchiveForTests(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test("history: a burst of readers inside a minute is one read of the files; a later reader sees what was written since", async () => {
+  _resetFaaTfrArchiveForTests();
+  const base = tmpBase();
+  try {
+    await recordThreeReads(base);
+    const now = T0 + DAY + HALF;
+    const a = readFaaTfrHistory({ days: 3, now, baseDir: base });
+    const b = readFaaTfrHistory({ days: 3, now: now + 30_000, baseDir: base });
+    assert.equal(a, b, "the same pending answer");
+    assert.equal((await a).events.length, 2);
+    await recordFaaTfrRead({ entries: ["1/5060", "6/9276"].map(entry), rowOf, now: now + 40_000, baseDir: base, freeBytes: plenty });
+    assert.equal((await readFaaTfrHistory({ days: 3, now: now + 50_000, baseDir: base })).events.length, 2);
+    const later = await readFaaTfrHistory({ days: 3, now: now + 61_000, baseDir: base });
+    assert.deepEqual(later.events.map((e) => [e.kind, e.notice]), [["left", "6/9306"], ["left", "6/6925"], ["listed", "6/9276"]]);
+  } finally { _resetFaaTfrArchiveForTests(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test("the history route's answer: the bounded history, the record's own state, its limits, and what a line does and does not say", async () => {
+  _resetFaaTfrArchiveForTests();
+  const base = tmpBase();
+  try {
+    await recordThreeReads(base);
+    const a = await flightRestrictionHistoryAnswer(T0 + DAY + HALF, "2", {}, base);
+    assert.deepEqual([a.at, a.days_requested, a.events.length, a.days.length], [T0 + DAY + HALF, 2, 2, 2]);
+    assert.deepEqual(a.limits, { max_days: FAA_TFR_HISTORY_MAX_DAYS, max_events: FAA_TFR_HISTORY_MAX_EVENTS });
+    assert.deepEqual([a.record.status, a.record.started_at, a.record.open], ["recording", T0, 3]);
+    assert.match(a.note, /whether a notice left before it is the reader's comparison/);
+    assert.match(a.note, /not for flight planning/);
+    assert.match(a.source, /tfr\.faa\.gov/);
+    // a bad ?days falls back to the default, never to "everything"
+    assert.equal((await flightRestrictionHistoryAnswer(T0 + DAY + HALF, "all", {}, base)).days_requested, FAA_TFR_HISTORY_DEFAULT_DAYS);
+    // switched off: the record on disk is still readable, and the answer says the recording is off
+    assert.equal((await flightRestrictionHistoryAnswer(T0 + DAY + HALF, "2", { VOLTRADE_FAA_TFR_ARCHIVE: "off" }, base)).record.status, "off");
+  } finally { _resetFaaTfrArchiveForTests(); fs.rmSync(base, { recursive: true, force: true }); }
 });

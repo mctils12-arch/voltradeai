@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 274 | 5 | 5 | 27 | 14 |
+| HTTP routes | 275 | 5 | 5 | 27 | 14 |
 | Diagnostic probes (token-gated) | 37 | 16 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -130,7 +130,7 @@ layers are not listed one by one here.
 | probe | `price_panel` | price panel build |
 | probe | `loop_profile` | on-demand CPU profile of the server's event loop (a session's diagnostic; it starts a run, so it is not a page read) |
 
-## Surfaced (317)
+## Surfaced (318)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -405,6 +405,7 @@ layers are not listed one by one here.
 | route | `GET /api/data/swim/products` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /api/data/swim/tfms/active` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /api/data/swim/notam/tfrs` | `server/swimCapture.ts` | a page calls it |
+| route | `GET /api/data/swim/notam/tfrs/history` | `server/swimCapture.ts` | a page calls it |
 | route | `GET /terms` | `server/terms.ts` | a page calls it |
 | route | `GET /api/data/xbrl-fundamentals` | `server/xbrlFrames.ts` | a page calls it |
 | route | `GET /api/data/xbrl-fundamentals/company` | `server/xbrlFrames.ts` | a page calls it |
