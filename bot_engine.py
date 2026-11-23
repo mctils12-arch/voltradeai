@@ -4811,11 +4811,16 @@ def _scan_market_inner():
         options_slots = MAX_OPTIONS_POSITIONS
     try:
         from options_scanner import get_options_trades
+        # [REPAIR 2026-11-23] KNOWN BROKEN #18: the options stage ends by a
+        # fixed point of THIS scan's clock, so a slow stage cannot carry the
+        # scan past the daemon's 300 s (system_config, same date).
+        _opt_deadline_sec = float(BASE_CONFIG.get("SCAN_OPTIONS_STAGE_DEADLINE_SEC", 0) or 0)
         options_trades = get_options_trades(
             equity=portfolio_value,
             current_tickers=current_tickers + [t["ticker"] for t in trades] + _resting_underlyings,
             max_new=max(1, options_slots),
             min_score=60.0,  # ALPHA-TUNE 2026-04-21: 65→60 to surface more options candidates
+            deadline_ts=(_scan_start + _opt_deadline_sec) if _opt_deadline_sec > 0 else None,
         )
         # REGIME ENGINE step 5 (docs/regime/FINDINGS.md; flag VOLTRADE_REGIME_OPTIONS):
         # no NEW short vol from the scanner while the engine says CRISIS or the
@@ -4919,6 +4924,15 @@ def _scan_market_inner():
     # tier_engine_start. Production snapshots show this gap eats 507s but
     # the tier engine itself is only 66s. Instrumenting each step so the
     # next snapshot pinpoints the actual slow caller.
+    # [REPAIR 2026-11-23] what the options stage's deadline did this scan, in
+    # the timing file ahead of the phase line that persists it.
+    try:
+        import options_scanner as _osc_dl
+        _phase_times.append({"phase": "options_stage_deadline",
+                             "deadline_sec": float(BASE_CONFIG.get("SCAN_OPTIONS_STAGE_DEADLINE_SEC", 0) or 0),
+                             **_osc_dl.last_deadline_stats()})
+    except Exception as _dl_err:
+        print(f"[timing] options_stage_deadline not recorded: {_dl_err}", file=sys.stderr, flush=True)
     _timing_log("step6_trade_loop_and_options")
 
     # Step 7: Check position management

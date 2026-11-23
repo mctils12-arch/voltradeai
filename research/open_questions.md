@@ -8346,6 +8346,38 @@
     `inputs.sources.gap_dropped.SPY.bars` 1 and `params_version`
     2026-11-23.1.
 
+60. **[FOUND 2026-11-23 20:20Z, DAILY scheduled routine. FIXED the same day,
+    v1.0.1534; close marker waits for Tuesday's live session.]**
+    A FULL SCAN'S ORDINARY LENGTH SITS JUST UNDER THE DAEMON'S 300 s, so
+    about one scan in six times out and returns nothing. This is the root
+    cause #18 left open (its own text: visibility repaired, root cause
+    still open).
+    EVIDENCE: /api/diag/audit 2026-11-23 16:52Z-20:16Z: 23 scans started,
+    19 finished in 239-296 s, 4 ended `Daemon timeout` (2 with
+    `last_phase` step6a, still inside the options stage; 2 with
+    `tier_engine_start`). /api/diag/timings for the 20:11Z scan: 264.97 s,
+    of which `step6_trade_loop_and_options` 200.86 s. The health check
+    counted 46 timeouts in its window.
+    MECHANISM: options_scanner.scan_options reads the anchors and up to 400
+    movers, one chain request each through the single Alpaca token bucket
+    (3 a second): the stage is candidates/3 seconds, with no wall-clock
+    bound. The 2026-07-26/28/29 fixes each removed a cost; none tied the
+    stage to the timeout around it.
+    FIX: `scan_options(deadline_ts)` starts no ticker at or after the
+    deadline; bot_engine sets it to the scan's start +
+    `SCAN_OPTIONS_STAGE_DEADLINE_SEC` (system_config, 240; 0 = off) and
+    writes the count to the timing file (phase `options_stage_deadline`).
+    What is not reached is the smallest movers (the list is ordered); on
+    2026-11-23's scans that would have been about a tenth of the
+    candidates on the median scan. EXPLORATORY, judged 2026-12-07.
+    RATCHET: test_options_scan_stage_deadline.py (8 tests).
+    NOT FIXED HERE: the tier engine's own length after the stage (it had
+    more than 36 s on two of the four); 60 s is now left for it.
+    CLOSE WHEN: a full regular session shows at most 1 `Daemon timeout`
+    row and /api/diag/timings carries `options_stage_deadline`. If the
+    count does not fall, do NOT lower the number again: read which phase
+    the failed scans were in (RECURRENCE ESCALATES).
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -25098,3 +25130,9 @@ KNOWN LIMITS OF THE EVENT LIST (measured or reasoned 2026-11-22, none tuned):
 - (aa3), FIRST RUN, SCRIPT NOT LANDED (it is its own PR; this one is the repair). On Yahoo closes 2014-07-29 to 2026-11-23 with the definitions (aa3) named (fall = SPY 10% under its running high, peak on or after 2018-01-01; R = first session after the peak whose raw composite is not the held label; T = first session from R on whose filtered composite is not; loss = close T over close R): 6 falls, the label followed in 5. Peaks 2018-01-26 (lag 3 sessions, loss -2.39%), 2018-09-20 (12, -3.05%), 2020-02-19 (3, -5.24%), 2022-01-03 (5, +0.91%), 2025-02-19 (5, -3.72%), 2026-10-06 (raw left 2026-11-05, not followed by 11-23). MEDIAN LAG 5 sessions (prior 4), MEDIAN LOSS -3.05% (prior 3% to 5%: held at its edge), worst -5.24%. In every one of the 5 the risk budget was under 0.5 inside the lag. The third prior was mis-stated: `csp_verdict` does not read the label at all (it reads the vol state and the stress flags), so the lag cannot delay it; it blocked on every lag session in 2 falls, on some in 1, on none in 2 (2022, 2025). WHO READS THE LABEL ALONE: `tiered_strategy.py` lines 728 and 1553 (T2 and T3 open only when `ctx.regime` is BULL), the options sizing floor (0.5 while `csp` is allowed, 0.25 otherwise), the dip guard (`dip_buy` allowed), and the label written on shadow records and entries. In a lag the label still says BULL to those four; what stood in front of them this month was the tier macro guard and the budget. The 2023 fall (-10.3%) sits inside the 2022 one by this definition (no new high between). n = 5: a description, not a rate. NEXT for (aa3): land scripts/regime_label_lag_study.py with its test and result file (the definitions above are complete), then decide whether T2/T3 should read the raw composite or the budget; that is a RULE REVIEW with its own ablation.
 - STILL OPEN FROM BEFORE, unchanged: (x4), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2), (aa4), (aa5), (z1)-(z3), (ab3), (ab4), (ac1)-(ac4), (ad2), (ad3).
 - [READ, (ae1), production 21:30Z, v1.0.1533; #1893 merged 21:25Z in the after-close sweep, live 21:27Z, state recomputed 21:28Z] /api/diag/regime: `inputs.first_date` 2020-07-27, `inputs.sessions` 1590 (was 1591), `inputs.sources.gap_dropped.SPY` = {bars 1, first_kept 2020-07-27, last_dropped 2018-11-01, gap_days 634, cut true}, `params_version` 2026-11-23.1. The three 95% priors HELD. The deploy landed while the state was still as of 2026-11-20, and that day re-read `vol_state` CRISIS, `exposure_multiplier` 0.25 (was NORMAL, 0.5), raw composite CRISIS (was BEAR): the 85% prior HELD. Percentile 0.8388 (was 0.7269; the reproduction on unadjusted Yahoo closes said 0.8401). Risk budget 0.1686, unchanged, as the before-and-after said. `error` none, `stale` false, no `update_state failed` row in the last 200 audit rows: the 95% prior HELD. /api/health ok, serving gates ok. Account $88,152. NOT YET READABLE: the state as of 2026-11-23 (the engine takes the day's bar at its next recompute, about 00:13Z): the 85% and 80% priors on it stay open for the next session. Also still to read: the first T1 scan on the corrected state should show the short-put crisis guard refusing (Tuesday's open). KNOWN BROKEN #59 marked resolved above.
+## 2026-11-23 (20:15Z; Monday, market open) — a full scan's ordinary length is the daemon's timeout (KNOWN BROKEN #60, v1.0.1534); priors for the check after deploy; what is left open
+- [FOUND AND FIXED] KNOWN BROKEN #60 above: 19 of 23 scans finished, in 239-296 s; the options stage is about 200 s of that and had no bound. experiments.md 2026-11-23 (20:15Z).
+- (af1) CHECK AFTER DEPLOY, PRIORS WRITTEN BEFORE THE MERGE. Read on the first full regular session after the deploy (/api/diag/audit and /api/diag/timings; the options scanner runs in regular hours only). At most 1 `Daemon timeout` row in the session: 80%. No scan `total_sec` above 290: 75%. `options_stage_deadline.not_reached` above 0 on at least 60% of the scans read: 75% (17 of today's 19 ran past 240 s); when above 0, median under 100: 70%. A `Daemon timeout` whose `last_phase` is step6a: under 5% (the deadline is the thing that prevents it; one would mean a single ticker ran a minute). More trades: not expected.
+- (af2) THE HEALTH CHECK PRINTS A COUNT WITH NO DENOMINATOR. `tier2_daemon_timeouts: 46 ... non-blocking` was read at every session start for weeks. With the number of scans started beside it (or the share) it would have read one in six. Its own change to scripts/session_health_check.py, with (p4) (stalls are not counted either). Also remove the "non-blocking" wording: a timed-out scan returns nothing.
+- (af3) THE STAGE'S COST IS ITS CANDIDATE COUNT. `MAX_PER_TIER = 400` movers plus the anchors, at 3 requests a second. TESTABLE FORM: from the scanner's own records, the rank (by move) of every candidate that became a Setup-3 or Setup-7 opportunity over a month; if none ranks below N, the tier can be N and the deadline never binds. Until then the deadline does bind on most scans (about a tenth of the candidates on the median scan, 2026-11-23), which is why this is due by 2026-12-07, the date the deadline is judged. PRIOR: 90% of opportunities come from the top 200. A RULE REVIEW with that evidence, not a guess; the deadline's `first_not_reached` names accumulate the other half of the evidence (what was skipped).
+- STILL OPEN FROM BEFORE, unchanged: (ae1)-(ae3), (aa3)'s script, (x4), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2), (aa4), (aa5), (z1)-(z3), (ab3), (ab4), (ac1)-(ac4), (ad2), (ad3).
