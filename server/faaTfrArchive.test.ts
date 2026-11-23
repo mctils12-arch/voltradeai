@@ -18,6 +18,7 @@ import {
   FAA_TFR_LIST_URL, FAA_TFR_MAX_LISTED, type FaaFetch, type FaaListEntry, type FaaTfrRow,
 } from "./faaTfrList";
 import { flightRestrictionsAnswer, flightRestrictionHistoryAnswer, _resetSwimCaptureForTests } from "./swimCapture";
+import { RESPONSE_DATA_SCHEMAS } from "./apiProduct";
 
 const FX = path.join("server", "__fixtures__", "faa_tfr_list");
 const file = (n: string) => fs.readFileSync(path.join(FX, n), "utf8");
@@ -378,6 +379,57 @@ test("history: a burst of readers inside a minute is one read of the files; a la
     assert.equal((await readFaaTfrHistory({ days: 3, now: now + 50_000, baseDir: base })).events.length, 2);
     const later = await readFaaTfrHistory({ days: 3, now: now + 61_000, baseDir: base });
     assert.deepEqual(later.events.map((e) => [e.kind, e.notice]), [["left", "6/9306"], ["left", "6/6925"], ["listed", "6/9276"]]);
+  } finally { _resetFaaTfrArchiveForTests(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+// The keyed mirror (/api/v1/data/flight-restrictions-history) publishes a
+// schema for this answer in the OpenAPI document. Checked here against a
+// real answer read from a record on disk, so the published shape cannot
+// drift from what the route sends.
+function schemaProblems(schema: Record<string, unknown>, value: unknown, at: string): string[] {
+  const out: string[] = [];
+  const t = schema.type;
+  if (t === undefined) return out; // ANY
+  if (t === "string") { if (typeof value !== "string") out.push(`${at}: not a string`); else if (Array.isArray(schema.enum) && !schema.enum.includes(value)) out.push(`${at}: "${value}" not in enum`); return out; }
+  if (t === "integer") { if (!Number.isInteger(value)) out.push(`${at}: not an integer`); return out; }
+  if (t === "boolean") { if (typeof value !== "boolean") out.push(`${at}: not a boolean`); return out; }
+  if (t === "array") {
+    if (!Array.isArray(value)) return [`${at}: not an array`];
+    value.forEach((v, i) => out.push(...schemaProblems((schema.items ?? {}) as Record<string, unknown>, v, `${at}[${i}]`)));
+    return out;
+  }
+  if (t === "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [`${at}: not an object`];
+    const o = value as Record<string, unknown>;
+    const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+    for (const k of (schema.required ?? []) as string[]) if (!(k in o)) out.push(`${at}.${k}: required and absent`);
+    for (const k of Object.keys(o)) {
+      if (!(k in props)) out.push(`${at}.${k}: sent but not in the published schema`);
+      else out.push(...schemaProblems(props[k], o[k], `${at}.${k}`));
+    }
+    return out;
+  }
+  return [`${at}: schema type ${String(t)} not handled by this check`];
+}
+
+test("the keyed mirror's published schema is the shape the route sends: every field of a real answer is in it, with its type, and nothing required is absent", async () => {
+  _resetFaaTfrArchiveForTests();
+  const base = tmpBase();
+  try {
+    const schema = RESPONSE_DATA_SCHEMAS.voltrade_flight_restrictions_history;
+    assert.ok(schema, "the mirror has a published schema");
+    await recordThreeReads(base);
+    const a = await flightRestrictionHistoryAnswer(T0 + DAY + HALF, "2", {}, base);
+    assert.ok(a.events.length > 0 && a.days.some((d) => d.run !== null), "the answer checked holds events and a run line");
+    assert.deepEqual(schemaProblems(schema, JSON.parse(JSON.stringify(a)), "data"), []);
+    // an empty record (a fresh volume) has the same shape
+    _resetFaaTfrArchiveForTests();
+    const empty = await flightRestrictionHistoryAnswer(T0, "31", {}, path.join(base, "nowhere"));
+    assert.deepEqual([empty.events.length, empty.record.status], [0, "not_yet"]);
+    assert.deepEqual(schemaProblems(schema, JSON.parse(JSON.stringify(empty)), "data"), []);
+    // the check itself is not vacuous: a field the schema does not name, and a wrong type, are both reported
+    const bent = { ...JSON.parse(JSON.stringify(a)), extra: 1, events_cut: "0" };
+    assert.deepEqual(schemaProblems(schema, bent, "data").sort(), ["data.events_cut: not an integer", "data.extra: sent but not in the published schema"]);
   } finally { _resetFaaTfrArchiveForTests(); fs.rmSync(base, { recursive: true, force: true }); }
 });
 
