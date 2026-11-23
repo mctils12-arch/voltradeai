@@ -867,6 +867,42 @@ test("UN Comtrade license mark: 'free with citation, no bulk redistribution' is 
   assert.ok(tool.description.includes("no predictive claim"), "honesty: RAW self-reported levels must not read as a trading signal");
 });
 
+test("flight-restrictions-history license mark: our own record of a public-domain FAA list resells freely; the mark, the catalog and the agent tool each say what the record cannot show", () => {
+  const mark = LICENSE_MARKS["data/flight-restrictions-history"];
+  assert.equal(mark.resell, "ok");
+  assert.ok(mark.license.includes("public domain"));
+  assert.ok(mark.license.includes("tfr.faa.gov"));
+  // the limits of a 30-minute record travel with every response (the envelope spreads the mark)
+  assert.ok(mark.license.includes("every 30 minutes"), "resolution must travel with the licence line");
+  assert.ok(mark.license.includes("since 2026-11-22"), "the record's start must travel with the licence line");
+  assert.ok(mark.license.includes("Not for flight planning"), "not-operational must travel");
+  assert.ok(mark.attribution.includes("Federal Aviation Administration"));
+  const tool = agentToolSpec().tools.find((t) => t.name === "voltrade_flight_restrictions_history");
+  assert.ok(tool, "voltrade_flight_restrictions_history tool must exist");
+  assert.deepEqual(tool.returns_provenance, ["data/flight-restrictions-history"]);
+  assert.equal(tool.endpoint, "GET /api/v1/data/flight-restrictions-history?days={days}");
+  assert.ok(tool.description.includes("NOT a trading signal"), "honesty: raw-not-signal must travel");
+  assert.ok(tool.description.includes("NOT been gate-2 tested"), "honesty: untested must travel");
+  assert.ok(tool.description.includes("which is not the same as no changes"), "an unrecorded day must not read as a quiet day");
+  assert.ok(tool.description.includes("Not for flight planning"), "not-operational must travel");
+  const days = (tool.input_schema.properties as Record<string, { maximum?: number; default?: number }>).days;
+  assert.deepEqual([days.maximum, days.default], [31, 7]);
+  const entry = (apiMeta().endpoints as Array<{ path: string; params: string; desc: string; preview?: string }>).find((e) => e.path === "/api/v1/data/flight-restrictions-history");
+  assert.ok(entry, "the keyed mirror must be in the live catalog /developers reads");
+  assert.equal(entry.preview, "/api/data/swim/notam/tfrs/history");
+  assert.ok(entry.params.includes("days<=31"));
+  assert.ok(entry.desc.includes("NOT a trading signal") && entry.desc.includes("Not for flight planning"));
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.ok(routes.includes('"/api/v1/data/flight-restrictions-history"'), "the keyed route must be registered");
+  // the mirror answers with the public route's own function: one reader, not a second copy
+  const block = routes.slice(routes.indexOf('app.get("/api/v1/data/flight-restrictions-history"'));
+  const handler = block.slice(0, block.indexOf("\n  });"));
+  assert.ok(handler.includes("requireApiKey(req, res)"), "key-guarded");
+  assert.ok(handler.includes("flightRestrictionHistoryAnswer(Date.now(), (req.query as Record<string, unknown>).days)"), "same bounded reader as the public route");
+  assert.ok(handler.includes('v1Envelope("data/flight-restrictions-history", body, body.at)'), "generated_at is the read's own time");
+  assert.equal((handler.match(/meterUsage\(/g) || []).length, 2, "metered on both outcomes");
+});
+
 test("every v1 endpoint documents a preview (or states it needs a live id), so /developers can't silently drift", () => {
   const meta = apiMeta();
   for (const e of meta.endpoints as any[]) {

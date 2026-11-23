@@ -214,6 +214,11 @@ export const LICENSE_MARKS: Record<string, { license: string; attribution: strin
     attribution: "U.S. Customs and Border Protection (Border Wait Times)",
     resell: "ok",
   },
+  "data/flight-restrictions-history": {
+    license: "VolTradeAI's own record of the FAA's public list of temporary flight restrictions (tfr.faa.gov), compiled from this server's reads of that list every 30 minutes since 2026-11-22. The list is a US FAA government work in the public domain; the record adds only our two read times around each change. Thirty-minute resolution: a notice that appeared and left between two reads is not in the record, and nothing before 2026-11-22 is. Not for flight planning or any operational use.",
+    attribution: "Federal Aviation Administration (tfr.faa.gov); record of changes compiled by VolTradeAI",
+    resell: "ok",
+  },
   "data/fmcsa-oos": {
     license: "FMCSA Out-of-Service Orders (data.transportation.gov dataset p2mt-9ige) — a US DOT/FMCSA government work in the public domain. Mirrored as published: trailing-45-day window of motor-carrier out-of-service orders, status ACTIVE/INACTIVE/PENDING and rescind_date verbatim; an order rescinded after it ages out of the window is not re-observed.",
     attribution: "U.S. DOT Federal Motor Carrier Safety Administration (Out-of-Service Orders)",
@@ -410,6 +415,7 @@ export function apiMeta() {
       { path: "/api/v1/data/steel-raw-materials", params: "-", desc: "Global Energy Monitor Production-Consumption of Met Coal & Iron Ore by Steel Industry: national met-coal/iron-ore mining and pig-iron/DRI production-consumption balance, one row per country. A country-level ACCOUNTING STATISTIC, not a forecast, valuation, or trading signal — not wired into any ladder gate (global_energy_monitor is a raw_only root, datacore/signal_ladder.json). GENUINELY DIFFERENT SHAPE from the rest of the GEM family: no per-row coordinates, so this endpoint also returns a country-choropleth GeoJSON (joined by name onto the vendored Natural Earth 1:110m admin0 boundaries) alongside the flat balance rows; countries with a polygon but no GEM record render as 'no data', never a false zero. GEM publishes this release under CC BY 4.0, freely resellable with attribution.", preview: "/api/data/steel-raw-materials" },
       { path: "/api/v1/data/jodi-oil-stocks", params: "-", desc: "JODI World Primary database TOTCRUDE closing-stock levels: latest reported closing crude-oil stock level (thousand barrels) per reporting area, with the prior period and its delta, sorted by level descending. Each row carries its OWN reporting period — per-area staleness is never smoothed over, some areas stopped reporting TOTCRUDE years before the archive's overall latest period. GATE 1 (DATA) PASSED 2026-08-06 (reconciles against EIA within 1.2%, scripts/jodi_eia_reconcile.py). GATE 2 (SIGNAL) KILLED 2026-08-06 — a pre-registered non-OECD stock-build composite found no significant BNO/USO forward-return signal in any of 4 pre-registered comparisons. RAW self-reported levels only, no predictive claim. JODI data are free with acknowledgment, freely resellable with attribution.", preview: "/api/data/jodi-oil-stocks" },
       { path: "/api/v1/data/un-comtrade", params: "-", desc: "UN Comtrade USA bilateral goods-trade archive: latest reported period per partner (China/Mexico/Canada/Japan/Germany/South Korea) — imports CIF, exports FOB, computed trade balance, and the prior-period import delta, sorted by import value descending. GATE 1 (DATA) PASSED 2026-09-07 (every partner's CIF import value reconciles against FRED's independent Census-Bureau customs-basis import series within a stable, narrow CIF/customs offset band — means 1.01-1.06, stdev<=0.0097, n=21 months each). GATE 2 (SIGNAL) not attempted — this root was flagged too lagged for direct alpha, structural-thesis input only (research/data_census.md). RAW self-reported trade levels only, no predictive claim. UN Comtrade's own terms are free with citation but do not permit bulk redistribution of the raw database — conditional resell, see license_marks.", preview: "/api/data/un-comtrade" },
+      { path: "/api/v1/data/flight-restrictions-history", params: "?days<=31 (default 7)", desc: "Record of US temporary flight restrictions: every notice that appeared on or left the FAA's public list (tfr.faa.gov), from this server's own reads of that list every 30 minutes, recording since 2026-11-22. The FAA's list shows only what is listed now and keeps no history; this is the history. Each event carries the two reads the change fell between (`prev_read`, `seen`), the notice number, the FAA's own type/facility/state/description, and the period the notice itself published; `days` says for each UTC day whether it was recorded at all. Thirty-minute resolution; US only; a changed restriction is a new notice number (one 'left' and one 'listed', not linked); outlines and notice text are not in this answer. At most 31 days and 500 events a call (`events_cut` counts older ones left out). RAW record, no predictive claim: nothing has been tested on it (NOT gate-2 tested), NOT a trading signal. Not for flight planning or any operational use. The list is public-domain US government work; the record is our own compilation, freely resellable.", preview: "/api/data/swim/notam/tfrs/history" },
       { path: "/api/v1/signals", params: "-", desc: "Signals PRODUCT catalog: every root datacore/signal_ladder.json records as having passed ladder gate 2 (SIGNAL — statistical discrimination on out-of-sample data, no trading involved), one row each with the product name, what it measures, the EXACT channel gate 2 validated (never wider than the ladder note), a live headline with its own generated_at and state (live / warming_up / unavailable), cadence, the row's own license posture, and the keyed v1 endpoint that serves that signal's full board; plus `in_validation` (gate2_pending roots — in validation, NOT products), `unwired` (validated roots with no product surface — must be empty; signalProducts.test.ts pins it against the real ladder) and the five gate definitions. Same payload as the public preview /api/data/signal-products, under the keyed envelope. NOT tradeable: every row is gate 2, not gate 3 (a backtested entry/exit rule) — `tradeable: false` on each; the bot trades none of it. Composition only — no new computation, no new poller: each headline is that signal endpoint's own number (the GNSS poller's 10-min cache reads warming_up on a fresh deploy until its first 21-day archive scan completes; the wiki board computes per request). Catalog-level mark = the strictest posture among the rows (share-alike today); each row's `license` is authoritative for that row.", preview: "/api/data/signal-products" },
       { path: "/api/v1/meta", params: "-", desc: "This document.", preview: "/api/v1/meta" },
     ],
@@ -932,6 +938,19 @@ export function agentToolSpec(baseUrl = "https://voltradeai.com") {
       returns_provenance: ["data/un-comtrade"],
     },
     {
+      name: "voltrade_flight_restrictions_history",
+      description: "Record of US temporary flight restrictions (TFRs): which notices appeared on and which left the FAA's public list (tfr.faa.gov), from VolTradeAI's own reads of that list every 30 minutes, recording since 2026-11-22. The FAA's list shows only what is listed now; this is the history of it. Each event has kind 'listed' or 'left', the two reads the change fell between (prev_read, seen; a gap much over 30 minutes means the server or tfr.faa.gov was down in between), the notice number, the FAA's own type, facility, state and description, and the period the notice itself published. `days` says for each UTC day whether it was recorded at all: a day with recorded false has no data, which is not the same as no changes. Notices already listed when recording began are counted per day (already_listed) and are not events. US only; a changed restriction is a new notice number, so it reads as one 'left' and one 'listed' with nothing linking them; outlines and notice text are not returned. RAW record, NOT a trading signal: nothing derived from it has been tested (NOT been gate-2 tested). Not for flight planning or any operational use.",
+      input_schema: {
+        type: "object",
+        properties: {
+          days: { type: "integer", minimum: 1, maximum: 31, default: 7, description: "How many UTC days back from today to read (max 31). At most 500 events are returned, newest first; events_cut counts older ones left out." },
+        },
+        required: [],
+      },
+      endpoint: "GET /api/v1/data/flight-restrictions-history?days={days}",
+      returns_provenance: ["data/flight-restrictions-history"],
+    },
+    {
       name: "voltrade_signals",
       description: "Signals PRODUCT catalog: every root VolTradeAI's validation ladder (datacore/signal_ladder.json) records as having passed gate 2 (SIGNAL — statistical discrimination on out-of-sample data, no trading involved) — one row each with the product name, what it measures, the EXACT channel gate 2 validated and nothing wider, a live headline with its own generated_at and state (live / warming_up / unavailable), cadence, the row's own license posture, and the keyed endpoint serving that signal's full board (today voltrade_gnss_integrity_signal and voltrade_wiki_attention_signal); plus in_validation (gate2_pending roots — NOT products), unwired (validated roots missing a product surface — must be empty, CI-pinned) and the five gate definitions. Use this first to learn WHICH signals are validated and under what channel, then call the row's own tool for the full board. NOT tradeable: every row is gate 2, not gate 3 (backtested entry/exit) — tradeable is false on each row and the bot trades none of it. Composition over existing endpoints, no new computation. Catalog mark = the strictest posture among the rows (share-alike today); each row's license field is authoritative for that row.",
       input_schema: { type: "object", properties: {}, required: [] },
@@ -1293,6 +1312,32 @@ export const RESPONSE_DATA_SCHEMAS: Record<string, Record<string, unknown>> = {
     }, ["ticker", "mcapRank", "cancelToTrade", "hiddenRatePct", "oddLotRatePct"]) },
     smallcap_max_rank: INT, min_trades_for_hidden: INT, top_cap: INT,
   }, ["period", "kind_counts", "newest_date", "rows", "smallcap_watch", "smallcap_max_rank", "min_trades_for_hidden", "top_cap"]),
+  // routes.ts's `v1Envelope("data/flight-restrictions-history", body, body.at)`
+  // where `body` is swimCapture.ts's flightRestrictionHistoryAnswer(): `at`,
+  // FaaTfrHistory's fields (faaTfrArchive.ts FaaTfrHistory / FaaTfrHistoryDay
+  // / FaaTfrHistoryEvent, read 2026-11-23), `limits`, `record`
+  // (FaaTfrArchiveView), `source`, `note`. Nullable fields (run, skipped,
+  // prev_read, first_seen, published_*, outline, the four list fields) are
+  // left ANY. server/apiProduct.test.ts checks these keys against a real
+  // answer built from a record on disk.
+  voltrade_flight_restrictions_history: dataObj({
+    at: INT, days_requested: INT, from_day: STR, to_day: STR,
+    days: { type: "array", items: dataObj({
+      day: STR, recorded: BOOL, run: ANY, listed: INT, left: INT, already_listed: INT, unreadable_lines: INT, skipped: ANY,
+    }, ["day", "recorded", "run", "listed", "left", "already_listed", "unreadable_lines", "skipped"]) },
+    events: { type: "array", items: dataObj({
+      kind: { type: "string", enum: ["listed", "left"] }, seen: STR, prev_read: ANY, notice: STR, citation: STR,
+      list: dataObj({ type: ANY, facility: ANY, state: ANY, description: ANY }, ["type", "facility", "state", "description"]),
+      first_seen: ANY, first_seen_backfill: BOOL, published_start: ANY, published_end: ANY, outline: ANY,
+    }, ["kind", "seen", "prev_read", "notice", "citation", "list", "first_seen", "first_seen_backfill", "published_start", "published_end", "outline"]) },
+    events_cut: INT,
+    limits: dataObj({ max_days: INT, max_events: INT }, ["max_days", "max_events"]),
+    record: dataObj({
+      status: { type: "string", enum: ["off", "not_yet", "recording", "paused"] },
+      started_at: ANY, last_recorded_read: ANY, open: INT, last: ANY, rows_this_process: INT,
+    }, ["status", "started_at", "last_recorded_read", "open", "last", "rows_this_process"]),
+    source: STR, note: STR,
+  }, ["at", "days_requested", "from_day", "to_day", "days", "events", "events_cut", "limits", "record", "source", "note"]),
   // routes.ts's `v1Envelope("signals", p, Date.parse(p.generated_at))` where
   // `p` is signalProducts.ts's exported SignalProductsPayload — every field
   // below read from that interface (SignalProductRow / InValidationRow /

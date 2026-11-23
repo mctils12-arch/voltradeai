@@ -196,6 +196,7 @@ import { bootMidasPoll, latestMidas } from "./secMidas";
 import { mergeSiteImagery } from "./siteImagery";
 import { registerHeapGauge, trackMap } from "./heapDiag";
 import { idleTtlMap } from "./idleTtl"; // memory audit 2026-11-03 A3
+import { flightRestrictionHistoryAnswer } from "./swimCapture";
 
 const execAsync = promisify(exec);
 
@@ -6314,6 +6315,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error)?.message });
       meterUsage({ key: auth.key, endpoint: "/api/v1/data/un-comtrade", status: 500, tier: auth.tier });
+    }
+  });
+
+  // US flight-restriction RECORD keyed mirror ((ab2), 2026-11-23). The same
+  // bounded answer the public route /api/data/swim/notam/tfrs/history gives
+  // (swimCapture.ts flightRestrictionHistoryAnswer): what appeared on and
+  // left the FAA's public list, from our own 30-minute reads. No new read,
+  // no new computation. The FAA's list is US government work (public
+  // domain) and the record is our own compilation of it: resell ok. RAW:
+  // no predictive claim, no ladder gate 2.
+  app.get("/api/v1/data/flight-restrictions-history", async (req, res) => {
+    const auth = requireApiKey(req, res);
+    if (!auth) return;
+    try {
+      const body = await flightRestrictionHistoryAnswer(Date.now(), (req.query as Record<string, unknown>).days);
+      res.json(v1Envelope("data/flight-restrictions-history", body, body.at));
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/flight-restrictions-history", status: 200, tier: auth.tier });
+    } catch {
+      res.status(500).json({ error: "the record could not be read" });
+      meterUsage({ key: auth.key, endpoint: "/api/v1/data/flight-restrictions-history", status: 500, tier: auth.tier });
     }
   });
 

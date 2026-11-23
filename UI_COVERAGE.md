@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 275 | 5 | 5 | 27 | 14 |
+| HTTP routes | 276 | 5 | 5 | 27 | 14 |
 | Diagnostic probes (token-gated) | 37 | 16 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -130,7 +130,7 @@ layers are not listed one by one here.
 | probe | `price_panel` | price panel build |
 | probe | `loop_profile` | on-demand CPU profile of the server's event loop (a session's diagnostic; it starts a run, so it is not a page read) |
 
-## Surfaced (318)
+## Surfaced (319)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -389,6 +389,7 @@ layers are not listed one by one here.
 | route | `GET /api/v1/data/steel-raw-materials` | `server/routes.ts` | keyed API: listed on /developers from the live catalog (/api/v1/meta) |
 | route | `GET /api/v1/data/jodi-oil-stocks` | `server/routes.ts` | keyed API: listed on /developers from the live catalog (/api/v1/meta) |
 | route | `GET /api/v1/data/un-comtrade` | `server/routes.ts` | keyed API: listed on /developers from the live catalog (/api/v1/meta) |
+| route | `GET /api/v1/data/flight-restrictions-history` | `server/routes.ts` | keyed API: listed on /developers from the live catalog (/api/v1/meta) |
 | route | `GET /api/data/dossier` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/weather/global/status` | `server/routes.ts` | a page calls it |
 | route | `GET /api/data/weather/grid` | `server/routes.ts` | a page calls it |
