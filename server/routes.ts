@@ -53,6 +53,7 @@ import { registerFlightPlanRoutes, resolveFlightPlan, getFlightPlanContext } fro
 import { registerFlightPlanHistoryRoutes } from "./flightPlanHistory";
 import { registerProcedureRoutes } from "./procedures";
 import { readHealthHistory, summarizeWindow } from "./pipelineHealthHistory";
+import { publicEdgarPollView } from "./edgarPollHealth";
 import { applyViewport } from "./viewport";
 import { budgetStatus as tiles3dBudgetStatus, loadLedger as loadTiles3dLedger, authorizeRoot as tiles3dAuthorizeRoot, recordRoot as tiles3dRecordRoot } from "./tiles3dBudget";
 import { is3dTilesUrl, withKey as tiles3dWithKey, ROOT_URL as TILES3D_ROOT_URL } from "./tiles3dProxy";
@@ -1464,10 +1465,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // takes the uptime history down with it.
       let jobs: ReturnType<typeof publicJobsReport> | null = null;
       try { jobs = publicJobsReport(); } catch (e: unknown) { console.error("[pipeline-health] jobs:", e instanceof Error ? e.message : e); }
+      // EDGAR filing pollers (2026-11-24): what each of the three read on its
+      // latest poll. Counts and times only; null when it cannot be read.
+      let edgar: ReturnType<typeof publicEdgarPollView> | null = null;
+      try { edgar = publicEdgarPollView(); } catch (e: unknown) { console.error("[pipeline-health] edgar:", e instanceof Error ? e.message : e); }
       res.json({
         generated_at: new Date().toISOString(),
         warming_up: rows.length === 0,
         jobs,
+        edgar,
         window_24h: summarizeWindow(rows, 24),
         window_7d: summarizeWindow(rows, 24 * 7),
       });

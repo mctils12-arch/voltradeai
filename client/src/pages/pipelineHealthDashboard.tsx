@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Activity, RefreshCw } from "lucide-react";
 import { ago, jobRows, jobsSummary, type JobTone, type PublicJobsView } from "@/lib/jobsView";
+import { edgarPollRows, edgarPollSummary, type PublicEdgarPollView } from "@/lib/edgarPollView";
 
 interface HealthSnapshot {
   t: number;
@@ -39,6 +40,8 @@ interface PipelineHealthPayload {
   window_7d: HealthSummary;
   /** every scheduled job against its own schedule; null = the server could not read it; absent = an older server */
   jobs?: PublicJobsView | null;
+  /** the three SEC filing pollers' latest poll; null = the server could not read it; absent = an older server */
+  edgar?: PublicEdgarPollView | null;
 }
 
 const JOB_COLOR: Record<JobTone, string> = {
@@ -96,6 +99,13 @@ export default function PipelineHealthDashboardView({ onBack }: { onBack: () => 
     if (!data || data.jobs === undefined) return null;
     const now = Date.now();
     return { rows: jobRows(data.jobs, now), summary: jobsSummary(data.jobs), read: ago(data.jobs?.evaluated_at, now), failed: data.jobs === null };
+  }, [data]);
+
+  // SEC filing pollers: same rule, words built once per payload.
+  const edgar = useMemo(() => {
+    if (!data || data.edgar === undefined) return null;
+    const now = Date.now();
+    return { rows: edgarPollRows(data.edgar, now), summary: edgarPollSummary(data.edgar, now), read: ago(data.edgar?.read_at, now), failed: data.edgar === null };
   }, [data]);
 
   const uptimeColor = (pct: number | null) => {
@@ -250,6 +260,42 @@ export default function PipelineHealthDashboardView({ onBack }: { onBack: () => 
                       </div>
                       {r.cause && <div className="vt-job-cause">{r.cause}</div>}
                       <div className="vt-job-meta">{r.last} Schedule: {r.schedule}.</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {edgar && (
+          <section className="vt-quality-section" data-vt-edgar={edgar.failed ? "unread" : edgar.rows.length}>
+            <div className="vt-quality-section-head">
+              <span>SEC filing pollers</span>
+              <span className="vt-quality-section-sub">
+                {edgar.failed ? "not read" : `${edgar.summary}${edgar.read ? ` · read ${edgar.read}` : ""}`}
+              </span>
+            </div>
+            {edgar.failed ? (
+              <div className="vt-filings-state">
+                The server could not read its filing pollers on this request. Nothing is shown in its place.
+              </div>
+            ) : (
+              <>
+                <div className="vt-filings-sub">
+                  The three feeds read from SEC EDGAR as filings are accepted, and what each could
+                  and could not read on its latest poll. A filing a poll misses is fetched again
+                  by the nightly completeness pass where the feed has one (Form 4 and 13F).
+                </div>
+                <div className="vt-jobs-list">
+                  {edgar.rows.map((r) => (
+                    <div key={r.id} className="vt-job" data-tone={r.tone}>
+                      <div className="vt-job-head">
+                        <span className="vt-job-name">{r.label}</span>
+                        <span className="vt-streams-chip" style={{ color: JOB_COLOR[r.tone], borderColor: JOB_COLOR[r.tone] }}>{r.state}</span>
+                      </div>
+                      {r.cause && <div className="vt-job-cause">{r.cause}</div>}
+                      <div className="vt-job-meta">{r.meta}</div>
                     </div>
                   ))}
                 </div>

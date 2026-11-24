@@ -2493,6 +2493,21 @@ const FIXTURES = {
         j("github_gate2_weekly", "GitHub org engineering-momentum gate-2 test (weekly, Sun 19:00-20:00 ET)", { status: "not_due", disabled: true, schedule: "every 168h (always), grace 26h", last_start_at: null, last_finish_at: null, last_status: null }),
       ] };
     })(),
+    // SEC filing pollers ([PRODUCT] 2026-11-24, client/src/lib/edgarPollView.ts): one row per state the section
+    // draws: a poll that read nothing (with its first failure), one that read in part, one that read its whole page
+    // with filings skipped.
+    edgar: (() => {
+      const now = Date.now();
+      const at = (minAgo) => new Date(now - minAgo * 60000).toISOString();
+      return { read_at: at(0), booted_at: at(570), poll_interval_min: 15, streams: [
+        { stream: "filings", polls_ok: 38, polls_failed: 0, consecutive_failures: 0, last_archive_write_at: at(18),
+          documents: { at: at(4), candidates: 25, returned: 22, skipped: 0, failed: 3, first_error: "index.json -> 404" } },
+        { stream: "filings13f", polls_ok: 36, polls_failed: 2, consecutive_failures: 2, last_archive_write_at: at(960),
+          documents: { at: at(4), candidates: 40, returned: 0, skipped: 0, failed: 40, first_error: "index.json -> 404" } },
+        { stream: "earnings8k", polls_ok: 38, polls_failed: 0, consecutive_failures: 0, last_archive_write_at: at(18),
+          documents: { at: at(4), candidates: 15, returned: 9, skipped: 6, failed: 0, first_error: null } },
+      ] };
+    })(),
     window_24h: {
       window_hours: 24, sample_count: 288, uptime_pct: 97.6,
       current: {
@@ -4410,6 +4425,38 @@ async function main() {
         if (over) fail("the section scrolls sideways");
         await page.locator("[data-vt-jobs]").scrollIntoViewIfNeeded().catch(() => {});
         await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-jobs.png`) });
+      }
+      // ── SEC FILING POLLERS on Pipeline health ([PRODUCT] 2026-11-24; `edgar` in /api/data/pipeline-health-dashboard):
+      // the failing poller first with what it could not read, every row's data age said, the chip never cut, no
+      // sideways scroll at any width
+      if (name === "pipelinehealth") {
+        const fail = (m) => checks.failures.push("pipeline health, SEC filing pollers: " + m);
+        await page.waitForSelector("[data-vt-edgar] .vt-job", { timeout: 8000 }).catch(() => {});
+        const rows = await page.$$eval("[data-vt-edgar] .vt-job", (els) => els.map((e) => ({
+          name: e.querySelector(".vt-job-name")?.textContent || "",
+          tone: e.getAttribute("data-tone"),
+          chip: e.querySelector(".vt-streams-chip")?.textContent || "",
+          cause: e.querySelector(".vt-job-cause")?.textContent || "",
+          meta: e.querySelector(".vt-job-meta")?.textContent || "",
+          cut: (() => { const c = e.querySelector(".vt-streams-chip"); return !c || c.scrollWidth > c.clientWidth + 1 || c.getBoundingClientRect().right > e.getBoundingClientRect().right + 1; })(),
+        })));
+        if (rows.length !== 3) fail(`${rows.length} rows, expected 3`);
+        else {
+          const said = rows.map((r) => `${r.name} = ${r.chip}`).join(" | ");
+          if (said !== "13F: institutional holdings = failing | Form 4: insider trades = read in part | 8-K: earnings releases = reading") fail(`order or states read "${said}"`);
+          if (rows[0].cause !== "The latest poll could not read 40 of 40 filings. First failure: index.json -> 404.") fail(`the failing poller's cause reads "${rows[0].cause}"`);
+          if (rows[1].cause !== "The latest poll could not read 3 of 25 filings. First failure: index.json -> 404.") fail(`the part-read poller's cause reads "${rows[1].cause}"`);
+          if (rows[2].cause) fail(`a poller that read everything shows a cause: "${rows[2].cause}"`);
+          if (rows[2].meta !== "Latest poll 4 min ago: 15 filings asked for, 9 read, 6 had no press-release exhibit. Last new filing archived 18 min ago. Since the server started 10 h ago: 38 polls read, 0 failed.") fail(`the reading poller's line reads "${rows[2].meta}"`);
+          if (!rows.every((r) => /^Latest poll 4 min ago: /.test(r.meta) && /Last new filing archived \d+ (min|h) ago\./.test(r.meta))) fail("a row does not say how old its poll and its last archived filing are");
+          if (rows.some((r) => r.cut)) fail("a state chip is cut or runs past its row");
+        }
+        const sub = await page.locator("[data-vt-edgar] .vt-quality-section-sub").innerText().catch(() => "");
+        if (!/^3 pollers, every 15 min: 1 failing, 1 read in part, 1 reading · read \d+ s ago$/.test(sub)) fail(`the summary reads "${sub}"`);
+        const over = await page.$eval("[data-vt-edgar]", (el) => el.scrollWidth > el.clientWidth + 1).catch(() => true);
+        if (over) fail("the section scrolls sideways");
+        await page.locator("[data-vt-edgar]").scrollIntoViewIfNeeded().catch(() => {});
+        await page.screenshot({ path: path.join(OUT, `${name}-${vp.w}-edgar.png`) });
       }
       if (name === "firesnodata") {
         const fail = (m) => checks.failures.push("fires, no detections: " + m);

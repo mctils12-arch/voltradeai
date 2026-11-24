@@ -213,6 +213,55 @@ export function edgarPollHealthStatus(baseDir?: string, nowMs: number = Date.now
   };
 }
 
+/** `first_error` in a form fit for a public page: "<what was asked> -> <status>"
+ *  as recorded, and any other failure reduced to "<what was asked> timed out"
+ *  or "... failed". No error text a remote server wrote is passed on. */
+export function publicFirstError(first: string | null): string | null {
+  if (first == null) return null;
+  if (/^[\w.<> ]{1,40} -> \d{3}$/.test(first)) return first;
+  const m = first.match(/^([\w.<> ]{1,40}): (.*)$/s);
+  if (!m) return "a request failed";
+  return /timeout|timed out|aborted/i.test(m[2]) ? `${m[1]} timed out` : `${m[1]} failed`;
+}
+
+export interface PublicEdgarPollStream {
+  stream: EdgarPollStream;
+  polls_ok: number;
+  polls_failed: number;
+  consecutive_failures: number;
+  last_archive_write_at: string | null;
+  documents: EdgarPollDocuments | null;
+}
+export interface PublicEdgarPollView {
+  read_at: string;
+  booted_at: string;
+  poll_interval_min: number;
+  streams: PublicEdgarPollStream[];
+}
+
+/** The three pollers for the public Pipeline health page
+ *  (/api/data/pipeline-health-dashboard `edgar`): counts and times only. The
+ *  token-gated probe's `last_error` (a URL and the poller's own message) is
+ *  not carried, and `first_error` goes through `publicFirstError`. */
+export function publicEdgarPollView(baseDir?: string, nowMs: number = Date.now()): PublicEdgarPollView {
+  return {
+    read_at: new Date(nowMs).toISOString(),
+    booted_at: new Date(bootedAtMs).toISOString(),
+    poll_interval_min: 15,
+    streams: EDGAR_POLL_STREAMS.map((stream) => {
+      const c = of(stream);
+      const w = lastArchiveWriteMs(stream, baseDir);
+      const d = pollDocuments(stream);
+      return {
+        stream,
+        polls_ok: c.polls_ok, polls_failed: c.polls_failed, consecutive_failures: c.consecutive_failures,
+        last_archive_write_at: w === null ? null : new Date(w).toISOString(),
+        documents: d ? { ...d, first_error: publicFirstError(d.first_error) } : null,
+      };
+    }),
+  };
+}
+
 export function _resetEdgarPollHealthForTests(nowMs: number = Date.now()): void {
   counters.clear();
   documents.clear();
