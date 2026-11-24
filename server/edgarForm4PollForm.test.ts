@@ -114,7 +114,7 @@ test("REGRESSION: prospectuses listed ahead of the Form 4s are not fetched, not 
   assert.equal(e.filingRequests().length, 30, "two requests per Form 4, none for anything else");
   assert.deepEqual(
     { ...form4PollStats(), at: null },
-    { at: null, feed_filings: 61, form4: 15, other_form: 46, unknown_form: 0, over_limit: 0, returned: 15, no_issuer: 0, failed: 0 },
+    { at: null, feed_filings: 61, form4: 15, other_form: 46, unknown_form: 0, over_limit: 0, returned: 15, no_issuer: 0, failed: 0, via_submission: 0, first_error: null },
   );
 });
 

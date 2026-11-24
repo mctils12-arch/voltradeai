@@ -437,7 +437,7 @@
   ],
   "form4_completeness": [
    "partial",
-   "Per-day completeness of the Form 4 archive. CORRECTED 2026-11-21: the Form 4 page has shown each filed day against EDGAR's index since 2026-11-18 (complete / partial / sample, through /api/data/insider/history). Not on a page: the nightly pass's own last run and the refill's progress. Placement: one line under the Form 4 page header."
+   "Per-day completeness of the Form 4 archive. CORRECTED 2026-11-21: the Form 4 page has shown each filed day against EDGAR's index since 2026-11-18 (complete / partial / sample, through /api/data/insider/history). Not on a page: the nightly pass's own last run and the refill's progress. 2026-11-24: `poll` gained `via_submission` and `first_error` (counts and a file-and-status wording, no filing named); probe only. Placement: one line under the Form 4 page header."
   ],
   "xbrl_frames": [
    "surfaced",

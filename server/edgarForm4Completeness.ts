@@ -47,7 +47,7 @@ import fs from "fs";
 import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
-import { FORM4_ARCHIVE_START, archiveFilings, form4PollStats, parseForm4Xml, pickOwnershipXmlName, type Form4Filing } from "./edgarForm4";
+import { FORM4_ARCHIVE_START, archiveFilings, fetchForm4Document, form4PollStats, type Form4Filing } from "./edgarForm4";
 import { beat, heartbeatDir, zonedParts } from "./jobHeartbeat";
 
 const ET = "America/New_York";
@@ -304,8 +304,8 @@ async function fetchMissingFilings(
     budget.tried++;
     try {
       const base = filingDirUrl(f);
-      const xmlName = pickOwnershipXmlName(JSON.parse(await getText(deps.fetch, `${base}index.json`, 12_000)));
-      const parsed = xmlName ? parseForm4Xml(await getText(deps.fetch, `${base}${xmlName}`, 12_000)) : null;
+      // the listing, or the submission text when the listing is not published (edgarForm4.ts)
+      const { parsed } = await fetchForm4Document((url) => getText(deps.fetch, url, 12_000), base, f.accession);
       budget.consecutiveRefusals = 0;
       if (parsed && parsed.issuerCik) {
         batch.push({

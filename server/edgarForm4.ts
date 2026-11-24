@@ -246,6 +246,55 @@ export function pickOwnershipXmlName(indexJson: any): string | null {
   return (preferred || xmlItems[0]).name;
 }
 
+/** The ownership XML held inside a filing's complete submission text file
+ *  (`<accession>.txt`): the first `<XML>` block that is an ownership document. */
+export function ownershipXmlFromSubmission(text: string): string | null {
+  for (const doc of text.split(/<DOCUMENT>/i).slice(1)) {
+    const m = doc.match(/<XML>\s*([\s\S]*?)\s*<\/XML>/i);
+    if (m && /<ownershipDocument[\s>]/i.test(m[1])) return m[1];
+  }
+  return null;
+}
+
+/** Which of EDGAR's two copies of a filing a row was read from. */
+export type Form4DocumentVia = "listing" | "submission";
+
+const httpStatusOf = (e: unknown): number | null => {
+  const status = (e as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : null;
+};
+
+/** One Form 4, parsed. Shared by the 15-minute poll and the nightly pass.
+ *
+ *  [REPAIR 2026-11-24] The directory listing (`index.json`) was the only way
+ *  either reader found a filing's document, and EDGAR publishes it later than
+ *  the filing. Measured 2026-11-24 02:35Z (Mon 21:35 ET): the listing answered
+ *  404 "Directory listing is Not Available Yet" for every sampled Form 4
+ *  accepted since about 15:45 ET, while the feed went on listing them. Each
+ *  poll failed 25 documents of 25, was counted ok, and the archive took no
+ *  row from 16:43 ET on. The filing's submission text file, named by the
+ *  accession alone, answered 200 for the same filings and holds the same
+ *  ownership XML.
+ *
+ *  So: the listing first (rows read that way are unchanged); when the listing
+ *  answers 404, the submission text. Any other failure of the listing (a
+ *  timeout, a 403 or 429 refusal) is thrown as before and not asked twice. */
+export async function fetchForm4Document(
+  getText: (url: string) => Promise<string>,
+  base: string,
+  accession: string,
+): Promise<{ parsed: ParsedForm4 | null; via: Form4DocumentVia }> {
+  let xmlName: string | null;
+  try {
+    xmlName = pickOwnershipXmlName(JSON.parse(await getText(`${base}index.json`)));
+  } catch (e) {
+    if (httpStatusOf(e) !== 404) throw e;
+    const xml = ownershipXmlFromSubmission(await getText(`${base}${accession}.txt`));
+    return { parsed: xml ? parseForm4Xml(xml) : null, via: "submission" };
+  }
+  return { parsed: xmlName ? parseForm4Xml(await getText(`${base}${xmlName}`)) : null, via: "listing" };
+}
+
 /** The page sizes EDGAR's "getcurrent" listing offers in its own form. A
  *  `count` outside this list is not rounded, it is refused.
  *
@@ -275,7 +324,7 @@ export function edgarCurrentFeedUrl(formType: string, wantedEntries: number): st
 
 async function fetchText(fetchImpl: FetchFn, url: string): Promise<string> {
   const r = await fetchImpl(url, { headers: SEC_UA, signal: AbortSignal.timeout(12000) as any });
-  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(`${url} -> ${r.status}`), { status: r.status });
   return r.text();
 }
 
@@ -298,10 +347,31 @@ export interface Form4PollStats {
   no_issuer: number;
   /** the directory or the document could not be read */
   failed: number;
+  /** of `returned`, read from the submission text because the directory listing was not published */
+  via_submission: number;
+  /** the first failed document's error, naming the file asked for and the status but no filing; null when none failed */
+  first_error: string | null;
 }
 let lastPollStats: Form4PollStats | null = null;
 export function form4PollStats(): Form4PollStats | null {
   return lastPollStats;
+}
+
+/** A failed document request in words that name no filing (the probes that
+ *  serve it carry counts only): "index.json -> 404", or the error's text
+ *  with any URL and accession removed. */
+export function describeDocumentError(e: unknown): string {
+  const msg = String((e as { message?: unknown } | null)?.message ?? e);
+  const m = msg.match(/\/([^/\s]+) -> (\d{3})$/);
+  const text = m ? `${m[1]} -> ${m[2]}` : msg.replace(/https?:\/\/\S+/g, "<url>");
+  return text.replace(/\d{10}-\d{2}-\d{6}/g, "<accession>").slice(0, 120);
+}
+
+/** The error a poll is counted failed with when it fetched Form 4 documents
+ *  and read none; null for every other poll (an empty page included). */
+export function form4PollUnreadError(stats: Form4PollStats | null): Error | null {
+  if (!stats || stats.returned > 0 || stats.failed === 0) return null;
+  return new Error(`0 of ${stats.failed} Form 4 documents could be read: ${stats.first_error ?? "no error recorded"}`);
 }
 
 /** Fetches the N most recent Form 4 filings, parsed. Sequential with a small
@@ -338,23 +408,25 @@ export async function fetchLatestForm4Filings(
     returned: 0,
     no_issuer: 0,
     failed: 0,
+    via_submission: 0,
+    first_error: null,
   };
   const out: Form4Filing[] = [];
   for (const entry of entries) {
     try {
       const base = entry.indexUrl.replace(/[^/]+$/, "");
-      const indexJson = JSON.parse(await fetchText(fetchImpl, `${base}index.json`));
-      const xmlName = pickOwnershipXmlName(indexJson);
-      const parsed = xmlName ? parseForm4Xml(await fetchText(fetchImpl, `${base}${xmlName}`)) : null;
+      const { parsed, via } = await fetchForm4Document((url) => fetchText(fetchImpl, url), base, entry.accession);
       if (parsed && parsed.issuerCik) {
         out.push({ ...parsed, accession: entry.accession, filedAt: entry.filedAt, cik: entry.cik, indexUrl: entry.indexUrl });
         stats.returned++;
+        if (via === "submission") stats.via_submission++;
       } else {
         stats.no_issuer++;
       }
-    } catch {
+    } catch (e) {
       // one bad filing (malformed doc, transient 4xx) never kills the batch
       stats.failed++;
+      if (stats.first_error === null) stats.first_error = describeDocumentError(e);
     }
     if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
   }
@@ -528,7 +600,12 @@ export async function refreshForm4Cache(limit = 25, fetchImpl: FetchFn = fetch a
     if (next) cache = { at: Date.now(), filings: next };
     let archived = 0;
     try { archived = archiveFilings(filings); } catch {}
-    notePollOk("filings", archived);
+    // [REPAIR 2026-11-24] A poll that found Form 4s on the page and could read
+    // none of them is a failed poll: on 2026-11-23 that was every poll from
+    // 16:43 ET on, each counted ok.
+    const unread = form4PollUnreadError(lastPollStats);
+    if (unread) notePollFailed("filings", unread);
+    else notePollOk("filings", archived);
     try { gzipOldFilingDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgarForm4 refresh:", e?.message || e);
