@@ -188,3 +188,38 @@ test("Form 4 reports the same counts in the shared shape", async () => {
   assert.deepEqual({ ...pollDocuments("filings"), at: null },
     { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "index.json -> 403" });
 });
+
+// ── [PRODUCT 2026-11-24, open_questions.md (aj2)] the public view ───────────
+import { publicEdgarPollView, publicFirstError } from "./edgarPollHealth";
+
+test("publicFirstError: a recorded stage and status pass; any other text is reduced to the stage and 'timed out' or 'failed'", () => {
+  assert.equal(publicFirstError(null), null);
+  assert.equal(publicFirstError("index.json -> 404"), "index.json -> 404");
+  assert.equal(publicFirstError("information table -> 503"), "information table -> 503");
+  assert.equal(publicFirstError("<accession>.txt -> 404"), "<accession>.txt -> 404");
+  assert.equal(publicFirstError("exhibit: The operation was aborted due to timeout"), "exhibit timed out");
+  assert.equal(publicFirstError("index.json: Unexpected token < in <url> for <accession>"), "index.json failed");
+  // Form 4 keeps an error with no status as the bare message (no stage): nothing of it is passed on
+  assert.equal(publicFirstError("The operation was aborted due to timeout"), "a request failed");
+  assert.equal(publicFirstError("fetch failed"), "a request failed");
+  assert.equal(publicFirstError("something a remote server wrote, with a name in it"), "a request failed");
+});
+
+test("the public view carries counts and times, never last_error, and is wired into the Pipeline health route", () => {
+  _resetEdgarPollHealthForTests(T0);
+  const dir = tmp();
+  notePollFailed("filings13f", new Error("https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=13F-HR -> 503"), T0);
+  notePollOk("filings", 7, T0);
+  notePollDocuments("earnings8k", { at: "2026-11-24T13:00:00.000Z", candidates: 2, returned: 1, skipped: 0, failed: 1, first_error: "exhibit: socket hang up at some.host" });
+  const v = publicEdgarPollView(dir, T0 + 60_000);
+  assert.deepEqual(v.streams.map((s) => s.stream), [...EDGAR_POLL_STREAMS]);
+  assert.equal(v.poll_interval_min, 15);
+  assert.equal(v.streams[1].polls_failed, 1);
+  assert.equal(v.streams[1].consecutive_failures, 1);
+  assert.equal(v.streams[2].documents?.first_error, "exhibit failed");
+  const text = JSON.stringify(v);
+  assert.ok(!text.includes("sec.gov") && !text.includes("last_error") && !text.includes("some.host"));
+  const routes = fs.readFileSync(path.join(here, "routes.ts"), "utf8");
+  assert.match(routes, /edgar = publicEdgarPollView\(\)/);
+  assert.match(routes, /jobs,\n\s+edgar,/);
+});

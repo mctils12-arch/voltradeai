@@ -452,8 +452,8 @@
    "The nightly job is on Pipeline health with every other scheduled job, and Signal strength shows the 13F root's ladder position. Not on a page: the cluster list itself (securities several focused managers newly reported in a quarter). It is an interpreted reading whose gate-2 test is pre-registered and not yet run, so it waits for ladder gate 2. Placement after gate 2: a section of the 13F page."
   ],
   "edgar_poll": [
-   "partial",
-   "EDGAR poller failures, and since 2026-11-24 each poller's latest document counts (asked, read, skipped, not readable, first error). Read by the session health check only. Placement: Pipeline health."
+   "surfaced",
+   "Pipeline health: the SEC filing pollers section (since 2026-11-24) shows, for Form 4, 13F and 8-K earnings, the latest poll's filings asked for, read, skipped and not readable with its first failure, the archive's last new row, and the polls read and failed since the server started. It reads the public view in /api/data/pipeline-health-dashboard (`edgar`); the probe's own last_error text stays behind the token."
   ],
   "event_study": [
    "surfaced",

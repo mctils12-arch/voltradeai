@@ -19,7 +19,7 @@ page requests it, not that the page shows every field.
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
 | HTTP routes | 276 | 5 | 5 | 27 | 14 |
-| Diagnostic probes (token-gated) | 37 | 16 | 1 | 12 | 0 |
+| Diagnostic probes (token-gated) | 38 | 15 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 258 in `datacore/layers.json` (255 live). The /data layers panel, the legend and
@@ -37,7 +37,7 @@ layers are not listed one by one here.
 | route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
 
-## Partial (25)
+## Partial (24)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -59,7 +59,6 @@ layers are not listed one by one here.
 | probe | `github_gate2` | `server/bot.ts /api/diag/github_gate2` | as above |
 | probe | `form4_completeness` | `server/bot.ts /api/diag/form4_completeness` | Per-day completeness of the Form 4 archive. CORRECTED 2026-11-21: the Form 4 page has shown each filed day against EDGAR's index since 2026-11-18 (complete / partial / sample, through /api/data/insider/history). Not on a page: the nightly pass's own last run and the refill's progress. 2026-11-24: `poll` gained `via_submission` and `first_error` (counts and a file-and-status wording, no filing named); probe only. Placement: one line under the Form 4 page header. |
 | probe | `filings13f_completeness` | `server/bot.ts /api/diag/filings13f_completeness` | 13F page: since 2026-11-21 the page asks by filed day and each day's line states it against EDGAR's index (complete / partial / sample, through /api/data/filings13f/history). Not on a page: the nightly pass's own last run and how far back the archive is complete. Placement: one line under the 13F page header. |
-| probe | `edgar_poll` | `server/bot.ts /api/diag/edgar_poll` | EDGAR poller failures, and since 2026-11-24 each poller's latest document counts (asked, read, skipped, not readable, first error). Read by the session health check only. Placement: Pipeline health. |
 | probe | `squeeze_gex` | `server/bot.ts /api/diag/squeeze_gex` | Dealer-gamma readings. The Analyze page shows a GEX figure; the condor filter's decisions are in the decision journal. Placement: none further. |
 | probe | `gamma` | `server/bot.ts /api/diag/gamma` | as above (dealer-gamma readings; the Analyze page shows a GEX figure) |
 | strategy | `strategies/momentum.py` | `strategies/momentum.py` | scoring module; its results show under its sleeve in expectancy-by-sleeve, not by strategy name |
@@ -130,7 +129,7 @@ layers are not listed one by one here.
 | probe | `price_panel` | price panel build |
 | probe | `loop_profile` | on-demand CPU profile of the server's event loop (a session's diagnostic; it starts a run, so it is not a page read) |
 
-## Surfaced (319)
+## Surfaced (320)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -445,6 +444,7 @@ layers are not listed one by one here.
 | probe | `walkforward` | `server/bot.ts /api/diag/walkforward` | The multi-year walk-forward test of the score's price inputs. CORRECTED 2026-11-20 (was 'partial'): the Brain page shows each input's long-term verdict from it (brain_evidence.py reads the last good result) beside the short-term evidence, with the run's date; the AI Engine's 'why' card also cites it in words. |
 | probe | `edge_p2` | `server/bot.ts /api/diag/edge_p2` | lookup ledger (ticker dossier) |
 | probe | `xbrl_frames` | `server/bot.ts /api/diag/xbrl_frames` | Company fundamentals page (#/data/xbrl-fundamentals): last night's status, per-frame counts and revisions come from the same run file; the probe adds attempt markers, error text and free space |
+| probe | `edgar_poll` | `server/bot.ts /api/diag/edgar_poll` | Pipeline health: the SEC filing pollers section (since 2026-11-24) shows, for Form 4, 13F and 8-K earnings, the latest poll's filings asked for, read, skipped and not readable with its first failure, the archive's last new row, and the polls read and failed since the server started. It reads the public view in /api/data/pipeline-health-dashboard (`edgar`); the probe's own last_error text stays behind the token. |
 | probe | `event_study` | `server/bot.ts /api/diag/event_study` | ticker dossier |
 | probe | `heartbeats` | `server/bot.ts /api/diag/heartbeats` | Every scheduled job: on time, late, never ran, last run failed, not due. Since 2026-11-21 the /data Pipeline health panel lists every job with its schedule, its last run and, for a failed one, the cause as one of six fixed sentences (the `jobs` field of /api/data/pipeline-health-dashboard, jobHeartbeat.publicJobsView). Not shown, by design: the failed run's own error text and the evaluator's reason, which stay behind the token. |
 | strategy | `volatility-managed base (floor_vol_managed.py)` | `volatility-managed base (floor_vol_managed.py)` | The largest holding. Since 2026-11-20 the Why panel's 'Base holding' section shows it against its own rule (see floor_tracking). |
