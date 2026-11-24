@@ -12,6 +12,7 @@ import Database from "better-sqlite3";
 import {
   AUDIT_MAX_ROWS, AUDIT_QUERY_MAX_LIMIT, AUDIT_RETENTION_DAYS,
   ensureAuditSchema, parseAuditSince, pruneAuditLog, queryAuditLog,
+  AUDIT_PREFIX_MAX, countAuditLog, parseAuditPrefix,
 } from "./auditRetention";
 
 const NOW = Date.parse("2026-10-27T20:00:00Z");
@@ -103,6 +104,51 @@ test("parseAuditSince normalizes valid ISO input and rejects everything else", (
   assert.equal(parseAuditSince(undefined), null);
 });
 
+// ── (af2), 2026-11-24: a count that is not cut, and a message prefix ────────
+test("countAuditLog counts every matching row, past any limit a read is cut at", () => {
+  const db = new Database(":memory:");
+  ensureAuditSchema(db);
+  const rows: Array<[number, string, string]> = [];
+  for (let i = 0; i < 700; i++) {
+    rows.push([NOW - 30 * H + i * 60_000, "TIER2", "Starting intelligence scan..."]);
+    rows.push([NOW - 30 * H + i * 60_000 + 1, "TIER2", `Scanned ${12000 + i} stocks, 0 trade candidates (via daemon)`]);
+  }
+  rows.push([NOW - H, "TIER2-ERROR", "Scan failed via daemon: Daemon timeout"]);
+  rows.push([NOW - H, "DIAGNOSTIC", "Starting intelligence scan..."]);
+  seed(db, rows);
+  const since = new Date(NOW - 24 * H).toISOString();
+  assert.equal(countAuditLog(db, { type: "TIER2" }), 1400);
+  assert.equal(countAuditLog(db, { type: "TIER2", prefix: "Starting intelligence scan" }), 700);
+  // 30 h of rows, one scan a minute from NOW-30h: the last 24 h hold rows 360..699.
+  assert.equal(countAuditLog(db, { type: "TIER2", since, prefix: "Starting intelligence scan" }), 340);
+  assert.equal(countAuditLog(db, { type: "TIER2", since, prefix: "Scanned " }), 340);
+  assert.equal(countAuditLog(db, { type: "TIER2-ERROR", since }), 1);
+  assert.equal(countAuditLog(db, { since, prefix: "Starting intelligence scan" }), 341, "no type: the other type's row counts too");
+  // The read is still capped; the count is what says it was.
+  assert.equal(queryAuditLog(db, { limit: 200, type: "TIER2", since }).length, 200);
+  const got = queryAuditLog(db, { limit: 5, type: "TIER2", prefix: "Scanned " });
+  assert.equal(got.length, 5);
+  assert.ok(got.every((r) => r.message.startsWith("Scanned ")));
+});
+
+test("a prefix is compared exactly: % and _ are characters, not wildcards", () => {
+  const db = new Database(":memory:");
+  ensureAuditSchema(db);
+  seed(db, [[NOW, "LEARN", "Win rate 0% (20 post-deploy trades)"], [NOW, "LEARN", "Win rate 05 of 20"], [NOW, "LEARN", "win rate 0%"]]);
+  assert.equal(countAuditLog(db, { prefix: "Win rate 0%" }), 1);
+  assert.equal(countAuditLog(db, { prefix: "Win rate 0_" }), 0);
+  assert.equal(countAuditLog(db, { prefix: "Win rate 0" }), 2);
+});
+
+test("parseAuditPrefix: a non-empty string up to the cap, nothing else", () => {
+  assert.equal(parseAuditPrefix("Scanned "), "Scanned ", "a trailing space is kept");
+  assert.equal(parseAuditPrefix(""), null);
+  assert.equal(parseAuditPrefix(undefined), null);
+  assert.equal(parseAuditPrefix(["a", "b"]), null, "a repeated query key is not a prefix");
+  assert.equal(parseAuditPrefix("x".repeat(AUDIT_PREFIX_MAX)), "x".repeat(AUDIT_PREFIX_MAX));
+  assert.equal(parseAuditPrefix("x".repeat(AUDIT_PREFIX_MAX + 1)), null);
+});
+
 // ── bot.ts wiring (static) ──────────────────────────────────────────────────
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
@@ -121,4 +167,14 @@ test("the diag audit probe accepts ?since= and routes through queryAuditLog", ()
   const probe = bot.slice(start, bot.indexOf('case "ml": {', start));
   assert.ok(/parseAuditSince\(req\.query\.since\)/.test(probe));
   assert.ok(/queryAuditLog\(db, \{/.test(probe));
+});
+
+test("the diag audit probe serves an uncut total beside its rows, and refuses a bad prefix", () => {
+  const start = bot.indexOf('case "audit": {');
+  const probe = bot.slice(start, bot.indexOf('case "ml": {', start));
+  assert.ok(/parseAuditPrefix\(req\.query\.prefix\)/.test(probe));
+  assert.ok(/countAuditLog\(db, filter\)/.test(probe));
+  assert.ok(/queryAuditLog\(db, \{ limit, \.\.\.filter \}\)/.test(probe), "rows and count read the same filter");
+  assert.ok(/probe: "audit",\s+total,/.test(probe));
+  assert.ok(/status\(400\)\.json\(\{ error: `prefix must be/.test(probe));
 });
