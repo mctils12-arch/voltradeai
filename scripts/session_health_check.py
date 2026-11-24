@@ -43,6 +43,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -404,25 +405,105 @@ def _deep_guard_verdict(guard, label):
     return finding(OK, "daemon_memory", detail)
 
 
-def check_tier2_daemon_timeouts(tier2_error_entries, cluster_threshold=3):
-    """KNOWN BROKEN #18: daemon run_full_scan timeouts clustering (was
-    hypothesized as zombie-thread pileup, refuted 2026-07-12 — event-loop
-    lag is the confirmed mechanism, non-blocking). Just count + surface
-    active_dispatches readings for whichever session picks up the thread
-    next; do not diagnose further here."""
-    entries = tier2_error_entries or []
-    timeouts = [e for e in entries if "timeout" in str(e.get("message", "")).lower()]
-    if len(timeouts) >= cluster_threshold:
-        dispatches = [
-            e["message"].split("active_dispatches=")[1].split()[0]
-            for e in timeouts if "active_dispatches=" in str(e.get("message", ""))
-        ]
+TIER2_WINDOW_HOURS = 24
+TIER2_AUDIT_LIMIT = 200          # what the audit probe returns at most (sanitizeDiag cuts every array)
+TIER2_SCAN_START = "Starting intelligence scan"   # server/bot.ts tier2Intelligence, one row per scan
+TIER2_SCAN_DONE = "Scanned "                      # the row a scan that returned writes
+
+
+def tier2_window_since(now=None, hours=TIER2_WINDOW_HOURS):
+    """Start of the window the Tier-2 line is read over, ISO UTC, floored to
+    the minute so the two audit requests of one run ask for the same rows."""
+    now = now or datetime.now(timezone.utc)
+    return (now - timedelta(hours=hours)).replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _audit_time(entry):
+    try:
+        return datetime.fromisoformat(str(entry.get("time", "")).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def check_tier2_daemon_timeouts(tier2_error_entries, cluster_threshold=3, tier2_entries=None,
+                                since=None, now=None, limit=TIER2_AUDIT_LIMIT,
+                                scans_started=None, scans_returned=None):
+    """Daemon timeouts of the full scan as a SHARE of the scans started in
+    one stated window (open_questions (af2)).
+
+    Before 2026-11-24 this read the newest 50 TIER2-ERROR rows with no time
+    limit and printed their count as "in window, non-blocking". The log
+    keeps 30 days, so the "window" was however far back 50 errors reached
+    (26 days on 2026-11-24, when it printed 48 with none that day), and with
+    no count of scans a one-in-six failure rate read as a small number for
+    weeks (KNOWN BROKEN #60). A timed-out scan returns nothing to Node.
+
+    `tier2_error_entries` are the TIER2-ERROR rows from `since`.
+    `scans_started` / `scans_returned` are the server's own counts of the
+    scan rows from `since` (the audit probe's `total`); with them the window
+    is the whole stretch from `since`. A server that does not serve `total`
+    leaves them None, and the scans are counted from `tier2_entries` (the
+    TIER2 rows from `since`): when that answer is cut at the probe's `limit`
+    the window is shortened to the oldest row it holds, so the timeouts and
+    the scans are always counted over the same stretch. With neither, the
+    scans are not known and the line says so."""
+    errors = tier2_error_entries or []
+    rows = tier2_entries or []
+    now = now or datetime.now(timezone.utc)
+    start = None
+    if since:
+        start = _audit_time({"time": since})
+    counted = isinstance(scans_started, int) and not isinstance(scans_started, bool)
+    if start and not counted and len(rows) >= limit:
+        times = [t for t in (_audit_time(e) for e in rows) if t]
+        if times:
+            start = max(start, min(times))
+
+    def in_window(e):
+        if not start:
+            return True
+        t = _audit_time(e)
+        return t is not None and t >= start
+
+    errors = [e for e in errors if in_window(e)]
+    timeouts = [e for e in errors if "timeout" in str(e.get("message", "")).lower()]
+    other = len(errors) - len(timeouts)
+    n = len(timeouts)
+    other_txt = f"; {other} scan error(s) of another kind" if other else ""
+    dispatches = sorted({
+        e["message"].split("active_dispatches=")[1].split()[0]
+        for e in timeouts if "active_dispatches=" in str(e.get("message", ""))
+    })
+    disp_txt = f" (active_dispatches seen: {', '.join(dispatches)})" if dispatches else ""
+    cost = "a timed-out scan returns nothing: no candidates, no options, then a 120 s back-off"
+
+    if not start or (tier2_entries is None and not counted):
+        detail = f"{n} daemon timeout(s) in the rows read; scans started not read, so no share{other_txt}"
+        if n >= cluster_threshold:
+            return finding(WARN, "tier2_daemon_timeouts", f"{detail}{disp_txt} — {cost} (KNOWN BROKEN #60)")
+        return finding(OK, "tier2_daemon_timeouts", f"{detail}, below cluster threshold")
+
+    if counted:
+        started = scans_started
+        done = scans_returned if isinstance(scans_returned, int) else "?"
+    else:
+        rows = [e for e in rows if in_window(e)]
+        started = sum(1 for e in rows if str(e.get("message", "")).startswith(TIER2_SCAN_START))
+        done = sum(1 for e in rows if str(e.get("message", "")).startswith(TIER2_SCAN_DONE))
+    hours = max((now - start).total_seconds() / 3600.0, 0.0)
+    span = f"the last {hours:.1f} h"
+    if started <= 0:
+        detail = f"{n} daemon timeout(s) and no scan started in {span}{other_txt}"
+    else:
+        share = 100.0 * n / started
+        detail = (f"{n} of {started} scans started in {span} ended in a daemon timeout "
+                  f"({share:.1f}%); {done} returned{other_txt}")
+    if n >= cluster_threshold:
         return finding(
-            WARN, "tier2_daemon_timeouts",
-            f"{len(timeouts)} daemon timeouts in window (active_dispatches seen: "
-            f"{dispatches or 'none captured'}) — see KNOWN BROKEN #18, non-blocking",
+            WARN, "tier2_daemon_timeouts", f"{detail}{disp_txt} — {cost} (KNOWN BROKEN #60)",
+            fix="/api/diag/timings: `options_stage_deadline` and each phase's total_sec against the daemon's 300 s",
         )
-    return finding(OK, "tier2_daemon_timeouts", f"{len(timeouts)} timeout(s) in window, below cluster threshold")
+    return finding(OK, "tier2_daemon_timeouts", detail)
 
 
 def check_ml_feedback(ml):
@@ -1048,7 +1129,7 @@ def alert_message(findings):
 
 
 def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
-                    local_version=None, server_version=None):
+                    local_version=None, server_version=None, tier2_scans=None, tier2_since=None):
     return [
         check_deploy_gate(health),
         check_liveness(health),
@@ -1058,7 +1139,9 @@ def run_all_checks(health, daemon, diagnostic_entries, tier2_error_entries, ml,
         check_restarts(health),
         check_alt_data_enrichment(diagnostic_entries),
         check_daemon_memory(daemon),
-        check_tier2_daemon_timeouts(tier2_error_entries),
+        check_tier2_daemon_timeouts(
+            tier2_error_entries, since=tier2_since, tier2_entries=(tier2_scans or {}).get("entries"),
+            scans_started=(tier2_scans or {}).get("started"), scans_returned=(tier2_scans or {}).get("returned")),
         check_ml_feedback(ml),
         check_deploy_freshness(local_version, server_version),
     ]
@@ -1142,7 +1225,7 @@ def gather_ops(base_url, health, samples=5):
     return plan_status, intent_cov, offload, governor, latency, uptime_s
 
 
-def gather(base_url, diag_token):
+def gather(base_url, diag_token, tier2_since=None):
     health = _fetch_json(f"{base_url}/api/health")
     layers = _fetch_json(f"{base_url}/api/data/layers")
     server_version = (layers or {}).get("server_version")
@@ -1151,10 +1234,34 @@ def gather(base_url, diag_token):
         daemon = _fetch_json(f"{base_url}/api/diag/daemon?token={diag_token}")
         audit_diag = _fetch_json(f"{base_url}/api/diag/audit?type=DIAGNOSTIC&limit=50&token={diag_token}")
         diagnostic_entries = (audit_diag or {}).get("entries", [])
-        audit_t2 = _fetch_json(f"{base_url}/api/diag/audit?type=TIER2-ERROR&limit=50&token={diag_token}")
+        t2_window = f"&since={tier2_since}" if tier2_since else ""
+        audit_t2 = _fetch_json(
+            f"{base_url}/api/diag/audit?type=TIER2-ERROR&limit={TIER2_AUDIT_LIMIT}{t2_window}&token={diag_token}")
         tier2_error_entries = (audit_t2 or {}).get("entries", [])
         ml = _fetch_json(f"{base_url}/api/diag/ml?token={diag_token}")
     return health, daemon, diagnostic_entries, tier2_error_entries, ml, server_version
+
+
+def _audit_total(got):
+    n = got.get("total") if isinstance(got, dict) else None
+    return n if isinstance(n, int) and not isinstance(n, bool) else None
+
+
+def gather_tier2_scans(base_url, diag_token, since, fetch=None):
+    """Scans started and returned since `since`: the audit probe's `total`
+    for each scan row's prefix when the server serves it, and the TIER2 rows
+    themselves (newest first, at most TIER2_AUDIT_LIMIT) for a server that
+    does not. `entries` None means the probe did not answer, so the line
+    says the scans were not read instead of printing a share of zero."""
+    fetch = fetch or _fetch_json
+    base = f"{base_url}/api/diag/audit?type=TIER2&since={since}&token={diag_token}"
+    got = fetch(f"{base}&limit={TIER2_AUDIT_LIMIT}")
+    entries = got.get("entries") if isinstance(got, dict) and isinstance(got.get("entries"), list) else None
+    started = returned = None
+    if _audit_total(got) is not None:
+        started = _audit_total(fetch(f"{base}&limit=1&prefix={urllib.parse.quote(TIER2_SCAN_START)}"))
+        returned = _audit_total(fetch(f"{base}&limit=1&prefix={urllib.parse.quote(TIER2_SCAN_DONE)}"))
+    return {"entries": entries, "started": started, "returned": returned}
 
 
 def gather_edgar(base_url, diag_token):
@@ -1171,11 +1278,15 @@ def main():
     args = ap.parse_args()
 
     diag_token = os.environ.get("DIAG_TOKEN", "")
-    health, daemon, diagnostic_entries, tier2_error_entries, ml, server_version = gather(args.base_url, diag_token)
+    tier2_since = tier2_window_since()
+    health, daemon, diagnostic_entries, tier2_error_entries, ml, server_version = gather(
+        args.base_url, diag_token, tier2_since=tier2_since)
+    tier2_scans = gather_tier2_scans(args.base_url, diag_token, tier2_since) if diag_token else None
     local_version = read_local_package_version()
     findings = run_all_checks(
         health, daemon, diagnostic_entries, tier2_error_entries, ml,
         local_version=local_version, server_version=server_version,
+        tier2_scans=tier2_scans, tier2_since=tier2_since,
     )
 
     now_iso = datetime.now(timezone.utc).isoformat()

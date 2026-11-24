@@ -354,6 +354,127 @@ def test_tier2_timeouts_ignores_non_timeout_errors():
     assert f["severity"] == hc.OK
 
 
+# (af2), 2026-11-24: the line is a share of the scans started in one stated
+# window. It used to count the newest 50 TIER2-ERROR rows however old (26
+# days on the day this was written: "48 timeouts in window" with none that
+# day) and print no number of scans beside them.
+
+from datetime import datetime as _dt, timezone as _tz
+
+_T2_NOW = _dt(2026, 11, 24, 16, 0, tzinfo=_tz.utc)
+_T2_SINCE = "2026-11-23T16:00:00.000Z"
+_T2_TIMEOUT = "Scan failed via daemon: daemon run_full_scan failed: Daemon timeout — daemon rss=652.8MB active_dispatches=2 [run_full_scan:300s]"
+
+
+def _row(time, msg, type_="TIER2"):
+    return {"time": time, "type": type_, "message": msg}
+
+
+def _scan_rows(times):
+    rows = []
+    for t in times:
+        rows.append(_row(t, "Starting scan (interval: 3min based on market time)"))
+        rows.append(_row(t, "Starting intelligence scan..."))
+        rows.append(_row(t, "Scanned 12171 stocks, 0 trade candidates (via daemon)"))
+    return rows
+
+
+def test_tier2_window_since_is_24h_back_floored_to_the_minute():
+    assert hc.tier2_window_since(_dt(2026, 11, 24, 16, 11, 9, 5, tzinfo=_tz.utc)) == "2026-11-23T16:11:00.000Z"
+
+
+def test_tier2_timeouts_older_than_the_window_are_not_counted():
+    """The production shape of 2026-11-24: weeks-old timeouts, none in the window."""
+    errors = [_row("2026-10-30T15:00:00.000Z", _T2_TIMEOUT, "TIER2-ERROR")] * 40
+    f = hc.check_tier2_daemon_timeouts(errors, since=_T2_SINCE, now=_T2_NOW,
+                                       scans_started=140, scans_returned=140)
+    assert f["severity"] == hc.OK
+    assert f["detail"] == "0 of 140 scans started in the last 24.0 h ended in a daemon timeout (0.0%); 140 returned"
+
+
+def test_tier2_timeouts_read_as_a_share_of_the_scans_the_server_counted():
+    """2026-11-23 afternoon: 4 of 23 is one in six, and the line says so."""
+    errors = [_row(f"2026-11-23T1{h}:30:00.000Z", _T2_TIMEOUT, "TIER2-ERROR") for h in (7, 8, 9, 9)]
+    f = hc.check_tier2_daemon_timeouts(errors, since=_T2_SINCE, now=_T2_NOW,
+                                       scans_started=23, scans_returned=19)
+    assert f["severity"] == hc.WARN
+    assert "4 of 23 scans started in the last 24.0 h ended in a daemon timeout (17.4%); 19 returned" in f["detail"]
+    assert "active_dispatches seen: 2)" in f["detail"]
+    assert "returns nothing" in f["detail"] and "KNOWN BROKEN #60" in f["detail"]
+    assert "non-blocking" not in f["detail"] and "#18" not in f["detail"]
+    assert "timings" in f["fix"]
+
+
+def test_tier2_scans_counted_from_rows_when_the_server_serves_no_total():
+    rows = _scan_rows(["2026-11-24T15:00:00.000Z", "2026-11-24T15:03:00.000Z", "2026-11-24T15:06:00.000Z"])
+    rows.append(_row("2026-11-24T15:09:00.000Z", "Starting intelligence scan..."))   # still running
+    f = hc.check_tier2_daemon_timeouts([], since=_T2_SINCE, now=_T2_NOW, tier2_entries=rows)
+    assert f["severity"] == hc.OK
+    assert f["detail"].startswith("0 of 4 scans started in the last 24.0 h") and f["detail"].endswith("3 returned")
+
+
+def test_tier2_window_shrinks_to_the_rows_held_when_the_answer_is_cut():
+    """A cut answer (the probe returns 200 rows at most) covers less than
+    the window asked for: timeouts before its oldest row are left out and
+    the hours printed are the hours the rows cover."""
+    rows = _scan_rows(["2026-11-24T14:00:00.000Z", "2026-11-24T15:00:00.000Z"])
+    errors = [_row("2026-11-24T14:30:00.000Z", _T2_TIMEOUT, "TIER2-ERROR")] * 3 \
+        + [_row("2026-11-23T19:00:00.000Z", _T2_TIMEOUT, "TIER2-ERROR")] * 5
+    f = hc.check_tier2_daemon_timeouts(errors, since=_T2_SINCE, now=_T2_NOW, tier2_entries=rows, limit=len(rows))
+    assert f["severity"] == hc.WARN
+    assert "3 of 2 scans started in the last 2.0 h" in f["detail"]
+    whole = hc.check_tier2_daemon_timeouts(errors, since=_T2_SINCE, now=_T2_NOW, tier2_entries=rows)
+    assert "8 of 2 scans started in the last 24.0 h" in whole["detail"]
+
+
+def test_tier2_no_scan_in_window_and_other_errors_are_said():
+    errors = [_row("2026-11-24T09:07:53.000Z", "fetch failed", "TIER2-ERROR")]
+    f = hc.check_tier2_daemon_timeouts(errors, since=_T2_SINCE, now=_T2_NOW, scans_started=0, scans_returned=0)
+    assert f["severity"] == hc.OK
+    assert f["detail"] == "0 daemon timeout(s) and no scan started in the last 24.0 h; 1 scan error(s) of another kind"
+
+
+def test_tier2_line_says_when_the_scans_were_not_read():
+    errors = [_row("2026-11-24T15:00:00.000Z", _T2_TIMEOUT, "TIER2-ERROR")] * 3
+    f = hc.check_tier2_daemon_timeouts(errors, since=_T2_SINCE, now=_T2_NOW)
+    assert f["severity"] == hc.WARN and "scans started not read" in f["detail"] and "%" not in f["detail"]
+
+
+def test_gather_tier2_scans_asks_for_counts_only_from_a_server_that_serves_them():
+    asked = []
+
+    def new_server(url):
+        asked.append(url)
+        if "prefix=Starting%20intelligence%20scan" in url:
+            return {"probe": "audit", "total": 140, "entries": []}
+        if "prefix=Scanned%20" in url:
+            return {"probe": "audit", "total": 139, "entries": []}
+        return {"probe": "audit", "total": 420, "entries": [_row("t", "x")]}
+
+    got = hc.gather_tier2_scans("http://x", "tok", _T2_SINCE, fetch=new_server)
+    assert (got["started"], got["returned"], len(got["entries"])) == (140, 139, 1)
+    assert all(f"since={_T2_SINCE}" in u and "type=TIER2&" in u for u in asked) and len(asked) == 3
+
+    asked.clear()
+
+    def old_server(url):
+        asked.append(url)
+        return {"probe": "audit", "entries": [_row("t", "x")]}
+
+    got = hc.gather_tier2_scans("http://x", "tok", _T2_SINCE, fetch=old_server)
+    assert (got["started"], got["returned"]) == (None, None) and len(asked) == 1
+    assert hc.gather_tier2_scans("http://x", "tok", _T2_SINCE, fetch=lambda u: None) == \
+        {"entries": None, "started": None, "returned": None}
+
+
+def test_run_all_checks_passes_the_scan_counts_to_the_tier2_line():
+    findings = hc.run_all_checks(
+        _health(), {"alive": True, "rss_mb": 100}, [], [], {},
+        tier2_scans={"entries": [], "started": 12, "returned": 12}, tier2_since=hc.tier2_window_since())
+    line = next(f for f in findings if f["label"] == "tier2_daemon_timeouts")
+    assert line["detail"].startswith("0 of 12 scans started in the last 24.0 h")
+
+
 # ── check_ml_feedback (KNOWN BROKEN #12) ─────────────────────────────────
 
 def test_ml_feedback_ok_when_healthy():

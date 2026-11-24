@@ -77,15 +77,46 @@ export function parseAuditSince(raw: unknown): string | null {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
-/** Newest-first rows, optionally filtered by exact type and/or time >= since. */
-export function queryAuditLog(
-  db: AuditDb,
-  q: { limit: number; type?: string | null; since?: string | null },
-): AuditRow[] {
+/** Longest ?prefix= the audit probe accepts. */
+export const AUDIT_PREFIX_MAX = 80;
+
+/** Normalize a ?prefix= value: the start of a row's message, compared
+ *  exactly (no wildcard). null when absent, empty or too long. */
+export function parseAuditPrefix(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  return raw.length > 0 && raw.length <= AUDIT_PREFIX_MAX ? raw : null;
+}
+
+type AuditFilter = { type?: string | null; since?: string | null; prefix?: string | null };
+
+function auditWhere(q: AuditFilter): { where: string[]; params: unknown[] } {
   const where: string[] = [];
   const params: unknown[] = [];
   if (q.type) { where.push("type = ?"); params.push(q.type); }
   if (q.since) { where.push("time >= ?"); params.push(q.since); }
+  if (q.prefix) { where.push("substr(message, 1, ?) = ?"); params.push(q.prefix.length, q.prefix); }
+  return { where, params };
+}
+
+/** How many rows match, with no cap. 2026-11-24 (open_questions (af2)): the
+ *  diag probe returns at most 200 rows whatever `limit` asks (sanitizeDiag
+ *  cuts every array), so a reader counting rows could not tell "200 scans"
+ *  from "200 of 600". The probe now serves this beside the rows. */
+export function countAuditLog(db: AuditDb, q: AuditFilter): number {
+  const { where, params } = auditWhere(q);
+  const row = db.prepare(
+    "SELECT COUNT(*) AS n FROM audit_log" + (where.length ? ` WHERE ${where.join(" AND ")}` : ""),
+  ).get(...params) as { n?: number } | undefined;
+  return typeof row?.n === "number" ? row.n : 0;
+}
+
+/** Newest-first rows, optionally filtered by exact type, time >= since
+ *  and/or the start of the message. */
+export function queryAuditLog(
+  db: AuditDb,
+  q: { limit: number } & AuditFilter,
+): AuditRow[] {
+  const { where, params } = auditWhere(q);
   const limit = Math.min(Math.max(Math.floor(q.limit) || 1, 1), AUDIT_QUERY_MAX_LIMIT);
   const sql = "SELECT time, type, message FROM audit_log" +
     (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
