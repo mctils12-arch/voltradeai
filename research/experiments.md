@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-24 (same voltrade-daily-midday session, after #1904 merged and deployed; Tue 16:40 ET = 21:40Z, AFTER THE CLOSE) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — #1904 judged on production: the count is served, the line reads 24 h, and its first reading is the day's three scan timeouts (research only, v1.0.1547)
+VERSION: v1.0.1547 (main was v1.0.1546 at the third merge of main, read at commit time; two other PRs landed ahead of this note in the after-close sweep and each took the number it had). No code.
+CHECK AFTER DEPLOY OF #1904, (al1). Merged 21:13Z in the after-close sweep; v1.0.1543 live 21:15Z; read 21:17Z: `total` on the audit probe (97%) HELD; "in the last 24.0 h" (95%) HELD; an 81-character prefix is a 400 (97%) HELD; scans started in a day between 150 and 300 (60%) MISSED, 137.
+THE LINE'S FIRST READING: "[WARN] 3 of 137 scans started in the last 24.0 h ended in a daemon timeout (2.2%); 131 returned". The old line would have printed about 50 "in window, non-blocking", as on every other night.
+SUPERSEDED, SAID PLAINLY: this session then read the three rows, wrote its own (af1) judgment and filed (am1)/(am2), and opened #1907 with them. The DAILY session's root-cause entry below (#60 returned; v1.0.1544) merged first, with seven scans polled where this one had three audit rows, and with the record built. #1907 conflicted; main was merged in, that entry's text kept whole, and this session's duplicate analysis dropped (WORKSTREAM PARTITION rule 6: first merged wins, the duplicate keeps its unique delta). The delta is the (al1) reading above and one observation filed as a guess in open_questions.md.
+CORRECTION TO THE 16:11Z ENTRY BELOW: its (af1) paragraph ("today's zero is the tape, not the fix") was a morning reading. The afternoon ran at Monday's length and timed out three times. Left as written; corrected here.
+WHAT I GOT WRONG IN PROCESS: I checked for open PRs at 16:11Z and not again at 21:15Z before starting a second piece of work. One list call would have shown the DAILY session's PR on the same rows.
+NEXT: (am1) and (am3) as the 20:16Z entry filed them.
+STARVED: yes — queued and not reached: (am1), (am3), (am2), (al2), (ai2), (af3), (ah4), (x2), (ac2), (w2) not before 2026-11-29, (aa4), (ah2), (ah3).
 ## 2026-11-24 (same scheduled PRODUCT session, after #1905 merged and deployed; Tue 16:50 ET = 21:50Z, AFTER THE CLOSE) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — the 13F submission-text reader judged on production: the first live filing read both ways gave the same record (research only, v1.0.1546)
 VERSION: v1.0.1546 (main was v1.0.1545, read at commit time). No code.
 CHECK AFTER DEPLOY OF #1905, (al1) first reading. v1.0.1545 booted 21:49:22Z; /api/health 200. Read 21:49:54Z, /api/diag/edgar_poll, the 13F row, after its first poll:
