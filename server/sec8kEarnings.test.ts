@@ -792,3 +792,56 @@ test("readEarnings8kHistoryWindow + readEarnings8kHistory + archiveEarnings8Ks: 
   assert.equal(lines.length, 1);
   assert.equal(JSON.parse(lines[0]).coRegistrants.length, 3);
 });
+
+// ── [PIPELINE 2026-11-24, open_questions.md (ai3)] The poll counts what it
+// could not read. Before: every per-filing error was caught and dropped, and a
+// poll that read nothing was an ok poll with 0 rows. ─────────────────────────
+import { _resetEdgarPollHealthForTests, edgarPollHealthStatus, pollDocuments } from "./edgarPollHealth";
+
+const stream8k = (status: Record<string, unknown>) =>
+  (status.streams as Array<Record<string, any>>).find((s) => s.stream === "earnings8k")!;
+
+test("8-K poll: a filing whose index page or exhibit cannot be read is counted with the stage and status, and a poll that reads none is a failed poll", async () => {
+  const base = fs2.mkdtempSync(path2.join(os2.tmpdir(), "vt-8k-unread-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _resetEarnings8kCacheForTests();
+  _resetEdgarPollHealthForTests();
+  resetCikTickerCacheForTests();
+  try {
+    // the feed lists one Item 2.02 filing; its index page answers 404
+    await refreshEarnings8kCache(15, fakeFetch({ "action=getcurrent": REAL_8K_FEED }) as any, 0);
+    assert.deepEqual({ ...pollDocuments("earnings8k"), at: null },
+      { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "filing index page -> 404" });
+    let r = stream8k(edgarPollHealthStatus(base));
+    assert.equal(r.polls_ok, 0);
+    assert.equal(r.polls_failed, 1);
+    assert.equal(r.last_error, "0 of 1 earnings 8-Ks could be read: filing index page -> 404");
+    assert.ok(!JSON.stringify(r).includes("0001104659"), "the probe names no filing");
+
+    // the index page reads, the exhibit does not: named by its kind, not the filer's file name
+    const indexOnly = { "action=getcurrent": REAL_8K_FEED, "0001104659-26-080431-index.htm": REAL_INDEX_MVOIL };
+    assert.deepEqual(await fetchLatestEarnings8Ks(15, fakeFetch(indexOnly) as any, 0), []);
+    assert.equal(pollDocuments("earnings8k")?.first_error, "exhibit -> 404");
+
+    // no Exhibit 99 is the honest gap: skipped, and the poll is ok
+    const noExhibit = `<table><tr><td>1</td><td>8-K</td><td><a href="/a/8k.htm">8k.htm</a></td><td>8-K</td><td>100</td></tr></table>`;
+    await refreshEarnings8kCache(15, fakeFetch({ "action=getcurrent": REAL_8K_FEED, "0001104659-26-080431-index.htm": noExhibit }) as any, 0);
+    assert.deepEqual({ ...pollDocuments("earnings8k"), at: null },
+      { at: null, candidates: 1, returned: 0, skipped: 1, failed: 0, first_error: null });
+
+    // the whole filing reads: returned 1, archived 1
+    const whole = { ...indexOnly, "tm2618490d1_ex99-1.htm": REAL_EXHIBIT_MVOIL };
+    await refreshEarnings8kCache(15, fakeFetch(whole) as any, 0);
+    assert.equal(pollDocuments("earnings8k")?.returned, 1);
+    r = stream8k(edgarPollHealthStatus(base));
+    assert.equal(r.polls_ok, 2);
+    assert.equal(r.polls_failed, 1);
+    assert.equal(r.consecutive_failures, 0);
+    assert.equal(r.rows_archived, 1);
+  } finally {
+    _resetEarnings8kCacheForTests();
+    resetCikTickerCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});

@@ -42,7 +42,7 @@ import path from "path";
 import zlib from "zlib";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
-import { notePollOk, notePollFailed } from "./edgarPollHealth";
+import { notePollOk, notePollFailed, notePollDocuments, pollDocuments, pollUnreadError, describeStageError, type EdgarPollDocuments } from "./edgarPollHealth";
 import { fetchEdgarFeed } from "./edgarFeedFetch";
 import { trackSet } from "./heapDiag";
 import { edgarCurrentFeedUrl } from "./edgarForm4";
@@ -330,16 +330,23 @@ export async function fetchLatestEarnings8Ks(
   const candidates = Array.from(byAccession.values()).slice(0, limit);
   const cikTickers = await getCikTickerMap(fetchImpl);
   const tickerOf = (e: Filing8KEntry) => cikTickers.get(String(parseInt(e.cik, 10))) ?? null;
+  const docs: EdgarPollDocuments = {
+    at: new Date().toISOString(), candidates: candidates.length, returned: 0, skipped: 0, failed: 0, first_error: null,
+  };
   const out: Earnings8K[] = [];
   for (const group of candidates) {
     const entry = group.find((e) => tickerOf(e) !== null) ?? group[0];
     const coRegistrants = group.filter((e) => e !== entry && e.cik !== entry.cik)
       .map((e) => ({ cik: e.cik, companyName: e.companyName, ticker: tickerOf(e) }));
+    // what was asked for last, in the poller's own words: an exhibit's file
+    // name is the filer's and is never reported
+    let stage = "filing index page";
     try {
       const indexHtml = await fetchText(fetchImpl, entry.indexUrl);
       const exhibitHref = pickExhibit99Href(indexHtml);
-      if (!exhibitHref) continue;
+      if (!exhibitHref) { docs.skipped++; continue; }
       const exhibitUrl = toExhibitUrl(entry.indexUrl, exhibitHref);
+      stage = "exhibit";
       const exhibitHtml = await fetchText(fetchImpl, exhibitUrl);
       const fullText = htmlToText(exhibitHtml);
       const truncated = fullText.length > MAX_EXHIBIT_TEXT_LEN;
@@ -359,11 +366,16 @@ export async function fetchLatestEarnings8Ks(
         truncated,
         ...(coRegistrants.length ? { coRegistrants } : {}),
       });
-    } catch {
-      // one bad filing (missing exhibit, transient 4xx) never kills the batch
+      docs.returned++;
+    } catch (e) {
+      // one bad filing (transient 4xx) never kills the batch; it is counted, and
+      // the first one's error is kept ([PIPELINE 2026-11-24], edgarPollHealth.ts)
+      docs.failed++;
+      if (docs.first_error === null) docs.first_error = describeStageError(stage, e);
     }
     if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
   }
+  notePollDocuments("earnings8k", docs);
   return out;
 }
 
@@ -677,14 +689,18 @@ export function backfillEarnings8kFromArchive(baseDir?: string, nowMs?: number, 
   return readEarnings8kHistory(days, baseDir, nowMs, limit);
 }
 
-export async function refreshEarnings8kCache(limit = 15): Promise<void> {
+export async function refreshEarnings8kCache(limit = 15, fetchImpl: FetchFn = fetch as any, delayMs = 200): Promise<void> {
   try {
-    const filings = await fetchLatestEarnings8Ks(limit);
+    const filings = await fetchLatestEarnings8Ks(limit, fetchImpl, delayMs);
     const next = resolveCacheItems(cache !== null, filings, () => backfillEarnings8kFromArchive());
     if (next) cache = { at: Date.now(), filings: next };
     let archived = 0;
     try { archived = archiveEarnings8Ks(filings); } catch {}
-    notePollOk("earnings8k", archived);
+    // [PIPELINE 2026-11-24] a poll that asked for earnings 8-Ks and read none
+    // is a failed poll (the Form 4 rule of the same day, edgarPollHealth.ts)
+    const unread = pollUnreadError("earnings 8-Ks", pollDocuments("earnings8k"));
+    if (unread) notePollFailed("earnings8k", unread);
+    else notePollOk("earnings8k", archived);
     try { gzipOldEarnings8kDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] earnings8k refresh:", e?.message || e);

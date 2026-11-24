@@ -132,3 +132,59 @@ test("the probe is registered and served, passes the diag scrub unchanged, and c
   const hc = fs.readFileSync(path.join(here, "..", "scripts", "session_health_check.py"), "utf8");
   assert.ok(hc.includes("/api/diag/edgar_poll"), "the session health check reads the probe");
 });
+
+// ── [PIPELINE 2026-11-24, open_questions.md (ai3)] document counts ──────────
+import { describeStageError, notePollDocuments, pollDocuments, pollUnreadError, type EdgarPollDocuments } from "./edgarPollHealth";
+import { fetchLatestForm4Filings } from "./edgarForm4";
+
+test("describeStageError: the stage and the status; no URL, accession or file name survives", () => {
+  const u = "https://www.sec.gov/Archives/edgar/data/1762716/000176271626000003/13F_ATMOS_6_30_26.xml";
+  assert.equal(describeStageError("information table", new Error(`${u} -> 404`)), "information table -> 404");
+  assert.equal(describeStageError("exhibit", new Error(`${u} -> 503`)), "exhibit -> 503");
+  const odd = describeStageError("index.json", new Error(`Unexpected token < in ${u} for 0001762716-26-000003`));
+  assert.equal(odd, "index.json: Unexpected token < in <url> for <accession>");
+  assert.equal(describeStageError("index.json", "The operation was aborted due to timeout"), "index.json: The operation was aborted due to timeout");
+  assert.ok(describeStageError("exhibit", new Error("x".repeat(500))).length <= 120);
+});
+
+test("pollUnreadError: only a poll with failures and nothing read", () => {
+  const base: EdgarPollDocuments = { at: "", candidates: 0, returned: 0, skipped: 0, failed: 0, first_error: null };
+  assert.equal(pollUnreadError("13F filings", null), null);
+  assert.equal(pollUnreadError("13F filings", base), null, "an empty page");
+  assert.equal(pollUnreadError("13F filings", { ...base, candidates: 3, skipped: 3 }), null, "all skipped");
+  assert.equal(pollUnreadError("13F filings", { ...base, candidates: 40, returned: 37, failed: 3, first_error: "index.json -> 404" }), null, "read in part");
+  assert.equal(pollUnreadError("13F filings", { ...base, candidates: 40, failed: 40, first_error: "index.json -> 404" })?.message,
+    "0 of 40 13F filings could be read: index.json -> 404");
+  assert.match(String(pollUnreadError("earnings 8-Ks", { ...base, candidates: 2, failed: 2 })?.message), /no error recorded$/);
+});
+
+test("the probe serves each stream's latest document counts, null before a first poll, and they pass the sanitizer whole", () => {
+  _resetEdgarPollHealthForTests(T0);
+  const dir = tmp();
+  assert.equal(row(edgarPollHealthStatus(dir, T0), "filings13f").documents, null);
+  const docs: EdgarPollDocuments = { at: "2026-11-24T13:00:00.000Z", candidates: 40, returned: 37, skipped: 0, failed: 3, first_error: "index.json -> 404" };
+  notePollDocuments("filings13f", docs);
+  docs.failed = 99; // the module keeps its own copy
+  assert.equal(pollDocuments("filings13f")?.failed, 3);
+  const served = sanitizeDiag(edgarPollHealthStatus(dir, T0)) as Record<string, unknown>;
+  assert.deepEqual(row(served, "filings13f").documents, { ...docs, failed: 3 });
+  assert.equal(row(served, "earnings8k").documents, null);
+  assert.match(String(served.note), /documents is the latest poll alone/);
+});
+
+test("Form 4 reports the same counts in the shared shape", async () => {
+  _resetEdgarPollHealthForTests(T0);
+  const feed = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry>
+<title>4 - Example Co (0001234567) (Issuer)</title>
+<link rel="alternate" type="text/html" href="https://www.sec.gov/Archives/edgar/data/1234567/000123456726000001/0001234567-26-000001-index.htm"/>
+<summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2026-11-24 &lt;b&gt;AccNo:&lt;/b&gt; 0001234567-26-000001 &lt;b&gt;Size:&lt;/b&gt; 5 KB</summary>
+<category scheme="https://www.sec.gov/" label="form type" term="4"/>
+</entry></feed>`;
+  // the listing is refused (403): thrown, not asked a second way, counted failed
+  const impl = async (url: string) => url.includes("output=atom")
+    ? { ok: true, status: 200, text: async () => feed }
+    : { ok: false, status: 403, text: async () => "" };
+  assert.deepEqual(await fetchLatestForm4Filings(25, impl as any, 0), []);
+  assert.deepEqual({ ...pollDocuments("filings"), at: null },
+    { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "index.json -> 403" });
+});

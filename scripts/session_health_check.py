@@ -855,6 +855,21 @@ def edgar_quiet_hours(last_write, now, filing_day=edgar_filing_day):
     return None, 0.0
 
 
+def edgar_documents_note(docs):
+    """What a stream's latest poll could not read, in the words of the probe's
+    `documents` block; "" when it read everything, or on a server older than
+    the block. [PIPELINE 2026-11-24, open_questions.md (ai3)] The 13F and 8-K
+    pollers dropped every per-filing error; a poll that reads only part of its
+    page is still an ok poll, so the part it lost is said here."""
+    if not isinstance(docs, dict):
+        return ""
+    failed = docs.get("failed") or 0
+    if not failed:
+        return ""
+    return (f"; latest poll could not read {failed} of {docs.get('candidates') or 0} filings "
+            f"(first error: {docs.get('first_error') or 'none recorded'})")
+
+
 def check_edgar_archives(probe, now=None, filing_day=edgar_filing_day):
     label = "EDGAR archives"
     if not isinstance(probe, dict) or not isinstance(probe.get("streams"), list):
@@ -883,7 +898,8 @@ def check_edgar_archives(probe, now=None, filing_day=edgar_filing_day):
         # a poll that needed the retry is a poll the single request lost before.
         saved = r.get("polls_saved_by_retry") or 0
         parts.append(f"{name} last row {age}, polls {ok_polls} ok / {bad_polls} failed"
-                     + (f" ({saved} of the ok saved by a feed retry)" if saved else ""))
+                     + (f" ({saved} of the ok saved by a feed retry)" if saved else "")
+                     + edgar_documents_note(r.get("documents")))
         if stream == "filings":
             day, quiet = edgar_quiet_hours(last_write, now, filing_day)
             if day is not None and quiet >= EDGAR_SILENT_ALARM_H:
@@ -904,7 +920,7 @@ def check_edgar_archives(probe, now=None, filing_day=edgar_filing_day):
         return finding(OK, label, "; ".join(parts))
     return finding(severity, label, "; ".join(problems) + " — " + "; ".join(parts),
                    "read last_error on /api/diag/edgar_poll and request that URL by hand; an archive gap is refilled "
-                   "by the nightly Form 4 completeness pass only (13F and 8-K have none)")
+                   "by the nightly Form 4 and 13F completeness passes (8-K earnings has none)")
 
 
 # ── Polled archives gone quiet ────────────────────────────────────────────

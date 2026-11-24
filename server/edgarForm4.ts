@@ -431,6 +431,11 @@ export async function fetchLatestForm4Filings(
     if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
   }
   lastPollStats = stats;
+  // the same counts in the shape all three EDGAR pollers serve (edgar_poll probe)
+  notePollDocuments("filings", {
+    at: stats.at, candidates: entries.length, returned: stats.returned,
+    skipped: stats.no_issuer, failed: stats.failed, first_error: stats.first_error,
+  });
   return out;
 }
 
@@ -447,7 +452,7 @@ import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryRe
 import { resolveCacheItems } from "./cacheBackfill";
 import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
-import { notePollOk, notePollFailed } from "./edgarPollHealth";
+import { notePollOk, notePollFailed, notePollDocuments } from "./edgarPollHealth";
 import { fetchEdgarFeed } from "./edgarFeedFetch";
 
 // [REPAIR 2026-11-16] "already archived?" is answered from the day files

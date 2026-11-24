@@ -62,13 +62,67 @@ function emptyCounters(): EdgarPollCounters {
   };
 }
 
+/** What a stream's latest poll did with the filings it chose off its feed
+ *  page. Counts and one error in words that name no filing.
+ *
+ *  [PIPELINE 2026-11-24, open_questions.md (ai3)] Four EDGAR repairs in nine
+ *  days each began with a session finding out by hand what a poller had caught
+ *  and dropped. Form 4 kept these counts from the fourth; 13F and 8-K caught
+ *  every per-filing error in an empty `catch` and counted the poll ok. All
+ *  three now report the same counts here, and the same rule fails a poll that
+ *  fetched documents and read none (`pollUnreadError`). */
+export interface EdgarPollDocuments {
+  at: string;
+  /** filings the poll chose off the feed page and asked EDGAR for */
+  candidates: number;
+  /** read and handed to the archive writer (which appends only the new ones) */
+  returned: number;
+  /** fetched, and the filing has nothing this stream keeps (Form 4: no issuer;
+   *  13F: no primary document; 8-K: no Exhibit 99) */
+  skipped: number;
+  /** a request for the filing's listing or document failed */
+  failed: number;
+  /** the first failed request as "<what was asked> -> <status>"; null when none failed */
+  first_error: string | null;
+}
+
+/** A failed document request as "<stage> -> 404" (or the stage and the error's
+ *  text with every URL and accession removed). `stage` is the poller's own word
+ *  for what it asked ("index.json", "information table", "exhibit"), never the
+ *  file name: a 13F information table and an 8-K exhibit are named by the filer. */
+export function describeStageError(stage: string, e: unknown): string {
+  const msg = String((e as { message?: unknown } | null)?.message ?? e);
+  const m = msg.match(/ -> (\d{3})$/);
+  if (m) return `${stage} -> ${m[1]}`;
+  const text = msg.replace(/https?:\/\/\S+/g, "<url>").replace(/\d{10}-\d{2}-\d{6}/g, "<accession>");
+  return `${stage}: ${text}`.slice(0, 120);
+}
+
+/** The error a poll is counted failed with when it asked for documents and
+ *  read none; null for every other poll. An empty page, a page read in part
+ *  and a page whose filings were all skipped are good polls. */
+export function pollUnreadError(what: string, docs: EdgarPollDocuments | null): Error | null {
+  if (!docs || docs.returned > 0 || docs.failed === 0) return null;
+  return new Error(`0 of ${docs.failed} ${what} could be read: ${docs.first_error ?? "no error recorded"}`);
+}
+
 const counters = new Map<EdgarPollStream, EdgarPollCounters>();
+const documents = new Map<EdgarPollStream, EdgarPollDocuments>();
 let bootedAtMs = Date.now();
 
 function of(stream: EdgarPollStream): EdgarPollCounters {
   let c = counters.get(stream);
   if (!c) { c = emptyCounters(); counters.set(stream, c); }
   return c;
+}
+
+/** What the poll just finished did with its filings (replaces the previous poll's). */
+export function notePollDocuments(stream: EdgarPollStream, docs: EdgarPollDocuments): void {
+  documents.set(stream, { ...docs });
+}
+
+export function pollDocuments(stream: EdgarPollStream): EdgarPollDocuments | null {
+  return documents.get(stream) ?? null;
 }
 
 /** A poll that read its feed. `rowsArchived` is what the archive writer returned. */
@@ -134,13 +188,19 @@ export function lastArchiveWriteMs(stream: EdgarPollStream, baseDir?: string): n
 export interface EdgarPollHealthRow extends EdgarPollCounters {
   stream: EdgarPollStream;
   last_archive_write_at: string | null;
+  /** the latest poll's document counts; null before the first poll finishes its page */
+  documents: EdgarPollDocuments | null;
 }
 
 /** Token-gated diag probe `edgar_poll`. */
 export function edgarPollHealthStatus(baseDir?: string, nowMs: number = Date.now()): Record<string, unknown> {
   const streams: EdgarPollHealthRow[] = EDGAR_POLL_STREAMS.map((stream) => {
     const w = lastArchiveWriteMs(stream, baseDir);
-    return { stream, ...of(stream), last_archive_write_at: w === null ? null : new Date(w).toISOString() };
+    return {
+      stream, ...of(stream),
+      last_archive_write_at: w === null ? null : new Date(w).toISOString(),
+      documents: pollDocuments(stream),
+    };
   });
   return {
     probe: "edgar_poll",
@@ -148,12 +208,13 @@ export function edgarPollHealthStatus(baseDir?: string, nowMs: number = Date.now
     booted_at: new Date(bootedAtMs).toISOString(),
     uptime_s: Math.max(0, Math.round((nowMs - bootedAtMs) / 1000)),
     poll_interval_min: 15,
-    note: "Counters are since boot. feed_attempts_failed counts single feed requests that timed out or answered 5xx; polls_saved_by_retry counts polls that got their page on a later attempt. last_archive_write_at is read from the archive's day files and survives a restart; null means no plain day file (nothing appended in about two days).",
+    note: "Counters are since boot. feed_attempts_failed counts single feed requests that timed out or answered 5xx; polls_saved_by_retry counts polls that got their page on a later attempt. last_archive_write_at is read from the archive's day files and survives a restart; null means no plain day file (nothing appended in about two days). documents is the latest poll alone: filings it asked EDGAR for (candidates), read (returned), fetched with nothing to keep (skipped), not readable (failed) and the first failure as what was asked and the status. A poll with failed above 0 and returned 0 is counted in polls_failed.",
     streams,
   };
 }
 
 export function _resetEdgarPollHealthForTests(nowMs: number = Date.now()): void {
   counters.clear();
+  documents.clear();
   bootedAtMs = nowMs;
 }
