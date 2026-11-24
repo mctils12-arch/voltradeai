@@ -414,3 +414,90 @@ test("filings13fHistoryPage: REGRESSION (live 2026-11-11, Q3 season, both the pr
   fs.rmSync(base, { recursive: true, force: true });
   fs.rmSync(base2, { recursive: true, force: true });
 });
+
+// ── [PIPELINE 2026-11-24, open_questions.md (ai3)] The poll counts what it
+// could not read. Before: every per-filing error was caught and dropped, and a
+// poll that read nothing was an ok poll with 0 rows. ─────────────────────────
+import { _resetEdgarPollHealthForTests, edgarPollHealthStatus, pollDocuments } from "./edgarPollHealth";
+import { stageOf13FUrl } from "./edgar13f";
+
+const stream13f = (status: Record<string, unknown>) =>
+  (status.streams as Array<Record<string, any>>).find((s) => s.stream === "filings13f")!;
+
+test("13F poll: an unpublished directory listing is counted failed with what was asked and the status, and the poll is a failed poll", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-unread-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  _resetEdgarPollHealthForTests();
+  try {
+    // the feed lists the filing; its index.json answers 404 (EDGAR's "Directory
+    // listing is Not Available Yet", measured for Form 4 on 2026-11-23)
+    const edgar = mockFetchFor({ "output=atom": FEED_ATOM });
+    await refresh13FCache(40, edgar.impl as any, 0);
+    assert.deepEqual({ ...pollDocuments("filings13f"), at: null },
+      { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "index.json -> 404" });
+    const r = stream13f(edgarPollHealthStatus(base));
+    assert.equal(r.polls_ok, 0);
+    assert.equal(r.polls_failed, 1);
+    assert.equal(r.consecutive_failures, 1);
+    assert.equal(r.last_error, "0 of 1 13F filings could be read: index.json -> 404");
+    assert.equal(r.documents.first_error, "index.json -> 404");
+    assert.ok(!JSON.stringify(r).includes("0001762716"), "the probe names no filing");
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("13F poll: a failed information table is named by its kind, never by the filer's file name; a read filing and an empty page are ok polls", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-docs-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  _resetEdgarPollHealthForTests();
+  try {
+    const listing = JSON.stringify({ directory: { item: [{ name: "primary_doc.xml" }, { name: "13F_BURKETT_6_30_26.xml" }] } });
+    const focusedPrimary = BURKETT_PRIMARY_XML.replace("<tableEntryTotal>266<", "<tableEntryTotal>2<");
+    // the information table is missing: the filing is not returned
+    const noTable = mockFetchFor({ "output=atom": FEED_ATOM, "index.json": listing, "primary_doc.xml": focusedPrimary });
+    assert.deepEqual(await fetchLatest13FFilings(5, noTable.impl as any, 0), []);
+    assert.equal(pollDocuments("filings13f")?.first_error, "information table -> 404");
+    assert.ok(!String(pollDocuments("filings13f")?.first_error).includes("BURKETT"));
+
+    // the whole filing reads: an ok poll, nothing failed
+    const whole = mockFetchFor({
+      "output=atom": FEED_ATOM, "index.json": listing, "primary_doc.xml": focusedPrimary,
+      "13F_BURKETT_6_30_26.xml": BURKETT_INFOTABLE_XML,
+    });
+    await refresh13FCache(40, whole.impl as any, 0);
+    assert.deepEqual({ ...pollDocuments("filings13f"), at: null },
+      { at: null, candidates: 1, returned: 1, skipped: 0, failed: 0, first_error: null });
+    let r = stream13f(edgarPollHealthStatus(base));
+    assert.equal(r.polls_ok, 1);
+    assert.equal(r.polls_failed, 0);
+    assert.equal(r.rows_archived, 1);
+
+    // a directory with no primary document is skipped, not failed
+    const noPrimary = mockFetchFor({ "output=atom": FEED_ATOM, "index.json": JSON.stringify({ directory: { item: [] } }) });
+    await refresh13FCache(40, noPrimary.impl as any, 0);
+    assert.equal(pollDocuments("filings13f")?.skipped, 1);
+    // an empty page: 0 candidates, an ok poll
+    const empty = mockFetchFor({ "output=atom": `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>` });
+    await refresh13FCache(40, empty.impl as any, 0);
+    assert.equal(pollDocuments("filings13f")?.candidates, 0);
+    r = stream13f(edgarPollHealthStatus(base));
+    assert.equal(r.polls_ok, 3);
+    assert.equal(r.polls_failed, 0);
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("stageOf13FUrl names the three requests", () => {
+  const b = "https://www.sec.gov/Archives/edgar/data/1762716/000176271626000003/";
+  assert.equal(stageOf13FUrl(`${b}index.json`), "index.json");
+  assert.equal(stageOf13FUrl(`${b}primary_doc.xml`), "primary_doc.xml");
+  assert.equal(stageOf13FUrl(`${b}2026qtr2submissionapr2026.xml`), "information table");
+});

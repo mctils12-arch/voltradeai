@@ -453,7 +453,7 @@
   ],
   "edgar_poll": [
    "partial",
-   "EDGAR poller failures. Placement: Pipeline health."
+   "EDGAR poller failures, and since 2026-11-24 each poller's latest document counts (asked, read, skipped, not readable, first error). Read by the session health check only. Placement: Pipeline health."
   ],
   "event_study": [
    "surfaced",

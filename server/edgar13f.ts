@@ -33,7 +33,7 @@ import { archiveBaseDir } from "./datacoreArchive";
 import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryResponse } from "./filingHistoryPage";
 import { parseFilingFeed, edgarCurrentFeedUrl } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
-import { notePollOk, notePollFailed } from "./edgarPollHealth";
+import { notePollOk, notePollFailed, notePollDocuments, pollDocuments, pollUnreadError, describeStageError, type EdgarPollDocuments } from "./edgarPollHealth";
 import { fetchEdgarFeed } from "./edgarFeedFetch";
 import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
@@ -228,24 +228,48 @@ export async function fetchLatest13FFilings(
   const feedUrl = edgarCurrentFeedUrl("13F-HR", limit * 2);
   const feedXml = await fetchEdgarFeed(fetchImpl, feedUrl, SEC_UA, "filings13f");
   const entries = parseFilingFeed(feedXml).slice(0, limit);
+  const docs: EdgarPollDocuments = {
+    at: new Date().toISOString(), candidates: entries.length, returned: 0, skipped: 0, failed: 0, first_error: null,
+  };
   const out: Filing13F[] = [];
   for (const entry of entries) {
+    // what the filing's reader asked for last, in the poller's own words: the
+    // information table's file name is the filer's and is never reported
+    let stage = "index.json";
     try {
-      const doc = await fetch13FFilingDocs(entry.indexUrl.replace(/[^/]+$/, ""), (url) => fetchText(fetchImpl, url));
-      if (!doc) continue;
-      out.push({
-        ...doc,
-        accession: entry.accession,
-        filedAt: entry.filedAt,
-        cik: entry.cik || doc.managerCik || "",
-        indexUrl: entry.indexUrl,
+      const doc = await fetch13FFilingDocs(entry.indexUrl.replace(/[^/]+$/, ""), (url) => {
+        stage = stageOf13FUrl(url);
+        return fetchText(fetchImpl, url);
       });
-    } catch {
-      // one malformed filing never kills the batch
+      if (!doc) {
+        docs.skipped++;
+      } else {
+        out.push({
+          ...doc,
+          accession: entry.accession,
+          filedAt: entry.filedAt,
+          cik: entry.cik || doc.managerCik || "",
+          indexUrl: entry.indexUrl,
+        });
+        docs.returned++;
+      }
+    } catch (e) {
+      // one malformed filing never kills the batch; it is counted, and the
+      // first one's error is kept ([PIPELINE 2026-11-24], edgarPollHealth.ts)
+      docs.failed++;
+      if (docs.first_error === null) docs.first_error = describeStageError(stage, e);
     }
     if (delayMs > 0) await new Promise((res) => setTimeout(res, delayMs));
   }
+  notePollDocuments("filings13f", docs);
   return out;
+}
+
+/** Which of a 13F filing's three requests a URL is. */
+export function stageOf13FUrl(url: string): string {
+  if (/\/index\.json$/i.test(url)) return "index.json";
+  if (/\/primary_doc\.xml$/i.test(url)) return "primary_doc.xml";
+  return "information table";
 }
 
 // ── Archive (COLLECT-EVERYTHING: append-only JSONL day-files, dedup by
@@ -408,14 +432,18 @@ export function backfill13FFromArchive(baseDir?: string, nowMs?: number, days = 
   return read13FHistory(days, baseDir, nowMs, limit);
 }
 
-export async function refresh13FCache(limit = 40): Promise<void> {
+export async function refresh13FCache(limit = 40, fetchImpl: FetchFn = fetch as any, delayMs = 200): Promise<void> {
   try {
-    const filings = await fetchLatest13FFilings(limit);
+    const filings = await fetchLatest13FFilings(limit, fetchImpl, delayMs);
     const next = resolveCacheItems(cache !== null, filings, () => backfill13FFromArchive());
     if (next) cache = { at: Date.now(), filings: next };
     let archived = 0;
     try { archived = archive13FFilings(filings); } catch {}
-    notePollOk("filings13f", archived);
+    // [PIPELINE 2026-11-24] a poll that asked for 13F documents and read none
+    // is a failed poll (the Form 4 rule of the same day, edgarPollHealth.ts)
+    const unread = pollUnreadError("13F filings", pollDocuments("filings13f"));
+    if (unread) notePollFailed("filings13f", unread);
+    else notePollOk("filings13f", archived);
     try { gzipOld13FDays(); } catch {}
   } catch (e: any) {
     console.error("[datacore] edgar13f refresh:", e?.message || e);

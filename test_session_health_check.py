@@ -1163,3 +1163,27 @@ def test_quiet_archives_unreadable_inventory_is_a_warning_not_ok():
     assert hc.check_quiet_archives(None)["severity"] == hc.WARN
     assert hc.check_quiet_archives({"streams": []})["severity"] == hc.WARN
     assert hc.check_quiet_archives({"warming_up": True})["severity"] == hc.WARN
+
+
+def test_edgar_latest_poll_unread_documents_are_said_and_an_older_server_reads_as_before():
+    # [PIPELINE 2026-11-24, open_questions.md (ai3)] the probe's `documents`
+    # block: a poll that read part of its page is an ok poll, and the part it
+    # could not read is said on the line.
+    fresh = {"last_archive_write_at": "2026-11-17T18:55:00.000Z"}
+    now = _utc("2026-11-17T19:05:00")
+    part = _edgar_probe(form4=fresh, f13={"documents": {
+        "at": "2026-11-17T19:00:00.000Z", "candidates": 40, "returned": 37, "skipped": 0, "failed": 3,
+        "first_error": "index.json -> 404"}})
+    f = hc.check_edgar_archives(part, now=now)
+    assert f["severity"] == hc.OK  # the verdict is still the run of failed polls
+    assert ("13F last row none in the day files, polls 6 ok / 0 failed; "
+            "latest poll could not read 3 of 40 filings (first error: index.json -> 404)") in f["detail"]
+    clean = _edgar_probe(form4=fresh, e8k={"documents": {"candidates": 15, "returned": 9, "skipped": 6, "failed": 0,
+                                                         "first_error": None}})
+    assert "could not read" not in hc.check_edgar_archives(clean, now=now)["detail"]
+    for odd in (None, "x", [], {"failed": None}):
+        assert hc.edgar_documents_note(odd) == ""
+    assert "could not read" not in hc.check_edgar_archives(_edgar_probe(form4=fresh), now=now)["detail"]
+    # the FIX text no longer says 13F has no completeness pass (it has had one since 2026-11-19)
+    bad = hc.check_edgar_archives(_edgar_probe(form4=fresh, f13={"consecutive_failures": 2, "last_error": "x"}), now=now)
+    assert "Form 4 and 13F completeness passes" in bad["fix"]
