@@ -351,13 +351,13 @@ export async function fetch13FFilingDocs(base: string, getText: GetText13F): Pro
  *  from its submission text, and the two records compared: the fallback
  *  reader checked against EDGAR's own other copy, on live filings
  *  (edgarPollHealth.ts `submission_check`). A filing is compared once. */
-const comparedAccessions = new Set<string>();
+const comparedFilings = new Set<string>();
 const COMPARED_MAX = 2000;
-trackSet("edgar13f.comparedAccessions", comparedAccessions);
+trackSet("edgar13f.comparedFilings", comparedFilings);
 
 async function compareWithSubmission(entry: { accession: string; indexUrl: string }, listed: Filing13FDocs, getText: GetText13F): Promise<void> {
-  if (comparedAccessions.size >= COMPARED_MAX) comparedAccessions.clear();
-  comparedAccessions.add(entry.accession);
+  if (comparedFilings.size >= COMPARED_MAX) comparedFilings.clear();
+  comparedFilings.add(entry.accession);
   try {
     const base = entry.indexUrl.replace(/[^/]+$/, "");
     const text = await getText(`${base}${entry.accession}.txt`, { maxBytes: SUBMISSION_MAX_BYTES });
@@ -411,7 +411,7 @@ export async function fetchLatest13FFilings(
         });
         docs.returned++;
         if (via === "submission") docs.via_submission = (docs.via_submission ?? 0) + 1;
-        else if (!comparedThisPoll && !comparedAccessions.has(entry.accession)) {
+        else if (!comparedThisPoll && !comparedFilings.has(entry.accession)) {
           comparedThisPoll = true;
           await compareWithSubmission(entry, doc, (url, opts) => fetchText(fetchImpl, url, opts));
         }
@@ -619,7 +619,7 @@ export async function refresh13FCache(limit = 40, fetchImpl: FetchFn = fetch as 
 
 export function _reset13FCacheForTests(): void {
   cache = null;
-  comparedAccessions.clear();
+  comparedFilings.clear();
 }
 
 /** 15-min poll: outside 13F season the feed is a trickle; at the quarterly
