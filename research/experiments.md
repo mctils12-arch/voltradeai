@@ -3,6 +3,15 @@
 Append-only. Newest at top. Never rewrite history (CLAUDE.md — MEMORY PROTOCOL).
 Each entry: date · change · version tag · backtest result · hypothesis · (later) live-vs-backtest.
 
+## 2026-11-24 (same scheduled EDGE session, after #1900 merged and deployed; Mon 22:20 ET = Tue 03:20Z, AFTER THE CLOSE) [RULE-REVIEW] — research/* only (experiments.md, open_questions.md); shared: package.json — KNOWN BROKEN #61 judged on production: the first poll after the boot archived 25 rows, all read from the submission text (research only, v1.0.1540)
+VERSION: v1.0.1540 (main was v1.0.1539, read at commit time). No code.
+CHECK AFTER DEPLOY OF #1900, (ai1) first half. v1.0.1539 booted 03:17:51Z. Read 03:19Z:
+- /api/diag/edgar_poll, Form 4: polls 1 ok / 0 failed, rows_archived 25, last_archive_write_at 03:18:10Z (the archive's first row since 21:43:58Z, a gap of 5 h 34 min). "First poll after the boot archives at least 1 row if listings are still unpublished" (85%): HELD.
+- /api/diag/form4_completeness `poll`: 37 Form 4s on the page, returned 25, failed 0, via_submission 25, first_error null. The same counts the session measured from its own machine before the merge.
+- /api/health 200.
+NOT YET JUDGED: `polls_failed` 0 through the first hour (one poll read); Tuesday's daytime and evening `via_submission` readings, which say whether EDGAR holds listings back every evening. The rows between 16:43 ET and the deploy that had left the feed page are the nightly pass's to refill (02:00-06:00 ET).
+#61 STAYS OPEN until the evening reading; its CLOSE WHEN is unchanged.
+STARVED: yes — queued and not reached: the EDGE axis, (ai1) second half, (ai2), (ai3), (ah4), (x2), (ac2), (ag4), (w2) not before 2026-11-29, (aa4), (ah2), (ah3).
 ## 2026-11-24 (scheduled routine, EDGE prompt, Mon 21:33 ET = Tue 02:33Z, AFTER THE CLOSE) [REPAIR] — T-DATACORE (server/edgarForm4.ts: a Form 4 is read from its submission text when its directory listing is not published, and a poll that reads none of its documents is counted failed; server/edgarForm4Completeness.ts: the nightly pass uses the same reader; server/edgarForm4Listing.test.ts, new; server/__fixtures__/form4_submission/, new, real); shared last-and-minimal: UI_COVERAGE.md (one row), ci/counter_baseline.txt, research/*, package.json — KNOWN BROKEN #61: the Form 4 archive took no row from 16:43 ET while EDGAR's feed kept listing new filings, and every poll was counted ok
 VERSION: v1.0.1539 (main was v1.0.1538, read at commit time).
 TERRITORY: T-DATACORE. One logical change: how the two Form 4 readers find a filing's document, and how a poll that reads nothing is counted. No strategy, parameter, sizing or performance-measurement code; nothing on a trade path reads the Form 4 archive.
