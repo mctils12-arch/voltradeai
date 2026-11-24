@@ -38,7 +38,7 @@ import path from "path";
 import zlib from "zlib";
 import { promisify } from "util";
 import { archiveBaseDir } from "./datacoreArchive";
-import { FILINGS13F_ARCHIVE_START, archive13FFilings, fetch13FFilingDocs, type Filing13F } from "./edgar13f";
+import { FILINGS13F_ARCHIVE_START, archive13FFilings, fetch13FFilingDocs, readTextCapped, type Filing13F } from "./edgar13f";
 import { dailyFormIndexUrl, filingDirUrl, type CompletenessFetch } from "./edgarForm4Completeness";
 import { beat, heartbeatDir, zonedParts } from "./jobHeartbeat";
 
@@ -271,10 +271,11 @@ class HttpStatusError extends Error {
   }
 }
 
-async function getText(fetchImpl: CompletenessFetch, url: string, timeoutMs: number): Promise<string> {
+async function getText(fetchImpl: CompletenessFetch, url: string, timeoutMs: number, maxBytes?: number): Promise<string> {
   const r = await fetchImpl(url, { headers: SEC_UA, signal: AbortSignal.timeout(timeoutMs) });
   if (!r.ok) throw new HttpStatusError(r.status, url);
-  return r.text();
+  // a filing's submission text is read no further than the reader asks (edgar13f.ts SUBMISSION_MAX_BYTES)
+  return maxBytes ? readTextCapped(r as any, maxBytes) : r.text();
 }
 
 const sleep = (ms: number) => new Promise<void>((res) => { setTimeout(res, ms); });
@@ -346,7 +347,7 @@ export async function run13FCompleteness(deps: Completeness13FDeps): Promise<Com
       tried++;
       try {
         const base = filingDirUrl(f);
-        const doc = await fetch13FFilingDocs(base, (url) => getText(deps.fetch, url, 20_000));
+        const doc = await fetch13FFilingDocs(base, (url, opts) => getText(deps.fetch, url, 20_000, opts?.maxBytes));
         consecutiveRefusals = 0;
         if (doc) {
           batch.push({

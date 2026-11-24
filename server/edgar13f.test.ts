@@ -424,7 +424,12 @@ import { stageOf13FUrl } from "./edgar13f";
 const stream13f = (status: Record<string, unknown>) =>
   (status.streams as Array<Record<string, any>>).find((s) => s.stream === "filings13f")!;
 
-test("13F poll: an unpublished directory listing is counted failed with what was asked and the status, and the poll is a failed poll", async () => {
+// [PIPELINE 2026-11-24, (ai2)] Since the submission-text fallback, a 404 listing
+// is no longer the end of a filing: the reader asks for the submission text
+// next. This test's EDGAR answers 404 for that too, so the filing is still
+// failed and the poll still a failed poll; the failure named is the last
+// request made, the submission text.
+test("13F poll: a filing whose listing AND submission text are unpublished is counted failed with what was asked and the status, and the poll is a failed poll", async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-unread-"));
   const prevDataDir = process.env.DATA_DIR;
   process.env.DATA_DIR = base;
@@ -436,13 +441,15 @@ test("13F poll: an unpublished directory listing is counted failed with what was
     const edgar = mockFetchFor({ "output=atom": FEED_ATOM });
     await refresh13FCache(40, edgar.impl as any, 0);
     assert.deepEqual({ ...pollDocuments("filings13f"), at: null },
-      { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "index.json -> 404" });
+      { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "submission text -> 404", via_submission: 0 });
+    assert.deepEqual(edgar.requested.filter((u) => !u.includes("output=atom")).map((u) => u.replace(/^.*\//, "")),
+      ["index.json", "0001762716-26-000003.txt"], "the listing, then the submission text, and nothing else");
     const r = stream13f(edgarPollHealthStatus(base));
     assert.equal(r.polls_ok, 0);
     assert.equal(r.polls_failed, 1);
     assert.equal(r.consecutive_failures, 1);
-    assert.equal(r.last_error, "0 of 1 13F filings could be read: index.json -> 404");
-    assert.equal(r.documents.first_error, "index.json -> 404");
+    assert.equal(r.last_error, "0 of 1 13F filings could be read: submission text -> 404");
+    assert.equal(r.documents.first_error, "submission text -> 404");
     assert.ok(!JSON.stringify(r).includes("0001762716"), "the probe names no filing");
   } finally {
     _reset13FCacheForTests();
@@ -472,7 +479,7 @@ test("13F poll: a failed information table is named by its kind, never by the fi
     });
     await refresh13FCache(40, whole.impl as any, 0);
     assert.deepEqual({ ...pollDocuments("filings13f"), at: null },
-      { at: null, candidates: 1, returned: 1, skipped: 0, failed: 0, first_error: null });
+      { at: null, candidates: 1, returned: 1, skipped: 0, failed: 0, first_error: null, via_submission: 0 });
     let r = stream13f(edgarPollHealthStatus(base));
     assert.equal(r.polls_ok, 1);
     assert.equal(r.polls_failed, 0);
@@ -500,4 +507,193 @@ test("stageOf13FUrl names the three requests", () => {
   assert.equal(stageOf13FUrl(`${b}index.json`), "index.json");
   assert.equal(stageOf13FUrl(`${b}primary_doc.xml`), "primary_doc.xml");
   assert.equal(stageOf13FUrl(`${b}2026qtr2submissionapr2026.xml`), "information table");
+  assert.equal(stageOf13FUrl(`${b}0001762716-26-000003.txt`), "submission text");
+});
+
+// ── [PIPELINE 2026-11-24, open_questions.md (ai2)] the submission-text fallback ──
+// Measured on production 2026-11-24 13:37Z: 3 of 23 13F filings on the feed
+// page answered 404 for index.json and the live poll skipped them.
+//
+// WHAT THESE FIXTURES ARE: the two XML documents are the real ones above
+// (accession 0001762716-26-000003). The submission-text CONTAINER around them
+// is assembled here in EDGAR's format, copied line for line from the real
+// Form 4 submission text in __fixtures__/form4_submission/ (the session that
+// built this could not fetch a 13F submission text: sec.gov refuses a client
+// that declares no contact). The check against EDGAR's real 13F texts is the
+// running comparison the poll makes on production (`submission_check`).
+import {
+  accessionOfFilingDir, docs13FFromSubmission, docs13FFromSubmissionText, fetch13FFilingDocs, read13FFiling,
+  readTextCapped, SUBMISSION_MAX_BYTES,
+} from "./edgar13f";
+import { publicEdgarPollView, submissionCheck } from "./edgarPollHealth";
+
+const sgmlDoc = (type: string, seq: number, name: string, xml: string) =>
+  `<DOCUMENT>\n<TYPE>${type}\n<SEQUENCE>${seq}\n<FILENAME>${name}\n<TEXT>\n<XML>\n${xml}\n</XML>\n</TEXT>\n</DOCUMENT>\n`;
+const submissionOf = (primary: string, info: string | null) =>
+  `<SEC-DOCUMENT>0001762716-26-000003.txt : 20260704\n<SEC-HEADER>0001762716-26-000003.hdr.sgml : 20260704\nACCESSION NUMBER:\t\t0001762716-26-000003\nCONFORMED SUBMISSION TYPE:\t13F-HR\n</SEC-HEADER>\n`
+  + sgmlDoc("13F-HR", 1, "primary_doc.xml", primary)
+  + (info == null ? "" : sgmlDoc("INFORMATION TABLE", 2, "2026qtr2submissionapr2026.xml", info))
+  + `</SEC-DOCUMENT>\n`;
+const FOCUSED_PRIMARY = BURKETT_PRIMARY_XML.replace("<tableEntryTotal>266<", "<tableEntryTotal>2<");
+const DIR = "https://www.sec.gov/Archives/edgar/data/1762716/000176271626000003/";
+const ACC = "0001762716-26-000003";
+const LISTING = JSON.stringify({ directory: { item: [{ name: "primary_doc.xml" }, { name: "2026qtr2submissionapr2026.xml" }] } });
+const throwingGet = (get: (url: string) => { status: number; body?: string }, asked: string[], caps: Array<number | undefined> = []) =>
+  async (url: string, opts?: { maxBytes?: number }) => {
+    asked.push(url.replace(DIR, ""));
+    caps.push(opts?.maxBytes);
+    const r = get(url);
+    if (r.status !== 200) throw Object.assign(new Error(`${url} -> ${r.status}`), { status: r.status });
+    return r.body ?? "";
+  };
+
+test("the submission text gives the same 13F record the listing's two documents do, for a kept table and for an over-cap filing", async () => {
+  for (const primary of [FOCUSED_PRIMARY, BURKETT_PRIMARY_XML]) {
+    const viaListing = await read13FFiling(DIR, throwingGet((url) => {
+      if (url.endsWith("/index.json")) return { status: 200, body: LISTING };
+      if (url.endsWith("/primary_doc.xml")) return { status: 200, body: primary };
+      if (url.endsWith("/2026qtr2submissionapr2026.xml")) return { status: 200, body: BURKETT_INFOTABLE_XML };
+      return { status: 404 };
+    }, []));
+    const asked: string[] = [];
+    const caps: Array<number | undefined> = [];
+    const viaSubmission = await read13FFiling(DIR, throwingGet((url) =>
+      (url.endsWith(`/${ACC}.txt`) ? { status: 200, body: submissionOf(primary, BURKETT_INFOTABLE_XML) } : { status: 404 }), asked, caps));
+    assert.equal(viaListing.via, "listing");
+    assert.equal(viaSubmission.via, "submission");
+    assert.deepEqual(viaSubmission.doc, viaListing.doc);
+    assert.deepEqual(asked, ["index.json", `${ACC}.txt`]);
+    assert.deepEqual(caps, [undefined, SUBMISSION_MAX_BYTES], "the submission text is asked for with the size cap");
+  }
+  // the kept-table case really carries the table
+  const kept = await docs13FFromSubmissionText(submissionOf(FOCUSED_PRIMARY, BURKETT_INFOTABLE_XML));
+  assert.equal(kept?.managerName, "BURKETT FINANCIAL SERVICES, LLC");
+  assert.equal(kept?.holdings?.length, 2);
+  assert.equal(kept?.holdings?.[0].cusip, "808524300");
+  assert.equal(kept?.holdingsOmitted, false);
+});
+
+test("docs13FFromSubmission finds the documents by what they are, not by TYPE or file name; no primary document reads as null", async () => {
+  const odd = submissionOf(FOCUSED_PRIMARY, BURKETT_INFOTABLE_XML)
+    .replace("<TYPE>13F-HR\n", "<TYPE>13F-HR/A\n").replace("<FILENAME>primary_doc.xml", "<FILENAME>renamed.xml")
+    .replace("<TYPE>INFORMATION TABLE", "<TYPE>SOMETHING ELSE");
+  const got = docs13FFromSubmission(odd);
+  assert.ok(got.primary?.includes("<edgarSubmission"));
+  assert.ok(got.info?.includes("informationTable"));
+  assert.equal(got.whole, true);
+  assert.equal(await docs13FFromSubmissionText("<SEC-DOCUMENT>\n<DOCUMENT>\n<TYPE>4\n<TEXT>\n<XML>\n<ownershipDocument/>\n</XML>\n</TEXT>\n</DOCUMENT>\n</SEC-DOCUMENT>\n"), null);
+  assert.equal(accessionOfFilingDir(DIR), ACC);
+  assert.equal(accessionOfFilingDir("https://www.sec.gov/Archives/edgar/data/1762716/"), null);
+});
+
+test("a submission text cut by the size cap: an over-cap filing still reads from its primary document; a table that is to be kept is never returned in part", async () => {
+  const whole = submissionOf(FOCUSED_PRIMARY, BURKETT_INFOTABLE_XML);
+  const cutInTable = whole.slice(0, whole.indexOf("808524797")); // inside the second holding
+  await assert.rejects(docs13FFromSubmissionText(cutInTable), /information table did not end/);
+  // the same cut under a primary document reporting 266 rows: summary-only, as from the listing
+  const over = submissionOf(BURKETT_PRIMARY_XML, BURKETT_INFOTABLE_XML);
+  const overCut = await docs13FFromSubmissionText(over.slice(0, over.indexOf("808524797")));
+  assert.equal(overCut?.holdingsOmitted, true);
+  assert.equal(overCut?.holdings, null);
+  assert.equal(overCut?.entryTotal, 266);
+  // no stated row count and a cut table: size unknown, so summary-only, never a part table
+  const noTotal = submissionOf(FOCUSED_PRIMARY.replace(/<tableEntryTotal>2<\/tableEntryTotal>/, ""), BURKETT_INFOTABLE_XML);
+  const noTotalCut = await docs13FFromSubmissionText(noTotal.slice(0, noTotal.indexOf("808524797")));
+  assert.equal(noTotalCut?.holdingsOmitted, true);
+  assert.equal(noTotalCut?.holdings, null);
+  // cut before the primary document ended: an error, not a skipped filing
+  await assert.rejects(docs13FFromSubmissionText(whole.slice(0, whole.indexOf("<summaryPage>"))), /no primary document/);
+});
+
+test("readTextCapped stops the download at the cap and cancels it; a response with no stream is read and cut", async () => {
+  const enc = new TextEncoder();
+  let reads = 0;
+  let cancelled = false;
+  const body = {
+    getReader: () => ({
+      read: async () => (++reads <= 5 ? { done: false, value: enc.encode("abcdefghij") } : { done: true }),
+      cancel: async () => { cancelled = true; },
+    }),
+  };
+  assert.equal(await readTextCapped({ text: async () => "unused", body }, 25), "abcdefghijabcdefghijabcde");
+  assert.equal(reads, 3, "the fourth chunk is never asked for");
+  assert.equal(cancelled, true);
+  assert.equal(await readTextCapped({ text: async () => "abcdefghij" }, 4), "abcd");
+  reads = 0; cancelled = false;
+  assert.equal((await readTextCapped({ text: async () => "", body }, 1000)).length, 50, "a short answer is read whole");
+  assert.equal(cancelled, false);
+});
+
+test("a listing that is refused or errors is not asked a second way", async () => {
+  for (const status of [403, 429, 500]) {
+    const asked: string[] = [];
+    await assert.rejects(read13FFiling(DIR, throwingGet(() => ({ status }), asked)), new RegExp(`-> ${status}$`));
+    assert.deepEqual(asked, ["index.json"], `${status}: one request`);
+  }
+  // a getText whose error carries no status field (the message alone says 404) still falls back
+  const doc = await fetch13FFilingDocs(DIR, async (url) => {
+    if (url.endsWith(".txt")) return submissionOf(FOCUSED_PRIMARY, BURKETT_INFOTABLE_XML);
+    throw new Error(`${url} -> 404`);
+  });
+  assert.equal(doc?.holdings?.length, 2);
+});
+
+test("2026-11-24 morning replayed: the listing answers 404, the poll returns the filing from its submission text, counts it, and it is archived", async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "vt-13f-sub-"));
+  const prevDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = base;
+  _reset13FCacheForTests();
+  _resetEdgarPollHealthForTests();
+  try {
+    const edgar = mockFetchFor({ "output=atom": FEED_ATOM, [`${ACC}.txt`]: submissionOf(FOCUSED_PRIMARY, BURKETT_INFOTABLE_XML) });
+    await refresh13FCache(40, edgar.impl as any, 0);
+    assert.deepEqual({ ...pollDocuments("filings13f"), at: null },
+      { at: null, candidates: 1, returned: 1, skipped: 0, failed: 0, first_error: null, via_submission: 1 });
+    const r = stream13f(edgarPollHealthStatus(base));
+    assert.equal(r.polls_ok, 1);
+    assert.equal(r.polls_failed, 0);
+    assert.equal(r.rows_archived, 1);
+    assert.equal(r.submission_check, null, "a filing read from the submission text is not compared with itself");
+    const row = latest13FFilings()!.filings[0];
+    assert.equal(row.accession, ACC);
+    assert.equal(row.holdings?.length, 2);
+    assert.ok(!("via" in row), "the archived row has the same fields whichever copy it was read from");
+    assert.equal(publicEdgarPollView(base).streams[1].documents?.via_submission, 1);
+  } finally {
+    _reset13FCacheForTests();
+    if (prevDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevDataDir;
+  }
+});
+
+test("the running check: one filing a poll read from its listing is read again from the submission text and compared, once per filing", async () => {
+  _reset13FCacheForTests();
+  _resetEdgarPollHealthForTests();
+  const listed = {
+    "output=atom": FEED_ATOM, "index.json": LISTING, "primary_doc.xml": FOCUSED_PRIMARY,
+    "2026qtr2submissionapr2026.xml": BURKETT_INFOTABLE_XML,
+  };
+  // the two copies agree
+  const same = mockFetchFor({ ...listed, [`${ACC}.txt`]: submissionOf(FOCUSED_PRIMARY, BURKETT_INFOTABLE_XML) });
+  assert.equal((await fetchLatest13FFilings(5, same.impl as any, 0)).length, 1);
+  assert.deepEqual(submissionCheck("filings13f"), { compared: 1, agree: 1, disagree: 0, unread: 0 });
+  assert.equal(same.requested.filter((u) => u.endsWith(".txt")).length, 1);
+  assert.equal(pollDocuments("filings13f")?.via_submission, 0);
+  // the next poll sees the same filing: it is not compared again, and no extra request is made
+  const again = mockFetchFor({ ...listed, [`${ACC}.txt`]: submissionOf(FOCUSED_PRIMARY, BURKETT_INFOTABLE_XML) });
+  await fetchLatest13FFilings(5, again.impl as any, 0);
+  assert.equal(again.requested.filter((u) => u.endsWith(".txt")).length, 0);
+  assert.equal(submissionCheck("filings13f")?.compared, 1);
+  // a submission text that reads differently is counted, and the filing is still returned from its listing
+  _reset13FCacheForTests();
+  const differs = mockFetchFor({ ...listed, [`${ACC}.txt`]: submissionOf(FOCUSED_PRIMARY.replace("BURKETT FINANCIAL", "SOMEONE ELSE"), BURKETT_INFOTABLE_XML) });
+  const got = await fetchLatest13FFilings(5, differs.impl as any, 0);
+  assert.equal(got[0].managerName, "BURKETT FINANCIAL SERVICES, LLC");
+  assert.deepEqual(submissionCheck("filings13f"), { compared: 2, agree: 1, disagree: 1, unread: 0 });
+  // a submission text that cannot be read is counted unread and fails nothing
+  _reset13FCacheForTests();
+  const absent = mockFetchFor(listed);
+  assert.equal((await fetchLatest13FFilings(5, absent.impl as any, 0)).length, 1);
+  assert.deepEqual(submissionCheck("filings13f"), { compared: 3, agree: 1, disagree: 1, unread: 1 });
+  assert.equal(pollDocuments("filings13f")?.failed, 0);
+  _reset13FCacheForTests();
 });
