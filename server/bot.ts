@@ -116,7 +116,7 @@ import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
 import { runLadder, ladderConfigFromEnv, ladderQuoteFromAlpaca, BACKSTOP_LADDER_QUOTE_TIMEOUT_MS, type LadderQuote, type LadderSubmit } from "./limitLadder";
 import { peakEquityFromRpc } from "./peakEquityRpc";
-import { AUDIT_PRUNE_EVERY_INSERTS, ensureAuditSchema, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
+import { AUDIT_PREFIX_MAX, AUDIT_PRUNE_EVERY_INSERTS, countAuditLog, ensureAuditSchema, parseAuditPrefix, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
 import { parseHistoryDay, readScanTimingHistory, scanTimingDataDirs } from "./scanTimingHistory";
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
 import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
@@ -4052,12 +4052,26 @@ print(json.dumps(result, default=str))
           const sinceRaw = String(req.query.since || "").trim();
           const since = parseAuditSince(req.query.since);
           if (sinceRaw && !since) return res.status(400).json({ error: "since must be an ISO date or date-time" });
+          // 2026-11-24 ((af2)): `total` is the count of ALL rows matching
+          // the filters. `entries` never holds more than 200 (sanitizeDiag
+          // cuts every array) whatever `limit` says, so without it a reader
+          // counting rows cannot know the answer was cut. Optional ?prefix=
+          // matches the start of the message exactly, so "scans started
+          // since X" is one number instead of a page of rows.
+          const prefix = parseAuditPrefix(req.query.prefix);
+          if (req.query.prefix !== undefined && req.query.prefix !== "" && !prefix) {
+            return res.status(400).json({ error: `prefix must be 1-${AUDIT_PREFIX_MAX} characters` });
+          }
+          const filter = { type: typeFilter || null, since, prefix };
           let entries: AuditRow[];
+          let total: number | null;
           try {
-            entries = queryAuditLog(db, { limit, type: typeFilter || null, since });
+            entries = queryAuditLog(db, { limit, ...filter });
           } catch { entries = []; }
+          try { total = countAuditLog(db, filter); } catch { total = null; }
           return res.json(sanitizeDiag({
             probe: "audit",
+            total,
             entries: entries.map((e: any) => ({ time: e.time, type: e.type, message: e.message })),
           }));
         }
