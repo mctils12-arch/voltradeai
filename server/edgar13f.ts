@@ -33,7 +33,7 @@ import { archiveBaseDir } from "./datacoreArchive";
 import { buildFilingHistoryPage, type FilingHistoryArchive, type FilingHistoryResponse } from "./filingHistoryPage";
 import { parseFilingFeed, edgarCurrentFeedUrl } from "./edgarForm4";
 import { resolveCacheItems } from "./cacheBackfill";
-import { notePollOk, notePollFailed, notePollDocuments, pollDocuments, pollUnreadError, describeStageError, type EdgarPollDocuments } from "./edgarPollHealth";
+import { notePollOk, notePollFailed, notePollDocuments, noteSubmissionCheck, pollDocuments, pollUnreadError, describeStageError, type EdgarPollDocuments } from "./edgarPollHealth";
 import { fetchEdgarFeed } from "./edgarFeedFetch";
 import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
@@ -178,48 +178,203 @@ export function pick13FDocNames(indexJson: any): { primary: string | null; info:
 // ── Live fetch (injectable for tests; SEC fair-access spacing) ─────────────
 
 const SEC_UA = { "User-Agent": "voltradeai-datacore/1.0 (research@voltradeai.com)" };
-type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+type FetchBody = { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<unknown> } };
+type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string>; body?: FetchBody | null }>;
 
-async function fetchText(fetchImpl: FetchFn, url: string): Promise<string> {
+/** A response's text, read no further than `maxBytes`: the download is
+ *  cancelled there. A response with no readable body (a test's stub) is read
+ *  whole and cut. */
+export async function readTextCapped(
+  r: { text(): Promise<string>; body?: FetchBody | null },
+  maxBytes: number,
+): Promise<string> {
+  const reader = r.body?.getReader?.();
+  if (!reader) return (await r.text()).slice(0, maxBytes);
+  const dec = new TextDecoder("utf-8");
+  let out = "";
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      const room = maxBytes - got;
+      out += dec.decode(value.byteLength > room ? value.subarray(0, room) : value, { stream: true });
+      got += value.byteLength;
+      if (got >= maxBytes) {
+        await reader.cancel().catch(() => {});
+        break;
+      }
+    }
+  }
+  return out + dec.decode();
+}
+
+/** What a 13F reader passes with a request: `maxBytes` asks for no more than
+ *  that much of the answer. */
+export interface GetTextOptions { maxBytes?: number }
+export type GetText13F = (url: string, opts?: GetTextOptions) => Promise<string>;
+
+async function fetchText(fetchImpl: FetchFn, url: string, opts?: GetTextOptions): Promise<string> {
   const r = await fetchImpl(url, { headers: SEC_UA, signal: AbortSignal.timeout(15000) as any });
-  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
-  return r.text();
+  if (!r.ok) throw Object.assign(new Error(`${url} -> ${r.status}`), { status: r.status });
+  return opts?.maxBytes ? readTextCapped(r, opts.maxBytes) : r.text();
 }
 
 export type Filing13FDocs = Parsed13FPrimary & Pick<Filing13F, "holdings" | "holdingsOmitted">;
 
-/** One filing's parsed documents, read from its EDGAR directory (`base` ends
- *  in "/"): index.json, the primary doc, and the information table unless the
- *  focused-manager cap omits it. null when the directory has no primary doc.
- *  Shared by the 15-minute poll and the nightly completeness pass
- *  (edgar13fCompleteness.ts), so a recovered row is parsed exactly as a live one. */
-export async function fetch13FFilingDocs(
-  base: string,
-  getText: (url: string) => Promise<string>,
-): Promise<Filing13FDocs | null> {
-  const indexJson = JSON.parse(await getText(`${base}index.json`));
-  const { primary, info } = pick13FDocNames(indexJson);
-  if (!primary) return null;
-  const head = parse13FPrimaryDoc(await getText(`${base}${primary}`));
+/** Which of EDGAR's two copies of a filing a row was read from. */
+export type Filing13FVia = "listing" | "submission";
+
+/** How much of a filing's submission text the fallback reads. The text holds
+ *  every document of the filing in one file, and a large manager's information
+ *  table runs to tens of megabytes; the primary document comes first and a
+ *  table within the focused cap (FOCUSED_MAX_HOLDINGS rows, about 0.2 MB) ends
+ *  well inside this. */
+export const SUBMISSION_MAX_BYTES = 2 * 1024 * 1024;
+
+/** The accession ("0001762716-26-000003") of a filing directory URL ending in
+ *  ".../000176271626000003/"; null when the URL is not one. */
+export function accessionOfFilingDir(base: string): string | null {
+  const m = base.match(/\/(\d{10})(\d{2})(\d{6})\/$/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+/** The two 13F documents held inside a filing's complete submission text
+ *  (`<accession>.txt`), found by what each `<XML>` block IS (an
+ *  `edgarSubmission`, an `informationTable`), never by a file name or a
+ *  `<TYPE>` line. `whole` is false when the text was cut before its end. */
+export function docs13FFromSubmission(text: string): { primary: string | null; info: string | null; whole: boolean } {
+  let primary: string | null = null;
+  let info: string | null = null;
+  for (const doc of text.split(/<DOCUMENT>/i).slice(1)) {
+    const m = doc.match(/<XML>\s*([\s\S]*?)\s*<\/XML>/i);
+    if (!m) continue;
+    if (primary === null && /<(?:[A-Za-z0-9_]+:)?edgarSubmission[\s>]/.test(m[1])) primary = m[1];
+    else if (info === null && /<(?:[A-Za-z0-9_]+:)?informationTable[\s>]/.test(m[1])) info = m[1];
+  }
+  return { primary, info, whole: /<\/SEC-DOCUMENT>\s*$/i.test(text) };
+}
+
+/** The record of a filing from its primary document and its information
+ *  table's XML (`infoXml()` is asked only when the table is to be kept). */
+async function docsFromParts(primaryXml: string, infoXml: () => Promise<string | null>): Promise<Filing13FDocs> {
+  const head = parse13FPrimaryDoc(primaryXml);
   let omit = (head.entryTotal ?? 0) > FOCUSED_MAX_HOLDINGS;
   let holdings: Holding13F[] | null = null;
-  if (!omit && info) {
-    holdings = parse13FInfoTable(await getText(`${base}${info}`));
-    // [REPAIR 2026-07-05, audit defect #10a] null entryTotal + a parse
-    // that HITS the cap means the table may have been truncated — the
-    // never-silent cap doctrine requires marking it, not shipping 250
-    // rows that look complete. Treated as over-cap: summary-only.
-    if (head.entryTotal == null && holdings.length >= FOCUSED_MAX_HOLDINGS) {
-      omit = true;
-      holdings = null;
+  if (!omit) {
+    const xml = await infoXml();
+    if (xml != null) {
+      holdings = parse13FInfoTable(xml);
+      // [REPAIR 2026-07-05, audit defect #10a] null entryTotal + a parse
+      // that HITS the cap means the table may have been truncated — the
+      // never-silent cap doctrine requires marking it, not shipping 250
+      // rows that look complete. Treated as over-cap: summary-only.
+      if (head.entryTotal == null && holdings.length >= FOCUSED_MAX_HOLDINGS) {
+        omit = true;
+        holdings = null;
+      }
     }
   }
   return { ...head, holdings, holdingsOmitted: omit };
 }
 
+/** One filing's record read from its submission text (the first
+ *  SUBMISSION_MAX_BYTES of it). null when the whole text holds no primary
+ *  document. Throws when the cut fell before a document the record needs:
+ *  a table that is to be kept is never returned in part. */
+export async function docs13FFromSubmissionText(text: string): Promise<Filing13FDocs | null> {
+  const { primary, info, whole } = docs13FFromSubmission(text);
+  if (!primary) {
+    if (!whole) throw new Error("no primary document in the part read");
+    return null;
+  }
+  const docs = await docsFromParts(primary, async () => {
+    if (info != null || whole) return info;
+    // the table did not end inside the part read
+    if (parse13FPrimaryDoc(primary).entryTotal != null) throw new Error("the information table did not end in the part read");
+    return null;
+  });
+  // a table cut off under a primary document that states no row count: its
+  // size is unknown, so the record is summary-only (the cap doctrine above)
+  if (!whole && info == null && docs.holdings == null && !docs.holdingsOmitted) return { ...docs, holdingsOmitted: true };
+  return docs;
+}
+
+const is404 = (e: unknown): boolean => {
+  const status = (e as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return status === 404;
+  return / -> 404$/.test(String((e as { message?: unknown } | null)?.message ?? ""));
+};
+
+/** One filing's parsed documents and which copy they were read from. `base`
+ *  is the filing's EDGAR directory, ending in "/".
+ *
+ *  The directory listing (`index.json`) first: the primary doc, and the
+ *  information table unless the focused-manager cap omits it. Rows read that
+ *  way are unchanged.
+ *
+ *  [PIPELINE 2026-11-24, open_questions.md (ai2)] EDGAR publishes the listing
+ *  later than the filing. Measured on production 2026-11-24 13:37Z (08:37 ET):
+ *  3 of the 23 13F filings on the feed page answered 404 for `index.json` and
+ *  the live poll skipped them (the same hole KNOWN BROKEN #61 closed for
+ *  Form 4 the evening before). When the listing answers 404, the filing is
+ *  read from its submission text, which is named by the accession alone and
+ *  holds both documents. Any other failure of the listing (a timeout, a 403
+ *  or 429 refusal) is thrown as before and not asked a second way. */
+export async function read13FFiling(
+  base: string,
+  getText: GetText13F,
+): Promise<{ doc: Filing13FDocs | null; via: Filing13FVia }> {
+  let names: { primary: string | null; info: string | null };
+  try {
+    names = pick13FDocNames(JSON.parse(await getText(`${base}index.json`)));
+  } catch (e) {
+    const accession = accessionOfFilingDir(base);
+    if (!is404(e) || !accession) throw e;
+    const text = await getText(`${base}${accession}.txt`, { maxBytes: SUBMISSION_MAX_BYTES });
+    return { doc: await docs13FFromSubmissionText(text), via: "submission" };
+  }
+  const { primary, info } = names;
+  if (!primary) return { doc: null, via: "listing" };
+  const doc = await docsFromParts(await getText(`${base}${primary}`), async () => (info ? getText(`${base}${info}`) : null));
+  return { doc, via: "listing" };
+}
+
+/** One filing's parsed documents; null when the filing has no primary doc.
+ *  Shared by the 15-minute poll and the nightly completeness pass
+ *  (edgar13fCompleteness.ts), so a recovered row is parsed exactly as a live one. */
+export async function fetch13FFilingDocs(base: string, getText: GetText13F): Promise<Filing13FDocs | null> {
+  return (await read13FFiling(base, getText)).doc;
+}
+
+/** At most one filing a poll reads from its listing is read a second time
+ *  from its submission text, and the two records compared: the fallback
+ *  reader checked against EDGAR's own other copy, on live filings
+ *  (edgarPollHealth.ts `submission_check`). A filing is compared once. */
+const comparedAccessions = new Set<string>();
+const COMPARED_MAX = 2000;
+trackSet("edgar13f.comparedAccessions", comparedAccessions);
+
+async function compareWithSubmission(entry: { accession: string; indexUrl: string }, listed: Filing13FDocs, getText: GetText13F): Promise<void> {
+  if (comparedAccessions.size >= COMPARED_MAX) comparedAccessions.clear();
+  comparedAccessions.add(entry.accession);
+  try {
+    const base = entry.indexUrl.replace(/[^/]+$/, "");
+    const text = await getText(`${base}${entry.accession}.txt`, { maxBytes: SUBMISSION_MAX_BYTES });
+    const other = await docs13FFromSubmissionText(text);
+    const same = JSON.stringify(other) === JSON.stringify(listed);
+    noteSubmissionCheck("filings13f", same ? "agree" : "disagree");
+    if (!same) console.error("[datacore] edgar13f: the submission text and the listing read differently for", entry.accession);
+  } catch (e) {
+    noteSubmissionCheck("filings13f", "unread");
+  }
+}
+
 /** Fetches the N most recent 13F-HR filings, parsed. Three requests per
- *  filing (index.json, primary doc, info table) with spacing — well under
- *  the 10 req/s fair-access ceiling. */
+ *  filing (index.json, primary doc, info table), or two when the listing is
+ *  not published (index.json, the submission text), with spacing — well under
+ *  the 10 req/s fair-access ceiling. One filing a poll, at most, is read a
+ *  second time from its submission text as a check (compareWithSubmission). */
 export async function fetchLatest13FFilings(
   limit: number,
   fetchImpl: FetchFn = fetch as any,
@@ -230,17 +385,20 @@ export async function fetchLatest13FFilings(
   const entries = parseFilingFeed(feedXml).slice(0, limit);
   const docs: EdgarPollDocuments = {
     at: new Date().toISOString(), candidates: entries.length, returned: 0, skipped: 0, failed: 0, first_error: null,
+    via_submission: 0,
   };
   const out: Filing13F[] = [];
+  let comparedThisPoll = false;
   for (const entry of entries) {
     // what the filing's reader asked for last, in the poller's own words: the
     // information table's file name is the filer's and is never reported
     let stage = "index.json";
+    const getText: GetText13F = (url, opts) => {
+      stage = stageOf13FUrl(url);
+      return fetchText(fetchImpl, url, opts);
+    };
     try {
-      const doc = await fetch13FFilingDocs(entry.indexUrl.replace(/[^/]+$/, ""), (url) => {
-        stage = stageOf13FUrl(url);
-        return fetchText(fetchImpl, url);
-      });
+      const { doc, via } = await read13FFiling(entry.indexUrl.replace(/[^/]+$/, ""), getText);
       if (!doc) {
         docs.skipped++;
       } else {
@@ -252,6 +410,11 @@ export async function fetchLatest13FFilings(
           indexUrl: entry.indexUrl,
         });
         docs.returned++;
+        if (via === "submission") docs.via_submission = (docs.via_submission ?? 0) + 1;
+        else if (!comparedThisPoll && !comparedAccessions.has(entry.accession)) {
+          comparedThisPoll = true;
+          await compareWithSubmission(entry, doc, (url, opts) => fetchText(fetchImpl, url, opts));
+        }
       }
     } catch (e) {
       // one malformed filing never kills the batch; it is counted, and the
@@ -265,9 +428,10 @@ export async function fetchLatest13FFilings(
   return out;
 }
 
-/** Which of a 13F filing's three requests a URL is. */
+/** Which of a 13F filing's requests a URL is. */
 export function stageOf13FUrl(url: string): string {
   if (/\/index\.json$/i.test(url)) return "index.json";
+  if (/\/\d{10}-\d{2}-\d{6}\.txt$/i.test(url)) return "submission text";
   if (/\/primary_doc\.xml$/i.test(url)) return "primary_doc.xml";
   return "information table";
 }
@@ -455,6 +619,7 @@ export async function refresh13FCache(limit = 40, fetchImpl: FetchFn = fetch as 
 
 export function _reset13FCacheForTests(): void {
   cache = null;
+  comparedAccessions.clear();
 }
 
 /** 15-min poll: outside 13F season the feed is a trickle; at the quarterly

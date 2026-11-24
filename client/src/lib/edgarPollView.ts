@@ -15,6 +15,9 @@ export interface EdgarPollDocuments {
   skipped: number;
   failed: number;
   first_error: string | null;
+  /** of `returned`, filings read from their submission text because EDGAR had
+   *  not yet published the filing's directory listing (Form 4 and 13F) */
+  via_submission?: number;
 }
 export interface PublicEdgarPollStream {
   stream: EdgarStreamId | string;
@@ -65,6 +68,7 @@ function row(s: PublicEdgarPollStream, bootedAt: string | null, nowMs: number): 
   const d = s.documents;
   const ok = n(s.polls_ok), bad = n(s.polls_failed), run = n(s.consecutive_failures);
   const failed = n(d?.failed), asked = n(d?.candidates), read = n(d?.returned), skipped = n(d?.skipped);
+  const viaText = Math.min(read, n(d?.via_submission));
 
   let tone: JobTone = "ok", state = "reading";
   if (ok + bad === 0) { tone = "idle"; state = "no poll yet"; }
@@ -83,10 +87,15 @@ function row(s: PublicEdgarPollStream, bootedAt: string | null, nowMs: number): 
   const parts: string[] = [];
   if (d) {
     const when = ago(d.at, nowMs);
+    // EDGAR lists a filing before it publishes the filing's directory listing; such a
+    // filing is read from its submission text, the same documents in one file
+    const via = viaText > 0
+      ? ` (${viaText === read ? (read === 1 ? "it" : "all") : viaText.toLocaleString("en-US")} from the submission text: EDGAR had not yet published ${viaText === 1 ? "its listing" : "their listings"})`
+      : "";
     const skip = skipped > 0 ? `, ${skipped.toLocaleString("en-US")} ${SKIPPED[s.stream] ?? "had nothing to keep"}` : "";
     parts.push(asked === 0
       ? `Latest poll${when ? ` ${when}` : ""}: no filing of this kind on EDGAR's list.`
-      : `Latest poll${when ? ` ${when}` : ""}: ${filings(asked)} asked for, ${read.toLocaleString("en-US")} read${skip}.`);
+      : `Latest poll${when ? ` ${when}` : ""}: ${filings(asked)} asked for, ${read.toLocaleString("en-US")} read${via}${skip}.`);
   } else {
     parts.push("No poll has finished reading its list since the server started.");
   }

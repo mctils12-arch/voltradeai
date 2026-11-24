@@ -435,6 +435,7 @@ export async function fetchLatestForm4Filings(
   notePollDocuments("filings", {
     at: stats.at, candidates: entries.length, returned: stats.returned,
     skipped: stats.no_issuer, failed: stats.failed, first_error: stats.first_error,
+    via_submission: stats.via_submission,
   });
   return out;
 }
