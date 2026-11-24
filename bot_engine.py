@@ -3317,6 +3317,15 @@ def _scan_market_inner():
     _scan_start = _timing.time()
     _last_t = [_scan_start]
     _phase_times = []
+    # 2026-11-24 (KNOWN BROKEN #60 recurrence, open_questions (al3)): the file
+    # below is overwritten by every scan, so the previous scan's timings are
+    # kept as one line of the day's log first (scan_timing_log.py; a record,
+    # read by /api/diag/timings?history=1, never by a trade path).
+    try:
+        import scan_timing_log as _scan_tlog
+        _scan_tlog.roll_previous(_TIMING_PATH, _TIMING_DIR)
+    except Exception as _stl_err:
+        print(f"[timing] previous scan not kept: {_stl_err}", file=sys.stderr, flush=True)
     # Clear any prior timing file at scan start
     try:
         _timing_json.dump({
