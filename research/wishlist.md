@@ -1,5 +1,14 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ 2026-11-24 — full scans are timing out again after Monday's fix; the cause is measured and a structural fix is queued (NOTHING NEEDED unless you want it done differently; NOT A SPEND REQUEST)
+
+WHAT: on Tuesday afternoon 3 full scans hit the daemon's 300-second limit and returned nothing (18:12Z, 19:16Z, 20:14Z), out of 21 scans in the busy hours. Monday's fix (#1896, a 240-second deadline on the options stage) held for what it covered: no scan died inside the options stage. All three died just after it, in the tier engine.
+WHY: the scan has one 300-second clock and several stages with their own limits that nobody added up. The options stage runs to about 245 s. About every third scan the tier engine then recomputes its put-selling scores, which takes 27 to 45 s more, plus about 15 s around it. That sum is over 300.
+WHAT IT COSTS WHILE OPEN: about one full scan in ten in busy hours finds nothing and waits 2 minutes. Stops and exits run on a separate 30-second loop and are not affected. Every scan that did return today proposed 0 trades.
+WHAT WAS DONE (v1.0.1544): nothing was re-tuned. The rule for a fix that did not hold is to find the cause, not patch again (HEALTH OF THE LOOP rule 4), so this session measured it and built the missing record: every scan's timings are now kept, one line a scan, 30 days.
+WHAT IS QUEUED (open_questions.md (am1)), for the next bot session after one full day of that record: (1) recompute the put-selling scores in the idle 2 minutes between scans, so no scan carries that cost; (2) compute the options deadline from the limits of everything after it, with a test that fails if the limits ever add up past 300.
+YOUR CALL ONLY IF you prefer another route. The alternative is raising the daemon's 300-second limit to about 360 (one number in server/bot.ts; simpler, but it leaves the stages unaccounted and lengthens the time a stuck scan blocks the next). Say "scan limit 360" for that; say nothing and (am1) is built.
+
 ## ⚠ 2026-11-22 — the account in the market fall, and one question about the floor's rollback line (your call; NOT A SPEND REQUEST)
 
 WHERE THE ACCOUNT IS (Friday 11-20 close, read Sunday): equity $85,724. That is −14.2% from the recorded peak of $99,962, and −22.8% from the real high of $111,041 on 08-08 (the peak was re-baselined on 09-28). The bot's own 18% halt is at $81,965 and both −20% kills at $79,970. The account holds 0.58x of its equity in SPY and the rest in BOXX, so SPY falling about 7.6% more reaches the halt and about 11.6% more reaches the kills. VIX closed at 35.9.
