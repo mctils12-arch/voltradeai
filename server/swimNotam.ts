@@ -27,6 +27,8 @@ import { textAreas } from "./swimNotamText";
 export const NOTAM_MAX_TFRS = 2_000;
 /** a TFR with no end time is kept this long after issue */
 export const NOTAM_TFR_DEFAULT_TTL_MS = 7 * 86_400_000;
+/** citations remembered of restriction notices that arrived without a shape; the oldest is forgotten beyond it */
+export const NOTAM_MAX_UNSHAPED_CITATIONS = 2_000;
 
 export const TFR_TEXT_RE = /FLIGHT RESTRICTION|\b91\.1(?:37|38|39|41|43|45)\b|\b99\.7\b|\bTFR\b/i;
 
@@ -168,6 +170,9 @@ export class NotamStore {
    *  re-sent notice counts again). Why the map's list is shorter than the
    *  FAA's own (2026-11-21: 66 on tfr.faa.gov, 18 held here) starts here. */
   tfrsWithoutShape = 0;
+  /** the citations of those notices, where the notice had one ("FDC 6/9306"), since this process started:
+   *  what the running check of the text reader counts as "sent and not read" (faaTfrTextCheck.ts) */
+  private readonly unshaped = new Set<string>();
 
   ingest(xml: string, now: number = Date.now()): void {
     let recs: TfrRecord[];
@@ -180,7 +185,13 @@ export class NotamStore {
       // restriction drawn from its text must still be removable
       if ((r.type ?? "").toUpperCase() === "C") { this.tfrs.delete(r.id); continue; }
       if (!r.geometry) {
-        if (isTfr(r)) this.tfrsWithoutShape++;
+        if (isTfr(r)) {
+          this.tfrsWithoutShape++;
+          if (r.citation && !this.unshaped.has(r.citation)) {
+            if (this.unshaped.size >= NOTAM_MAX_UNSHAPED_CITATIONS) this.unshaped.delete(this.unshaped.values().next().value as string);
+            this.unshaped.add(r.citation);
+          }
+        }
         continue;
       }
       this.tfrs.set(r.id, r);
@@ -209,6 +220,9 @@ export class NotamStore {
     for (const t of Array.from(this.tfrs.values())) if (t.citation) out.add(t.citation);
     return out;
   }
+
+  /** Citations of restriction notices received since this process started that could not be given a shape. */
+  unshapedCitations(): ReadonlySet<string> { return this.unshaped; }
 
   /** The flight restrictions not yet ended: what a restart must not lose. */
   snapshot(now: number = Date.now()): TfrRecord[] {

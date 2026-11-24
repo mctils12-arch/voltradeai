@@ -290,6 +290,11 @@ export class FaaTfrListStore {
   listed(): readonly FaaListEntry[] { return this.entries; }
   /** the detail row read for a listed notice ("6/9306"), with or without an outline */
   rowOf(notice: string): FaaTfrRow | undefined { return this.rows.get(notice); }
+  /** every listed notice's row that carries the FAA's outline, in force or not; none once the read is stale */
+  outlined(now: number): FaaTfrRow[] {
+    if (!this.fresh(now)) return [];
+    return this.entries.map((e) => this.rows.get(e.notice)).filter((r): r is FaaTfrRow => !!r && !!r.geometry);
+  }
   /** listed notices whose detail file has not been read */
   pending(): FaaListEntry[] { return this.entries.filter((e) => !this.rows.has(e.notice)); }
   fresh(now: number): boolean { return this.readAt !== null && now - this.readAt <= FAA_TFR_STALE_MS; }
@@ -435,7 +440,7 @@ export async function saveFaaTfrList(store: FaaTfrListStore, file = faaTfrKeepFi
 let timers: Array<ReturnType<typeof setTimeout>> = [];
 let running = false;
 /** Start the reads: the saved list is put back now, the first pass runs 90 s after boot, then every 30 minutes. */
-export function bootFaaTfrList(env: NodeJS.ProcessEnv = process.env, o: { file?: string; fetch?: FaaFetch; archiveBaseDir?: string } = {}): boolean {
+export function bootFaaTfrList(env: NodeJS.ProcessEnv = process.env, o: { file?: string; fetch?: FaaFetch; archiveBaseDir?: string; afterPass?: () => string | null | Promise<string | null> } = {}): boolean {
   if (timers.length || !faaTfrListEnabled(env)) return false;
   const store = sharedFaaTfrList();
   const file = o.file ?? faaTfrKeepFile();
@@ -456,8 +461,15 @@ export function bootFaaTfrList(env: NodeJS.ProcessEnv = process.env, o: { file?:
         ? await recordFaaTfrRead({ entries: store.listed(), rowOf: (n) => store.rowOf(n), now: store.readAt, cut: store.lastListCut, baseDir: o.archiveBaseDir })
         : null;
       const recBad = !!rec && rec.status !== "recorded";
+      // what the caller does with a fresh list (the text reader's running check, swimCapture.ts); its
+      // failure is said on the job's line and never fails the list read
+      let after: string | null = null;
+      if (o.afterPass && r.cause === "ok") {
+        try { after = await o.afterPass(); } catch (e) { after = `after-pass step failed: ${e instanceof Error ? e.message : String(e)}`; }
+      }
       const detail = `${r.cause}: ${r.listed} listed, ${r.details_read} detail files read, ${r.details_failed} failed`
-        + (rec ? `; record ${rec.status}${rec.listed || rec.left ? ` (${rec.listed} appeared, ${rec.left} left)` : ""}` : "");
+        + (rec ? `; record ${rec.status}${rec.listed || rec.left ? ` (${rec.listed} appeared, ${rec.left} left)` : ""}` : "")
+        + (after ? `; ${after}` : "");
       beat("faa_tfr_list", "finish", r.cause === "ok" && !recBad ? "ok" : "error", detail);
       if (r.cause !== "ok" || r.details_failed || recBad) console.error(`[faaTfrList] pass ${detail}`);
     } catch (e) {
