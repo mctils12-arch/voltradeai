@@ -1,0 +1,233 @@
+<SEC-DOCUMENT>0001493152-26-053616.txt : 20261123
+<SEC-HEADER>0001493152-26-053616.hdr.sgml : 20261123
+<ACCEPTANCE-DATETIME>20261123061159
+ACCESSION NUMBER:		0001493152-26-053616
+CONFORMED SUBMISSION TYPE:	4
+PUBLIC DOCUMENT COUNT:		1
+CONFORMED PERIOD OF REPORT:	20261119
+FILED AS OF DATE:		20261123
+DATE AS OF CHANGE:		20261123
+
+REPORTING-OWNER:	
+
+	OWNER DATA:	
+		COMPANY CONFORMED NAME:			SUN Weike
+		CENTRAL INDEX KEY:			0002075156
+		ORGANIZATION NAME:           	
+
+	FILING VALUES:
+		FORM TYPE:		4
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	001-41768
+		FILM NUMBER:		261580741
+
+	MAIL ADDRESS:	
+		ADDRESS IS A NON US LOCATION: 	YES
+		STREET 1:		GUANGZHOU CHEMICAL INDUSTRIES CITY
+		STREET 2:		ROOM 311, BUILDING E, PUXING RD, DONGPU
+		CITY:			GUANGZHOU CITY
+		NON US STATE TERRITORY:  	TIANHE DISTRICT
+		PROVINCE COUNTRY:   	F4
+		ZIP:			00000
+
+REPORTING-OWNER:	
+
+	OWNER DATA:	
+		COMPANY CONFORMED NAME:			Bravemorning Ltd
+		CENTRAL INDEX KEY:			0002075159
+		ORGANIZATION NAME:           	
+		STATE OF INCORPORATION:			D8
+		FISCAL YEAR END:			1231
+
+	FILING VALUES:
+		FORM TYPE:		4
+		SEC ACT:		1934 Act
+		SEC FILE NUMBER:	001-41768
+		FILM NUMBER:		261580740
+
+	BUSINESS ADDRESS:	
+		ADDRESS IS A NON US LOCATION: 	YES
+		STREET 1:		SEA MEADOW HOUSE
+		STREET 2:		PO BOX 116
+		CITY:			ROAD TOWN, TORTOLA
+		PROVINCE COUNTRY:   	D8
+		ZIP:			00000
+		BUSINESS PHONE:		852-6999-3859
+
+	MAIL ADDRESS:	
+		ADDRESS IS A NON US LOCATION: 	YES
+		STREET 1:		SEA MEADOW HOUSE
+		STREET 2:		PO BOX 116
+		CITY:			ROAD TOWN, TORTOLA
+		PROVINCE COUNTRY:   	D8
+		ZIP:			00000
+
+ISSUER:		
+
+	COMPANY DATA:	
+		COMPANY CONFORMED NAME:			Tron Inc.
+		CENTRAL INDEX KEY:			0001956744
+		STANDARD INDUSTRIAL CLASSIFICATION:	FINANCE SERVICES [6199]
+		ORGANIZATION NAME:           	09 Crypto Assets
+		EIN:				320686534
+		STATE OF INCORPORATION:			NV
+		FISCAL YEAR END:			1231
+
+	BUSINESS ADDRESS:	
+		STREET 1:		941 W. MORSE BLVD.
+		STREET 2:		SUITE 100
+		CITY:			WINTER PARK
+		STATE:			FL
+		ZIP:			32789
+		BUSINESS PHONE:		407-230-8100
+
+	MAIL ADDRESS:	
+		STREET 1:		941 W. MORSE BLVD.
+		STREET 2:		SUITE 100
+		CITY:			WINTER PARK
+		STATE:			FL
+		ZIP:			32789
+
+	FORMER COMPANY:	
+		FORMER CONFORMED NAME:	SRM Entertainment, Inc.
+		DATE OF NAME CHANGE:	20221201
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>4
+<SEQUENCE>1
+<FILENAME>ownership.xml
+<DESCRIPTION>4
+<TEXT>
+<XML>
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2026-11-19</periodOfReport>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0001956744</issuerCik>
+        <issuerName>Tron Inc.</issuerName>
+        <issuerTradingSymbol>TRON</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0002075156</rptOwnerCik>
+            <rptOwnerName>SUN Weike</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>C/O TRON INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>941 W. MORSE BLVD. SUITE 100</rptOwnerStreet2>
+            <rptOwnerCity>WINTER PARK</rptOwnerCity>
+            <rptOwnerState>FL</rptOwnerState>
+            <rptOwnerZipCode>32789</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle></officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0002075159</rptOwnerCik>
+            <rptOwnerName>Bravemorning Ltd</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>false</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>C/O TRON INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>941 W. MORSE BLVD. SUITE 100</rptOwnerStreet2>
+            <rptOwnerCity>WINTER PARK</rptOwnerCity>
+            <rptOwnerState>FL</rptOwnerState>
+            <rptOwnerZipCode>32789</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>0</isOfficer>
+            <isTenPercentOwner>1</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle></officerTitle>
+            <otherText></otherText>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock, par value $0.0001</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2026-11-19</value>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionTimeliness></transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>69741000</value>
+                    <footnoteId id="F2"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>1.65</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>350259000</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>I</value>
+                    <footnoteId id="F1"/>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value>See footnote</value>
+                    <footnoteId id="F1"/>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">The reported securities are held directly by Bravemorning Limited (&quot;Bravemorning&quot;). Mr. Weike Sun is the sole shareholder of Bravemorning and may be deemed to beneficially own the securities held by Bravemorning.</footnote>
+        <footnote id="F2">Represents the sale by Bravemorning of an aggregate of 69,741,000 shares of Common Stock in a privately negotiated transaction to certain buyers pursuant to a Securities Purchase Agreement dated November 19, 2026, at a price of $1.65 per share, for an aggregate purchase price of $115,072,650.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Weike Sun</signatureName>
+        <signatureDate>2026-11-23</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>BRAVEMORNING LIMITED By: /s/ Weike Sun</signatureName>
+        <signatureDate>2026-11-23</signatureDate>
+    </ownerSignature>
+</ownershipDocument>
+</XML>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>

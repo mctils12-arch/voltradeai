@@ -8378,6 +8378,31 @@
     count does not fall, do NOT lower the number again: read which phase
     the failed scans were in (RECURRENCE ESCALATES).
 
+61. **[FOUND 2026-11-24 02:33Z, EDGE scheduled routine, by the session health
+    check's EDGAR line. FIXED the same session, v1.0.1539; close marker
+    waits for the check after deploy.]**
+    THE FORM 4 ARCHIVE TOOK NO ROW FROM 16:43 ET ON MONDAY 2026-11-23 while
+    EDGAR's feed kept listing new Form 4s, and every poll was counted ok.
+    EVIDENCE: /api/diag/form4_completeness `poll` at 02:32Z: 37 Form 4s on
+    the page, returned 0, failed 25. By hand: each filing's directory
+    listing (`index.json`) answers 404 "Directory listing is Not Available
+    Yet" for every sampled filing accepted from 15:43 ET on; the filing's
+    `<accession>.txt` answers 200.
+    MECHANISM: both Form 4 readers found a filing's document only through
+    its directory listing, which EDGAR publishes later than the filing. A
+    poll whose every document failed returned an empty list and was
+    counted ok.
+    FIX: `fetchForm4Document` (edgarForm4.ts): the listing first; on a 404,
+    the submission text. A poll that reads none of its documents is counted
+    failed, with "index.json -> 404"-style wording that names no filing.
+    RATCHET: server/edgarForm4Listing.test.ts (8 tests, real fixtures).
+    NOT FIXED HERE: the 13F poll has the same single dependency ((ai2)).
+    CLOSE WHEN: (ai1) reads rows archived after the deploy with
+    `polls_failed` 0, and one evening read says whether `via_submission`
+    is above 0. If the archive goes quiet in the evening again with this
+    deployed, do NOT add a third way to read a filing: read `first_error`
+    and the listing by hand first (RECURRENCE ESCALATES).
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -25153,3 +25178,9 @@ KNOWN LIMITS OF THE EVENT LIST (measured or reasoned 2026-11-22, none tuned):
 - [READ, (ah1) first half, production 01:31Z, v1.0.1537] route answers, health 200, text_check unchanged across the restart (9 compared, 8 agree, 6/9335 partial): HELD. Out-of-sample half open.
 - (ah4) THE BUNDLED-SNAPSHOT REFRESH IS STILL DONE BY HAND AND HAS NOW TRIPPED ITS OWN ALARM THREE TIMES (10-12, 11-02, 11-24). `scripts/snapshot_refresh.py` is one command; what is missing is something that runs it. Options, in build-first order: (i) the weekly-review routine's prompt runs it and opens the data PR (no code; a prompt edit is the human's or the routine owner's); (ii) the server fetches the three sources itself on a timer and serves from the volume, the bundled file being the cold-start copy (code: T-DATACORE, needs xlrd/openpyxl equivalents in Node or a Python job, and a check that Railway can reach eia.gov, cpc.ncep.noaa.gov and stb.gov). Prior that (ii) is reachable from Railway for all three: 70%. Next session: the reachability probe first.
 - STILL OPEN FROM BEFORE, unchanged: (ag2)-(ag4), (af1)-(af3) of the 20:15Z repair, (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2)-(aa5), (z1)-(z3), (ab3), (ab4), (ac1)-(ac4), (ad2), (ad3).
+## 2026-11-24 (02:33Z; Monday evening ET, after the close) — the Form 4 poll and EDGAR's late directory listings (KNOWN BROKEN #61, v1.0.1539)
+- [FOUND AND FIXED] KNOWN BROKEN #61 above: the listing (`index.json`) answered 404 for every sampled Form 4 accepted from 15:43 ET on; the poll failed 25 documents of 25 and was counted ok; no archive row from 16:43 ET. Both readers now fall back to the submission text on a 404, and a poll that reads nothing is a failed poll. experiments.md 2026-11-24 (02:33Z).
+- (ai1) CHECK AFTER DEPLOY. Read /api/diag/edgar_poll and /api/diag/form4_completeness `poll`. Priors, written before the merge: first poll after the boot archives at least 1 row if listings are still unpublished (85%); Form 4 `polls_failed` 0 through the first hour (80%); Tuesday 10:00-15:00 ET `via_submission` 0 on most polls read (60%); Tuesday after 17:30 ET `via_submission` above 0 (55%). The last two answer what is NOT known: whether EDGAR holds listings back every evening or did on 2026-11-23 only. What would change my mind about the fix: `failed` above 0 with `first_error` "<accession>.txt -> 404", which would mean the text is late too and the feed's own entry is the only prompt source.
+- (ai2) THE 13F POLL HAS THE SAME HOLE. `fetch13FFilingDocs` (edgar13f.ts) starts with `index.json` and its catch keeps no error; a 13F accepted while listings are unpublished is skipped silently. It is not lost at once (the 13F page moves slowly, so the filing is usually still there when the listing appears, and edgar13fCompleteness.ts runs nightly), but in a deadline week the page turns over in hours. TESTABLE FORM first: on the next evening `via_submission` is above 0 for Form 4, count the 13F feed entries whose listing is 404. Fix shape: the submission text holds both 13F documents (primary and information table) as separate `<DOCUMENT>` blocks by `<TYPE>`; same fallback, own PR. Also stale: the health check's EDGAR FIX text says 13F has no completeness pass; it has one.
+- (ai3) THE EDGAR POLLERS SWALLOW PER-DOCUMENT ERRORS. Four repairs in nine days (11-16, 11-17, 11-19, 11-24) each began with a session finding out by hand what the poller had caught and dropped. Form 4 now keeps `first_error`; 13F and 8-K keep nothing (`catch {}`), and neither counts a wholly unread poll as failed. TESTABLE FORM: give both the same two counts (`failed`, `first_error`) and the same rule, then the session check needs no per-stream quiet-hours rule to notice. One PR, T-DATACORE. If a fifth EDGAR repair arrives before this is built, that session builds this instead (architecture smell, HEALTH OF THE LOOP rule 4).
+- STILL OPEN FROM BEFORE, unchanged: (ah1) out-of-sample half, (ah2)-(ah4), (ag2)-(ag4), (af1)-(af3), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (aa2)-(aa5), (z1)-(z3), (ab3), (ab4), (ac1)-(ac4), (ad2), (ad3).
