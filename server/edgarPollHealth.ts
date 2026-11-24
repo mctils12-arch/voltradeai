@@ -84,6 +84,29 @@ export interface EdgarPollDocuments {
   failed: number;
   /** the first failed request as "<what was asked> -> <status>"; null when none failed */
   first_error: string | null;
+  /** of `returned`, filings read from their submission text because EDGAR had
+   *  not published the directory listing (Form 4 and 13F; absent for 8-K,
+   *  which has no such second copy wired) */
+  via_submission?: number;
+}
+
+/** Since boot: filings a poller read from the listing AND, as a check, from
+ *  the submission text ([PIPELINE 2026-11-24] 13F, edgar13f.ts
+ *  compareWithSubmission). `agree`: the two records were identical;
+ *  `disagree`: they were not; `unread`: the second copy could not be read. */
+export interface EdgarSubmissionCheck { compared: number; agree: number; disagree: number; unread: number }
+const submissionChecks = new Map<EdgarPollStream, EdgarSubmissionCheck>();
+
+export function noteSubmissionCheck(stream: EdgarPollStream, outcome: "agree" | "disagree" | "unread"): void {
+  let c = submissionChecks.get(stream);
+  if (!c) { c = { compared: 0, agree: 0, disagree: 0, unread: 0 }; submissionChecks.set(stream, c); }
+  c.compared++;
+  c[outcome]++;
+}
+
+export function submissionCheck(stream: EdgarPollStream): EdgarSubmissionCheck | null {
+  const c = submissionChecks.get(stream);
+  return c ? { ...c } : null;
 }
 
 /** A failed document request as "<stage> -> 404" (or the stage and the error's
@@ -190,6 +213,8 @@ export interface EdgarPollHealthRow extends EdgarPollCounters {
   last_archive_write_at: string | null;
   /** the latest poll's document counts; null before the first poll finishes its page */
   documents: EdgarPollDocuments | null;
+  /** the fallback reader checked against the listing copy, since boot; null for a stream that runs no such check */
+  submission_check: EdgarSubmissionCheck | null;
 }
 
 /** Token-gated diag probe `edgar_poll`. */
@@ -200,6 +225,7 @@ export function edgarPollHealthStatus(baseDir?: string, nowMs: number = Date.now
       stream, ...of(stream),
       last_archive_write_at: w === null ? null : new Date(w).toISOString(),
       documents: pollDocuments(stream),
+      submission_check: submissionCheck(stream),
     };
   });
   return {
@@ -208,7 +234,7 @@ export function edgarPollHealthStatus(baseDir?: string, nowMs: number = Date.now
     booted_at: new Date(bootedAtMs).toISOString(),
     uptime_s: Math.max(0, Math.round((nowMs - bootedAtMs) / 1000)),
     poll_interval_min: 15,
-    note: "Counters are since boot. feed_attempts_failed counts single feed requests that timed out or answered 5xx; polls_saved_by_retry counts polls that got their page on a later attempt. last_archive_write_at is read from the archive's day files and survives a restart; null means no plain day file (nothing appended in about two days). documents is the latest poll alone: filings it asked EDGAR for (candidates), read (returned), fetched with nothing to keep (skipped), not readable (failed) and the first failure as what was asked and the status. A poll with failed above 0 and returned 0 is counted in polls_failed.",
+    note: "Counters are since boot. feed_attempts_failed counts single feed requests that timed out or answered 5xx; polls_saved_by_retry counts polls that got their page on a later attempt. last_archive_write_at is read from the archive's day files and survives a restart; null means no plain day file (nothing appended in about two days). documents is the latest poll alone: filings it asked EDGAR for (candidates), read (returned), fetched with nothing to keep (skipped), not readable (failed) and the first failure as what was asked and the status. A poll with failed above 0 and returned 0 is counted in polls_failed. documents.via_submission is how many of returned were read from the filing's submission text because the directory listing answered 404. submission_check (13F) counts, since boot, filings read from the listing and read again from the submission text: agree means the two records were identical.",
     streams,
   };
 }
@@ -265,5 +291,6 @@ export function publicEdgarPollView(baseDir?: string, nowMs: number = Date.now()
 export function _resetEdgarPollHealthForTests(nowMs: number = Date.now()): void {
   counters.clear();
   documents.clear();
+  submissionChecks.clear();
   bootedAtMs = nowMs;
 }

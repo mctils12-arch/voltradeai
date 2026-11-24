@@ -186,7 +186,7 @@ test("Form 4 reports the same counts in the shared shape", async () => {
     : { ok: false, status: 403, text: async () => "" };
   assert.deepEqual(await fetchLatestForm4Filings(25, impl as any, 0), []);
   assert.deepEqual({ ...pollDocuments("filings"), at: null },
-    { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "index.json -> 403" });
+    { at: null, candidates: 1, returned: 0, skipped: 0, failed: 1, first_error: "index.json -> 403", via_submission: 0 });
 });
 
 // ── [PRODUCT 2026-11-24, open_questions.md (aj2)] the public view ───────────

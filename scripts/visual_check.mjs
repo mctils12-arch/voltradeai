@@ -2501,7 +2501,7 @@ const FIXTURES = {
       const at = (minAgo) => new Date(now - minAgo * 60000).toISOString();
       return { read_at: at(0), booted_at: at(570), poll_interval_min: 15, streams: [
         { stream: "filings", polls_ok: 38, polls_failed: 0, consecutive_failures: 0, last_archive_write_at: at(18),
-          documents: { at: at(4), candidates: 25, returned: 22, skipped: 0, failed: 3, first_error: "index.json -> 404" } },
+          documents: { at: at(4), candidates: 25, returned: 22, skipped: 0, failed: 3, first_error: "submission text -> 404", via_submission: 5 } },
         { stream: "filings13f", polls_ok: 36, polls_failed: 2, consecutive_failures: 2, last_archive_write_at: at(960),
           documents: { at: at(4), candidates: 40, returned: 0, skipped: 0, failed: 40, first_error: "index.json -> 404" } },
         { stream: "earnings8k", polls_ok: 38, polls_failed: 0, consecutive_failures: 0, last_archive_write_at: at(18),
@@ -4445,7 +4445,9 @@ async function main() {
           const said = rows.map((r) => `${r.name} = ${r.chip}`).join(" | ");
           if (said !== "13F: institutional holdings = failing | Form 4: insider trades = read in part | 8-K: earnings releases = reading") fail(`order or states read "${said}"`);
           if (rows[0].cause !== "The latest poll could not read 40 of 40 filings. First failure: index.json -> 404.") fail(`the failing poller's cause reads "${rows[0].cause}"`);
-          if (rows[1].cause !== "The latest poll could not read 3 of 25 filings. First failure: index.json -> 404.") fail(`the part-read poller's cause reads "${rows[1].cause}"`);
+          if (rows[1].cause !== "The latest poll could not read 3 of 25 filings. First failure: submission text -> 404.") fail(`the part-read poller's cause reads "${rows[1].cause}"`);
+          // [PIPELINE 2026-11-24, (ai2)] filings read from the submission text are said in the row's line
+          if (rows[1].meta !== "Latest poll 4 min ago: 25 filings asked for, 22 read (5 from the submission text: EDGAR had not yet published their listings). Last new filing archived 18 min ago. Since the server started 10 h ago: 38 polls read, 0 failed.") fail(`the part-read poller's line reads "${rows[1].meta}"`);
           if (rows[2].cause) fail(`a poller that read everything shows a cause: "${rows[2].cause}"`);
           if (rows[2].meta !== "Latest poll 4 min ago: 15 filings asked for, 9 read, 6 had no press-release exhibit. Last new filing archived 18 min ago. Since the server started 10 h ago: 38 polls read, 0 failed.") fail(`the reading poller's line reads "${rows[2].meta}"`);
           if (!rows.every((r) => /^Latest poll 4 min ago: /.test(r.meta) && /Last new filing archived \d+ (min|h) ago\./.test(r.meta))) fail("a row does not say how old its poll and its last archived filing are");

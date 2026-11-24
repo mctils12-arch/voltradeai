@@ -73,3 +73,22 @@ test("odd input never throws and never invents a row", () => {
   assert.equal(r.meta, "Latest poll: 2 filings asked for, 2 read. No filing archived in the last two days. Since the server started: 0 polls read, 0 failed.");
   assert.equal(edgarPollSummary(odd, NOW), "1 poller: 1 no poll yet");
 });
+
+// [PIPELINE 2026-11-24, open_questions.md (ai2)] filings read from the submission text are said
+test("filings read from the submission text, because EDGAR had not published their listing, are counted in the line", () => {
+  const doc = (returned: number, via: number | undefined, skipped = 0) =>
+    ({ at: "2026-11-24T13:06:00Z", candidates: 23, returned, skipped, failed: 0, first_error: null, via_submission: via });
+  const meta = (d: ReturnType<typeof doc>) => edgarPollRows(view([stream("filings13f", { documents: d })]), NOW)[0].meta;
+  assert.match(meta(doc(23, 3)), /^Latest poll 4 min ago: 23 filings asked for, 23 read \(3 from the submission text: EDGAR had not yet published their listings\)\. Last new filing/);
+  assert.match(meta(doc(23, 1)), /23 read \(1 from the submission text: EDGAR had not yet published its listing\)\./);
+  assert.match(meta(doc(23, 23)), /23 read \(all from the submission text: EDGAR had not yet published their listings\)\./);
+  assert.match(meta(doc(1, 1)), /1 read \(it from the submission text: EDGAR had not yet published its listing\)\./);
+  assert.match(meta(doc(20, 2, 3)), /20 read \(2 from the submission text: EDGAR had not yet published their listings\), 3 had no primary document\./);
+  // none, an older server with no such count, and a count larger than what was read
+  assert.match(meta(doc(23, 0)), /23 filings asked for, 23 read\. Last/);
+  assert.match(meta(doc(23, undefined)), /23 filings asked for, 23 read\. Last/);
+  assert.match(meta(doc(2, 9)), /2 read \(all from the submission text/);
+  // a row with such filings is still a reading row: the fallback is not a fault
+  const [r] = edgarPollRows(view([stream("filings13f", { documents: doc(23, 3) })]), NOW);
+  assert.deepEqual([r.tone, r.state, r.cause], ["ok", "reading", null]);
+});

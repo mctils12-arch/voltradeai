@@ -453,7 +453,7 @@
   ],
   "edgar_poll": [
    "surfaced",
-   "Pipeline health: the SEC filing pollers section (since 2026-11-24) shows, for Form 4, 13F and 8-K earnings, the latest poll's filings asked for, read, skipped and not readable with its first failure, the archive's last new row, and the polls read and failed since the server started. It reads the public view in /api/data/pipeline-health-dashboard (`edgar`); the probe's own last_error text stays behind the token."
+   "Pipeline health: the SEC filing pollers section (since 2026-11-24) shows, for Form 4, 13F and 8-K earnings, the latest poll's filings asked for, read, skipped and not readable with its first failure, the archive's last new row, and the polls read and failed since the server started. It reads the public view in /api/data/pipeline-health-dashboard (`edgar`); the probe's own last_error text stays behind the token. Since 2026-11-24 (ai2) a row's line also says how many filings were read from the submission text because EDGAR had not yet published their listing (Form 4 and 13F). Behind the token only: `submission_check`, the count of 13F filings read from both copies and found identical or not (a check on the reader, read by sessions)."
   ],
   "event_study": [
    "surfaced",
