@@ -135,3 +135,14 @@ test("which shape wins: geometry as sent, then the text's outline, then the inde
   assert.equal(parseNotamPayload(msg({ cls: "DOM", text: AREA }))[0].geometry, null);
   assert.equal(sent.citation, undefined, "the trimmed fixture has no plain-text form");
 });
+
+test("an area the text excludes: cut out of the outline when it crosses its edge; `uncut` is on the row only when one could not be cut (2026-11-24)", () => {
+  const AREA = "TEMPORARY FLIGHT RESTRICTIONS WI AN AREA DEFINED AS 30NM RADIUS OF 264047N0800327W (PBI094001.6) SFC-17999FT MSL PURSUANT TO 14 CFR SECTION 91.141";
+  const plain = parseNotamPayload(msg({ cls: "FDC", text: AREA }))[0].geometry as { rings: unknown[][]; uncut?: number };
+  assert.deepEqual({ corners: plain.rings[0].length, has: "uncut" in plain }, { corners: 73, has: false });
+  const notched = parseNotamPayload(msg({ cls: "FDC", text: `${AREA}; EXCLUDING AN AREA DEFINED AS 2NM RADIUS OF 261150N0801015W (FLL004007.4) SFC-17999FT MSL` }))[0].geometry as { from?: string; rings: unknown[][]; uncut?: number };
+  assert.deepEqual({ from: notched.from, has: "uncut" in notched }, { from: "text", has: false });
+  assert.ok(notched.rings[0].length > 73, "the outline carries the notch");
+  const inner = parseNotamPayload(msg({ cls: "FDC", text: `${AREA}; EXCLUDING AN AREA DEFINED AS 2NM RADIUS OF 264047N0801327W SFC-3000FT MSL` }))[0].geometry as { rings: unknown[][]; uncut?: number };
+  assert.deepEqual({ corners: inner.rings[0].length, uncut: inner.uncut }, { corners: 73, uncut: 1 });
+});
