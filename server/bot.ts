@@ -117,6 +117,7 @@ import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
 import { runLadder, ladderConfigFromEnv, ladderQuoteFromAlpaca, BACKSTOP_LADDER_QUOTE_TIMEOUT_MS, type LadderQuote, type LadderSubmit } from "./limitLadder";
 import { peakEquityFromRpc } from "./peakEquityRpc";
 import { AUDIT_PREFIX_MAX, AUDIT_PRUNE_EVERY_INSERTS, countAuditLog, ensureAuditSchema, parseAuditPrefix, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
+import { parseHistoryDay, readScanTimingHistory, scanTimingDataDirs } from "./scanTimingHistory";
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
 import { planEtfOrder, etfMaxHoldExceeded, ETF_MAX_HOLD_DAYS } from "./etfSubstitution";
 import { isEntryShadowed, entryShadowStatus, ShadowEntryBook, shadowEntryAuditLine, SHADOW_ORDER_STATUS, SHADOW_REPEAT_DECISION, type NodeShadowEntry, type EntrySleeve } from "./entryShadow";
@@ -4466,6 +4467,24 @@ print(json.dumps(s))
           // snapshot already does (TIMING-FILE-DIRECT 2026-04-23) but
           // without requiring the owner cookie, so a token-only session can
           // read it too.
+          // 2026-11-24 (KNOWN BROKEN #60 recurrence, open_questions (al3)):
+          // ?history=1 serves a DAY of scans from scan_timing_log.py's
+          // one-line-per-scan record (the summary over every row, and the
+          // newest rows with rows_total beside them); ?day=YYYY-MM-DD picks
+          // the UTC day, default the newest held. Without ?history the
+          // answer is the latest scan, as before.
+          if (req.query.history !== undefined) {
+            const dayRaw = String(req.query.day || "").trim();
+            const day = parseHistoryDay(dayRaw);
+            if (dayRaw && !day) {
+              return res.status(400).json({ probe: "timings", error: "day must be YYYY-MM-DD" });
+            }
+            try {
+              return res.json(sanitizeDiag({ probe: "timings", history: readScanTimingHistory(scanTimingDataDirs(), day) }));
+            } catch (e) {
+              return res.json({ probe: "timings", history: null, error: sanitizeDiag(String((e as Error)?.message || e)) });
+            }
+          }
           try {
             const timingPaths = [
               "/data/voltrade/voltrade_scan_timings.json",
