@@ -314,6 +314,13 @@ test("a US notice whose outline was read from its text: its own third shape, cit
   assert.equal(part.unreadAreas, 2);
   assert.equal(restrictionCard(part, NOW, U, true).facts.find((x) => x.label === "Drawn shape")!.value,
     "an outline read from the notice's text (2 areas); the notice sent no geometry. Circles and arcs are drawn as short straight sides. 2 more areas in the text could not be read and are not drawn");
+  // areas the text excludes that the server could not cut out of the outline are said, with the count; none sent = nothing said
+  assert.equal(part.uncutAreas, 0);
+  const whole = parseFlightRestrictions(answer([{ ...LEXINGTON, geometry: { ...LEXINGTON.geometry, uncut: 1 } }]))!.rows[0];
+  assert.equal(whole.uncutAreas, 1);
+  assert.equal(restrictionCard(whole, NOW, U, true).facts.find((x) => x.label === "Drawn shape")!.value,
+    "an outline read from the notice's text; the notice sent no geometry. Circles and arcs are drawn as short straight sides. The text excludes 1 area that could not be cut out of this outline: the restriction is smaller than drawn there");
+  for (const bad of [-1, "2", null]) assert.equal(parseFlightRestrictions(answer([{ ...LEXINGTON, geometry: { ...LEXINGTON.geometry, uncut: bad } }]))!.rows[0].uncutAreas, 0);
   // a server that does not send the citation: the id, as before
   const { citation, ...old } = LEXINGTON;
   assert.equal(citation, "FDC 6/9306");

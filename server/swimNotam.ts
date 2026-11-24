@@ -58,8 +58,9 @@ export interface NotamRecord {
 export interface TfrRecord extends NotamRecord {
   geometry:
     | { kind: "polygon"; rings: Array<Array<[number, number]>> }
-    /** read from the notice's words, not sent as geometry; `unread` = areas the text defines that could not be followed */
-    | { kind: "polygon"; rings: Array<Array<[number, number]>>; from: "text"; unread: number }
+    /** read from the notice's words, not sent as geometry; `unread` = areas the text defines that could not be followed;
+     *  `uncut` (present only when above 0) = areas the text EXCLUDES that could not be cut out of the outline, which is larger there */
+    | { kind: "polygon"; rings: Array<Array<[number, number]>>; from: "text"; unread: number; uncut?: number }
     | { kind: "circle"; center: [number, number]; radiusNm: number; approximate: true }
     | null;
 }
@@ -149,7 +150,7 @@ export function parseNotamPayload(xml: string): TfrRecord[] {
       ...rec,
       geometry: !tfr ? null
         : rings.length ? { kind: "polygon", rings }
-        : words && words.rings.length ? { kind: "polygon", rings: words.rings, from: "text", unread: words.unread }
+        : words && words.rings.length ? { kind: "polygon", rings: words.rings, from: "text", unread: words.unread, ...(words.uncut ? { uncut: words.uncut } : {}) }
         : rec.center && rec.radiusNm != null ? { kind: "circle", center: rec.center, radiusNm: rec.radiusNm, approximate: true }
         : null,
     });

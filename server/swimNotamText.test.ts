@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { textAreas, TEXT_ARC_STEP_DEG, TEXT_MAX_AREAS } from "./swimNotamText";
+import { textAreas, cutOut, TEXT_ARC_STEP_DEG, TEXT_MAX_AREAS } from "./swimNotamText";
 import { judgeNotice, outlineDistanceNm, toleranceNm, detailText, shapesByNotice, type Ring } from "../scripts/tfr_text_gate1";
 import { haversineNm } from "../shared/flightPlanGeometry";
 
@@ -104,4 +104,77 @@ test("the gate-1 check's own parts: the notice text out of a detail file, shapes
   assert.equal(judgeNotice("x", null, [s.faa[0], far], s.text).verdict, "partial");
   assert.equal(judgeNotice("x", null, s.faa, "NO AREA WORDS HERE AT ALL, ONLY A NOTICE OF SOMETHING").verdict, "not_read");
   assert.ok(Math.abs(toleranceNm(s.faa[0]) - 0.1) < 0.02, "a shape a few miles across is held to about 0.1 NM");
+});
+
+// ── excluded areas (2026-11-24) ─────────────────────────────────────────────
+// REAL: FDC 6/9335, the notice production's running check judged partial on its first pass
+// (server/__fixtures__/tfr_text_exclusion_6_9335.json: the FAA's text and the FAA's two outlines).
+const VIP = JSON.parse(fs.readFileSync(new URL("./__fixtures__/tfr_text_exclusion_6_9335.json", import.meta.url), "utf8")) as Sample;
+
+test("FDC 6/9335: two 2 NM areas EXCLUDED across the edge of a 30 NM area are cut out of it, as the FAA draws it", () => {
+  const t = textAreas(VIP.text);
+  assert.deepEqual({ areas: t.areasInText, unread: t.unread, rings: t.rings.length, excluded: t.excluded, uncut: t.uncut }, { areas: 2, unread: 0, rings: 2, excluded: 2, uncut: 0 });
+  const centre = { lat: 26 + 40 / 60 + 47 / 3600, lon: -(80 + 3 / 60 + 27 / 3600) };
+  const fll = { lat: 26 + 11 / 60 + 50 / 3600, lon: -(80 + 10 / 60 + 15 / 3600) }, north = { lat: 27 + 10 / 60 + 54 / 3600, lon: -(80 + 13 / 60 + 17 / 3600) };
+  const outer = t.rings[0];
+  assert.deepEqual(outer[0], outer[outer.length - 1], "closed");
+  // every corner is on the 30 NM circle or on one of the two 2 NM circles, and none is inside an excluded circle
+  for (const p of outer) {
+    const d30 = Math.abs(haversineNm(centre, ll(p)) - 30), dA = haversineNm(fll, ll(p)), dB = haversineNm(north, ll(p));
+    assert.ok(d30 < 0.02 || Math.abs(dA - 2) < 0.02 || Math.abs(dB - 2) < 0.02, `corner ${p} is on none of the three circles`);
+    assert.ok(dA > 1.98 && dB > 1.98, `corner ${p} is inside an excluded area`);
+    assert.ok(haversineNm(centre, ll(p)) < 30.02, `corner ${p} is outside the area`);
+  }
+  // both notches are there: corners on each small circle
+  assert.ok(outer.filter((p) => Math.abs(haversineNm(fll, ll(p)) - 2) < 0.02).length >= 10);
+  assert.ok(outer.filter((p) => Math.abs(haversineNm(north, ll(p)) - 2) < 0.02).length >= 10);
+  // against the FAA's own outline: 2.37 NM apart before the exclusions were read, inside tolerance now
+  const d = outlineDistanceNm(VIP.faa[0], outer);
+  assert.ok(d <= toleranceNm(VIP.faa[0]) && d < 0.2, `distance ${d}`);
+  const j = judgeNotice(VIP.notice, VIP.type, VIP.faa, VIP.text);
+  assert.deepEqual({ verdict: j.verdict, matched: j.matched }, { verdict: "agree", matched: 2 });
+  // the 10 NM inner area has no exclusion and is the plain circle
+  assert.equal(t.rings[1].length, 360 / TEXT_ARC_STEP_DEG + 1);
+});
+
+test("an exclusion that cannot be cut is counted and the area stays whole; one that does not reach the area is not counted", () => {
+  const head = "TEMPORARY FLIGHT RESTRICTIONS WI AN AREA DEFINED AS 30NM RADIUS OF 264047N0800327W (PBI094001.6) SFC-17999FT MSL; ";
+  const whole = textAreas(head).rings[0];
+  // wholly inside: an outline has no hole to give it
+  const inner = textAreas(head + "EXCLUDING AN AREA DEFINED AS 2NM RADIUS OF 264047N0801327W SFC-3000FT MSL EFFECTIVE");
+  assert.deepEqual({ excluded: inner.excluded, uncut: inner.uncut, same: JSON.stringify(inner.rings[0]) === JSON.stringify(whole) }, { excluded: 1, uncut: 1, same: true });
+  // its own shape cannot be read (a navaid radial where the point belongs)
+  const odd = textAreas(head + "EXCLUDING AN AREA DEFINED AS 2NM RADIUS OF THE PBI VOR SFC-3000FT MSL EFFECTIVE");
+  assert.deepEqual({ excluded: odd.excluded, uncut: odd.uncut, rings: odd.rings.length }, { excluded: 1, uncut: 1, rings: 1 });
+  // far away: nothing is taken, nothing is said
+  const far = textAreas(head + "EXCLUDING AN AREA DEFINED AS 2NM RADIUS OF 284047N0800327W SFC-3000FT MSL EFFECTIVE");
+  assert.deepEqual({ excluded: far.excluded, uncut: far.uncut, same: JSON.stringify(far.rings[0]) === JSON.stringify(whole) }, { excluded: undefined, uncut: undefined, same: true });
+  // after an area that was not read there is nothing to cut from: the area is counted unread, once
+  const lost = textAreas("TEMPORARY FLIGHT RESTRICTIONS WI AN AREA DEFINED AS 30NM RADIUS OF THE PBI VOR; EXCLUDING AN AREA DEFINED AS 2NM RADIUS OF 261150N0801015W SFC-3000FT");
+  assert.deepEqual(lost, { rings: [], areasInText: 1, unread: 1 });
+  // an exclusion belongs to the area before it, not to the next one
+  const two = textAreas(head + "EXCLUDING AN AREA DEFINED AS 2NM RADIUS OF 261150N0801015W SFC-3000FT MSL. WI AN AREA DEFINED AS 10NM RADIUS OF 264047N0800327W SFC-17999FT MSL");
+  assert.deepEqual({ rings: two.rings.length, excluded: two.excluded, uncut: two.uncut, inner: two.rings[1].length }, { rings: 2, excluded: 1, uncut: 0, inner: 360 / TEXT_ARC_STEP_DEG + 1 });
+  assert.ok(two.rings[0].length > whole.length, "the first area carries the notch");
+});
+
+test("cutOut: a bite out of one straight side, both drawing directions, and the cases it refuses", () => {
+  const sq: Ring = [[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]];
+  const bite: Ring = [[-0.1, 0.4], [-0.1, 0.6], [0.1, 0.6], [0.1, 0.4], [-0.1, 0.4]];
+  const area = (r: Ring) => Math.abs(r.slice(0, -1).reduce((s, p, i) => s + p[1] * r[i + 1][0] - r[i + 1][1] * p[0], 0)) / 2;
+  for (const c of [bite, [...bite].reverse()]) {
+    const out = cutOut(sq, c);
+    assert.ok(Array.isArray(out));
+    const ring = out as Ring;
+    assert.deepEqual(ring[0], ring[ring.length - 1]);
+    // the square less the part of the bite inside it (0.1 x 0.2 degrees); at the equator the flat map is the plain one
+    assert.ok(Math.abs(area(ring) - (1 - 0.02)) < 1e-4, `area ${area(ring)}`);
+  }
+  // a corner of the area inside the cut
+  const corner = cutOut(sq, [[-0.2, -0.2], [-0.2, 0.3], [0.3, 0.3], [0.3, -0.2], [-0.2, -0.2]]) as Ring;
+  assert.ok(Math.abs(area(corner) - (1 - 0.09)) < 1e-4, `area ${area(corner)}`);
+  assert.equal(cutOut(sq, [[5, 5], [5, 6], [6, 6], [6, 5], [5, 5]]), "apart");
+  assert.equal(cutOut(sq, [[0.4, 0.4], [0.4, 0.6], [0.6, 0.6], [0.6, 0.4], [0.4, 0.4]]), null, "wholly inside");
+  assert.equal(cutOut(sq, [[-1, -1], [-1, 2], [2, 2], [2, -1], [-1, -1]]), null, "the cut holds the whole area");
+  assert.equal(cutOut(sq, [[-0.5, 0.4], [-0.5, 0.6], [1.5, 0.6], [1.5, 0.4], [-0.5, 0.4]]), null, "a cut across two sides splits the area: not followed");
 });

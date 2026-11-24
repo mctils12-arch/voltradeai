@@ -142,6 +142,8 @@ export interface FlightRestriction {
   listedSince: { firstSeenMs: number; backfill: boolean } | null;
   /** shape "text" only: areas the text defines that could not be followed and are not drawn */
   unreadAreas: number;
+  /** shape "text" only: areas the text excludes that the server could not cut out of the outline (it is larger than the restriction there) */
+  uncutAreas: number;
   /** outlines in GeoJSON order [lon, lat], each closed; several = several separate areas */
   rings: LonLat[][];
   /** where the symbol sits: the notice's index point, or the mean corner of the first outline */
@@ -309,7 +311,8 @@ export function parseFlightRestrictions(raw: unknown, max = FLIGHT_RESTRICTIONS_
       issuedMs: fin(t.issued) ? t.issued : null, startMs, endMs: fin(t.end) ? t.end : null,
       minFl: fin(t.minFl) ? t.minFl : null, maxFl: fin(t.maxFl) ? t.maxFl : null,
       shape, faa: shape === "faa" ? faaFacts(t.faa) : null, listedSince: shape === "faa" ? listedSince(t.listed_since) : null,
-      unreadAreas: shape === "text" && fin(g.unread) && g.unread > 0 ? Math.floor(g.unread) : 0, rings, center, radiusNm, text, inForce: startMs === null || startMs <= now,
+      unreadAreas: shape === "text" && fin(g.unread) && g.unread > 0 ? Math.floor(g.unread) : 0,
+      uncutAreas: shape === "text" && fin(g.uncut) && g.uncut > 0 ? Math.floor(g.uncut) : 0, rings, center, radiusNm, text, inForce: startMs === null || startMs <= now,
     });
   }
   // in force first, then the soonest to start; the cap cuts from the end
@@ -483,6 +486,7 @@ export function restrictionCard(r: FlightRestriction, nowMs: number, u: UnitWord
     : r.shape === "text"
     ? `an outline read from the notice's text${areas}; the notice sent no geometry. Circles and arcs are drawn as short straight sides`
       + (r.unreadAreas ? `. ${r.unreadAreas} more area${r.unreadAreas === 1 ? "" : "s"} in the text could not be read and ${r.unreadAreas === 1 ? "is" : "are"} not drawn` : "")
+      + (r.uncutAreas ? `. The text excludes ${r.uncutAreas} area${r.uncutAreas === 1 ? "" : "s"} that could not be cut out of this outline: the restriction is smaller than drawn there` : "")
     : `a circle of ${u.km((r.radiusNm ?? 0) * NM_TO_KM, 1)} around the notice's index point. It encloses the restriction and is larger than it; the outline itself was not sent as geometry`;
   const cls = r.classification ? CLASSIFICATION_WORDS[r.classification.toUpperCase()] ?? r.classification : null;
   // how far a text-drawn outline can be trusted: the server's own running check of that reader, not a claim about this notice
