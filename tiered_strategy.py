@@ -1844,6 +1844,14 @@ class TieredStrategy:
             pass
         else:
             tier_timings["csp_layer2_prefetch"] = get_last_layer2_prefetch_stats()
+            # (am1) part (i), 2026-11-25: the recompute now runs between scans;
+            # its last run (start, seconds, each layer's stats, how it ended)
+            # rides the same path to /api/diag/timings.
+            try:
+                from csp_universe import get_last_background_refresh
+                tier_timings["csp_background_refresh"] = get_last_background_refresh()
+            except ImportError:
+                pass
         # KB #45 (c), 2026-11-04: the Tier-1 earnings guard's view of the calendar (rows, window,
         # earliest/latest date returned, truncated, lookup_ok, per-symbol confirmations), on the
         # same path to /api/diag/timings as csp_layer2_prefetch.
