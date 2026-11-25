@@ -1159,6 +1159,21 @@ export function coldDayFilesHeldInR2(): ColdDayFile[] {
   }
 }
 
+/** Local cache paths of `stream`'s day file(s) for `day` whose only copy is in
+ *  the permanent R2 tier (2026-11-25: dtccSwaps' seen-ID rebuild reads its
+ *  off-site days through this). [] when no cold source is wired, the day is
+ *  not held off-site, or the fetch failed (the source logs why): a caller
+ *  that KNOWS the day is off-site reads [] as "could not be read now". */
+export async function coldDayFilePaths(stream: string, day: string, signal?: AbortSignal): Promise<string[]> {
+  if (!coldDaySource) return [];
+  try {
+    return await coldDaySource.resolve(stream, day, signal);
+  } catch (e: unknown) {
+    console.error(`[archive] cold day read ${stream}/${day}:`, e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
 export async function readArchiveDay(
   stream: string, day: string, baseDir?: string, limit = 1000,
   rowFilter?: (row: Record<string, unknown>) => boolean,

@@ -61,7 +61,8 @@ import zlib from "zlib";
 import readline from "readline";
 import fs from "fs";
 import path from "path";
-import { archiveBaseDir } from "./datacoreArchive";
+import { archiveBaseDir, coldDayFilePaths } from "./datacoreArchive";
+import { loadPermanentManifest } from "./archivePermanentTier";
 import { guardedRefresh } from "./crashSafeRefresh";
 import { DtccIdsStore, dtccIdsMode, DTCC_IDS_DB_FILE, countBufferLines, countNonEmptyLines, type DtccIdsBackfill, type DtccIdsMode } from "./dtccIdsStore";
 import { CompactIdSet } from "./dtccIdSet";
@@ -657,6 +658,187 @@ function legacyRebuildSummary(files: number, unreadable: number, malformedLines:
   }
 }
 
+// ── DAY FILES HELD OFF-SITE (2026-11-25, open_questions (aa4)) ──────────────
+//
+// server/archivePermanentTier.ts moves this stream's closed day files to R2
+// and deletes the local copy once the object reads back byte for byte. The
+// legacy rebuild above scans LOCAL day files, so with days off-site it would
+// build a set short of every ID archived before the local window, write that
+// as the index, and the short set would stick: `total_archived` would
+// undercount and a row the vendor served again would be archived twice.
+//
+// So a rebuild that finds day files held only off-site records them as OWED
+// (`_seen_ids_owed.json`), and only then writes the index. The next poll
+// reads each owed file back through the tier's cold source (SHA-256 checked
+// against the manifest), appends the IDs the index lacks, and strikes the
+// file off the record. The archive goes on meanwhile: a poll never waits on
+// R2 (KEEP ALIVE: an unarchived day does not refill; a duplicate row costs a
+// few bytes). The record is written BEFORE the index, so no crash leaves a
+// short index with nothing saying so; if the record cannot be written the
+// rebuild throws and that poll archives nothing.
+//
+// What "off-site" means here: the tier's manifest (on the volume, beside the
+// archive) lists the file for this stream and no local copy exists. NOT
+// covered, said plainly: a manifest lost or unreadable at the same moment as
+// the index (then nothing says which days are off-site until the tier's
+// daily listing re-adopts them); and the whole volume lost.
+const OWED_FILE = "_seen_ids_owed.json";
+const OFFSITE_DAY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.jsonl\.gz$/;
+/** stop asking R2 for this poll after this many owed files in a row fail */
+const OWED_CONSECUTIVE_FAILURE_STOP = 3;
+
+function owedPath(dir: string): string {
+  return path.join(dir, OWED_FILE);
+}
+
+/** This stream's day files the permanent tier holds and the volume does not. */
+function offsiteDayFiles(dir: string): string[] {
+  const stream = path.basename(dir);
+  const out: string[] = [];
+  for (const e of Object.values(loadPermanentManifest(path.dirname(dir)).entries)) {
+    if (!e || e.stream !== stream || typeof e.file !== "string" || !OFFSITE_DAY_FILE_RE.test(e.file)) continue;
+    if (!fs.existsSync(path.join(dir, e.file))) out.push(e.file);
+  }
+  return out.sort();
+}
+
+/** The owed record's files ([] when there is none). A record that exists but
+ *  cannot be read counts every off-site day as owed: the safe superset. */
+function readOwed(dir: string): string[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(owedPath(dir), "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+    idsEmit("DTCC-ARCHIVE-ERROR", `owed record unreadable (${e instanceof Error ? e.message : String(e)}) — every off-site day file is treated as owed`);
+    return offsiteDayFiles(dir);
+  }
+  try {
+    const j: unknown = JSON.parse(raw);
+    const files = (j as { files?: unknown })?.files;
+    if (!Array.isArray(files)) throw new Error("no files array");
+    return files.filter((f): f is string => typeof f === "string" && OFFSITE_DAY_FILE_RE.test(f)).sort();
+  } catch (e) {
+    idsEmit("DTCC-ARCHIVE-ERROR", `owed record malformed (${e instanceof Error ? e.message : String(e)}) — every off-site day file is treated as owed`);
+    return offsiteDayFiles(dir);
+  }
+}
+
+/** Replaces the owed record (tmp + rename: never a half record); no files =
+ *  the record is removed. Throws when the volume refuses the write. */
+function writeOwed(dir: string, files: string[]): void {
+  const fp = owedPath(dir);
+  if (!files.length) {
+    try { fs.unlinkSync(fp); } catch (e) { if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") throw e; }
+    return;
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${fp}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify({ version: 1, at: Date.now(), files }));
+  fs.renameSync(tmp, fp);
+}
+
+/** The seen-ID index's owed day files (the dtccswaps directory under
+ *  `baseDir`, default the archive): [] when the index is whole. */
+export function dtccOwedDayFiles(baseDir?: string): string[] {
+  return readOwed(dtccDir(baseDir));
+}
+
+/** Called by both loaders after the local scan and BEFORE the index is
+ *  written. A from-scratch rebuild supersedes any earlier record: what is
+ *  owed is exactly what is off-site now. */
+function recordOwedAfterRebuild(dir: string): void {
+  const offsite = offsiteDayFiles(dir);
+  try {
+    writeOwed(dir, offsite);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    idsEmit("DTCC-ARCHIVE-ERROR", `seen-ID rebuild: ${offsite.length} day file(s) are held off-site and the owed record could not be written (${why}) — the index is NOT written and this poll archives nothing; the next poll rebuilds again`);
+    throw new Error(`dtccswaps seen-ID rebuild: owed record not written (${why})`);
+  }
+  if (offsite.length) {
+    idsEmit("DTCC-IDS-OWED", `seen-ID rebuild scanned the local day files only: ${offsite.length} day file(s) (${offsite[0]} .. ${offsite[offsite.length - 1]}) are held off-site and their IDs are owed to the index; total_archived undercounts until the next poll reads them back`);
+  }
+}
+
+/** Every Dissemination Identifier in one gzipped day file, with the count of
+ *  malformed lines skipped (as the rebuild skips and counts them); throws if
+ *  the file cannot be read to its end. */
+async function dayFileIds(fp: string): Promise<{ ids: string[]; malformed: number }> {
+  const ids: string[] = [];
+  let malformed = 0;
+  await forEachLine(fileByteStream(fp, true), (buf, start, end) => {
+    let id: unknown;
+    try { id = JSON.parse(buf.toString("utf8", start, end)).disseminationId; }
+    catch { malformed++; return; }
+    if (typeof id === "string" && id) ids.push(id);
+  });
+  return { ids, malformed };
+}
+
+/** Reads the owed day files back and gives the index the IDs it lacks. Runs
+ *  in the refresh path before the dedup decision; costs one existsSync when
+ *  nothing is owed. A file that cannot be read stays owed and the poll goes
+ *  on; only a failed load of the Set itself rejects (the archive call would
+ *  reject on it anyway). The synchronous archiveNewRows (direct callers, no
+ *  production path) does not settle: the record waits for the next refresh. */
+async function settleOwedDays(dir: string, store: DtccIdsStore | null): Promise<void> {
+  if (!fs.existsSync(owedPath(dir))) return;
+  // The index is the ground truth and the Set is its content, so "what the
+  // index lacks" is asked of the Set in every mode (sqlite mode builds it
+  // here, for this rare repair only).
+  const set = await ensureSeenIdsLoaded(dir);
+  const owed = readOwed(dir); // after the load: a rebuild just now rewrote it
+  const stream = path.basename(dir);
+  const left: string[] = [];
+  let read = 0, restored = 0, consecutive = 0, malformed = 0;
+  let lastError: string | null = null;
+  for (let i = 0; i < owed.length; i++) {
+    const file = owed[i];
+    if (consecutive >= OWED_CONSECUTIVE_FAILURE_STOP) { left.push(file); continue; }
+    try {
+      const local = path.join(dir, file);
+      const paths = fs.existsSync(local) ? [local] : await coldDayFilePaths(stream, file.slice(0, 10));
+      if (!paths.length) throw new Error("not readable from the off-site tier now");
+      const ids = new Set<string>();
+      for (const fp of paths) {
+        const got = await dayFileIds(fp);
+        malformed += got.malformed;
+        for (const id of got.ids) ids.add(id);
+      }
+      const missing = Array.from(ids).filter((id) => !set.has(id));
+      if (missing.length) {
+        // index first (it is what a restart reads), then the Set, then the DB
+        await fs.promises.appendFile(seenIdsIndexPath(dir), await gzipAsync(missing.join("\n") + "\n"));
+        await set.reserveAsync(missing.length, DTCC_ASYNC_SLICE_MS);
+        for (const id of missing) set.add(id);
+        seenIdsMutations++;
+        insertFreshIds(store, missing);
+      }
+      read++;
+      restored += missing.length;
+      consecutive = 0;
+      // progress is kept file by file: a crash re-reads at most this one
+      try { writeOwed(dir, left.concat(owed.slice(i + 1))); } catch (e) { lastError = `owed record not updated: ${e instanceof Error ? e.message : String(e)}`; }
+      await yieldToLoop();
+    } catch (e) {
+      left.push(file);
+      consecutive++;
+      lastError = `${file}: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  if (malformed) console.error(`[datacore] dtccswaps settleOwedDays: ${malformed} malformed line(s) skipped in the day files read back`);
+  if (!owed.length) {
+    // a record naming no day file (hand-edited, or every name invalid): removed
+    try { writeOwed(dir, []); } catch (e) { lastError = `owed record not removed: ${e instanceof Error ? e.message : String(e)}`; }
+  }
+  if (left.length) {
+    idsEmit("DTCC-IDS-OWED", `${left.length} off-site day file(s) still owed to the seen-ID index (${read} read back, ${restored} id(s) restored this poll; last error: ${lastError ?? "none"}) — total_archived undercounts and a re-served row may be archived twice until they are read; retried every poll`);
+  } else {
+    idsEmit("DTCC-IDS-OWED-SETTLED", `${read} off-site day file(s) read back, ${restored} id(s) restored to the seen-ID index; nothing owed${lastError ? ` (${lastError})` : ""}`);
+  }
+}
+
 /** Non-blocking twin of loadSeenIds — the identical set (same members; same
  *  iteration order, since both size and fill it the same way), the identical
  *  fallback (no readable index -> scan the name-anchored day files in readdir
@@ -697,6 +879,7 @@ export async function loadSeenIdsAsync(dir: string): Promise<CompactIdSet> {
     }
   }
   legacyRebuildSummary(files.length, unreadable, malformedLines);
+  recordOwedAfterRebuild(dir); // before the index: throws if it cannot be recorded
   await writeSeenIdsIndexAsync(dir, seen);
   return seen;
 }
@@ -770,6 +953,7 @@ export function loadSeenIds(dir: string): CompactIdSet {
     }
   }
   legacyRebuildSummary(files.length, unreadable, malformedLines);
+  recordOwedAfterRebuild(dir); // before the index: throws if it cannot be recorded
   writeSeenIdsIndex(dir, seen);
   return seen;
 }
@@ -1214,8 +1398,15 @@ async function archiveNewRowsOnce(rows: DtccSwapRow[], observedDate: string, bas
   await fs.promises.mkdir(dir, { recursive: true });
   const mode = dtccIdsMode();
   const store = mode === "memory" ? null : await readyIdsStoreAsync(dir);
+  const useSet = mode !== "sqlite" || !store;
+  // the Set first (memory/dual): a missing index is rebuilt HERE, and the
+  // rebuild is what records the day files held off-site as owed
+  if (useSet) await ensureSeenIdsLoaded(dir);
+  // then those day files are read back, so the decision below is made against
+  // every ID (a file R2 cannot serve now stays owed; the poll goes on)
+  await settleOwedDays(dir, store);
   let sliced: SlicedVerdict | undefined;
-  if (mode !== "sqlite" || !store) {
+  if (useSet) {
     const set = await ensureSeenIdsLoaded(dir);
     // room for every row's ID BEFORE the claim, so recording the fresh ones
     // never resizes the table in one block (a resize, when due, runs in slices)
@@ -1256,8 +1447,11 @@ async function archiveNewRowsOnce(rows: DtccSwapRow[], observedDate: string, bas
  *  pipeline RAN, not any row's event date — same `observedDate` semantics
  *  `archiveNewRows` writes under), a separate, deliberately-longer default
  *  window than the live walk (14 vs 7) since a real vendor outage lasting
- *  longer than the live lookback is exactly the case this exists for. */
-export function readArchivedDtccRows(baseDir?: string, nowMs?: number, lookbackDays = 14): { fileDate: string; rows: DtccSwapRow[] } | null {
+ *  longer than the live lookback is exactly the case this exists for.
+ *  LOCAL FILES ONLY: the permanent tier keeps this stream's day files local
+ *  for at least this many days (archivePermanentTier.test.ts pins it). */
+export const DTCC_ARCHIVE_BACKFILL_LOOKBACK_DAYS = 14;
+export function readArchivedDtccRows(baseDir?: string, nowMs?: number, lookbackDays = DTCC_ARCHIVE_BACKFILL_LOOKBACK_DAYS): { fileDate: string; rows: DtccSwapRow[] } | null {
   const now = nowMs ?? Date.now();
   const dir = dtccDir(baseDir);
   for (let i = 0; i < lookbackDays; i++) {
