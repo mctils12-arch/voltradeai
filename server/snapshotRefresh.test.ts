@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   snapshotRefreshCmd, inSnapshotRefreshWindow, decideSnapshotRefresh, parseSnapshotRefreshSummary, runSnapshotRefresh,
-  describeSource, adoptRefreshedSnapshots, snapshotRefreshLastFinishedAt,
+  describeSource, describeVintage, adoptRefreshedSnapshots, snapshotRefreshLastFinishedAt,
   SNAPSHOT_REFRESH_JOB, SNAPSHOT_REFRESH_TIMEOUT_MS, SNAPSHOT_REFRESH_MIN_FREE_BYTES, SNAPSHOT_REFRESH_SOURCES,
   SNAPSHOT_REFRESH_WINDOW_START_MIN, SNAPSHOT_REFRESH_WINDOW_END_MIN,
 } from "./snapshotRefresh";
@@ -107,6 +107,37 @@ test("summary: a clean run says what each source did", () => {
   assert.equal(out.refreshed, 2);
   assert.equal(out.detail, "eia refreshed to 2026-11-13; cpc fresh; rail refreshed to 2026-11-18; jodi fresh (17.5s, peak 58.4 MB)");
   assert.ok(out.detail.length <= MAX_DETAIL_CHARS);
+});
+
+// The Python's own last stdout line with the vintage record on, from a session
+// machine on 2026-11-25 20:20Z (cpc and jodi from one run, eia and rail from the
+// next; the bundled copies were the served ones: 11-24 for three, 11-02 for JODI).
+const REAL_VINTAGE = JSON.stringify({ schema: "snapshot_refresh/1", status: "ok", code_version: "unknown", finished_at: "2026-11-25T20:21:01+00:00", refreshed: 4, sources: {
+  eia: { status: "refreshed", built: "2026-11-25T20:20:43+00:00", latest: "2026-11-20", n_series: 5, bytes: 232864, vintage: { new: 5, revised: 0, removed: 0 } },
+  cpc: { status: "refreshed", built: "2026-11-25T20:20:18+00:00", latest: "2026-11-23", n_series: 96, bytes: 990292, vintage: { new: 192, revised: 0, removed: 0 } },
+  rail: { status: "refreshed", built: "2026-11-25T20:21:01+00:00", latest: "2026-11-18", n_series: 255, bytes: 868119, vintage: { new: 0, revised: 0, removed: 0 } },
+  jodi: { status: "refreshed", built: "2026-11-25T20:20:26+00:00", latest: "2026-09", n_series: 349, bytes: 1386124, vintage: { new: 243, revised: 641, removed: 487 } },
+}, elapsed_s: 31.5, peak_rss_mb: 62.8, vintage_bytes: 252890 });
+
+test("vintage: the row says what a source revised or withdrew, and nothing when it only added", () => {
+  const out = parseSnapshotRefreshSummary(REAL_VINTAGE);
+  assert.equal(out.status, "ok");
+  assert.equal(out.detail, "eia refreshed to 2026-11-20; cpc refreshed to 2026-11-23; rail refreshed to 2026-11-18; jodi refreshed to 2026-09, 641 revised, 487 removed (31.5s, peak 62.8 MB, changes kept 247 KB)");
+  assert.ok(out.detail.length <= MAX_DETAIL_CHARS, "all four refreshed and one revised still fits the job row");
+  assert.equal(describeVintage({}), "", "a summary from before the record, or with the record switched off");
+  assert.equal(describeVintage({ new: 5, revised: 0, removed: 0 }), "");
+  assert.equal(describeVintage({ new: 0, revised: 3, removed: 0 }), ", 3 revised");
+  assert.equal(describeVintage({ new: 0, revised: 0, removed: 2, full_prev: "eia_20261124T013000Z.json.gz" }), ", 2 removed");
+});
+
+test("vintage: a record that could not be written is named FIRST on the row, on a source that still refreshed", () => {
+  const j = JSON.parse(REAL_VINTAGE);
+  j.status = "error";
+  j.sources.rail.vintage = { error: "NotADirectoryError: [Errno 20] Not a directory: '/data/voltrade/snapshot_refresh/vintages/rail.jsonl'" };
+  const out = parseSnapshotRefreshSummary(JSON.stringify(j));
+  assert.equal(out.status, "error");
+  assert.equal(out.refreshed, 4, "the four files are still adopted");
+  assert.ok(out.detail.startsWith("rail refreshed to 2026-11-18, CHANGES NOT RECORDED: NotADirectoryError"), out.detail);
 });
 
 test("summary: garbage, a bare error and a summary with no sources are errors, never ok", () => {
