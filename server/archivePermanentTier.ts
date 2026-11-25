@@ -37,6 +37,22 @@
 // for 31 days (the 30-day reach + 1); archivePermanentTier.test.ts pins those
 // reader constants against these windows, so widening a reader fails a test.
 //
+// DTCCSWAPS (2026-11-25, open_questions (aa4); the largest directory on the
+// volume, 529 MB, and the largest grower, about 5 MB a day): the day files
+// `<observedDate>.jsonl.gz` hold each poll's new rows. In-process readers of a
+// day file: (1) readArchivedDtccRows, the cold-boot backfill of the live cache,
+// walks back DTCC_ARCHIVE_BACKFILL_LOOKBACK_DAYS (14) days; (2) the seen-ID
+// rebuild, which runs only when the dedup index is missing or unreadable and
+// used to scan the LOCAL day files only. dtccSwaps.ts now records the day
+// files held only here as OWED (`_seen_ids_owed.json`, written before the
+// rebuilt index) and reads them back through the cold source on the next
+// poll, so a rebuild with days off-site still ends with every ID. Its files
+// stay local for 14 days. The directory's own bookkeeping
+// (`_seen_ids_index.jsonl.gz`, `_seen_ids.db`, `cusip_ticker_cache.json`)
+// does not match FILE_RE and is never offloaded. NOT covered: the manual
+// script scripts/dtcc_resolve_cusips.ts reads local day files only (its cache
+// of resolved CUSIPs is kept; rows older than the window are not re-read).
+//
 // WHAT (ARCHIVE_PERMANENT_TIER, default ON; "0"/"off"/"false"/"no"/"" = off):
 //   offload  each closed `<stream>/<YYYY-MM-DD>.jsonl.gz` (day ended >= 2 d
 //            ago, untouched >= 1 h, gzip readable end to end) is PUT byte-for-
@@ -85,6 +101,7 @@ export const PERMANENT_STREAM_CONFIG: ReadonlyArray<{ stream: string; localDays:
   { stream: "occvolume", localDays: 30 },
   { stream: "fires", localDays: 31 },
   { stream: "buoys", localDays: 31 },
+  { stream: "dtccswaps", localDays: 14 },
 ];
 export const PERMANENT_STREAMS: readonly string[] = PERMANENT_STREAM_CONFIG.map((c) => c.stream);
 export function permanentLocalDays(stream: string): number {

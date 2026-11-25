@@ -14,6 +14,10 @@ import { createR2Client, r2ConfigFromEnv } from "./r2Client";
 import { readArchiveDay, setColdDayFileSource, RAW_RETENTION_DAYS } from "./datacoreArchive";
 import { DAYS_CAP, snapshotWindow } from "./queryEngine";
 import { WINDOW_DAYS as SITE_TIMELINE_DAYS } from "./siteTimeline";
+import {
+  REQUIRED_COLUMNS, parseHeader, parseDtccLine, archiveNewRows, archiveNewRowsAsync, dtccOwedDayFiles,
+  DTCC_ARCHIVE_BACKFILL_LOOKBACK_DAYS, _resetDtccForTests, type DtccSwapRow,
+} from "./dtccSwaps";
 
 const NOW = Date.parse("2026-11-06T15:00:00Z");
 const DAY = 86_400_000;
@@ -119,8 +123,9 @@ test("flag: default ON; a present env value of 0/off/false/no/empty turns it off
 
 test("keys and scope: permanent/<stream>/<file>; the three _tracks streams + occvolume, only <date>.jsonl.gz", () => {
   // pin updated 2026-11-06 (volume-space-4): occvolume joined with a 30-day local window;
-  // (volume-space-5): fires + buoys with 31 days
-  assert.deepEqual([...PERMANENT_STREAMS], ["vessels_tracks", "aircraft_tracks", "trains_tracks", "occvolume", "fires", "buoys"]);
+  // (volume-space-5): fires + buoys with 31 days; 2026-11-25 ((aa4)): dtccswaps with 14 days
+  assert.deepEqual([...PERMANENT_STREAMS], ["vessels_tracks", "aircraft_tracks", "trains_tracks", "occvolume", "fires", "buoys", "dtccswaps"]);
+  assert.equal(permanentLocalDays("dtccswaps"), 14);
   assert.equal(permanentLocalDays("vessels_tracks"), PERMANENT_LOCAL_DAYS);
   assert.equal(permanentLocalDays("occvolume"), 30);
   assert.equal(permanentKey("vessels_tracks", "2026-07-03.jsonl.gz"), "permanent/vessels_tracks/2026-07-03.jsonl.gz");
@@ -577,4 +582,106 @@ test("RATCHET: every stream's local window covers the longest in-process look-ba
   assert.ok(permanentLocalDays("buoys") > 2, "buoys: readBuoyHistory / seedSeen (2 d) stay local");
   assert.ok(permanentLocalDays("occvolume") > 7, "occvolume: refreshOcc's 5 trading days stay local");
   for (const st of ["vessels_tracks", "aircraft_tracks", "trains_tracks"]) assert.ok(permanentLocalDays(st) >= 1);
+  // dtccswaps: readArchivedDtccRows (the cold-boot backfill of the live cache) reads local
+  // files of ages 0 .. lookback-1; a file leaves only when its age is ABOVE the local window
+  assert.ok(permanentLocalDays("dtccswaps") >= DTCC_ARCHIVE_BACKFILL_LOOKBACK_DAYS, "dtccswaps: the cold-boot backfill's look-back stays local");
+});
+
+// ── dtccswaps (2026-11-25, open_questions (aa4)) ─────────────────────────────
+function dtccRows(ids: readonly string[]): DtccSwapRow[] {
+  const cols = [...REQUIRED_COLUMNS];
+  const idx = parseHeader(cols.map((c) => `"${c}"`).join(","));
+  return ids.map((d) => {
+    const byName: Record<string, string> = {
+      "Dissemination Identifier": d, "Original Dissemination Identifier": d, "Action type": "NEWT",
+      "Event timestamp": "2026-11-05T12:33:36Z", "Effective Date": "2026-11-05", "Asset Class": "EQ",
+      "Notional amount-Leg 1": "28,000,000", "Notional currency-Leg 1": "USD", "Underlier ID-Leg 1": "US0378331005",
+      "Underlier ID source-Leg 1": "ISIN", "UPI Underlier Name": "APPLE INC",
+    };
+    return parseDtccLine(cols.map((c) => `"${byName[c] ?? ""}"`).join(","), idx, cols.length)!;
+  });
+}
+
+test("dtccswaps end to end: day files older than 14 days leave after a read-back, the directory's bookkeeping never does; a lost dedup index is then rebuilt whole from the tier and no evicted row is archived again", async () => {
+  const base = tmp();
+  const r2 = fakeR2();
+  const dir = path.join(base, "dtccswaps");
+  const idOf = (day: number, i: number) => `61${String(day).padStart(3, "0")}${String(i).padStart(12, "0")}01`;
+  const ages = [20, 15, 14, 3];
+  const idsOfAge = (age: number) => Array.from({ length: 25 }, (_, i) => idOf(age, i));
+  const prev = process.env.VOLTRADE_DTCC_IDS_STORE;
+  process.env.VOLTRADE_DTCC_IDS_STORE = "memory";
+  _resetDtccForTests();
+  const cErr = console.error, cLog = console.log;
+  console.error = () => {}; console.log = () => {};
+  try {
+    // written by the real archiver, then idle 2 h like any closed day file
+    for (const age of ages) {
+      assert.equal(archiveNewRows(dtccRows(idsOfAge(age)), dateAgo(age), base).newRows, 25);
+      const fp = path.join(dir, `${dateAgo(age)}.jsonl.gz`);
+      fs.utimesSync(fp, (NOW - 2 * 3600_000) / 1000, (NOW - 2 * 3600_000) / 1000);
+    }
+    fs.writeFileSync(path.join(dir, "cusip_ticker_cache.json"), "{}");
+    fs.writeFileSync(path.join(dir, "_seen_ids.db"), "derived");
+    const indexBefore = fs.readFileSync(path.join(dir, "_seen_ids_index.jsonl.gz"));
+    const evictedBytes = [20, 15].map((a) => fs.readFileSync(path.join(dir, `${dateAgo(a)}.jsonl.gz`)));
+
+    const tier = tierFor(base, r2);
+    const s = await tier.tick();
+    assert.equal(s.uploaded, 4, "every closed day file is copied");
+    assert.equal(s.evicted, 2, "only the two older than the 14-day window leave");
+    assert.deepEqual(s.errors, []);
+    assert.ok(!fs.existsSync(path.join(dir, `${dateAgo(20)}.jsonl.gz`)) && !fs.existsSync(path.join(dir, `${dateAgo(15)}.jsonl.gz`)));
+    assert.ok(fs.existsSync(path.join(dir, `${dateAgo(14)}.jsonl.gz`)), "day 14 stays: the cold-boot backfill may read it");
+    assert.ok(fs.existsSync(path.join(dir, `${dateAgo(3)}.jsonl.gz`)));
+    assert.deepEqual(r2.store.get(key("dtccswaps", dateAgo(20))), evictedBytes[0], "byte for byte");
+    assert.deepEqual(r2.store.get(key("dtccswaps", dateAgo(15))), evictedBytes[1]);
+    // the index, the dedup DB and the CUSIP cache are not day files: untouched, never uploaded
+    assert.deepEqual(fs.readFileSync(path.join(dir, "_seen_ids_index.jsonl.gz")), indexBefore);
+    assert.ok(fs.existsSync(path.join(dir, "_seen_ids.db")) && fs.existsSync(path.join(dir, "cusip_ticker_cache.json")));
+    assert.deepEqual(Array.from(r2.store.keys()).filter((k) => k.startsWith("permanent/dtccswaps/")).sort(),
+      ages.map((a) => key("dtccswaps", dateAgo(a))).sort());
+    assert.equal(tier.status().byStream.dtccswaps.localDays, 14);
+    assert.deepEqual(tier.coldSource.heldOnlyInR2().map((f) => `${f.stream}/${f.file}:${f.lines}`).sort(),
+      [20, 15].map((a) => `dtccswaps/${dateAgo(a)}.jsonl.gz:25`).sort(), "the archive's counters still count the evicted rows");
+
+    // with the index intact nothing changes for the archiver: an evicted day's rows are known
+    _resetDtccForTests();
+    assert.deepEqual(await archiveNewRowsAsync(dtccRows(idsOfAge(20).slice(0, 5)), dateAgo(0), base), { newRows: 0, seenTotal: 100 });
+    assert.deepEqual(dtccOwedDayFiles(base), []);
+
+    // the index is lost. The rebuild scans two local days, records the two evicted ones as
+    // owed, and the same poll reads them back from the tier (SHA-256 checked against the manifest).
+    fs.rmSync(path.join(dir, "_seen_ids_index.jsonl.gz"));
+    _resetDtccForTests();
+    setColdDayFileSource(tier.coldSource);
+    const getsBefore = r2.log.filter((x) => x.method === "GET" && x.key.startsWith("permanent/dtccswaps/")).length;
+    const served = [...idsOfAge(20).slice(0, 5), ...idsOfAge(15).slice(0, 5), ...idsOfAge(3).slice(0, 5), idOf(0, 1)];
+    const r = await archiveNewRowsAsync(dtccRows(served), dateAgo(0), base);
+    assert.deepEqual(r, { newRows: 1, seenTotal: 101 }, "one row never archived; none of an evicted day written again");
+    assert.deepEqual(dtccOwedDayFiles(base), []);
+    assert.equal(r2.log.filter((x) => x.method === "GET" && x.key.startsWith("permanent/dtccswaps/")).length - getsBefore, 2, "one read per evicted day");
+    const lines = zlib.gunzipSync(fs.readFileSync(path.join(dir, "_seen_ids_index.jsonl.gz"))).toString("utf8").split("\n").filter(Boolean);
+    assert.equal(lines.length, 101);
+    assert.equal(new Set(lines).size, 101, "every ID once");
+
+    // the tier down at the moment the index is lost: the poll still archives, the days stay owed
+    fs.rmSync(path.join(dir, "_seen_ids_index.jsonl.gz"));
+    _resetDtccForTests();
+    const down = tierFor(base, r2); // a fresh process: empty read-through cache
+    setColdDayFileSource(down.coldSource);
+    r2.ctl.down = true;
+    const d2 = await archiveNewRowsAsync(dtccRows([idOf(0, 2)]), dateAgo(0), base);
+    assert.equal(d2.newRows, 1, "an unarchived day does not refill: the row is written");
+    assert.deepEqual(dtccOwedDayFiles(base), [20, 15].map((a) => `${dateAgo(a)}.jsonl.gz`).sort());
+    r2.ctl.down = false;
+    const d3 = await archiveNewRowsAsync(dtccRows([idOf(0, 2), ...idsOfAge(20).slice(0, 3)]), dateAgo(0), base);
+    assert.deepEqual(d3, { newRows: 0, seenTotal: 102 });
+    assert.deepEqual(dtccOwedDayFiles(base), []);
+  } finally {
+    console.error = cErr; console.log = cLog;
+    setColdDayFileSource(null);
+    _resetDtccForTests();
+    if (prev === undefined) delete process.env.VOLTRADE_DTCC_IDS_STORE; else process.env.VOLTRADE_DTCC_IDS_STORE = prev;
+  }
 });
