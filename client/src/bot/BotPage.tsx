@@ -35,7 +35,8 @@ import { ShadowBlock, ShadowChip } from "./shadow";
 import { ModeBar, PerfBody, PicksBody, WhyBody, DailyLineBody } from "./overview";
 import { parseAttribution, whyTitle } from "./whyView";
 import { ClosedLots, OrderHistory, OptionsFeedLine } from "./evidence";
-import { parseOptionsFeed } from "./evidenceView";
+import { parseOptionsFeed, parseFloorTracking } from "./evidenceView";
+import { OwnerActions } from "./ownerActions";
 import { SelfCheck, Alerts, SafetyLimits } from "./selfCheck";
 
 const TITLES: Record<PanelId, string> = { kpi: "Edge", stages: "Stages", issues: "Issues", state: "Now", watch: "Watch", model: "Model", chart: "Chart", book: "Book", orders: "Orders", timeline: "Today", score: "Daily vs SPY", perf: "Portfolio vs SPY", why: "Why we're losing money", picks: "Picks", daily: "Daily line" };
@@ -75,6 +76,8 @@ export default function BotPage() {
   const effNow = replayAt ?? now;
   const audit = useMemo(() => (replayAt === null ? auditAll : auditAll.filter((r) => Date.parse(r.time) <= replayAt)), [auditAll, replayAt]);
   const status = d.status.data, account = d.account.data, market = d.market.data, insight = d.insight.data, perf = d.performance.data, lastScan = d.lastScan.data;
+  // the base holding's tickers (the floor-tracking report's own config): the owner-actions block warns before closing one
+  const baseSymbols = useMemo(() => { const f = parseFloorTracking(d.floorTracking.data); return f ? [f.base, f.levered, f.cashFund] : []; }, [d.floorTracking.data]);
   const modelAge = num(insight?.model?.age_hours) ?? num(d.ml.data?.model_age_hours);
   const fallbackAt = num(insight?.model?.fallback_at_hours);
 
@@ -199,7 +202,7 @@ export default function BotPage() {
     stages: <StagesBody rows={stages} />,
     // 2026-11-20 (selfCheck.tsx): under what the PAGE derives from the audit log, what the BOT says about itself —
     // its own diagnostics run with the settings it sets, and the alerts it raised since the last restart
-    issues: <><IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} /><SafetyLimits q={d.limits} nowMs={now} /><SelfCheck q={d.selfCheck} appliedScoreBar={num(status?.minScoreThreshold)} nowMs={now} /><Alerts q={d.alerts} nowMs={now} /></>,
+    issues: <><IssuesBody issues={issues} nowMs={effNow} onFocus={onFocus} onAct={act} busy={busy} /><SafetyLimits q={d.limits} nowMs={now} /><SelfCheck q={d.selfCheck} appliedScoreBar={num(status?.minScoreThreshold)} nowMs={now} /><Alerts q={d.alerts} nowMs={now} /><OwnerActions status={status} positions={d.positions.data} account={account} market={market} baseSymbols={baseSymbols} /></>,
     state: shown === "scanning" ? <ScanStripBody elapsedMs={derived.scan.elapsedMs} lastScan={lastScan} /> : shown === "candidate" || shown === "placed" || shown === "exit" ? <DecisionBody lastScan={lastScan} audit={audit} nowMs={effNow} /> : shown === "incident" ? <IncidentBody state={derived} status={status} issues={issues} onAct={act} busy={busy} /> : shown === "closed" ? <DayReviewBody day={day} account={account} market={market} insight={insight} bench={d.benchmark.data} /> : null,
     watch: <WatchBody model={watch} focus={focusSym} onFocus={focus} nowMs={effNow} />,
     model: <ModelBody insight={insight} audit={audit} compact={shown !== "idle" || tier === "s"} />,

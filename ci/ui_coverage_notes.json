@@ -53,21 +53,9 @@
    "plumbing",
    "operator diagnostics"
   ],
-  "POST /api/bot/circuit-breaker/reset": [
-   "missing",
-   "Owner action: clear a tripped circuit breaker. The AI Engine page shows the kill state but offers no reset. Placement: beside the kill-state banner, owner only, with a confirm step. A risk control: needs the human's go-ahead before it is exposed."
-  ],
   "GET /api/diag/:probe": [
    "plumbing",
    "token-gated diagnostics for sessions; each probe is listed below"
-  ],
-  "POST /api/bot/trade": [
-   "missing",
-   "Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner)."
-  ],
-  "POST /api/bot/close": [
-   "missing",
-   "Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above."
   ],
   "GET /api/daemon/health": [
    "plumbing",
@@ -84,10 +72,6 @@
   "POST /api/bot/backtest": [
    "legacy",
    "runs the backtest CLI from the server; no page calls it. Removal candidate (STALENESS AUDIT)."
-  ],
-  "POST /api/bot/run-now": [
-   "missing",
-   "Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only."
   ],
   "GET /api/bot/ml-status": [
    "legacy",
