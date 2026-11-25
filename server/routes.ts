@@ -3587,7 +3587,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         underlier_id_source: r.underlierIdSource,
         underlier_name: r.underlierName,
       })),
-      note: "equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22); notional amounts above Dodd-Frank real-time reporting caps are masked by the source, not by us (shown as —, never a fabricated 0); top_rows is the largest-notional events from the SOURCE file's most recent published day, not a running archive-wide ranking; positioning-clustering signal stays gate-2-locked until archive depth accumulates",
+      note: "equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22); notional amounts above Dodd-Frank real-time reporting caps are masked by the source, not by us (shown as —, never a fabricated 0); top_rows is the largest-notional events from the SOURCE file's most recent published day, not a running archive-wide ranking; positioning-clustering signal stays gate-2-locked: its test is pre-registered (2026-11-25, over the two years of dated files the source still serves) and has not been run",
     });
   });
 
