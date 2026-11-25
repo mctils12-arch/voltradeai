@@ -1,7 +1,7 @@
 {
  "stream": "eiaweekly",
- "storage": "git-versioned keyed JSON datacore/eia/weekly_series.json — WHOLE-FILE REBUILD per run (the source serves full history every pull; git history keeps vintages and EIA revisions surface as diffs), NOT append-only",
- "written_by": "scripts/eia_weekly.py (Python, session-run ~weekly; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "storage": "git-versioned keyed JSON datacore/eia/weekly_series.json — WHOLE-FILE REBUILD per run (the source serves full history every pull; git history keeps vintages and EIA revisions surface as diffs), NOT append-only. From 2026-11-25 the copy the server refreshes nightly lives on the volume and keeps the newest build only: a vintage is kept only when a session commits the bundled file",
+ "written_by": "eia_weekly.py (Python, repo root). From 2026-11-25 the server runs it nightly through snapshot_refresh_job.py and writes <DATA_DIR>/snapshot_refresh/; the served copy is the newer of that file and the bundled one, by embedded build time. Before that date: session-run and committed, never on Railway (see cot.json _note on envelope-test coverage of Python writers)",
  "source": "EIA dnav hist_xls weekly series (keyless; all five endpoints probed 2026-07-05)",
  "license": "US government work, public domain; attribution 'U.S. Energy Information Administration'",
  "attribution": "U.S. Energy Information Administration",
@@ -19,6 +19,6 @@
  "entity_key": "series key + date",
  "sentiment": null,
  "started": "2026-07-05 (history to 1982-08-20 captured in the first build)",
- "cadence": "source updates Wednesdays (petroleum) / Thursdays (natgas); session-run refresh ~weekly",
+ "cadence": "source updates Wednesdays (petroleum) / Thursdays (natgas); the server attempts a refresh every night, 01:00-03:00 ET, from 2026-11-25 (job snapshot_refresh_nightly on Pipeline health says whether the last attempt reached the source); the bundled file is the cold-start copy",
  "_note": "Universal archive envelope (approved 2026-07-04). BUILD ORDER 3 #2; hypothesis (storage-vs-seasonal-band deltas condition the energy regime) stays gate-locked — archive only."
 }

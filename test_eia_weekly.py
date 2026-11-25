@@ -11,7 +11,7 @@ import pytest
 xlrd = pytest.importorskip("xlrd")  # session dep, same as the tank-fill comparator
 
 _spec = importlib.util.spec_from_file_location(
-    "eia_weekly", os.path.join(os.path.dirname(__file__), "scripts", "eia_weekly.py"))
+    "eia_weekly", os.path.join(os.path.dirname(__file__), "eia_weekly.py"))
 eia = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(eia)
 

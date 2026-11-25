@@ -10,7 +10,7 @@ from datetime import datetime
 import pytest
 
 _spec = importlib.util.spec_from_file_location(
-    "stb_rail", os.path.join(os.path.dirname(__file__), "scripts", "stb_rail.py"))
+    "stb_rail", os.path.join(os.path.dirname(__file__), "stb_rail.py"))
 stb = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(stb)
 

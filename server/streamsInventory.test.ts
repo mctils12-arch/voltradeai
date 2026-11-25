@@ -346,3 +346,17 @@ test("a stream kept one directory per entity (layout per_entity_dirs: aircraft_t
   assert.equal(real.layout, "per_entity_dirs");
   assert.match(real.cadence, /as they occur/);
 });
+
+test("a snapshot served from the nightly job's volume copy says so; a bundled one keeps its wording (2026-11-25)", async () => {
+  const base = tmp();
+  const mdir = tmp();
+  writeManifest(mdir, "snaprefreshed", "weekly");
+  writeManifest(mdir, "snapbundled", "weekly");
+  const inv = await buildStreamsInventory(base, mdir, Date.parse("2026-11-25T12:00:00Z"), {
+    snaprefreshed: { artifact: "datacore/x/a.json", built: "2026-11-25T06:20:00Z", origin: "refreshed" },
+    snapbundled: { artifact: "datacore/x/b.json", built: "2026-11-24T01:30:00Z" },
+  }, {});
+  const by = Object.fromEntries(inv.streams.map((s) => [s.stream, s]));
+  assert.match(by.snaprefreshed.health_note, /^snapshot refreshed by the server's nightly job, built 2026-11-25 \(5\.7h ago\)/);
+  assert.match(by.snapbundled.health_note, /^bundled snapshot built 2026-11-24/);
+});

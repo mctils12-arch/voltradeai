@@ -401,25 +401,32 @@ ARCHIVE_MANIFEST = [
     # 2026-10-12: bundled whole-file snapshots whose refreshers were
     # "session-run" with no mechanical flag (eiaweekly sat 99d stale until a
     # streams audit surfaced it). One command refreshes all four.
+    # 2026-11-25: the SERVER now refreshes its served copy of these four every
+    # night (snapshot_refresh_job.py, job snapshot_refresh_nightly). This check
+    # still reads the BUNDLED file, which is the cold-start copy only: before
+    # refreshing it by hand, read the job's row on Pipeline health. If the job
+    # is ok the served data is current and a stale bundled file costs nothing
+    # until a volume is lost; the triggers below are to be retargeted at the
+    # served copy once the job has a week of clean runs (open_questions.md).
     {
         "name": "bundled_eia_weekly", "paths": ("datacore/eia/weekly_series.json",),
         "date_field": "built", "format": "json_object", "warn_days": 21,
-        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+        "refresh_hint": "first read job snapshot_refresh_nightly on Pipeline health (the server refreshes its served copy nightly; this file is the cold-start copy); by hand: python3 scripts/snapshot_refresh.py",
     },
     {
         "name": "bundled_cpc_degree_days", "paths": ("datacore/cpc/degree_days.json",),
         "date_field": "built", "format": "json_object", "warn_days": 21,
-        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+        "refresh_hint": "first read job snapshot_refresh_nightly on Pipeline health (the server refreshes its served copy nightly; this file is the cold-start copy); by hand: python3 scripts/snapshot_refresh.py",
     },
     {
         "name": "bundled_rail_ep724", "paths": ("datacore/rail/ep724_carloads.json",),
         "date_field": "built", "format": "json_object", "warn_days": 21,
-        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+        "refresh_hint": "first read job snapshot_refresh_nightly on Pipeline health (the server refreshes its served copy nightly; this file is the cold-start copy); by hand: python3 scripts/snapshot_refresh.py",
     },
     {
         "name": "bundled_jodi_stocks", "paths": ("datacore/jodi/primary_stocks.json",),
         "date_field": "built_at", "format": "json_object", "warn_days": 45,  # monthly release
-        "refresh_hint": "python3 scripts/snapshot_refresh.py",
+        "refresh_hint": "first read job snapshot_refresh_nightly on Pipeline health (the server refreshes its served copy nightly; this file is the cold-start copy); by hand: python3 scripts/snapshot_refresh.py",
     },
 ]
 

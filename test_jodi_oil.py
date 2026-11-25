@@ -11,7 +11,7 @@ import os
 import pytest
 
 _spec = importlib.util.spec_from_file_location(
-    "jodi_oil", os.path.join(os.path.dirname(__file__), "scripts", "jodi_oil.py"))
+    "jodi_oil", os.path.join(os.path.dirname(__file__), "jodi_oil.py"))
 jodi = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(jodi)
 

@@ -254,7 +254,7 @@ export async function buildStreamsInventory(
     if (volNote) note += `; ${volNote}`;
     if (snap) {
       note = snap.built
-        ? `bundled snapshot built ${snap.built.slice(0, 10)} (${ageHours!.toFixed(1)}h ago); ${note.replace(/^newest file /, "")}`
+        ? `${snap.origin === "refreshed" ? "snapshot refreshed by the server's nightly job, built" : "bundled snapshot built"} ${snap.built.slice(0, 10)} (${ageHours!.toFixed(1)}h ago); ${note.replace(/^newest file /, "")}`
         : "bundled snapshot with no embedded build time — age unknown";
       if (!snap.built) health = "no-data";
     }
