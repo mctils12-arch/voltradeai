@@ -188,7 +188,7 @@ import {
 import { loadSignalLadder } from "./signalLadder";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
-import { bootDtccSwapsPoll, latestDtcc, setDtccIdsAuditSink } from "./dtccSwaps";
+import { bootDtccSwapsPoll, latestDtcc, setDtccIdsAuditSink, dtccSourceDaysSummary } from "./dtccSwaps";
 import { bootSettlementStressPoll } from "./settlementStress";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
@@ -3575,6 +3575,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       us_underlier_rows_today: hit.usRows,
       new_rows_archived: hit.newRows,
       total_archived: hit.totalArchived,
+      source_days: dtccSourceDaysSummary(),
       top_rows: hit.topRows.map((r) => ({
         dissemination_id: r.disseminationId,
         action_type: r.actionType,
@@ -5450,6 +5451,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         us_underlier_rows_today: hit.usRows,
         new_rows_archived: hit.newRows,
         total_archived: hit.totalArchived,
+        source_days: dtccSourceDaysSummary(),
         top_rows: hit.topRows.map((r) => ({
           dissemination_id: r.disseminationId,
           action_type: r.actionType,

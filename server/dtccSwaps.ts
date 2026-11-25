@@ -1013,7 +1013,14 @@ function idsEmit(action: string, detail: string): void {
 // short of space. Now nothing records them, the in-memory claim is dropped so
 // the next poll reloads the set from the index (which never got them) and
 // re-archives the rows, and the failure is an audit row (DTCC-ARCHIVE-ERROR).
+/** Counts day-file writes that failed in this process. A caller that records
+ *  "this vendor day is held" (the source-day ledger) reads it before and after
+ *  its archive call: the call's own result is { newRows: 0 } both when every
+ *  row was already held and when the fresh rows could not be written. */
+let archiveWriteFailures = 0;
+
 function archiveWriteFailed(e: unknown, rows: number, file: string): void {
+  archiveWriteFailures++;
   seenIds = null; seenIdsEpoch++; seenIdsLoad = null; seenIdsMutations++;
   idsEmit("DTCC-ARCHIVE-ERROR", `${rows} new row(s) not written to ${path.basename(file)}: ${e instanceof Error ? e.message : String(e)} — not recorded as seen; the next poll retries them`);
 }
@@ -1439,6 +1446,255 @@ async function archiveNewRowsOnce(rows: DtccSwapRow[], observedDate: string, bas
   return { newRows: d.fresh.length, seenTotal: d.total() };
 }
 
+// ── SOURCE-DAY LEDGER AND CATCH-UP (2026-11-25, open_questions.md (an2)) ────
+// The poll walks back from today and archives the FIRST vendor file that
+// answers. Each dated file holds one day's events and no later file repeats
+// them (file header, corrected 2026-11-25), so a vendor day that was never
+// the newest file at the moment of a poll (a deploy outage, a crash cooldown,
+// two files published between two polls) was never read, and nothing said so:
+// the archive kept no record of WHICH vendor files it had read.
+//
+// Two parts, one file (`_source_days.json`, beside the day files):
+// - THE LEDGER: every vendor day read, with the rows it held and how many of
+//   them were new to the archive. The poll writes it for the newest file.
+// - THE CATCH-UP: after the newest file, each poll reads up to
+//   DTCC_CATCHUP_PER_POLL vendor days the ledger does not hold, newest first,
+//   back to DTCC_CATCHUP_FLOOR, through the same parser and the same
+//   archiveNewRowsAsync. The seen-ID set is what decides: a day already held
+//   adds 0 rows and costs one download (17.5 s for a 132 MB file, measured
+//   from a session machine 2026-11-25); a day that was missed is REFILLED,
+//   and that is an audit row (DTCC-SOURCE-DAY-REFILLED) with the count.
+//
+// WHAT A REFILLED ROW LOOKS LIKE IN THE ARCHIVE: it is written to the day file
+// of the day the catch-up ran (the stream's standing rule: a day file is named
+// for the day the pipeline ran, never for the vendor file). The row itself
+// carries its Event timestamp; the ledger says which vendor file supplied how
+// many rows on which day. A row does not carry its vendor file's date.
+//
+// THE FLOOR is the vendor day the stream's first poll could have read
+// (2026-08-21, the Friday before the archive's first day file, 2026-08-23).
+// The vendor serves dated files back to 2022 at least (probed 2026-11-25);
+// reading those is a different decision (the dedup set and the volume are
+// sized for the days since August) and is filed as open_questions.md (ap2).
+//
+// OFF SWITCH: VOLTRADE_DTCC_CATCHUP=0 stops the catch-up; the poll still
+// writes the ledger. A lost or unreadable ledger costs re-reading the days
+// (0 new rows each), never a row.
+const SOURCE_DAYS_FILE = "_source_days.json";
+export const DTCC_CATCHUP_FLOOR = "2026-08-21";
+export const DTCC_CATCHUP_PER_POLL = 2;
+/** A vendor day that did not answer is asked again after this long. */
+export const DTCC_CATCHUP_RETRY_MS = 7 * 86_400_000;
+export const DTCC_CATCHUP_ENV = "VOLTRADE_DTCC_CATCHUP";
+
+export interface DtccSourceDay {
+  /** First and latest time this vendor day was asked for (ISO). */
+  firstAt: string;
+  lastAt: string;
+  /** Who read it first: the poll (it was the newest file) or the catch-up. */
+  via: "poll" | "catchup";
+  /** US-underlier rows in the file at its latest read. */
+  usRows: number;
+  /** Rows new to the archive, summed over every read of this file. */
+  newRows: number;
+  reads: number;
+  /** Set when the latest request did not answer: the HTTP status (0 = no response). */
+  unavailable?: number;
+}
+export type DtccSourceDays = Record<string, DtccSourceDay>;
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function sourceDaysPath(dir: string): string {
+  return path.join(dir, SOURCE_DAYS_FILE);
+}
+
+export function readDtccSourceDays(baseDir?: string): DtccSourceDays {
+  const file = sourceDaysPath(dtccDir(baseDir));
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.error(`[datacore] dtccswaps source-day ledger unreadable (${(e as Error)?.message || e}) — starting an empty one; days are re-read, no row is lost`);
+    return {};
+  }
+  try {
+    const days = JSON.parse(raw)?.days;
+    const out: DtccSourceDays = {};
+    if (days && typeof days === "object") {
+      for (const [k, v] of Object.entries(days as Record<string, DtccSourceDay>)) {
+        if (YMD_RE.test(k) && v && typeof v.lastAt === "string" && typeof v.reads === "number") out[k] = v;
+      }
+    }
+    return out;
+  } catch (e) {
+    console.error(`[datacore] dtccswaps source-day ledger is not JSON (${(e as Error)?.message || e}) — starting an empty one; days are re-read, no row is lost`);
+    return {};
+  }
+}
+
+function writeSourceDays(dir: string, days: DtccSourceDays): void {
+  const sorted: DtccSourceDays = {};
+  for (const k of Object.keys(days).sort()) sorted[k] = days[k];
+  const file = sourceDaysPath(dir);
+  const tmp = `${file}.tmp`;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, days: sorted }));
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    // the ledger is a record of reads, not the archive: losing one write
+    // means that day is read again (0 new rows)
+    console.error(`[datacore] dtccswaps source-day ledger not written: ${(e as Error)?.message || e}`);
+  }
+}
+
+function recordSourceDayRead(dir: string, date: string, via: "poll" | "catchup", usRows: number, newRows: number, nowMs: number): void {
+  const days = readDtccSourceDays(path.dirname(dir));
+  const at = new Date(nowMs).toISOString();
+  const prev = days[date];
+  // a day first asked for and not found has no reader yet: this read names it
+  const wasRead = !!prev && (prev.usRows > 0 || prev.newRows > 0 || prev.unavailable === undefined);
+  days[date] = {
+    firstAt: prev?.firstAt ?? at, lastAt: at, via: wasRead ? prev!.via : via,
+    usRows, newRows: (prev?.newRows ?? 0) + newRows, reads: (prev?.reads ?? 0) + 1,
+  };
+  writeSourceDays(dir, days);
+}
+
+function recordSourceDayUnavailable(dir: string, date: string, status: number, nowMs: number): void {
+  const days = readDtccSourceDays(path.dirname(dir));
+  const at = new Date(nowMs).toISOString();
+  const prev = days[date];
+  days[date] = {
+    firstAt: prev?.firstAt ?? at, lastAt: at, via: prev?.via ?? "catchup",
+    usRows: prev?.usRows ?? 0, newRows: prev?.newRows ?? 0, reads: (prev?.reads ?? 0) + 1, unavailable: status,
+  };
+  writeSourceDays(dir, days);
+}
+
+function addDaysYmd(ymd: string, n: number): string {
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The vendor days the catch-up reads next: strictly before `newest` (the
+ *  poll's own file), back to `floor`, newest first; a day the ledger holds as
+ *  read is never asked again, one that did not answer is asked again after
+ *  DTCC_CATCHUP_RETRY_MS. Pure. */
+export function dtccCatchupCandidates(days: DtccSourceDays, newest: string, nowMs: number, limit = DTCC_CATCHUP_PER_POLL, floor = DTCC_CATCHUP_FLOOR): string[] {
+  const out: string[] = [];
+  if (!YMD_RE.test(newest) || !YMD_RE.test(floor)) return out;
+  for (let d = addDaysYmd(newest, -1); d >= floor && out.length < limit; d = addDaysYmd(d, -1)) {
+    const e = days[d];
+    if (!e) { out.push(d); continue; }
+    if (e.unavailable === undefined) continue;
+    const last = Date.parse(e.lastAt);
+    if (!Number.isFinite(last) || nowMs - last >= DTCC_CATCHUP_RETRY_MS) out.push(d);
+  }
+  return out;
+}
+
+export function dtccCatchupEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = (env[DTCC_CATCHUP_ENV] || "").trim().toLowerCase();
+  return !(v === "0" || v === "off" || v === "false");
+}
+
+/** One vendor file, streamed through the parser: the same read the poll makes. */
+async function readVendorDay(ymdUnderscored: string, fetchImpl: FetchFn): Promise<{ ok: boolean; status: number; lines: number; rows: DtccSwapRow[] }> {
+  let idx: Record<string, number> | null = null;
+  let expectedCols = 0;
+  const rows: DtccSwapRow[] = [];
+  const { ok, status, lines } = await streamDtccZip(dtccUrl(ymdUnderscored), (line, isHeader) => {
+    if (isHeader) {
+      idx = parseHeader(line);
+      expectedCols = parseCsvLine(line).length;
+      return;
+    }
+    if (!idx) return;
+    const row = parseDtccLine(line, idx, expectedCols);
+    if (row) rows.push(row);
+  }, fetchImpl);
+  return { ok, status, lines, rows };
+}
+
+/** Reads up to DTCC_CATCHUP_PER_POLL vendor days the ledger does not hold.
+ *  Returns the archive's total after the last day read, or null when nothing
+ *  was read. Never throws: the poll's own result stands whatever happens here. */
+async function catchUpSourceDays(newest: string, observedDate: string, fetchImpl: FetchFn, nowMs: number, baseDir?: string): Promise<{ seenTotal: number } | null> {
+  if (!dtccCatchupEnabled()) return null;
+  const dir = dtccDir(baseDir);
+  let last: { seenTotal: number } | null = null;
+  try {
+    for (const day of dtccCatchupCandidates(readDtccSourceDays(baseDir), newest, nowMs)) {
+      const { ok, status, rows } = await readVendorDay(day.replace(/-/g, "_"), fetchImpl);
+      if (!ok) {
+        recordSourceDayUnavailable(dir, day, status, nowMs);
+        console.error(`[datacore] dtccswaps catch-up ${day}: HTTP ${status} / no body — asked again in ${Math.round(DTCC_CATCHUP_RETRY_MS / 86_400_000)} days`);
+        continue;
+      }
+      const failuresBefore = archiveWriteFailures;
+      const { newRows, seenTotal } = await archiveNewRowsAsync(rows, observedDate, baseDir);
+      if (archiveWriteFailures !== failuresBefore) {
+        // DTCC-ARCHIVE-ERROR was already emitted; the day stays unread in the ledger
+        break;
+      }
+      recordSourceDayRead(dir, day, "catchup", rows.length, newRows, nowMs);
+      last = { seenTotal };
+      if (newRows > 0) {
+        idsEmit("DTCC-SOURCE-DAY-REFILLED", `vendor file dated ${day} held ${newRows} of ${rows.length} US-underlier row(s) the archive did not: written to ${observedDate}'s day file (${seenTotal} archived total)`);
+      } else {
+        console.log(`[datacore] dtccswaps catch-up ${day}: ${rows.length} US-underlier row(s), all held`);
+      }
+    }
+  } catch (e) {
+    console.error(`[datacore] dtccswaps catch-up stopped for this poll: ${(e as Error)?.message || e}`);
+  }
+  return last;
+}
+
+export interface DtccSourceDaysSummary {
+  enabled: boolean;
+  floor: string;
+  /** Newest vendor day the ledger holds as read; null before the first poll. */
+  through: string | null;
+  /** Calendar days from the floor to `through`, both included. */
+  expected: number;
+  /** Of those: read (held, whatever they added), not answered, not yet asked. */
+  read: number;
+  unavailable: number;
+  pending: number;
+  /** Vendor days the catch-up read that held rows the archive lacked. */
+  refilledDays: number;
+  refilledRows: number;
+  /** Latest of them, for the page. */
+  lastRefilled: { date: string; at: string; newRows: number } | null;
+}
+
+/** What the ledger says, for the routes. Reads one small file. */
+export function dtccSourceDaysSummary(baseDir?: string): DtccSourceDaysSummary {
+  const days = readDtccSourceDays(baseDir);
+  const readKeys = Object.keys(days).filter((k) => days[k].unavailable === undefined).sort();
+  const through = readKeys.length ? readKeys[readKeys.length - 1] : null;
+  const s: DtccSourceDaysSummary = {
+    enabled: dtccCatchupEnabled(), floor: DTCC_CATCHUP_FLOOR, through,
+    expected: 0, read: 0, unavailable: 0, pending: 0, refilledDays: 0, refilledRows: 0, lastRefilled: null,
+  };
+  if (!through || through < DTCC_CATCHUP_FLOOR) return s;
+  for (let d = DTCC_CATCHUP_FLOOR; d <= through; d = addDaysYmd(d, 1)) {
+    s.expected++;
+    const e = days[d];
+    if (!e) { s.pending++; continue; }
+    if (e.unavailable !== undefined) { s.unavailable++; continue; }
+    s.read++;
+    if (e.via === "catchup" && e.newRows > 0) {
+      s.refilledDays++;
+      s.refilledRows += e.newRows;
+      if (!s.lastRefilled || e.lastAt > s.lastRefilled.at) s.lastRefilled = { date: d, at: e.lastAt, newRows: e.newRows };
+    }
+  }
+  return s;
+}
+
 /** Most recently archived day's rows (plain or gz), walked backward up to
  *  `lookbackDays` — used to backfill the live cache when EVERY day in
  *  `refreshDtccSwaps`'s own `DTCC_LOOKBACK_DAYS` vendor-side walk 403s (a
@@ -1587,19 +1843,7 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
       for (let back = 0; back <= DTCC_LOOKBACK_DAYS; back++) {
         const candidate = new Date(now.getTime() - back * 86_400_000);
         const candidateYmd = ymdUnderscore(candidate);
-        let idx: Record<string, number> | null = null;
-        let expectedCols = 0;
-        const rows: DtccSwapRow[] = [];
-        const { ok, status, lines } = await streamDtccZip(dtccUrl(candidateYmd), (line, isHeader) => {
-          if (isHeader) {
-            idx = parseHeader(line);
-            expectedCols = parseCsvLine(line).length;
-            return;
-          }
-          if (!idx) return;
-          const row = parseDtccLine(line, idx, expectedCols);
-          if (row) rows.push(row);
-        }, fetchImpl);
+        const { ok, status, lines, rows } = await readVendorDay(candidateYmd, fetchImpl);
         lastStatus = status;
         if (ok) {
           sourceDate = candidate.toISOString().slice(0, 10);
@@ -1627,12 +1871,20 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
       const observedDate = now.toISOString().slice(0, 10);
       // async twin: the Set loads (and the day file / index compress) without
       // blocking the loop — the 7.7-10.2 s EVENTLOOP-LAG after each boot
+      const failuresBefore = archiveWriteFailures;
       const { newRows, seenTotal } = await archiveNewRowsAsync(foundRows, observedDate, baseDir);
+      if (archiveWriteFailures === failuresBefore) recordSourceDayRead(dtccDir(baseDir), sourceDate, "poll", foundRows.length, newRows, now.getTime());
       cache = {
         at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows,
         totalArchived: seenTotal, topRows: topNotionalRows(foundRows),
       };
       console.log(`[datacore] dtccswaps ${observedDate} (source dated ${sourceDate}): ${foundLines} total lines, ${foundRows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
+      // the vendor days no poll read while they were the newest (see SOURCE-DAY
+      // LEDGER above). After the newest file, never before it; its rows are
+      // released first (`foundRows` is not referenced below this line).
+      foundRows = [];
+      const caught = await catchUpSourceDays(sourceDate, observedDate, fetchImpl, now.getTime(), baseDir);
+      if (caught && cache) cache = { ...cache, totalArchived: caught.seenTotal };
     }, baseDir, nowMs);
     if (!result.ran) {
       console.error(`[datacore] dtccswaps: skipped this cycle (${result.reason}) — ${result.detail}`);

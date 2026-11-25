@@ -13,6 +13,7 @@
 // UI says so rather than reading like a full-archive browser.
 import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Repeat } from "lucide-react";
+import { dtccSourceDaysLine, type DtccSourceDaysSummary } from "@/lib/dtccSourceDays";
 
 interface DtccRow {
   dissemination_id: string;
@@ -36,6 +37,7 @@ interface DtccPayload {
   us_underlier_rows_today?: number;
   new_rows_archived?: number;
   total_archived?: number;
+  source_days?: DtccSourceDaysSummary;
   top_rows: DtccRow[];
   note?: string;
 }
@@ -62,6 +64,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
   }, []);
 
   const rows = data?.top_rows ?? [];
+  const sourceDays = dtccSourceDaysLine(data?.source_days);
 
   return (
     <div className="vt-filings-page" role="region" aria-label="DTCC SBSDR equity swap dissemination">
@@ -91,6 +94,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
             rows that day · {data.new_rows_archived?.toLocaleString()} newly archived ·{" "}
             {data.total_archived?.toLocaleString()} total events archived to date
           </div>
+          {sourceDays && <div className="vt-filings-sub" data-testid="dtcc-source-days">{sourceDays}</div>}
 
           <div className="vt-filings-tablewrap">
             <table className="vt-filings-table">

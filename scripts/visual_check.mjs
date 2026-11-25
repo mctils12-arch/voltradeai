@@ -3412,6 +3412,10 @@ const FIXTURES = {
     attribution: "DTCC SBSDR", time: 1,
     file_date: "2026-09-09", source_date: "2026-09-09",
     us_underlier_rows_today: 118420, new_rows_archived: 612, total_archived: 214880,
+    source_days: {
+      enabled: true, floor: "2026-08-21", through: "2026-09-09", expected: 20, read: 14, unavailable: 0, pending: 6,
+      refilledDays: 1, refilledRows: 112100, lastRefilled: { date: "2026-09-06", at: "2026-09-10T01:00:00.000Z", newRows: 112100 },
+    },
     note: "Fixture: US-underlier scope only; basket-swap rows excluded from this view (see server/dtccSwaps.ts).",
     top_rows: [
       {
