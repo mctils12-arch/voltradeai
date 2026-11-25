@@ -1,0 +1,3 @@
+# The quarterly panel files (24 MB) are rebuilt by `python3 dtcc_trs_panel.py
+# build` + `compact`; only the manifest and the registered event list are kept.
+panel_*.csv.gz
