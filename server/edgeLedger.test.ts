@@ -129,7 +129,7 @@ test("brokerBlock: the cached ledger with its age and source, or null with the r
   assert.match(failed.brokerReason!, /^sleeve ledger failed: activities unreadable/);
 });
 
-// ── the route wiring (source pins, as peakEquityRpc.test.ts pins its routes) ──
+// ── the route wiring (source pins, as botStatusDailyLossLimit.test.ts pins its route) ──
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
 function slice(fromMarker: string, toMarker: string): string {

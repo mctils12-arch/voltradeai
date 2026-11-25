@@ -584,8 +584,6 @@ class RPCDispatcher:
             "evaluate_and_execute": ("options_execution", "evaluate_and_execute"),
 
             # Risk management (added 2026-04-20 for monitoring endpoints)
-            "risk_status": ("risk_kill_switch", "get_kill_switch_status"),
-            "get_peak_equity": ("risk_kill_switch", "get_peak_equity"),
             "check_position_risk": ("risk_kill_switch", "check_position_risk"),
             "check_correlation_pre_trade": ("risk_kill_switch", "check_correlation_pre_trade"),
             # Paper-account drawdown-kill AUTO-RESUME, Python half (2026-09-28,
