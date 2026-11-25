@@ -31,6 +31,8 @@ REUSES EXISTING INFRASTRUCTURE:
 import json
 import os
 import logging
+import sys
+import threading
 import time
 from typing import Dict, List, Optional, Tuple, Any
 from alpaca_feed import data_feed  # [REPAIR 2026-07-06] central feed w/ SIP-403 fallback
@@ -91,6 +93,27 @@ MAX_UNIVERSE_SIZE = 200
 # Same precedent as eventLoopLag.ts/dbWriteTiming.ts: surface the real
 # number so the next occurrence can be checked directly instead of guessed.
 _LAST_LAYER2_PREFETCH: Dict[str, Any] = {}
+
+
+# (am1) part (i), 2026-11-25: a refresh running on the background thread keeps
+# its layer stats in its own scratch dict, so the two module-level readings
+# below always describe what a SCAN's own call did (they are what the
+# TIER2-ERROR audit line and the scan timing record classify a scan by).
+_tls = threading.local()
+
+
+def _put_stats(kind: str, stats: Dict[str, Any]) -> None:
+    """Record one layer call's stats: to the calling refresh thread's scratch
+    when there is one, else to the module-level reading for that layer."""
+    stats = dict(stats)
+    stats["checked_at"] = time.time()
+    scratch = getattr(_tls, "scratch", None)
+    if scratch is not None:
+        scratch[kind] = stats
+        return
+    target = _LAST_LAYER1_STATS if kind == "layer1" else _LAST_LAYER2_PREFETCH
+    target.clear()
+    target.update(stats)
 
 
 def build_prefetch_stats(cache_hit: bool, completed: int = 0, total: int = 0,
@@ -200,25 +223,26 @@ def _fetch_account_equity() -> Optional[float]:
     return None
 
 
-def _layer1_hard_gates(snap_data: Optional[Dict] = None) -> List[Tuple[str, float, int, float]]:
+def _layer1_hard_gates(snap_data: Optional[Dict] = None,
+                       force: bool = False) -> List[Tuple[str, float, int, float]]:
     """
     Layer 1: run hard gates on full universe. Returns list of
     (ticker, price, volume, dollar_volume) that pass all filters.
 
     Cached 15 min in SCORES_CACHE_PATH for layer_2 to consume.
+    force=True skips the cache read (the refresh-ahead thread recomputes a
+    cache that is still inside its TTL).
     """
     _t0 = time.time()
 
     def _record(cache_hit: bool, universe_size: int) -> None:
-        _LAST_LAYER1_STATS.clear()
-        _LAST_LAYER1_STATS.update(build_layer1_stats(
+        _put_stats("layer1", build_layer1_stats(
             cache_hit=cache_hit, universe_size=universe_size,
             elapsed_sec=time.time() - _t0,
         ))
-        _LAST_LAYER1_STATS["checked_at"] = time.time()
 
     # Check cache
-    if os.path.exists(UNIVERSE_CACHE_PATH):
+    if not force and os.path.exists(UNIVERSE_CACHE_PATH):
         try:
             with open(UNIVERSE_CACHE_PATH) as f:
                 cached = json.load(f)
@@ -615,30 +639,28 @@ def _score_stability(ticker: str, price: float, snap_data: Dict) -> float:
         return 50.0
 
 
-def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]:
+def _layer2_score(candidates: List[Tuple], snap_data: Dict = None,
+                  force: bool = False) -> List[Dict]:
     """
     Score every Layer 1 candidate with 7-factor formula.
     Returns list of {ticker, score, factors, price, ...} dicts, ranked.
 
     Caches 15 min. Uses per-scan memoization for expensive factors.
+    force=True skips the cache read (see _layer1_hard_gates).
     """
-    if os.path.exists(SCORES_CACHE_PATH):
+    if not force and os.path.exists(SCORES_CACHE_PATH):
         try:
             with open(SCORES_CACHE_PATH) as f:
                 cached = json.load(f)
             if time.time() - cached.get("_cached_at", 0) < LAYER2_CACHE_TTL:
                 logger.debug(f"Layer 2 cache hit: {len(cached.get('scores', []))} tickers")
-                _LAST_LAYER2_PREFETCH.clear()
-                _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(cache_hit=True))
-                _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
+                _put_stats("layer2", build_prefetch_stats(cache_hit=True))
                 return cached.get("scores", [])
         except Exception:
             pass
 
     if not candidates:
-        _LAST_LAYER2_PREFETCH.clear()
-        _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(cache_hit=False))
-        _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
+        _put_stats("layer2", build_prefetch_stats(cache_hit=False))
         return []
 
     # Per-scan caches for expensive factors (avoid duplicate API calls).
@@ -731,16 +753,12 @@ def _layer2_score(candidates: List[Tuple], snap_data: Dict = None) -> List[Dict]
             f"Layer 2 prefetch: {completed_count}/{len(deep_candidates)} "
             f"deep candidates in {time.time() - prefetch_start:.1f}s"
         )
-        _LAST_LAYER2_PREFETCH.clear()
-        _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(
+        _put_stats("layer2", build_prefetch_stats(
             cache_hit=False, completed=completed_count,
             total=len(deep_candidates), elapsed_sec=time.time() - prefetch_start,
         ))
-        _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
     else:
-        _LAST_LAYER2_PREFETCH.clear()
-        _LAST_LAYER2_PREFETCH.update(build_prefetch_stats(cache_hit=False))
-        _LAST_LAYER2_PREFETCH["checked_at"] = time.time()
+        _put_stats("layer2", build_prefetch_stats(cache_hit=False))
 
     scored = []
     for idx, (ticker, price, volume, dollar_volume) in enumerate(sorted_candidates):
@@ -839,6 +857,166 @@ def _load_layer2_cache() -> Optional[Dict[str, Any]]:
         return None
 
 
+# ── Refresh-ahead: the recompute leaves the scan's clock ─────────────────────
+# (am1) part (i), 2026-11-25, KNOWN BROKEN #60's structural half. The two layers
+# were recomputed inside whichever scan first read them past their 15 minutes:
+# measured 2026-11-24/25, that scan's tier engine took 31-75 s instead of under
+# 10, about one scan in three, and on a busy tape (options step ending near
+# 250 s) it is what carried three scans past the daemon's 300 s on 11-24.
+# Now, in the daemon, a scan that reads caches older than
+# CSP_SCORES_REFRESH_AHEAD_SEC is answered from them at once and the recompute
+# runs on a background thread, in the idle time between scans. One computation
+# at a time (_REFRESH_LOCK), the same functions, the same formula, the same
+# files. What changes for the reader: the ranking it gets may be up to
+# CSP_SCORES_SERVE_STALE_MAX_SEC old (20 min) where the limit was 15, and only
+# when a refresh failed or ran long; past that age the scan computes on its own
+# clock, as it always did (so does a first scan with no cache, and every
+# short-lived subprocess, where a background thread would die with the process).
+# OFF SWITCH: system_config CSP_SCORES_BACKGROUND_REFRESH False, or the env var
+# VOLTRADE_CSP_BACKGROUND_REFRESH=0 (no deploy).
+_REFRESH_LOCK = threading.Lock()
+_BACKGROUND_REFRESH: Dict[str, Any] = {}
+_REFRESH_AHEAD_DEFAULT_SEC = 480.0
+_SERVE_STALE_MAX_DEFAULT_SEC = 1200.0
+
+
+def _refresh_config() -> Tuple[bool, float, float]:
+    """(enabled, refresh_ahead_sec, serve_stale_max_sec) from system_config;
+    the env var, when present, decides `enabled`."""
+    enabled, ahead, stale_max = True, _REFRESH_AHEAD_DEFAULT_SEC, _SERVE_STALE_MAX_DEFAULT_SEC
+    try:
+        from system_config import BASE_CONFIG
+        enabled = bool(BASE_CONFIG.get("CSP_SCORES_BACKGROUND_REFRESH", True))
+        ahead = float(BASE_CONFIG.get("CSP_SCORES_REFRESH_AHEAD_SEC", ahead))
+        stale_max = float(BASE_CONFIG.get("CSP_SCORES_SERVE_STALE_MAX_SEC", stale_max))
+    except Exception as e:
+        logger.debug(f"CSP refresh config unreadable, defaults used: {e}")
+    env = os.environ.get("VOLTRADE_CSP_BACKGROUND_REFRESH")
+    if env is not None:
+        enabled = env.strip().lower() not in ("", "0", "off", "false", "no")
+    return enabled, ahead, stale_max
+
+
+def _long_lived_process() -> bool:
+    """True in the RPC daemon. A subprocess-fallback scan exits when it returns,
+    so a background thread started there would never finish its refresh."""
+    main_file = getattr(sys.modules.get("__main__"), "__file__", "") or ""
+    return os.path.basename(main_file) == "voltrade_daemon.py"
+
+
+def _read_cache(path: str) -> Tuple[Optional[float], Optional[Dict[str, Any]]]:
+    """(age in seconds, payload) of one layer's cache file; (None, None) when
+    it is missing, unreadable, or carries no write time."""
+    try:
+        with open(path) as f:
+            cached = json.load(f)
+        cached_at = float(cached.get("_cached_at", 0) or 0)
+        if cached_at <= 0:
+            return None, None
+        return time.time() - cached_at, cached
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None, None
+
+
+def refresh_decision(age_layer1: Optional[float], age_layer2: Optional[float],
+                     refresh_ahead_sec: float, serve_stale_max_sec: float) -> str:
+    """Pure: what a scan's read does given the two cache ages.
+    "compute": no usable cache, or older than may be served: the caller computes.
+    "fresh":   both young: the ordinary cached read, nothing started.
+    "serve_and_refresh": answer from the cache now, recompute in the background.
+    Layer 1 is written about a minute before Layer 2, so it is the older one and
+    it decides."""
+    if age_layer1 is None or age_layer2 is None:
+        return "compute"
+    oldest = max(age_layer1, age_layer2)
+    if oldest >= serve_stale_max_sec:
+        return "compute"
+    if oldest < refresh_ahead_sec:
+        return "fresh"
+    return "serve_and_refresh"
+
+
+def get_last_background_refresh() -> Dict[str, Any]:
+    """Diagnostics only: the last background refresh this process started
+    ({} if none): when, why, how long, each layer's own stats, how it ended."""
+    return dict(_BACKGROUND_REFRESH)
+
+
+def _background_refresh(served_age_sec: float) -> None:
+    """Thread body. Holds _REFRESH_LOCK (acquired by the starter) until done."""
+    global _BACKGROUND_REFRESH
+    t0 = time.time()
+    record: Dict[str, Any] = {"started_at": t0, "status": "running",
+                              "served_age_sec": round(served_age_sec, 1)}
+    _BACKGROUND_REFRESH = dict(record)
+    _tls.scratch = {}
+    try:
+        candidates = _layer1_hard_gates(force=True)
+        age1, _ = _read_cache(UNIVERSE_CACHE_PATH)
+        if not candidates or age1 is None or age1 > (time.time() - t0) + 1.0:
+            # The snapshot fetch failed (Layer 1 answers with bare anchors and
+            # writes nothing). Scoring those would replace a full ranking with
+            # an anchors-only one stamped fresh; keep what is there instead.
+            record["status"] = "layer1_not_refreshed"
+        else:
+            scored = _layer2_score(candidates, force=True)
+            record["status"] = "ok"
+            record["scored"] = len(scored)
+    except Exception as e:  # never let the thread die silently holding the lock
+        record["status"] = "error"
+        record["error"] = str(e)[:200]
+        logger.warning(f"CSP universe background refresh failed: {e}")
+    finally:
+        record.update(getattr(_tls, "scratch", None) or {})
+        _tls.scratch = None
+        record["finished_at"] = time.time()
+        record["elapsed_sec"] = round(record["finished_at"] - t0, 2)
+        _BACKGROUND_REFRESH = dict(record)
+        _REFRESH_LOCK.release()
+        logger.info(f"CSP universe background refresh: {record['status']} "
+                    f"in {record['elapsed_sec']}s")
+
+
+def _start_background_refresh(served_age_sec: float) -> bool:
+    """Start one refresh unless one is already computing. True if started."""
+    if not _REFRESH_LOCK.acquire(blocking=False):
+        return False
+    try:
+        threading.Thread(target=_background_refresh, args=(served_age_sec,),
+                         name="csp-universe-refresh", daemon=True).start()
+    except Exception as e:
+        _REFRESH_LOCK.release()
+        logger.warning(f"CSP universe background refresh not started: {e}")
+        return False
+    return True
+
+
+def _serve_and_refresh_ahead() -> Optional[List[Dict]]:
+    """The scan's read when the refresh may run in the background. Returns the
+    cached ranking (and starts a refresh) or None: the caller then takes the
+    ordinary path, which reads fresh caches or computes."""
+    enabled, ahead, stale_max = _refresh_config()
+    if not enabled or not _long_lived_process():
+        return None
+    age1, layer1 = _read_cache(UNIVERSE_CACHE_PATH)
+    age2, layer2 = _read_cache(SCORES_CACHE_PATH)
+    if refresh_decision(age1, age2, ahead, stale_max) != "serve_and_refresh":
+        return None
+    scores = (layer2 or {}).get("scores") or []
+    if not scores:
+        # An empty ranking is the fail-closed answer to a failed earnings
+        # lookup (KB #45). It keeps its 15 minutes exactly as before.
+        return None
+    started = _start_background_refresh(max(age1, age2))
+    _put_stats("layer1", dict(build_layer1_stats(
+        cache_hit=True, universe_size=len((layer1 or {}).get("candidates") or [])),
+        served_age_sec=round(age1, 1)))
+    _put_stats("layer2", dict(build_prefetch_stats(cache_hit=True),
+                              served_age_sec=round(age2, 1),
+                              refresh="started" if started else "in_flight"))
+    return scores
+
+
 def get_top_csp_candidates(n: int = MAX_UNIVERSE_SIZE,
                            snap_data: Optional[Dict] = None) -> List[str]:
     """
@@ -848,11 +1026,16 @@ def get_top_csp_candidates(n: int = MAX_UNIVERSE_SIZE,
     Guaranteed to return at least CSP_ANCHOR_TICKERS (no empty list).
     """
     try:
-        candidates = _layer1_hard_gates(snap_data=snap_data)
-        if not candidates:
-            logger.warning("Layer 1 empty, returning anchors only")
-            return list(CSP_ANCHOR_TICKERS)
-        scored = _layer2_score(candidates, snap_data=snap_data)
+        scored = _serve_and_refresh_ahead() if snap_data is None else None
+        if scored is None:
+            # One computation at a time: a caller that arrives while a refresh
+            # is computing waits for it and then reads the cache it wrote.
+            with _REFRESH_LOCK:
+                candidates = _layer1_hard_gates(snap_data=snap_data)
+                if not candidates:
+                    logger.warning("Layer 1 empty, returning anchors only")
+                    return list(CSP_ANCHOR_TICKERS)
+                scored = _layer2_score(candidates, snap_data=snap_data)
         if not scored:
             logger.warning("Layer 2 empty, returning anchors only")
             return list(CSP_ANCHOR_TICKERS)
@@ -900,6 +1083,7 @@ def get_universe_snapshot() -> Dict[str, Any]:
             }
     except Exception as e:
         result["layer2_error"] = str(e)[:100]
+    result["background_refresh"] = get_last_background_refresh()
     return result
 
 

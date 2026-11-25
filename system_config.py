@@ -936,6 +936,22 @@ BASE_CONFIG = {
     # Master switch for csp_universe module. If False, T1 reverts to
     # hardcoded T1_TICKERS_FALLBACK (17 liquid anchor names).
     "T1_DYNAMIC_UNIVERSE_ENABLED": True,
+    # 2026-11-25, (am1) part (i), KNOWN BROKEN #60: in the daemon, the CSP
+    # universe's two layers are recomputed on a background thread between
+    # scans instead of inside the scan that finds them expired (that scan's
+    # tier engine took 31-75 s instead of under 10, one scan in three).
+    # Expected effect: no scan carries the recompute; the ranking a scan reads
+    # is normally under 15 min old as before and at most SERVE_STALE_MAX old
+    # when a refresh failed. False = the old in-scan recompute (rollback; the
+    # env var VOLTRADE_CSP_BACKGROUND_REFRESH=0 does the same with no deploy).
+    "CSP_SCORES_BACKGROUND_REFRESH": True,
+    # A scan that reads caches older than this starts the refresh. 480 s: the
+    # 900 s lifetime less the longest gap between two scans' reads measured
+    # 2026-11-25 (about 7 min), so the next read finds the new ranking.
+    "CSP_SCORES_REFRESH_AHEAD_SEC": 480,
+    # Oldest ranking a scan may be answered with while a refresh is pending
+    # (was 900, the cache lifetime). Past it the scan computes on its own clock.
+    "CSP_SCORES_SERVE_STALE_MAX_SEC": 1200,
 
     # ── REGIME ENGINE 2026-10-28 (docs/regime/FINDINGS.md, Stage B step 2) ──
     # Defaults for the five regime flags. regime_engine.flag_raw reads the
