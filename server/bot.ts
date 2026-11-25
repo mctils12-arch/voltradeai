@@ -46,6 +46,7 @@ import { STREAM_SIGNAL, appendStreamSignal, detectStreamSignal, etSession, isReg
 import { haltStateFrom, haltAllows, haltMode, KILL_BLOCKED_ORDER_STATUS, type HaltState } from "./haltScope";
 import { engineKillSnapshot, engineKillHealth, shouldAuditEngineKill, engineKillAuditLine, type EngineKillSnapshot } from "./engineKill";
 import { KILL_ON_AUDIT, KILL_ON_NOTIFY, KILL_ON_EMAIL, DRAWDOWN_KILL_SUFFIX, DRAWDOWN_KILL_EMAIL_SUBJECT, KILL_PRETRADE_REASON } from "../shared/haltWords";
+import { manualOrderValue, stockPriceFromLatestTrade, optionPriceFromQuote, isManualEntry, sizeCheckBlocker } from "./manualOrderCheck";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES, daemonCensusArgs } from "./diag";
 import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
 import { regimeCounterfactualBody } from "./regimeCounterfactual";
@@ -5289,24 +5290,54 @@ print(json.dumps(insider_cusum_probe.run_probe()))
     }
   });
 
+  /** The instrument's last price for the manual order's size check: a stock's latest trade (IEX, the feed this
+   *  account's data plan serves), an option's quoted mid per share. null when the broker has none: the caller refuses. */
+  async function manualOrderPrice(symbol: string): Promise<number | null> {
+    if (isOptionSymbol(symbol)) return optionPriceFromQuote(await posKillOptionQuote(symbol));
+    try {
+      const r = await fetch(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/trades/latest?feed=iex`, {
+        headers: { "APCA-API-KEY-ID": ALPACA_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) { console.warn(`[bot] manual order price ${symbol}: HTTP ${r.status}`); return null; }
+      return stockPriceFromLatestTrade(await r.json());
+    } catch (err) {
+      console.warn(`[bot] manual order price ${symbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+
   // Place a trade (manual or from bot signals)
   app.post("/api/bot/trade", requireOwner, async (req, res) => {
     if (state.killSwitch) return res.status(400).json({ error: "Kill switch is ON" });
     const { ticker, side, qty, type = "market" } = req.body || {};
     if (!ticker || !side || !qty) return res.status(400).json({ error: "ticker, side, qty required" });
 
-    // Phase 6: Security check before trading
-    try {
-      const acct = await alpaca("/v2/account");
-      const portfolioValue = parseFloat(acct.portfolio_value);
-      const currentPrice = parseFloat(acct.last_equity) / 100; // rough estimate
-      const tradeValue = qty * (currentPrice || 1);
-      const check = await checkTradeAllowed(portfolioValue, tradeValue);
+    // ENTRY CHECKS before a manual BUY ([REPAIR] 2026-11-25, server/manualOrderCheck.ts): the order is valued at
+    // quantity x the instrument's OWN last price (it was quantity x account equity / 100, a "rough estimate" that
+    // priced every share at about $876), and a buy whose price or account reading is missing is refused (it used to
+    // be sent unchecked). A sell on this route can only reduce a held long (the no-shorting rule below), so the
+    // position-size and daily-loss entry rules are not applied to it: they used to refuse exits.
+    if (isManualEntry(side)) {
+      const sym = String(ticker).toUpperCase();
+      let portfolioValue: number = NaN;
+      let orderValue: number | null = null;
+      try {
+        const acct = await alpaca("/v2/account");
+        portfolioValue = parseFloat(acct.portfolio_value);
+        orderValue = manualOrderValue(qty, await manualOrderPrice(sym), isOptionSymbol(sym));
+      } catch (err: any) { console.error("[bot] manual order size check:", err?.message || err); }
+      const blocker = sizeCheckBlocker(sym, portfolioValue, orderValue);
+      if (blocker) {
+        audit("BLOCKED", `Manual BUY ${qty} ${sym} not sent: ${blocker}`);
+        return res.status(400).json({ error: blocker });
+      }
+      const check = await checkTradeAllowed(portfolioValue, orderValue as number);
       if (!check.allowed) {
         audit("BLOCKED", `Trade rejected: ${check.reason}`);
         return res.status(400).json({ error: check.reason });
       }
-    } catch (err: any) { console.error("[bot]", err?.message || err); }
+    }
 
     try {
       // ══ HARD BLOCK: No stock shorting via manual API (PR #53) ══════════
