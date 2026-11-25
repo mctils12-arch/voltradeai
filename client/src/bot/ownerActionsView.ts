@@ -165,12 +165,21 @@ export function ownerActionsSentence(b: BreakerView, positions: number | null): 
   return `${b.sentence} · scan now, close ${positions === null ? "a position" : `one of ${plural(positions, "position")}`}, or place an order: each asks before it acts`;
 }
 
+/** The `error` (else `message`) string of a JSON body; null when the text is not JSON or carries neither, and the text itself is then the reason. */
+function jsonReason(text: string): string | null {
+  let j: unknown;
+  try { j = JSON.parse(text); } catch { return null; }
+  if (!j || typeof j !== "object") return null;
+  const o = j as { error?: unknown; message?: unknown };
+  return typeof o.error === "string" ? o.error : typeof o.message === "string" ? o.message : null;
+}
+
 /** A failed action in the server's own words. apiRequest raises "<status>: <body>"; a JSON body's `error` is the reason. */
 export function refusalWords(err: unknown): string {
   const raw = String(err instanceof Error ? err.message : err ?? "").trim();
   const m = /^(\d{3}):\s*([\s\S]*)$/.exec(raw);
   let reason = m ? m[2].trim() : raw;
-  try { const j = JSON.parse(reason) as { error?: unknown; message?: unknown }; if (typeof j?.error === "string") reason = j.error; else if (typeof j?.message === "string") reason = j.message; } catch { /* not JSON: the text is the reason */ }
+  reason = jsonReason(reason) ?? reason;
   reason = reason.replace(/\s+/g, " ").slice(0, 220) || "no reason given";
   if (/^timeout:/i.test(raw)) return `No answer from the server in time. Check the timeline before trying again: the action may have gone through.`;
   return m && m[1].startsWith("4") ? `Not done. The server refused: ${reason}` : `Not done. ${m ? `Server error ${m[1]}: ` : ""}${reason}`;
