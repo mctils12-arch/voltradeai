@@ -8,7 +8,7 @@ import os
 import pytest
 
 _spec = importlib.util.spec_from_file_location(
-    "cpc_degree_days", os.path.join(os.path.dirname(__file__), "scripts", "cpc_degree_days.py"))
+    "cpc_degree_days", os.path.join(os.path.dirname(__file__), "cpc_degree_days.py"))
 cpc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cpc)
 

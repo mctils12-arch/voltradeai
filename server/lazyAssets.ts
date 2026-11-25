@@ -85,6 +85,48 @@ export function resolveLazyAssetPath(rel: string, cwd: string = process.cwd()): 
   return viaRepo;
 }
 
+// ── refreshed copies on the volume ───────────────────────────────────────────
+// [2026-11-25, open_questions (ah4)] Four whole-file snapshots (EIA weekly,
+// CPC degree days, STB EP724 rail, JODI stocks) are refreshed nightly by
+// snapshot_refresh_job.py (server/snapshotRefresh.ts) into
+// <DATA_DIR>/snapshot_refresh/<rel>. A table created with `refreshable`
+// serves the NEWER of that copy and the bundled one, by the build time the
+// document itself carries. The bundled copy is always read first and a
+// missing bundled file still throws: the volume copy can replace the data,
+// never hide a packaging defect. A volume copy that is unreadable, not JSON
+// or carries no build time is logged and passed over.
+// ROLLBACK: VOLTRADE_SNAPSHOT_REFRESH=0 — the volume copies are ignored and
+// every table serves its bundled file, as before.
+export const SNAPSHOT_REFRESH_ENV = "VOLTRADE_SNAPSHOT_REFRESH";
+export const SNAPSHOT_REFRESH_SUBDIR = "snapshot_refresh";
+
+/** Unset or "1"/"true"/"on"/"yes" = on (default); anything else = off. */
+export function snapshotRefreshEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const raw = env[SNAPSHOT_REFRESH_ENV];
+  const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+  return v === "1" || v === "true" || v === "on" || v === "yes";
+}
+
+export function snapshotRefreshRoot(env: Record<string, string | undefined> = process.env): string {
+  return path.join(env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp"), SNAPSHOT_REFRESH_SUBDIR);
+}
+
+/** The document's embedded build time in ms (`built`, or JODI's `built_at`); NaN when absent. */
+export function snapshotBuiltMs(doc: unknown): number {
+  if (!doc || typeof doc !== "object") return NaN;
+  const d = doc as { built?: unknown; built_at?: unknown };
+  const b = d.built ?? d.built_at;
+  return typeof b === "string" ? Date.parse(b) : NaN;
+}
+
+export type LazyTableOrigin = "bundled" | "refreshed";
+
+/** Pure: which copy is served. The refreshed one only when both carry a build
+ *  time and its own is strictly later. */
+export function pickSnapshotOrigin(bundledBuiltMs: number, refreshedBuiltMs: number): LazyTableOrigin {
+  return Number.isFinite(refreshedBuiltMs) && Number.isFinite(bundledBuiltMs) && refreshedBuiltMs > bundledBuiltMs ? "refreshed" : "bundled";
+}
+
 export interface LazyJsonTable {
   /** repo-relative path, e.g. "datacore/quake_history.json" — also what build.ts stages */
   readonly rel: string;
@@ -100,11 +142,51 @@ export interface LazyJsonTable {
   loaded(): boolean;
   /** size in bytes of the file as last read (0 before any read) */
   bytes(): number;
-  /** drop the memoized table (tests only) */
+  /** drop the memoized table (tests, and the nightly snapshot refresh after
+   *  it has written a newer copy) */
   reset(): void;
+  /** which copy the last read served; null before any read */
+  origin(): LazyTableOrigin | null;
 }
 
-function readTable(rel: string): { value: unknown; bytes: number } {
+/** The volume copy of a refreshable table, or null (absent, switched off, or
+ *  not usable: said on stderr, never thrown). */
+function readRefreshed(rel: string, env: Record<string, string | undefined>): { value: unknown; bytes: number } | null {
+  if (!snapshotRefreshEnabled(env)) return null;
+  const fp = path.join(snapshotRefreshRoot(env), rel);
+  let buf: Buffer;
+  try {
+    buf = fs.readFileSync(fp);
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.error(`[lazyAssets] refreshed copy ${fp} unreadable, serving the bundled file: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+  try {
+    return { value: JSON.parse(buf.toString("utf8")), bytes: buf.length };
+  } catch (e: unknown) {
+    console.error(`[lazyAssets] refreshed copy ${fp} is not valid JSON, serving the bundled file: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+function readTable(rel: string, refreshable: boolean, env: Record<string, string | undefined>): { value: unknown; bytes: number; origin: LazyTableOrigin } {
+  const bundled = readBundled(rel);
+  if (!refreshable) return { ...bundled, origin: "bundled" };
+  const refreshed = readRefreshed(rel, env);
+  if (refreshed && pickSnapshotOrigin(snapshotBuiltMs(bundled.value), snapshotBuiltMs(refreshed.value)) === "refreshed") {
+    return { ...refreshed, origin: "refreshed" };
+  }
+  return { ...bundled, origin: "bundled" };
+}
+
+export interface LazyJsonTableOptions {
+  /** Serve the newer of the bundled file and the nightly job's volume copy. */
+  refreshable?: boolean;
+  /** For tests: the environment the volume root and the flag are read from. */
+  env?: Record<string, string | undefined>;
+}
+
+function readBundled(rel: string): { value: unknown; bytes: number } {
   const fp = resolveLazyAssetPath(rel);
   let buf: Buffer;
   try {
@@ -123,23 +205,28 @@ function readTable(rel: string): { value: unknown; bytes: number } {
   }
 }
 
-export function lazyJsonTable(rel: string): LazyJsonTable {
+export function lazyJsonTable(rel: string, opts: LazyJsonTableOptions = {}): LazyJsonTable {
+  const refreshable = opts.refreshable === true;
+  const env = () => opts.env ?? process.env;
   let memo: { value: unknown } | null = null;
   let size = 0;
+  let origin: LazyTableOrigin | null = null;
   return {
     rel,
     get() {
       if (!memo) {
-        const r = readTable(rel);
+        const r = readTable(rel, refreshable, env());
         memo = { value: r.value };
         size = r.bytes;
+        origin = r.origin;
       }
       return memo.value;
     },
     peek() {
       if (memo) return memo.value;
-      const r = readTable(rel);
+      const r = readTable(rel, refreshable, env());
       size = r.bytes;
+      origin = r.origin;
       return r.value;
     },
     loaded: () => memo !== null,
@@ -147,6 +234,7 @@ export function lazyJsonTable(rel: string): LazyJsonTable {
     reset() {
       memo = null;
     },
+    origin: () => origin,
   };
 }
 
@@ -167,7 +255,7 @@ export const LAZY_TABLES = {
   // entity_spine (3.9MB, the largest): per-hex route + fleet rollup/series.
   entitySpine: lazyJsonTable("datacore/aircraft/entity_spine.json"),
   // CPC degree days: grid-stress poller (when enabled) + inventory stamp.
-  cpcDegreeDays: lazyJsonTable("datacore/cpc/degree_days.json"),
+  cpcDegreeDays: lazyJsonTable("datacore/cpc/degree_days.json", { refreshable: true }),
   // Dashboard-request-only from here down: nothing touches these at boot.
   militaryInstallations: lazyJsonTable("datacore/military_installations.json"),
   quakeHistory: lazyJsonTable("datacore/quake_history.json"),
@@ -177,15 +265,21 @@ export const LAZY_TABLES = {
   pfasUcmr5: lazyJsonTable("datacore/pfas/ucmr5_detections.json"),
   cdcCountyRates: lazyJsonTable("datacore/cdc_cancer/county_rates.json"),
   cdcCountiesTopo: lazyJsonTable("datacore/cdc_cancer/counties-10m.topo.json"),
-  jodiPrimaryStocks: lazyJsonTable("datacore/jodi/primary_stocks.json"),
-  railEp724: lazyJsonTable("datacore/rail/ep724_carloads.json"),
+  jodiPrimaryStocks: lazyJsonTable("datacore/jodi/primary_stocks.json", { refreshable: true }),
+  railEp724: lazyJsonTable("datacore/rail/ep724_carloads.json", { refreshable: true }),
   // EIA weekly: no server route reads it — only its inventory build stamp
   // (snapshotStreams peek()), so in lazy mode it is parsed once and dropped.
-  eiaWeekly: lazyJsonTable("datacore/eia/weekly_series.json"),
+  eiaWeekly: lazyJsonTable("datacore/eia/weekly_series.json", { refreshable: true }),
   signalLadder: lazyJsonTable("datacore/signal_ladder.json"),
 } as const;
 
 export type LazyTableName = keyof typeof LAZY_TABLES;
+
+/** The four tables the nightly job refreshes (snapshot_refresh_job.py SOURCES;
+ *  server/snapshotRefresh.test.ts pins the two lists against each other). */
+export const REFRESHABLE_TABLES: readonly LazyJsonTable[] = [
+  LAZY_TABLES.eiaWeekly, LAZY_TABLES.cpcDegreeDays, LAZY_TABLES.railEp724, LAZY_TABLES.jodiPrimaryStocks,
+];
 
 export function lazyTableList(): LazyJsonTable[] {
   return Object.values(LAZY_TABLES);

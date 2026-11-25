@@ -392,6 +392,23 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_13F_CLUSTERS off",
   },
   {
+    // snapshotRefresh.ts bootSnapshotRefresh: 20-min tick, one run per ET day
+    // started inside 01:00-03:00 (snapshot_refresh_job.py: the EIA weekly, CPC
+    // degree-day, STB rail and JODI snapshots fetched and written to the volume
+    // when the served copy is over 20 h old; about 20 s). "error" when any
+    // source could not be fetched or its file was refused: the detail names it.
+    // A day whose run finished before a restart is not run again (last_run.json).
+    id: "snapshot_refresh_nightly", label: "Bundled snapshots refresh: EIA weekly, CPC degree days, STB rail, JODI (nightly, 01:00-03:00 ET)",
+    source: "server/snapshotRefresh.ts", kind: "daily", tz: "America/New_York", dueMin: 1 * 60,
+    graceMs: 150 * MIN, maxRunMs: 30 * MIN, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_SNAPSHOT_REFRESH;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_SNAPSHOT_REFRESH off",
+  },
+  {
     // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,

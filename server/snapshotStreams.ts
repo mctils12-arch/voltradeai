@@ -13,7 +13,9 @@
  * the table, otherwise a one-off parse that is garbage once the stamp is
  * kept — the inventory's boot refresh must not pin ~7.5MB of tables in
  * memory for the sake of six strings. Stamps are memoized for the process
- * lifetime (the files are immutable within one deploy). The 19KB UN
+ * lifetime (the files are immutable within one deploy; the four the nightly
+ * snapshot refresh rewrites on the volume are re-stamped when it does:
+ * resetSnapshotStreams()). The 19KB UN
  * Comtrade snapshot stays a static import (small; inlined like before).
  */
 import unComtrade from "../datacore/un_comtrade/bilateral_trade.json";
@@ -22,6 +24,9 @@ import { LAZY_TABLES, type LazyJsonTable } from "./lazyAssets";
 export interface SnapshotStamp {
   artifact: string; // repo-relative path shown as the "newest file"
   built: string | null; // ISO build time embedded in the dataset
+  /** "refreshed" when the served copy is the nightly job's volume copy
+   *  (server/snapshotRefresh.ts), not the file bundled in the image. */
+  origin?: "bundled" | "refreshed";
 }
 
 /** Pure: the dataset's embedded build time, or null when absent/unparseable. */
@@ -33,8 +38,9 @@ export function stamp(artifact: string, doc: { built?: unknown; built_at?: unkno
 /** stream id -> [artifact path, how to see its document], in the inventory's
  *  registration order. Lazy tables go through peek() (not retained); the
  *  one inlined snapshot is the import itself. */
-const lazy = (t: LazyJsonTable): readonly [string, () => unknown] => [t.rel, () => t.peek()];
-const SNAPSHOTS: ReadonlyArray<readonly [string, readonly [string, () => unknown]]> = [
+type Snap = readonly [string, () => unknown, (() => "bundled" | "refreshed" | null)?];
+const lazy = (t: LazyJsonTable): Snap => [t.rel, () => t.peek(), () => t.origin()];
+const SNAPSHOTS: ReadonlyArray<readonly [string, Snap]> = [
   ["eiaweekly", lazy(LAZY_TABLES.eiaWeekly)],
   ["cpcdegreedays", lazy(LAZY_TABLES.cpcDegreeDays)],
   ["jodi", lazy(LAZY_TABLES.jodiPrimaryStocks)],
@@ -53,9 +59,10 @@ let memo: Record<string, SnapshotStamp> | null = null;
 export function snapshotStreams(): Record<string, SnapshotStamp> {
   if (memo) return memo;
   const out: Record<string, SnapshotStamp> = {};
-  for (const [id, [artifact, doc]] of SNAPSHOTS) {
+  for (const [id, [artifact, doc, origin]] of SNAPSHOTS) {
     try {
       out[id] = stamp(artifact, doc() as { built?: unknown; built_at?: unknown });
+      if (origin?.() === "refreshed") out[id].origin = "refreshed";
     } catch (e: unknown) {
       console.error(`[snapshotStreams] ${artifact}: ${e instanceof Error ? e.message : String(e)}`);
       out[id] = { artifact, built: null };
@@ -63,6 +70,13 @@ export function snapshotStreams(): Record<string, SnapshotStamp> {
   }
   memo = out;
   return memo;
+}
+
+/** Forget the memoized stamps: the nightly snapshot refresh calls this after
+ *  it has written a newer copy (the files are immutable within one deploy
+ *  EXCEPT for that job's four). */
+export function resetSnapshotStreams(): void {
+  memo = null;
 }
 
 /** Test-only: forget the memoized stamps. */

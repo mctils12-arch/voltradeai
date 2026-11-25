@@ -1,7 +1,7 @@
 {
  "stream": "jodi",
- "storage": "git-versioned keyed JSON datacore/jodi/primary_stocks.json — WHOLE-FILE REBUILD per run (the source ships full history 2002+ every month; git history keeps vintages and JODI's own revisions surface as diffs — eiaweekly precedent), NOT append-only",
- "written_by": "scripts/jodi_oil.py (Python, session-run monthly after the ~19th; never on Railway — see cot.json _note on envelope-test coverage of Python writers)",
+ "storage": "git-versioned keyed JSON datacore/jodi/primary_stocks.json — WHOLE-FILE REBUILD per run (the source ships full history 2002+ every month; git history keeps vintages and JODI's own revisions surface as diffs — eiaweekly precedent), NOT append-only. From 2026-11-25 the copy the server refreshes nightly lives on the volume and keeps the newest build only: a vintage is kept only when a session commits the bundled file",
+ "written_by": "jodi_oil.py (Python, repo root). From 2026-11-25 the server runs it nightly through snapshot_refresh_job.py and writes <DATA_DIR>/snapshot_refresh/; the served copy is the newer of that file and the bundled one, by embedded build time. Before that date: session-run and committed, never on Railway (see cot.json _note on envelope-test coverage of Python writers)",
  "source": "JODI Oil World Primary database (jodidata.org world_Primary_CSV.zip, keyless static 23.3MB zip; probed + full-file scanned 2026-07-06: 6,872,400 rows, 118 REF_AREAs, dense 10-flow x 4-product x 5-unit grid, latest period 2026-04 = the documented ~2-month lag). OBS_VALUE markers verified by full scan: '-' and 'N/A' = not available, 'x' = not applicable — SKIPPED, never zeroed (the header probe alone missed 'N/A'; 29,736 occurrences)",
  "license": "free with acknowledgment (JODI data are publicly available for use with attribution); redistribution of the raw database not restricted for informational use — resale review before monetization",
  "attribution": "JODI Oil World Database (Joint Organisations Data Initiative)",
@@ -17,6 +17,6 @@
  "entity_key": "REF_AREA + ENERGY_PRODUCT + TIME_PERIOD",
  "sentiment": null,
  "started": "2026-07-06",
- "cadence": "monthly source update (~19th, 2-month publication lag); session-run monthly rebuild",
+ "cadence": "monthly source update (~19th, 2-month publication lag); the server checks every night, 01:00-03:00 ET, and refetches when the served copy is over 6 days old, from 2026-11-25 (job snapshot_refresh_nightly on Pipeline health); the bundled file is the cold-start copy",
  "_note": "Universal archive envelope (approved 2026-07-04). DATACORE MAXIMUS census build #3 (JODI ranked #3 in research/data_census.md; #1 OCC and #2 EPA CAMD key-blocked 9a). Secondary (products) file world_Secondary_CSV.zip is a separate future build — one logical change per PR."
 }

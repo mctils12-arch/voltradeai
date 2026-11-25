@@ -152,6 +152,7 @@ import { bootLazyPrices } from "./lazyPrices";
 import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { bootEarningsQoq } from "./earningsQoq";
 import { bootFilings13fClusters } from "./filings13fClusters";
+import { bootSnapshotRefresh } from "./snapshotRefresh";
 import { bootGithubGate2 } from "./githubGate2";
 import { bootForm4Completeness } from "./edgarForm4Completeness";
 import { registerFiresCompletenessRoutes } from "./firesCompleteness";
@@ -1822,6 +1823,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // run per ET day inside 05:00-06:00 over the volume's 13F archive; reads no
   // price. VOLTRADE_13F_CLUSTERS=0 disables.
   bootFilings13fClusters();
+  // Nightly refresh of the four whole-file snapshots (server/snapshotRefresh.ts):
+  // one run per ET day inside 01:00-03:00, written to the volume; the readers
+  // serve the newer of that copy and the bundled one. VOLTRADE_SNAPSHOT_REFRESH=0
+  // stops the job and the readers' use of the volume copies.
+  bootSnapshotRefresh();
   // Weekly re-run of the PRE-REGISTERED event-reaction study on the same panel,
   // delisted names included (server/eventStudy.ts; research/event_reaction_study.md):
   // Saturday 07:00-15:00 ET, waits while another panel reader runs, once per ISO

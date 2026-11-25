@@ -321,3 +321,31 @@ def test_earnings_language_scripts_shim_serves_the_root_module(name, attr):
     spec.loader.exec_module(shim)
     assert getattr(shim, attr).__code__.co_filename == root_file, "the shim must serve the root module's code"
     assert "\ndef " not in open(shim_file, encoding="utf-8").read(), "the shim holds no logic"
+
+
+def test_snapshot_refresh_job_and_its_four_refreshers_import_in_the_production_image_layout(tmp_path):
+    """The nightly snapshot refresh (server/snapshotRefresh.ts, 2026-11-25): its
+    command names a root file, and the four refreshers it loads BY NAME at run
+    time (importlib, which the static import-closure test above cannot see)
+    are in the image too. No network: an unknown --only stops before any fetch."""
+    src = open(os.path.join(REPO, "server", "snapshotRefresh.ts"), encoding="utf-8").read()
+    m = re.search(r"return `(python3 [^`]+)`;", src)
+    assert m, "snapshotRefreshCmd's command template not found"
+    cmd = m.group(1).replace("${SNAPSHOT_REFRESH_MAX_RSS_MB}", "600").replace("${v}", "0.0.0-test")
+    assert "${" not in cmd, cmd
+    assert cmd.split()[1] in _server_python_commands(), "the command scan must see this job's file"
+    layout, data = tmp_path / "app", tmp_path / "data"
+    layout.mkdir(); data.mkdir()
+    _image_layout(str(layout))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["DATA_DIR"] = str(data)
+    r = subprocess.run([sys.executable] + cmd.split()[1:] + ["--only", "not-a-source"], cwd=str(layout), env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert "can't open file" not in r.stderr and "ModuleNotFoundError" not in r.stderr, r.stderr[-2000:]
+    assert json.loads((r.stdout.strip().split("\n") or [""])[-1]).get("status") == "error"
+    prog = ("import importlib, snapshot_refresh_job as j\n"
+            "mods = [importlib.import_module(s['module']) for s in j.SOURCES]\n"
+            "assert all(callable(m.main) and m.OUT for m in mods)\n"
+            "print(len(mods))")
+    r = subprocess.run([sys.executable, "-c", prog], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and r.stdout.strip() == "4", r.stderr[-2000:]

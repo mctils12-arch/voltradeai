@@ -15,6 +15,11 @@ that can import the deps or fails BEFORE any write, and each refresher keeps
 its own all-fail-no-write guard. Staleness is flagged by
 scripts/research_state_check.py (bundled_* archive_freshness entries).
 
+2026-11-25: the server runs the same four refreshers itself every night
+(snapshot_refresh_job.py at the repo root, where the refreshers now live; the
+scripts/ files this wrapper calls are shims). This wrapper remains the way to
+refresh the BUNDLED files, which are the cold-start copy.
+
 Run:
   python3 scripts/snapshot_refresh.py --dry-run
   python3 scripts/snapshot_refresh.py [--only eia,cpc,rail,jodi]
