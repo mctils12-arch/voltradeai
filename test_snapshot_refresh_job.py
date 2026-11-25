@@ -170,7 +170,8 @@ def test_run_one_source_down_does_not_stop_the_others_and_the_run_reads_error(tm
             raise OSError("HTTP Error 403: Forbidden")
         _writer(new)(module, staging)
     # eia-shaped documents: the cpc/rail/jodi summaries do not read them, so only eia and the failing source are run
-    out = job.run(str(tmp_path / "vol"), only=["eia", "rail"], code_version="t", now=NOW, call=call, bundled_roots=roots)
+    # the budget is the job's own process's; inside a whole pytest run this process is far larger
+    out = job.run(str(tmp_path / "vol"), only=["eia", "rail"], code_version="t", max_rss_mb=1e9, now=NOW, call=call, bundled_roots=roots)
     assert out["status"] == "error" and out["refreshed"] == 1
     assert out["sources"]["eia"]["status"] == "refreshed" and out["sources"]["rail"]["status"] == "error"
     with open(os.path.join(str(tmp_path / "vol"), "last_run.json")) as fh:
@@ -178,6 +179,13 @@ def test_run_one_source_down_does_not_stop_the_others_and_the_run_reads_error(tm
     assert last["schema"] == job.SCHEMA and last["finished_at"] and last["sources"].keys() == {"eia", "rail"}
     assert job.overall_status({"a": {"status": "fresh"}, "b": {"status": "refreshed"}}) == "ok"
     assert job.overall_status({"a": {"status": "rejected"}}) == "error"
+
+
+def test_run_over_its_memory_budget_starts_no_further_source(tmp_path):
+    def boom(module, staging):
+        raise AssertionError("no source may start over budget")
+    out = job.run(str(tmp_path / "vol"), only=["eia"], max_rss_mb=0.0, now=NOW, call=boom, bundled_roots=[str(tmp_path)])
+    assert out["status"] == "error" and "over the 0 MB budget" in out["sources"]["eia"]["reason"]
 
 
 def test_cli_prints_one_json_line_and_refuses_an_unknown_source(tmp_path):

@@ -66,7 +66,9 @@ def parse_data_sheet(rows, datemode):
         if isinstance(c0, float) and isinstance(c1, (int, float)):
             try:
                 d = xlrd.xldate_as_datetime(c0, datemode).date().isoformat()
-            except Exception:
+            except (ValueError, OverflowError):
+                # xlrd's XLDateError is a ValueError: a cell that is a number
+                # but not a date (a footnote row). Not a point; skip it.
                 continue
             out.append([d, float(c1)])
     return title, out
