@@ -256,6 +256,30 @@ export function tryParseLocalHeader(buf: Buffer): ZipLocalHeader | null {
   return { method, compressedSize, headerLen, flags };
 }
 
+/** The stream reader's own header read (2026-11-25, open_questions.md (ap4)):
+ *  the same as tryParseLocalHeader, except that a STREAMED member (general-
+ *  purpose flag bit 3: the sizes are zero here and follow the data in a
+ *  descriptor) is accepted and marked. The vendor's files from mid-2025 back
+ *  are written that way (2025_06_02 measured; 2026_01_15 is not). A streamed
+ *  member's end is found by the inflater: a deflate stream marks its own last
+ *  block. tryParseLocalHeader keeps refusing them, for callers that need the
+ *  size up front. */
+export function parseStreamLocalHeader(buf: Buffer): (ZipLocalHeader & { streamed: boolean }) | null {
+  if (buf.length < 30) return null;
+  const flags = buf.readUInt16LE(6);
+  if (!(flags & 0x0008)) {
+    const h = tryParseLocalHeader(buf);
+    return h ? { ...h, streamed: false } : null;
+  }
+  if (buf.readUInt32LE(0) !== 0x04034b50) throw new Error("dtccSwaps zip: bad local header signature");
+  const method = buf.readUInt16LE(8);
+  const headerLen = 30 + buf.readUInt16LE(26) + buf.readUInt16LE(28);
+  if (buf.length < headerLen) return null;
+  // a stored member has no end marker of its own: without a size it cannot be bounded
+  if (method !== 8) throw new Error(`dtccSwaps zip: streamed member with compression method ${method} not supported`);
+  return { method, compressedSize: 0, headerLen, flags, streamed: true };
+}
+
 type NodeFetchResponse = { ok: boolean; status: number; body: ReadableStream<Uint8Array> | null };
 type FetchFn = (url: string, init?: { headers?: Record<string, string> }) => Promise<NodeFetchResponse>;
 
@@ -297,15 +321,23 @@ export async function streamDtccZip(
     };
 
     await readAtLeast(30);
-    const fixed = tryParseLocalHeader(leftover);
+    let fixed = parseStreamLocalHeader(leftover);
+    if (!fixed && leftover.length >= 30) {
+      // the name and extra field were not all in the first chunk
+      await readAtLeast(30 + leftover.readUInt16LE(26) + leftover.readUInt16LE(28));
+      fixed = parseStreamLocalHeader(leftover);
+    }
     if (!fixed) return { ok: false, status: 0, lines: 0 };
-    await readAtLeast(fixed.headerLen);
     leftover = leftover.subarray(fixed.headerLen);
     if (fixed.method !== 8 && fixed.method !== 0) {
       throw new Error(`dtccSwaps zip: unsupported compression method ${fixed.method}`);
     }
 
-    let remaining = fixed.compressedSize;
+    // a streamed member: everything after the header goes to the inflater,
+    // which ends at the deflate stream's own last block and ignores the
+    // descriptor and central directory behind it. A body cut short ends the
+    // input before that block: "unexpected end of file", thrown below.
+    let remaining = fixed.streamed ? Number.POSITIVE_INFINITY : fixed.compressedSize;
     const member = new Readable({
       async read() {
         try {
@@ -1480,7 +1512,27 @@ async function archiveNewRowsOnce(rows: DtccSwapRow[], observedDate: string, bas
 // OFF SWITCH: VOLTRADE_DTCC_CATCHUP=0 stops the catch-up; the poll still
 // writes the ledger. A lost or unreadable ledger costs re-reading the days
 // (0 new rows each), never a row.
+//
+// THE EDGE (2026-11-25, open_questions.md (ap4)). The vendor moves a dated
+// file to cold storage two years after it is written: a HEAD still answers
+// 200, a GET is refused (InvalidObjectState, S3 DEEP_ARCHIVE). Measured on
+// UTC day T = 2026-11-25: the file dated T-731 (2024_11_24, written
+// 2024-11-25 00:03Z) downloaded; T-732 did not. So one vendor day becomes
+// unreadable every day, and a keyless reader cannot get it back. Each poll
+// therefore reads, BEFORE the catch-up and oldest first, the vendor days
+// T-731, T-730 and T-729 the record does not hold (three, so a day of failed
+// polls loses nothing; after the first poll it is one new file a day). An
+// edge day that fails is asked again by every poll until it leaves the
+// window: waiting a week would be waiting past its end. These rows are older
+// than the floor on purpose; the 640 days between the edge and the floor stay
+// readable for up to two years and are (ap2)'s. VOLTRADE_DTCC_EDGE=0 stops
+// the edge reads.
 const SOURCE_DAYS_FILE = "_source_days.json";
+/** On UTC day T the oldest vendor file a GET still answers is dated T - this. */
+export const DTCC_EDGE_OLDEST_DAYS = 731;
+/** How many vendor days at the edge each poll makes sure of. */
+export const DTCC_EDGE_SPAN_DAYS = 3;
+export const DTCC_EDGE_ENV = "VOLTRADE_DTCC_EDGE";
 export const DTCC_CATCHUP_FLOOR = "2026-08-21";
 export const DTCC_CATCHUP_PER_POLL = 2;
 /** A vendor day that did not answer is asked again after this long. */
@@ -1491,8 +1543,9 @@ export interface DtccSourceDay {
   /** First and latest time this vendor day was asked for (ISO). */
   firstAt: string;
   lastAt: string;
-  /** Who read it first: the poll (it was the newest file) or the catch-up. */
-  via: "poll" | "catchup";
+  /** Who read it first: the poll (it was the newest file), the catch-up, or
+   *  the edge read (a day about to leave the vendor's readable window). */
+  via: "poll" | "catchup" | "edge";
   /** US-underlier rows in the file at its latest read. */
   usRows: number;
   /** Rows new to the archive, summed over every read of this file. */
@@ -1549,7 +1602,7 @@ function writeSourceDays(dir: string, days: DtccSourceDays): void {
   }
 }
 
-function recordSourceDayRead(dir: string, date: string, via: "poll" | "catchup", usRows: number, newRows: number, nowMs: number): void {
+function recordSourceDayRead(dir: string, date: string, via: DtccSourceDay["via"], usRows: number, newRows: number, nowMs: number): void {
   const days = readDtccSourceDays(path.dirname(dir));
   const at = new Date(nowMs).toISOString();
   const prev = days[date];
@@ -1562,12 +1615,12 @@ function recordSourceDayRead(dir: string, date: string, via: "poll" | "catchup",
   writeSourceDays(dir, days);
 }
 
-function recordSourceDayUnavailable(dir: string, date: string, status: number, nowMs: number): void {
+function recordSourceDayUnavailable(dir: string, date: string, status: number, nowMs: number, via: DtccSourceDay["via"] = "catchup"): void {
   const days = readDtccSourceDays(path.dirname(dir));
   const at = new Date(nowMs).toISOString();
   const prev = days[date];
   days[date] = {
-    firstAt: prev?.firstAt ?? at, lastAt: at, via: prev?.via ?? "catchup",
+    firstAt: prev?.firstAt ?? at, lastAt: at, via: prev?.via ?? via,
     usRows: prev?.usRows ?? 0, newRows: prev?.newRows ?? 0, reads: (prev?.reads ?? 0) + 1, unavailable: status,
   };
   writeSourceDays(dir, days);
@@ -1594,6 +1647,25 @@ export function dtccCatchupCandidates(days: DtccSourceDays, newest: string, nowM
   return out;
 }
 
+/** The vendor days about to leave the readable window that the record does
+ *  not hold as read, oldest first (the oldest leaves first). A day that did
+ *  not answer is returned again: there is no later. Pure. */
+export function dtccEdgeCandidates(days: DtccSourceDays, nowMs: number): string[] {
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+  const out: string[] = [];
+  for (let k = DTCC_EDGE_OLDEST_DAYS; k > DTCC_EDGE_OLDEST_DAYS - DTCC_EDGE_SPAN_DAYS; k--) {
+    const d = addDaysYmd(today, -k);
+    const e = days[d];
+    if (!e || e.unavailable !== undefined) out.push(d);
+  }
+  return out;
+}
+
+export function dtccEdgeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = (env[DTCC_EDGE_ENV] || "").trim().toLowerCase();
+  return !(v === "0" || v === "off" || v === "false");
+}
+
 export function dtccCatchupEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = (env[DTCC_CATCHUP_ENV] || "").trim().toLowerCase();
   return !(v === "0" || v === "off" || v === "false");
@@ -1617,19 +1689,26 @@ async function readVendorDay(ymdUnderscored: string, fetchImpl: FetchFn): Promis
   return { ok, status, lines, rows };
 }
 
-/** Reads up to DTCC_CATCHUP_PER_POLL vendor days the ledger does not hold.
+/** Reads the edge days the ledger does not hold (see THE EDGE above), then up
+ *  to DTCC_CATCHUP_PER_POLL vendor days since the floor it does not hold.
  *  Returns the archive's total after the last day read, or null when nothing
  *  was read. Never throws: the poll's own result stands whatever happens here. */
 async function catchUpSourceDays(newest: string, observedDate: string, fetchImpl: FetchFn, nowMs: number, baseDir?: string): Promise<{ seenTotal: number } | null> {
-  if (!dtccCatchupEnabled()) return null;
   const dir = dtccDir(baseDir);
   let last: { seenTotal: number } | null = null;
   try {
-    for (const day of dtccCatchupCandidates(readDtccSourceDays(baseDir), newest, nowMs)) {
+    const held = readDtccSourceDays(baseDir);
+    // the edge first: those days have a last day; the catch-up's do not
+    const todo: Array<{ day: string; via: "edge" | "catchup" }> = [
+      ...(dtccEdgeEnabled() ? dtccEdgeCandidates(held, nowMs).map((day) => ({ day, via: "edge" as const })) : []),
+      ...(dtccCatchupEnabled() ? dtccCatchupCandidates(held, newest, nowMs).map((day) => ({ day, via: "catchup" as const })) : []),
+    ];
+    for (const { day, via } of todo) {
       const { ok, status, rows } = await readVendorDay(day.replace(/-/g, "_"), fetchImpl);
       if (!ok) {
-        recordSourceDayUnavailable(dir, day, status, nowMs);
-        console.error(`[datacore] dtccswaps catch-up ${day}: HTTP ${status} / no body — asked again in ${Math.round(DTCC_CATCHUP_RETRY_MS / 86_400_000)} days`);
+        recordSourceDayUnavailable(dir, day, status, nowMs, via);
+        if (via === "edge") idsEmit("DTCC-EDGE-DAY-UNREAD", `vendor file dated ${day} did not answer (HTTP ${status}); it leaves the vendor's readable window within ${DTCC_EDGE_SPAN_DAYS} days — asked again by the next poll`);
+        else console.error(`[datacore] dtccswaps catch-up ${day}: HTTP ${status} / no body — asked again in ${Math.round(DTCC_CATCHUP_RETRY_MS / 86_400_000)} days`);
         continue;
       }
       const failuresBefore = archiveWriteFailures;
@@ -1638,9 +1717,11 @@ async function catchUpSourceDays(newest: string, observedDate: string, fetchImpl
         // DTCC-ARCHIVE-ERROR was already emitted; the day stays unread in the ledger
         break;
       }
-      recordSourceDayRead(dir, day, "catchup", rows.length, newRows, nowMs);
+      recordSourceDayRead(dir, day, via, rows.length, newRows, nowMs);
       last = { seenTotal };
-      if (newRows > 0) {
+      if (via === "edge") {
+        console.log(`[datacore] dtccswaps edge ${day}: ${rows.length} US-underlier row(s), ${newRows} new, read before the vendor's two-year limit (${seenTotal} archived total)`);
+      } else if (newRows > 0) {
         idsEmit("DTCC-SOURCE-DAY-REFILLED", `vendor file dated ${day} held ${newRows} of ${rows.length} US-underlier row(s) the archive did not: written to ${observedDate}'s day file (${seenTotal} archived total)`);
       } else {
         console.log(`[datacore] dtccswaps catch-up ${day}: ${rows.length} US-underlier row(s), all held`);
@@ -1668,6 +1749,9 @@ export interface DtccSourceDaysSummary {
   refilledRows: number;
   /** Latest of them, for the page. */
   lastRefilled: { date: string; at: string; newRows: number } | null;
+  /** Vendor days older than the floor, read before they left the vendor's
+   *  two-year readable window: how many, their rows, the oldest and newest. */
+  edge: { enabled: boolean; days: number; rows: number; oldest: string | null; newest: string | null };
 }
 
 /** What the ledger says, for the routes. Reads one small file. */
@@ -1678,7 +1762,15 @@ export function dtccSourceDaysSummary(baseDir?: string): DtccSourceDaysSummary {
   const s: DtccSourceDaysSummary = {
     enabled: dtccCatchupEnabled(), floor: DTCC_CATCHUP_FLOOR, through,
     expected: 0, read: 0, unavailable: 0, pending: 0, refilledDays: 0, refilledRows: 0, lastRefilled: null,
+    edge: { enabled: dtccEdgeEnabled(), days: 0, rows: 0, oldest: null, newest: null },
   };
+  for (const k of readKeys) {
+    if (days[k].via !== "edge" || k >= DTCC_CATCHUP_FLOOR) continue;
+    s.edge.days++;
+    s.edge.rows += days[k].newRows;
+    s.edge.oldest ??= k;
+    s.edge.newest = k;
+  }
   if (!through || through < DTCC_CATCHUP_FLOOR) return s;
   for (let d = DTCC_CATCHUP_FLOOR; d <= through; d = addDaysYmd(d, 1)) {
     s.expected++;
