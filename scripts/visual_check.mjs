@@ -3415,6 +3415,7 @@ const FIXTURES = {
     source_days: {
       enabled: true, floor: "2026-08-21", through: "2026-09-09", expected: 20, read: 14, unavailable: 0, pending: 6,
       refilledDays: 1, refilledRows: 112100, lastRefilled: { date: "2026-09-06", at: "2026-09-10T01:00:00.000Z", newRows: 112100 },
+      edge: { enabled: true, days: 3, rows: 129500, oldest: "2024-09-08", newest: "2024-09-10" },
     },
     note: "Fixture: US-underlier scope only; basket-swap rows excluded from this view (see server/dtccSwaps.ts).",
     top_rows: [

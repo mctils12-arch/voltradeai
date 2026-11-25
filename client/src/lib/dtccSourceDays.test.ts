@@ -1,7 +1,7 @@
 // Run: npx tsx --test client/src/lib/dtccSourceDays.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dtccSourceDaysLine, type DtccSourceDaysSummary } from "./dtccSourceDays";
+import { dtccSourceDaysLine, dtccEdgeLine, type DtccSourceDaysSummary } from "./dtccSourceDays";
 
 const base: DtccSourceDaysSummary = {
   enabled: true, floor: "2026-08-21", through: "2026-11-24", expected: 96, read: 96,
@@ -42,4 +42,17 @@ test("a day the vendor did not serve is said, and blocks 'no day was missed'", (
   const line = dtccSourceDaysLine({ ...base, read: 95, unavailable: 1 })!;
   assert.match(line, /1 day the vendor did not serve/);
   assert.doesNotMatch(line, /no day was missed/);
+});
+
+test("edge line: nothing until a day at the vendor's two-year limit has been read; then the days, the span and the events", () => {
+  assert.equal(dtccEdgeLine(undefined), null);
+  assert.equal(dtccEdgeLine(base), null, "an older server sends no edge block");
+  assert.equal(dtccEdgeLine({ ...base, edge: { enabled: true, days: 0, rows: 0, oldest: null, newest: null } }), null);
+  assert.equal(
+    dtccEdgeLine({ ...base, edge: { enabled: true, days: 1, rows: 64749, oldest: "2024-11-25", newest: "2024-11-25" } }),
+    "The vendor stops serving a file two years after it is written: 1 day at that limit read in time (2024-11-25, 64,749 events)",
+  );
+  const many = dtccEdgeLine({ ...base, edge: { enabled: false, days: 3, rows: 130000, oldest: "2024-11-24", newest: "2024-11-26" } })!;
+  assert.match(many, /3 days at that limit read in time \(2024-11-24 to 2024-11-26, 130,000 events\)/);
+  assert.match(many, /these reads are switched off now$/);
 });
