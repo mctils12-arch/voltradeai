@@ -35,8 +35,33 @@ OUTPUT: <DATA_DIR>/snapshot_refresh/<repo-relative path of each snapshot> and
 object (the scheduler reads it). Raw public-domain / attributed source data,
 unchanged in content from what a session-run refresh writes; no derived value.
 
-NOT KEPT: vintages. Git kept one per session commit; the volume keeps the
-newest only (filed, open_questions.md 2026-11-25).
+VINTAGES (open_questions.md (ao3), 2026-11-25): the volume keeps the newest copy
+only, and EIA, CPC, the STB and JODI all revise what they published. What a
+source said on a given night cannot be fetched again later, so before an
+accepted file replaces the served one, every point that differs between the two
+is appended to <DATA_DIR>/snapshot_refresh/vintages/:
+  <key>.jsonl   one row per changed point: {"seen", "prev", "series", "period",
+                "kind", "old", "new"}. kind is "new" (the period was not in the
+                served copy: a first print), "revised" (both hold it, the values
+                differ) or "removed". `seen` is the new file's build time, `prev`
+                the served copy's. JODI values are [value, assessment code].
+  builds.jsonl  one row per accepted file, written AFTER its point rows: the
+                counts, the series that appeared or left, both build times. A
+                night with no row here is a night no file was accepted; a row
+                with zero counts is a night nothing changed. Point rows count
+                only when their (key, seen) has a row here: a run killed between
+                the two writes repeats its point rows the next night under a
+                new `seen` (read_vintage skips the orphans).
+  full/<key>_<prev build>.json.gz   written INSTEAD of point rows when more than
+                VINTAGE_MAX_ROWS points changed (a source re-based its history):
+                the whole previous copy, so nothing is lost and the row log
+                stays small.
+The record starts on the night this shipped; the builds before it are in git
+(one per session commit) and are not back-filled here. A failed write never
+stops the refresh: the source still reads "refreshed", its `vintage` carries
+the error and the run's status is "error", so the job row says so.
+VOLTRADE_SNAPSHOT_VINTAGES=0 stops the record only. Raw source values, nothing
+derived; nothing reads this record yet.
 
 Run:
   python3 snapshot_refresh_job.py --run [--only eia,cpc,rail,jodi] [--out-root DIR]
@@ -46,6 +71,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import gzip
 import importlib
 import json
 import os
@@ -58,6 +84,14 @@ OUT_SUBDIR = "snapshot_refresh"
 SCHEMA = "snapshot_refresh/1"
 # A refreshed file must hold at least this share of the served copy's series.
 MIN_SERIES_SHARE = 0.9
+
+VINTAGE_SUBDIR = "vintages"
+VINTAGE_SCHEMA = "snapshot_vintage/1"
+# More changed points than this in one build is a re-based history, not a
+# revision: the previous copy is kept whole instead (the largest snapshot is
+# 1.4 MB, about 0.2 MB gzipped). Measured 2026-11-25: one night's refresh changed
+# at most a few hundred points per source.
+VINTAGE_MAX_ROWS = 20000
 
 # key, refresher module (repo root), the snapshot's repo-relative path, and the
 # youngest served copy that is refreshed again. 20 h: one run a night, also when
@@ -138,6 +172,138 @@ def validate(key: str, new_doc, served_doc):
     if new_sum["latest"] < served_sum["latest"]:
         return False, f"latest {new_sum['latest']} is earlier than the served {served_sum['latest']}"
     return True, "ok"
+
+
+def vintages_enabled(env=None) -> bool:
+    """Unset is on; set, only 1/true/on/yes is on (the rule of the refresh's own
+    flag, server/lazyAssets.ts snapshotRefreshEnabled)."""
+    v = str((env if env is not None else os.environ).get("VOLTRADE_SNAPSHOT_VINTAGES", "1")).strip().lower()
+    return v in ("1", "true", "on", "yes")
+
+
+def flatten(key: str, doc: dict) -> dict:
+    """{series: {period: value}} of one snapshot, every point it holds. A null
+    in a week- or day-aligned array is a period the source did not report and
+    is left out. Raises on a shape it does not know."""
+    series = doc["series"]
+    out = {}
+    if key == "eia":
+        for name, s in series.items():
+            out[name] = {str(p[0]): p[1] for p in s["points"] if p[1] is not None}
+    elif key == "jodi":
+        for name, s in series.items():
+            out[name] = {str(p[0]): list(p[1:]) for p in s["points"]}
+    elif key in ("cpc", "rail"):
+        for name, vals in series.items():
+            axis = doc["axes"][name.rsplit("|", 1)[1]] if key == "cpc" else doc["weeks"]
+            if len(vals) != len(axis):
+                raise ValueError(f"{name}: {len(vals)} values against {len(axis)} periods")
+            out[name] = {str(p): v for p, v in zip(axis, vals) if v is not None}
+    else:
+        raise ValueError(f"unknown source {key}")
+    return out
+
+
+def diff_points(old: dict, new: dict) -> list:
+    """Every point that differs between two flatten() results, as
+    (series, period, kind, old, new), in a stable order."""
+    rows = []
+    for name in sorted(set(old) | set(new)):
+        a, b = old.get(name, {}), new.get(name, {})
+        for period in sorted(set(a) | set(b)):
+            if period not in a:
+                rows.append((name, period, "new", None, b[period]))
+            elif period not in b:
+                rows.append((name, period, "removed", a[period], None))
+            elif a[period] != b[period]:
+                rows.append((name, period, "revised", a[period], b[period]))
+    return rows
+
+
+def _append_lines(fp: str, lines: list) -> None:
+    """One write call, flushed to the disk before returning."""
+    os.makedirs(os.path.dirname(fp), exist_ok=True)
+    with open(fp, "a", encoding="utf-8") as fh:
+        fh.write("".join(json.dumps(x, separators=(",", ":")) + "\n" for x in lines))
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def record_vintage(key: str, served_doc, new_doc, out_root: str) -> dict:
+    """Append what changed between the served copy and the accepted one (see
+    VINTAGES in the header). Never raises: {"error": reason} instead."""
+    try:
+        prev, seen = built_of(served_doc), built_of(new_doc)
+        if prev is None or seen is None:
+            return {"error": "a copy has no build time"}
+        prev_s, seen_s = prev.isoformat(timespec="seconds"), seen.isoformat(timespec="seconds")
+        old, new = flatten(key, served_doc), flatten(key, new_doc)
+        rows = diff_points(old, new)
+        counts = {k: sum(1 for r in rows if r[2] == k) for k in ("new", "revised", "removed")}
+        vdir = os.path.join(out_root, VINTAGE_SUBDIR)
+        build = {"schema": VINTAGE_SCHEMA, "key": key, "seen": seen_s, "prev": prev_s, **counts,
+                 "series_added": sorted(set(new) - set(old)), "series_removed": sorted(set(old) - set(new))}
+        if len(rows) > VINTAGE_MAX_ROWS:
+            name = f"{key}_{prev.strftime('%Y%m%dT%H%M%SZ')}.json.gz"
+            fp = os.path.join(vdir, "full", name)
+            os.makedirs(os.path.dirname(fp), exist_ok=True)
+            with gzip.open(fp + ".tmp", "wt", encoding="utf-8") as fh:
+                json.dump(served_doc, fh, separators=(",", ":"))
+            os.replace(fp + ".tmp", fp)
+            build["full_prev"] = name
+        elif rows:
+            _append_lines(os.path.join(vdir, f"{key}.jsonl"), [
+                {"seen": seen_s, "prev": prev_s, "series": r[0], "period": r[1], "kind": r[2], "old": r[3], "new": r[4]}
+                for r in rows])
+        _append_lines(os.path.join(vdir, "builds.jsonl"), [build])
+        out = dict(counts)
+        if "full_prev" in build:
+            out["full_prev"] = build["full_prev"]
+        return out
+    except Exception as e:  # noqa: BLE001 — the record must never stop a refresh; the reason is reported on the job row
+        return {"error": f"{type(e).__name__}: {str(e)[:120]}"}
+
+
+def vintage_bytes(out_root: str):
+    """Bytes the record holds on disk, or None when it cannot be read. The job
+    row carries it, so a reader without the volume can see the record grow."""
+    total = 0
+    try:
+        for root, _dirs, files in os.walk(os.path.join(out_root, VINTAGE_SUBDIR)):
+            for name in files:
+                total += os.path.getsize(os.path.join(root, name))
+    except OSError as e:
+        print(f"[snapshot_refresh] could not size the vintage record: {e}", file=sys.stderr)
+        return None
+    return total
+
+
+def read_vintage(key: str, out_root: str) -> dict:
+    """{"builds": [...], "rows": [...]} for one source: the build rows, and the
+    point rows of those builds only (see builds.jsonl in the header). Lines
+    that are not JSON are counted in "bad_lines", never raised."""
+    vdir = os.path.join(out_root, VINTAGE_SUBDIR)
+    bad = 0
+
+    def lines(fp):
+        nonlocal bad
+        try:
+            with open(fp, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        bad += 1
+                        continue
+                    if isinstance(row, dict):
+                        yield row
+        except FileNotFoundError:
+            return
+
+    builds = [b for b in lines(os.path.join(vdir, "builds.jsonl")) if b.get("key") == key]
+    committed = {b.get("seen") for b in builds}
+    rows = [r for r in lines(os.path.join(vdir, f"{key}.jsonl")) if r.get("seen") in committed]
+    return {"builds": builds, "rows": rows, "bad_lines": bad}
 
 
 def _read_json(fp: str):
@@ -222,10 +388,15 @@ def refresh_one(src: dict, out_root: str, now: dt.datetime, call=_call_refresher
         ok, reason = validate(key, new_doc, served)
         if not ok:
             return {"status": "rejected", "reason": reason}
+        # Before the served copy is replaced: after it, what changed is gone.
+        vintage = record_vintage(key, served, new_doc, out_root) if served is not None and vintages_enabled() else None
         os.replace(staging, final)
         s = summarize(key, new_doc)
-        return {"status": "refreshed", "built": built_of(new_doc).isoformat(timespec="seconds"),
-                "latest": s["latest"], "n_series": s["n_series"], "bytes": os.path.getsize(final)}
+        out = {"status": "refreshed", "built": built_of(new_doc).isoformat(timespec="seconds"),
+               "latest": s["latest"], "n_series": s["n_series"], "bytes": os.path.getsize(final)}
+        if vintage is not None:
+            out["vintage"] = vintage
+        return out
     except Exception as e:  # noqa: BLE001 — one source's outage must not stop the others; the reason is reported
         return {"status": "error", "reason": f"{type(e).__name__}: {str(e)[:140]}"}
     finally:
@@ -239,8 +410,10 @@ def refresh_one(src: dict, out_root: str, now: dt.datetime, call=_call_refresher
 
 
 def overall_status(sources: dict) -> str:
-    """error when any source failed or was refused; ok otherwise."""
-    return "error" if any(r["status"] in ("error", "rejected") for r in sources.values()) else "ok"
+    """error when any source failed or was refused, or a refreshed source's
+    vintage record could not be written; ok otherwise."""
+    return "error" if any(r["status"] in ("error", "rejected") or "error" in (r.get("vintage") or {})
+                          for r in sources.values()) else "ok"
 
 
 def run(out_root: str, only=None, code_version: str = "unknown", max_rss_mb: float = 600.0,
@@ -260,6 +433,7 @@ def run(out_root: str, only=None, code_version: str = "unknown", max_rss_mb: flo
         "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "refreshed": sum(1 for r in sources.values() if r["status"] == "refreshed"),
         "sources": sources, "elapsed_s": round(time.time() - t0, 1), "peak_rss_mb": round(_rss_mb(), 1),
+        "vintage_bytes": vintage_bytes(out_root),
     }
     _write_atomic(os.path.join(out_root, "last_run.json"), out)
     return out

@@ -33,6 +33,14 @@
  * Raw public data, unchanged in content; nothing here is read by a trading
  * path. FLAG: VOLTRADE_SNAPSHOT_REFRESH, default ON; off stops the job AND
  * makes the readers ignore the volume copies (lazyAssets.ts).
+ *
+ * VINTAGES (2026-11-25, open_questions.md (ao3)): before an accepted file
+ * replaces the served one the Python appends every point that differs between
+ * the two to <DATA_DIR>/snapshot_refresh/vintages/ (its header has the layout).
+ * The job row says how many points a source revised or withdrew, and says so
+ * loudly when the record could not be written (the run then reads "error";
+ * the file is still refreshed). VOLTRADE_SNAPSHOT_VINTAGES=0 stops the record
+ * only.
  */
 import fs from "fs";
 import path from "path";
@@ -109,11 +117,25 @@ export interface SnapshotRefreshOutcome extends RunOutcome {
   refreshed: number;
 }
 
+/** What the refresh recorded of the copy it replaced (snapshot_refresh_job.py
+ *  VINTAGES): said only when the source revised or withdrew a point it had
+ *  published, or the record could not be written. First prints are the
+ *  ordinary case and are in the record, not on the row. */
+export function describeVintage(v: Record<string, unknown>): string {
+  const err = str(v.error);
+  if (err) return `, CHANGES NOT RECORDED: ${err.slice(0, 50)}`;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : 0);
+  const parts: string[] = [];
+  if (n(v.revised)) parts.push(`${n(v.revised)} revised`);
+  if (n(v.removed)) parts.push(`${n(v.removed)} removed`);
+  return parts.length ? `, ${parts.join(", ")}` : "";
+}
+
 /** One source for the job row, short: the row's detail is cut at 200
  *  characters and a failure's reason matters more than a success's date. */
 export function describeSource(key: string, r: Record<string, unknown>): string {
   const st = str(r.status) ?? "?";
-  if (st === "refreshed") return `${key} refreshed to ${str(r.latest) ?? "?"}`;
+  if (st === "refreshed") return `${key} refreshed to ${str(r.latest) ?? "?"}${describeVintage(obj(r.vintage))}`;
   if (st === "fresh") return `${key} fresh`;
   return `${key} ${st}: ${(str(r.reason) ?? "no reason given").slice(0, 60)}`;
 }
@@ -132,11 +154,18 @@ export function parseSnapshotRefreshSummary(stdout: string): SnapshotRefreshOutc
     return { status: "error", refreshed: 0, detail: str(j.reason) ?? `status ${String(st)}, no sources reported` };
   }
   // Failures first: the row is cut at 200 characters.
-  const bad = keys.filter((k) => { const s = str(obj(sources[k]).status); return s === "error" || s === "rejected"; });
+  const bad = keys.filter((k) => {
+    const r = obj(sources[k]);
+    const s = str(r.status);
+    return s === "error" || s === "rejected" || str(obj(r.vintage).error) !== null;
+  });
   const good = keys.filter((k) => !bad.includes(k));
   const detail = [...bad, ...good].map((k) => describeSource(k, obj(sources[k]))).join("; ");
   const refreshed = typeof j.refreshed === "number" && Number.isFinite(j.refreshed) ? j.refreshed : 0;
-  return { status: st, refreshed, detail: `${detail} (${String(j.elapsed_s)}s, peak ${String(j.peak_rss_mb)} MB)` };
+  // The size of the vintage record on the volume: the one number that shows it
+  // growing to a reader who cannot list the volume.
+  const vb = typeof j.vintage_bytes === "number" && Number.isFinite(j.vintage_bytes) && j.vintage_bytes > 0 ? `, changes kept ${Math.ceil(j.vintage_bytes / 1024)} KB` : "";
+  return { status: st, refreshed, detail: `${detail} (${String(j.elapsed_s)}s, peak ${String(j.peak_rss_mb)} MB${vb})` };
 }
 
 /** Run the refresh once (process-group kill on timeout). Never throws. A run
