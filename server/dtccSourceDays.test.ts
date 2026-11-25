@@ -4,6 +4,9 @@
 // that was never the newest at the moment of a poll was a silent, permanent
 // gap. These tests pin the source-day ledger and the catch-up that reads the
 // days it does not hold.
+// The edge reads (open_questions.md (ap4), server/dtccEdgeDays.test.ts) are
+// switched off in every poll here (VOLTRADE_DTCC_EDGE=0) so each test's list
+// of files asked for is the catch-up's alone.
 // Run: npx tsx --test server/dtccSourceDays.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -16,6 +19,7 @@ import {
   REQUIRED_COLUMNS, refreshDtccSwaps, latestDtcc, loadSeenIds, setDtccIdsAuditSink, _resetDtccForTests,
   readDtccSourceDays, dtccCatchupCandidates, dtccSourceDaysSummary, dtccCatchupEnabled,
   DTCC_CATCHUP_FLOOR, DTCC_CATCHUP_PER_POLL, DTCC_CATCHUP_RETRY_MS, DTCC_CATCHUP_ENV, type DtccSourceDays,
+  DTCC_EDGE_ENV,
 } from "./dtccSwaps";
 
 const IDS_ENV = "VOLTRADE_DTCC_IDS_STORE";
@@ -105,7 +109,7 @@ test("candidates: a day that did not answer is asked again only after the retry 
 });
 
 test("THE GAP: a vendor day no poll read while it was the newest is read by the next poll, archived, counted and audited", async () => {
-  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined }, async () => {
+  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined, [DTCC_EDGE_ENV]: "0" }, async () => {
     const dir = freshDir();
     const audits: string[] = [];
     setDtccIdsAuditSink((type, message) => audits.push(`${type}: ${message}`));
@@ -144,6 +148,7 @@ test("THE GAP: a vendor day no poll read while it was the newest is read by the 
       assert.deepEqual(dtccSourceDaysSummary(dir), {
         enabled: true, floor: "2026-08-21", through: "2026-08-24", expected: 4, read: 3, unavailable: 1, pending: 0,
         refilledDays: 1, refilledRows: 2, lastRefilled: { date: "2026-08-23", at: "2026-08-25T01:00:00.000Z", newRows: 2 },
+        edge: { enabled: false, days: 0, rows: 0, oldest: null, newest: null },
       });
     } finally {
       setDtccIdsAuditSink(null);
@@ -153,7 +158,7 @@ test("THE GAP: a vendor day no poll read while it was the newest is read by the 
 });
 
 test("a day already held costs one read and adds nothing; each poll reads at most the cap and the sweep moves back", async () => {
-  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined }, async () => {
+  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined, [DTCC_EDGE_ENV]: "0" }, async () => {
     const dir = freshDir();
     const audits: string[] = [];
     setDtccIdsAuditSink((type) => audits.push(type));
@@ -196,7 +201,7 @@ test("a day already held costs one read and adds nothing; each poll reads at mos
 test("off switch: no catch-up read is made; the poll still records its own file", async () => {
   for (const off of ["0", "off", "false"]) assert.equal(dtccCatchupEnabled({ [DTCC_CATCHUP_ENV]: off }), false);
   assert.equal(dtccCatchupEnabled({}), true);
-  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: "0" }, async () => {
+  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: "0", [DTCC_EDGE_ENV]: "0" }, async () => {
     const dir = freshDir();
     try {
       const v = vendor({ "2026-08-23": buildZip(["3"]), "2026-08-24": buildZip(["5"]) });
@@ -210,7 +215,7 @@ test("off switch: no catch-up read is made; the poll still records its own file"
 });
 
 test("a vendor file cut off mid-body is NOT recorded as read: the poll's result stands and the day is asked again", async () => {
-  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined }, async () => {
+  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined, [DTCC_EDGE_ENV]: "0" }, async () => {
     const dir = freshDir();
     try {
       const many = Array.from({ length: 400 }, (_, i) => `t${i}`);
@@ -233,7 +238,7 @@ test("a vendor file cut off mid-body is NOT recorded as read: the poll's result 
 });
 
 test("a day whose rows could not be written is not recorded as read", async () => {
-  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined }, async () => {
+  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined, [DTCC_EDGE_ENV]: "0" }, async () => {
     const dir = freshDir();
     const audits: string[] = [];
     setDtccIdsAuditSink((type) => audits.push(type));
@@ -255,7 +260,7 @@ test("a day whose rows could not be written is not recorded as read", async () =
 });
 
 test("a ledger that is not JSON is treated as empty: days are read again and add nothing", async () => {
-  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined }, async () => {
+  await withEnv({ [IDS_ENV]: "memory", [DTCC_CATCHUP_ENV]: undefined, [DTCC_EDGE_ENV]: "0" }, async () => {
     const dir = freshDir();
     try {
       const files = { "2026-08-24": buildZip(["5"]), "2026-08-23": buildZip(["3"]) };
