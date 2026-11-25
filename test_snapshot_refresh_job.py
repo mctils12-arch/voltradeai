@@ -177,6 +177,7 @@ def test_run_one_source_down_does_not_stop_the_others_and_the_run_reads_error(tm
     with open(os.path.join(str(tmp_path / "vol"), "last_run.json")) as fh:
         last = json.load(fh)
     assert last["schema"] == job.SCHEMA and last["finished_at"] and last["sources"].keys() == {"eia", "rail"}
+    assert last["vintage_bytes"] == job.vintage_bytes(str(tmp_path / "vol")) > 0, "the run reports the record's size"
     assert job.overall_status({"a": {"status": "fresh"}, "b": {"status": "refreshed"}}) == "ok"
     assert job.overall_status({"a": {"status": "rejected"}}) == "error"
 
@@ -213,3 +214,147 @@ def test_scripts_shim_serves_the_root_refresher(name):
     spec.loader.exec_module(shim)
     assert callable(shim.main)
     assert os.path.normpath(shim.OUT).startswith(os.path.join(REPO, "datacore")), "a hand run still writes the repo's datacore/"
+
+
+# ── the vintage record (open_questions.md (ao3)) ─────────────────────────────
+
+def _eia_pts(built, **series):
+    return {"built": built, "series": {k: {"last": pts[-1][0], "points": pts} for k, pts in series.items()}}
+
+
+def test_flatten_reads_every_real_bundled_snapshot_and_a_copy_differs_from_itself_nowhere():
+    for s in job.SOURCES:
+        with open(os.path.join(REPO, s["rel"]), encoding="utf-8") as fh:
+            doc = json.load(fh)
+        flat = job.flatten(s["key"], doc)
+        assert len(flat) == job.summarize(s["key"], doc)["n_series"], s["key"]
+        assert sum(len(v) for v in flat.values()) > 1000, s["key"]
+        assert job.diff_points(flat, flat) == []
+
+
+def test_flatten_leaves_out_unreported_periods_and_refuses_a_misaligned_array():
+    rail = {"weeks": ["2026-11-11", "2026-11-18"], "series": {"A": [1.0, None], "B": [None, 2.0]}}
+    assert job.flatten("rail", rail) == {"A": {"2026-11-11": 1.0}, "B": {"2026-11-18": 2.0}}
+    cpc = {"axes": {"H": ["2026-11-20", "2026-11-21"], "C": ["2026-11-21"]}, "series": {"AL|H": [4, 5], "AL|C": [0]}}
+    assert job.flatten("cpc", cpc) == {"AL|H": {"2026-11-20": 4, "2026-11-21": 5}, "AL|C": {"2026-11-21": 0}}
+    with pytest.raises(ValueError, match="1 values against 2 periods"):
+        job.flatten("rail", {"weeks": ["a", "b"], "series": {"A": [1.0]}})
+    jodi = {"series": {"AU|CRUDEOIL": {"points": [["2026-08", 8165.96, "1"]]}}}
+    assert job.flatten("jodi", jodi) == {"AU|CRUDEOIL": {"2026-08": [8165.96, "1"]}}
+
+
+def test_diff_points_names_first_prints_revisions_and_removals():
+    old = {"a": {"w1": 1.0, "w2": 2.0}, "gone": {"w1": 9.0}}
+    new = {"a": {"w1": 1.0, "w2": 2.5, "w3": 3.0}, "born": {"w3": 7.0}}
+    assert job.diff_points(old, new) == [
+        ("a", "w2", "revised", 2.0, 2.5), ("a", "w3", "new", None, 3.0),
+        ("born", "w3", "new", None, 7.0), ("gone", "w1", "removed", 9.0, None)]
+    # JODI: a changed assessment code with the same value is a revision
+    assert job.diff_points({"s": {"m": [5.0, "3"]}}, {"s": {"m": [5.0, "1"]}}) == [("s", "m", "revised", [5.0, "3"], [5.0, "1"])]
+
+
+def test_refresh_records_what_changed_before_the_served_copy_is_replaced(tmp_path):
+    """THE CASE THIS EXISTS FOR: the source revises a week it already published.
+    After the refresh the old value is on no disk but in the record."""
+    served = _eia_pts("2026-11-24T01:30:00+00:00", crude=[["2026-11-06", 414417.0], ["2026-11-13", 417797.0]])
+    new = _eia_pts("2026-11-25T06:59:00+00:00", crude=[["2026-11-06", 414417.0], ["2026-11-13", 417500.0], ["2026-11-20", 419000.0]])
+    roots = _bundle(tmp_path, EIA["rel"], served)
+    out_root = str(tmp_path / "vol")
+    r = job.refresh_one(EIA, out_root, NOW, call=_writer(new), bundled_roots=roots)
+    assert r["status"] == "refreshed" and r["vintage"] == {"new": 1, "revised": 1, "removed": 0}
+    v = job.read_vintage("eia", out_root)
+    assert v["bad_lines"] == 0
+    assert v["builds"] == [{"schema": job.VINTAGE_SCHEMA, "key": "eia", "seen": "2026-11-25T06:59:00+00:00",
+                            "prev": "2026-11-24T01:30:00+00:00", "new": 1, "revised": 1, "removed": 0,
+                            "series_added": [], "series_removed": []}]
+    assert v["rows"] == [
+        {"seen": "2026-11-25T06:59:00+00:00", "prev": "2026-11-24T01:30:00+00:00", "series": "crude",
+         "period": "2026-11-13", "kind": "revised", "old": 417797.0, "new": 417500.0},
+        {"seen": "2026-11-25T06:59:00+00:00", "prev": "2026-11-24T01:30:00+00:00", "series": "crude",
+         "period": "2026-11-20", "kind": "new", "old": None, "new": 419000.0}]
+    assert job.overall_status({"eia": r}) == "ok"
+    size = job.vintage_bytes(out_root)
+    assert size == sum(os.path.getsize(os.path.join(out_root, "vintages", f)) for f in ("eia.jsonl", "builds.jsonl")) > 0
+    assert job.vintage_bytes(str(tmp_path / "nowhere")) == 0
+    # the next night diffs against the volume copy, and the record grows by that night only
+    later = _eia_pts("2026-11-26T06:59:00+00:00", crude=new["series"]["crude"]["points"])
+    r2 = job.refresh_one(EIA, out_root, NOW + dt.timedelta(days=1), call=_writer(later), bundled_roots=roots)
+    assert r2["vintage"] == {"new": 0, "revised": 0, "removed": 0}
+    v = job.read_vintage("eia", out_root)
+    assert [b["seen"] for b in v["builds"]] == ["2026-11-25T06:59:00+00:00", "2026-11-26T06:59:00+00:00"], "a night nothing changed still has its build row"
+    assert len(v["rows"]) == 2
+
+
+def test_a_series_that_leaves_the_source_is_named_on_the_build_row(tmp_path):
+    """Measured 2026-11-25: JODI served 349 series where the copy of 2 November held 350 (PE|NGL)."""
+    def jodi(built, latest, **series):
+        return {"built_at": built, "latest_period": latest, "series": {k.replace("_", "|"): {"points": p} for k, p in series.items()}}
+    src = job.SOURCES[3]
+    keep = {f"X{i}_TOTCRUDE": [["2026-08", float(i), "1"]] for i in range(12)}
+    roots = _bundle(tmp_path, src["rel"], jodi("2026-11-02T13:40:01+00:00", "2026-08", PE_NGL=[["2026-07", 0.0, "3"], ["2026-08", 0.0, "3"]], **keep))
+    out_root = str(tmp_path / "vol")
+    r = job.refresh_one(src, out_root, NOW, call=_writer(jodi("2026-11-25T06:59:00+00:00", "2026-08", **keep)), bundled_roots=roots)
+    assert r["status"] == "refreshed" and r["vintage"] == {"new": 0, "revised": 0, "removed": 2}
+    v = job.read_vintage("jodi", out_root)
+    assert v["builds"][0]["series_removed"] == ["PE|NGL"]
+    assert [(x["period"], x["old"], x["new"]) for x in v["rows"]] == [("2026-07", [0.0, "3"], None), ("2026-08", [0.0, "3"], None)]
+
+
+def test_a_rebased_history_keeps_the_whole_previous_copy_instead_of_its_rows(tmp_path, monkeypatch):
+    import gzip
+    monkeypatch.setattr(job, "VINTAGE_MAX_ROWS", 3)
+    served = _eia_pts("2026-11-24T01:30:00+00:00", crude=[[f"w{i}", float(i)] for i in range(5)])
+    new = _eia_pts("2026-11-25T06:59:00+00:00", crude=[[f"w{i}", float(i) + 0.5] for i in range(5)])
+    roots = _bundle(tmp_path, EIA["rel"], served)
+    out_root = str(tmp_path / "vol")
+    r = job.refresh_one(EIA, out_root, NOW, call=_writer(new), bundled_roots=roots)
+    assert r["vintage"] == {"new": 0, "revised": 5, "removed": 0, "full_prev": "eia_20261124T013000Z.json.gz"}
+    with gzip.open(os.path.join(out_root, "vintages", "full", "eia_20261124T013000Z.json.gz"), "rt") as fh:
+        assert json.load(fh) == served
+    v = job.read_vintage("eia", out_root)
+    assert v["rows"] == [] and v["builds"][0]["full_prev"] == "eia_20261124T013000Z.json.gz" and v["builds"][0]["revised"] == 5
+    assert not os.path.exists(os.path.join(out_root, "vintages", "eia.jsonl"))
+
+
+def test_a_record_that_cannot_be_written_does_not_stop_the_refresh_and_the_run_reads_error(tmp_path):
+    served = _eia_pts("2026-11-24T01:30:00+00:00", crude=[["2026-11-13", 1.0]])
+    new = _eia_pts("2026-11-25T06:59:00+00:00", crude=[["2026-11-13", 2.0]])
+    roots = _bundle(tmp_path, EIA["rel"], served)
+    out_root = str(tmp_path / "vol")
+    os.makedirs(out_root)
+    with open(os.path.join(out_root, "vintages"), "w") as fh:  # a file where the directory must be
+        fh.write("x")
+    r = job.refresh_one(EIA, out_root, NOW, call=_writer(new), bundled_roots=roots)
+    assert r["status"] == "refreshed" and "error" in r["vintage"]
+    with open(os.path.join(out_root, EIA["rel"])) as fh:
+        assert json.load(fh) == new, "the served copy is still refreshed"
+    assert job.overall_status({"eia": r}) == "error", "and the job row says the record was not written"
+
+
+def test_point_rows_without_their_build_row_are_not_read_and_a_torn_line_is_counted(tmp_path):
+    """A run killed between the two appends leaves point rows with no build row;
+    the next night writes them again under its own `seen`."""
+    out_root = str(tmp_path / "vol")
+    vdir = os.path.join(out_root, "vintages")
+    os.makedirs(vdir)
+    row = {"seen": "2026-11-25T06:59:00+00:00", "prev": "p", "series": "crude", "period": "w", "kind": "revised", "old": 1.0, "new": 2.0}
+    with open(os.path.join(vdir, "eia.jsonl"), "w") as fh:
+        fh.write(json.dumps(row) + "\n" + json.dumps({**row, "seen": "2026-11-26T06:59:00+00:00"}) + "\n" + '{"seen": "2026-11-2')
+    with open(os.path.join(vdir, "builds.jsonl"), "w") as fh:
+        fh.write(json.dumps({"key": "eia", "seen": "2026-11-26T06:59:00+00:00"}) + "\n" + json.dumps({"key": "cpc", "seen": "2026-11-25T06:59:00+00:00"}) + "\n")
+    v = job.read_vintage("eia", out_root)
+    assert [x["seen"] for x in v["rows"]] == ["2026-11-26T06:59:00+00:00"] and v["bad_lines"] == 1
+    assert job.read_vintage("rail", out_root) == {"builds": [], "rows": [], "bad_lines": 0}
+
+
+def test_the_off_switch_stops_the_record_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOLTRADE_SNAPSHOT_VINTAGES", "0")
+    served = _eia_pts("2026-11-24T01:30:00+00:00", crude=[["2026-11-13", 1.0]])
+    new = _eia_pts("2026-11-25T06:59:00+00:00", crude=[["2026-11-13", 2.0]])
+    out_root = str(tmp_path / "vol")
+    r = job.refresh_one(EIA, out_root, NOW, call=_writer(new), bundled_roots=_bundle(tmp_path, EIA["rel"], served))
+    assert r["status"] == "refreshed" and "vintage" not in r
+    assert not os.path.exists(os.path.join(out_root, "vintages"))
+    for v, on in (("1", True), ("on", True), ("0", False), ("off", False), ("false", False), ("", False)):
+        assert job.vintages_enabled({"VOLTRADE_SNAPSHOT_VINTAGES": v}) is on
+    assert job.vintages_enabled({}) is True
