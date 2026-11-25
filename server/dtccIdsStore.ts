@@ -2,9 +2,10 @@
  * dtccIdsStore.ts — the DTCC swaps dedup ID set, on disk (memory fix A1,
  * 2026-11-03, T-DATACORE).
  *
- * WHY THIS EXISTS. dtccSwaps.ts dedups the vendor's cumulative-from-
- * inception file by Dissemination Identifier across every day ever
- * archived, which until this module meant one resident `Set<string>` of
+ * WHY THIS EXISTS. dtccSwaps.ts dedups the vendor's daily file (read as
+ * cumulative-from-inception when this was written; measured 2026-11-25 to
+ * hold one day's events, dtccSwaps.ts header) by Dissemination Identifier
+ * across every day ever archived, which until this module meant one resident `Set<string>` of
  * every ID. Live 2026-11-03: 6,555,571 IDs (`total_archived` on
  * /api/data/dtcc-swaps), ~118k new US-underlier rows/day, an estimated
  * 0.4-0.5 GB of Node heap growing ~5-8 MB/day. The compact

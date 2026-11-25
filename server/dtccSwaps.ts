@@ -5,10 +5,17 @@
  * Source: kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod/
  * SEC_CUMULATIVE_EQUITIES_YYYY_MM_DD.zip — keyless, daily, ~132MB zip /
  * ~1.15GB CSV (probed live 2026-08-22: HTTP 200, single-member zip, header
- * verified). "Cumulative" is CUMULATIVE FROM PROGRAM INCEPTION (event
- * timestamps observed back to 2019-09-12) re-served in full every day —
- * every row is one lifecycle event (NEWT/MODI/TERM/CORR/EROR/REVI) keyed by
- * a unique Dissemination Identifier; nothing is ever removed from the file.
+ * verified). CORRECTED 2026-11-25: the 2026-08-22 build read "cumulative" as
+ * cumulative from program inception, re-served in full every day. It is not.
+ * Measured (research/experiments.md 2026-11-24 19:10 ET): each dated file
+ * holds ONE day's events — files 2026_11_20 and 2026_11_23 hold 116,565 and
+ * 112,100 US-underlier rows, 99.6% of them event-dated the file's own day
+ * (late-reported events reach back to 2025), and share 0 Dissemination
+ * Identifiers. Every row is one lifecycle event (NEWT/MODI/TERM/CORR/EROR/
+ * REVI) keyed by a unique Dissemination Identifier. Every dated file from
+ * 2026-08-17 on still answers, weekends included. CONSEQUENCE: a vendor day
+ * no poll read while it was the newest file is a GAP until it is fetched by
+ * name (open_questions.md (an2)); no later file carries it.
  *
  * VOLUME-BUDGET DECISION (this session, filed per BUILD-FIRST/data_census.md
  * §2 item 2 "needs its own budget decision before build"): the full file is
@@ -16,11 +23,11 @@
  * non-US underliers e.g. China A-share TRS). We only trade the US equity
  * universe, so this pipeline ARCHIVES US-UNDERLIER ROWS ONLY (Underlier ID
  * source = CUSIP, or ISIN with a "US" country prefix) — live-measured at
- * ~5.7% of rows (2026-08-22 sample: 112,612 of 1,981,839). Because the
- * upstream file is cumulative, day-over-day NEW volume for the US subset
- * is just net-new Dissemination Identifiers (a few hundred to low
- * thousands typically) — the one-time backfill capture is the only large
- * write (~112k rows, single low-digit-MB gz file). This is a genuine
+ * ~5.7% of rows (2026-08-22 sample: 112,612 of 1,981,839). CORRECTED
+ * 2026-11-25: every day's file is about that many NEW US rows (8,518,470
+ * archived in the 94 days to 2026-11-24, about 91k a day, 250 MB of day
+ * files), not "a few hundred to low thousands" as first written here on
+ * the cumulative reading. This is a genuine
  * BUILD-FIRST scoping decision, not a technical limitation: the raw file
  * is still fetched in full each day (bandwidth only, never held in memory
  * — see streaming zip reader below) and filtered in flight; nothing about
@@ -355,9 +362,11 @@ export async function streamDtccZip(
 }
 
 // ── Archive (append-only JSONL.gz per calendar day observed; dedup by
-//    Dissemination Identifier across ALL previously archived days, since
-//    the upstream file is cumulative-from-inception and re-serves every
-//    prior event daily) ───────────────────────────────────────────────────
+//    Dissemination Identifier across ALL previously archived days. The
+//    dedup is NEEDED because the same dated file is read by every poll and
+//    every boot while it is the newest; whether an ID ever returns in a
+//    LATER file is not shown either way (0 shared between one pair of
+//    files, 2026-11-25; open_questions.md (an4))) ─────────────────────────
 
 function dtccDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "dtccswaps");
@@ -381,7 +390,8 @@ let seenIds: CompactIdSet | null = null;
 // in production. This index makes the boot-time read cheap: one flat file
 // of bare ID strings, no per-row JSON reconstruction. It does NOT shrink
 // the retained Set itself (that's inherent to needing all IDs resident to
-// dedup a cumulative-from-inception upstream file) — only the CPU/memory
+// dedup; written on the cumulative-from-inception reading, corrected in the
+// file header 2026-11-25, see (an4)) — only the CPU/memory
 // burst of rebuilding it at every boot, which the audit named as "the
 // biggest single contributor to the boot burst and the only one that
 // grows day over day." (2026-11-03, memory fix A1: the retained Set is
@@ -1634,9 +1644,12 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
   }
 }
 
-/** Daily source, no fixed publish-time guarantee known yet — 6h poll is
- *  self-healing (re-fetching the full cumulative file naturally catches up
- *  on any missed day, since it's cumulative-from-inception). Eager boot. */
+/** Daily source: the file for day D appears after D ends (read 2026-11-24:
+ *  at 22:21Z the newest file was 11-23's; by 00:30Z 11-25 the 11-24 file
+ *  answered). The 6h poll and the eager boot poll read whichever file is the
+ *  newest. CORRECTED 2026-11-25: this is NOT self-healing for a missed day —
+ *  the file holds one day's events, so a day no poll read while it was the
+ *  newest stays missing until fetched by name (open_questions.md (an2)). */
 export function bootDtccSwapsPoll(intervalMs = 6 * 60 * 60_000): void {
   if (polling) return;
   polling = true;
