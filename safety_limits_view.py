@@ -13,11 +13,13 @@ The three drawdown guards come from kill_state_probe.kill_state_report (the
 report lacks are read from the kill switch's own state file: the date its
 day-loss figure belongs to, and the time of the last counted loss.
 
-Why not risk_kill_switch.get_kill_switch_status(): that function (the daemon's
-"risk_status", served by /api/monitoring/overview) reads the losing streak and
-the day's loss from consec_losses.json and daily_pnl.json, two files nothing
-in the repository writes, so it answers 0 for both whatever happened. The
-kill switch keeps the real figures in voltrade_killswitch.json.
+Why not risk_kill_switch.get_kill_switch_status(): that function reads the
+losing streak and the day's loss from consec_losses.json and daily_pnl.json,
+two files nothing in the repository writes, so it answers 0 for both whatever
+happened. The kill switch keeps the real figures in voltrade_killswitch.json.
+(Its three consumers are gone since 2026-11-25: the daemon's "risk_status",
+/api/monitoring/overview, and /api/system/snapshot, which now serves this
+view. The function itself stays: it sits in a frozen file.)
 
 Nothing here changes a limit, a state file, or any guard's behaviour: no
 write, no call into check_kill_switches. A value that is not on record is

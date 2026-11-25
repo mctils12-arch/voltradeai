@@ -7,7 +7,7 @@ import fs from "fs";
 import WebSocket from "ws";
 import { getDisplaySide } from "../shared/inverseEtfs";
 import { positionLevels, OPTIONS_DEFINED_RISK_STRATEGIES } from "../shared/positionLevels";
-import { evaluateDrawdown, drawdownStatus, evaluateDailyPnl } from "./drawdownGuard";
+import { evaluateDrawdown, evaluateDailyPnl } from "./drawdownGuard";
 import {
   AUTO_RESUME, allPaperAlpacaUrls, autoResumeEligibility, autoResumeEnabled, classifyLatchReason, evaluateAutoResume, fillsWindowStartMs,
   parseKillSwitchRecord, summarizePythonSync, parseFills, parsePositions, type AutoResumeDecision, type AutoResumeNumbers,
@@ -115,7 +115,6 @@ import * as net from "net";
 import { getETHour, getOrderParams, OrderContext } from "./orderParams";
 import { buildExitFillPayload, type ExitFillArgs } from "./exitFill";
 import { runLadder, ladderConfigFromEnv, ladderQuoteFromAlpaca, BACKSTOP_LADDER_QUOTE_TIMEOUT_MS, type LadderQuote, type LadderSubmit } from "./limitLadder";
-import { peakEquityFromRpc } from "./peakEquityRpc";
 import { AUDIT_PREFIX_MAX, AUDIT_PRUNE_EVERY_INSERTS, countAuditLog, ensureAuditSchema, parseAuditPrefix, parseAuditSince, pruneAuditLog, queryAuditLog, type AuditRow } from "./auditRetention";
 import { parseHistoryDay, readScanTimingHistory, scanTimingDataDirs } from "./scanTimingHistory";
 import { buildEntryFillPayload, confirmedEntryFill, isTerminalOrderStatus, syntheticSlippagePct, type AlpacaOrderFill, type EntryFillArgs } from "./entryFill";
@@ -3322,8 +3321,8 @@ print(out.getvalue())
   // stop the bot, each beside the reading its own guard keeps. `node` is this loop's drawdown kill (the same fields
   // the `kill_state` probe serves); `engine` is safety_limits_view.py: the engine's kill switch and drawdown halt
   // measured from their own peaks against the SAME account equity, the day's worst loss and the losing streak from
-  // the kill switch's own state file, and the limit constants. The older /api/monitoring/overview is not used: its
-  // streak and day-loss figures come from two files nothing writes (always 0). Read-only; nothing is reset here.
+  // the kill switch's own state file, and the limit constants. The older /api/monitoring/overview (removed 2026-11-25) took its
+  // streak and day-loss figures from two files nothing writes (always 0). Read-only; nothing is reset here.
   // (ownerView / ownerViewError are declared in the block below; they are only called per request.)
   app.get("/api/bot/safety-limits", requireOwner, async (_req, res) => {
     try {
@@ -3634,8 +3633,8 @@ try:
 except Exception as e:
     result['error'] = str(e)[:200]
 try:
-    from risk_kill_switch import get_kill_switch_status
-    result['kill_switches'] = get_kill_switch_status()
+    from safety_limits_view import safety_limits
+    result['kill_switches'] = safety_limits()
 except Exception as e:
     result['kill_switches_error'] = str(e)[:200]
 try:
@@ -5454,215 +5453,11 @@ print(json.dumps(insider_cusum_probe.run_probe()))
     }
   });
 
-  // ── Monitoring endpoints (OPT 2026-04-20) ─────────────────────────────────
-  // Consolidated system health — drawdown proximity, ML status, kill switch
-  // state, shadow portfolio divergence. Used for dashboard + alerting.
-  app.get("/api/monitoring/overview", requireOwner, async (_req, res) => {
-    const overview: any = {
-      timestamp: new Date().toISOString(),
-      daemon: { alive: false },
-      kill_switches: { active: 0, warnings: [] },
-      memory: { rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024) },
-      drawdown: {},
-      ml: {},
-    };
-
-    // Daemon
-    if (DAEMON_ENABLED) {
-      try {
-        const d = await pythonRpc("health", {});
-        if (d.status === "ok") overview.daemon = { alive: true, ...d.result };
-        else overview.daemon = { alive: false, reason: d.error_message };
-      } catch (e: any) { overview.daemon = { alive: false, reason: e.message }; }
-    }
-
-    // Kill switch status (via daemon or subprocess)
-    try {
-      const ks = await pythonCall(
-        "risk_status", {},
-        `python3 -c "from risk_kill_switch import get_kill_switch_status; import json; print(json.dumps(get_kill_switch_status()))"`,
-        { timeout: 5000 }
-      );
-      if (ks.success) overview.kill_switches = ks.result;
-    } catch {}
-
-    // Drawdown proximity — REPAIR 2026-08-09 (see drawdownGuard.ts
-    // drawdownStatus docstring): computed from the same validated
-    // equity/peak the live Tier-1 kill switch uses, not a Python status
-    // field that never existed.
-    try {
-      const acct = await alpaca("/v2/account");
-      const dd = evaluateDrawdown(acct.equity, state.equityPeak, state.maxDrawdownPct);
-      overview.drawdown = dd.valid
-        ? drawdownStatus(dd.drawdownPct!, state.maxDrawdownPct)
-        : { current_pct: null, kill_threshold_pct: state.maxDrawdownPct, proximity_pct: null, status: "UNKNOWN" };
-    } catch {
-      overview.drawdown = { current_pct: null, kill_threshold_pct: state.maxDrawdownPct, proximity_pct: null, status: "UNKNOWN" };
-    }
-
-    // ML status
-    try {
-      const ml = await pythonCall(
-        "ml_status", {},
-        `python3 ml_status.py`,
-        { timeout: 10000 }
-      );
-      if (ml.success) overview.ml = ml.result;
-    } catch {}
-
-    res.json(overview);
-  });
-
-  // ── Per-strategy PnL breakdown ─────────────────────────────────────────────
-  // ALPHA AUDIT 2026-05-03 BATCH 3: rewritten to match the new bucket names
-  // produced by position_sizing._infer_strategy() and the seeded backtest
-  // records. Original implementation looked for strategies named csp_core,
-  // leveraged_csp, trend_long, tail_hedge — none of which the bot has ever
-  // written. Result: dashboard tier-pnl tab showed zeros for everything
-  // legitimate and dumped all real activity into 'legacy' (which the UI
-  // probably hides). This was broken from day one — most visible now that
-  // the trade_feedback seeder loads 1326 records.
-  //
-  // Also fixes the timestamp field — original code looked for r.timestamp
-  // which neither the seeder NOR track_fill writes. Now reads time_filled
-  // (which both write) with timestamp as a fallback for any legacy records.
-  app.get("/api/monitoring/tier-pnl", requireOwner, async (req, res) => {
-    const days = parseInt((req.query.days as string) || "30", 10);
-    try {
-      const cmd = `python3 -c "
-import json, os, time
-try:
-    from storage_config import TRADE_FEEDBACK_PATH
-except ImportError:
-    TRADE_FEEDBACK_PATH = '/tmp/voltrade_trade_feedback.json'
-
-cutoff = time.time() - ${days} * 86400
-
-# Buckets aligned with position_sizing._infer_strategy():
-#   csp_options — CSPs and other premium-selling structures
-#   etf         — leveraged ETF trades (the alpha generator)
-#   stocks      — single-name directional stocks
-#   vrp         — VRP-dominant trades
-#   other       — anything that doesn't match (data quality bucket)
-bucket_stats = {
-    'csp_options': {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
-    'etf':         {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
-    'stocks':      {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
-    'vrp':         {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
-    'other':       {'count': 0, 'pnl_pct_sum': 0, 'wins': 0, 'seeded': 0},
-}
-
-try:
-    with open(TRADE_FEEDBACK_PATH) as f:
-        records = json.load(f)
-except Exception:
-    records = []
-
-from datetime import datetime
-def to_unix(ts):
-    if not ts: return 0
-    if isinstance(ts, (int, float)): return float(ts)
-    s = str(ts)
-    try:
-        if 'T' in s:
-            return datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
-        # Bare YYYY-MM-DD from seeded records
-        return datetime.fromisoformat(s).timestamp()
-    except Exception:
-        return 0
-
-for r in records:
-    # Try multiple time field names — seeder writes time_filled,
-    # track_fill writes time_filled, legacy code may have written timestamp.
-    rt = to_unix(r.get('time_filled') or r.get('timestamp') or r.get('time_placed'))
-    if rt < cutoff: continue
-    pnl = r.get('pnl_pct')
-    if pnl is None: continue  # incomplete trade — exit hasn't filled
-
-    strat = r.get('strategy', 'other')
-    if strat not in bucket_stats:
-        strat = 'other'
-    is_seed = bool(r.get('_seed'))
-    if is_seed:
-        bucket_stats[strat]['seeded'] += 1
-        # Track seeded PnL separately so we can show it for context
-        bucket_stats[strat].setdefault('seeded_pnl_sum', 0)
-        bucket_stats[strat].setdefault('seeded_wins', 0)
-        bucket_stats[strat]['seeded_pnl_sum'] += float(pnl)
-        if pnl > 0:
-            bucket_stats[strat]['seeded_wins'] += 1
-    else:
-        bucket_stats[strat]['count'] += 1
-        bucket_stats[strat]['pnl_pct_sum'] += float(pnl)
-        if pnl > 0:
-            bucket_stats[strat]['wins'] += 1
-
-# Compute derived metrics
-# DASHBOARD-FIX 2026-05-03: primary trade_count and total_pnl_pct are
-# LIVE-only (seeded backtest records aren't real trades). Seeded numbers
-# exposed as a separate object so the UI can show 'live: X | seeded: Y'.
-result = {'days': ${days}, 'tiers': {}}
-for bucket, s in bucket_stats.items():
-    count = s['count']
-    seed_count = s['seeded']
-    result['tiers'][bucket] = {
-        'trade_count':       count,                # LIVE only
-        'total_pnl_pct':     round(s['pnl_pct_sum'], 2),
-        'avg_pnl_pct':       round(s['pnl_pct_sum'] / count, 3) if count > 0 else 0,
-        'win_rate':          round(s['wins'] / count * 100, 1) if count > 0 else 0,
-        'seeded': {
-            'count':         seed_count,
-            'total_pnl_pct': round(s.get('seeded_pnl_sum', 0), 2),
-            'win_rate':      round(s.get('seeded_wins', 0) / seed_count * 100, 1) if seed_count > 0 else 0,
-        },
-    }
-print(json.dumps(result))
-"`;
-      const tierCall = await pythonCall("strategy_pnl_stats", { days },
-        cmd, { timeout: 10000 });
-      if (tierCall.success) {
-        res.json(tierCall.result);
-      } else {
-        res.status(500).json({ error: "Could not compute strategy PnL" });
-      }
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || "Unknown error" });
-    }
-  });
-
-  // Drawdown proximity alert — returns status + how close to kill threshold
-  app.get("/api/monitoring/drawdown", requireOwner, async (_req, res) => {
-    try {
-      const acct = await alpaca("/v2/account");
-      const equity = parseFloat(acct.equity || "0");
-      // Peak equity from risk_kill_switch's persisted state
-      const peakCall = await pythonCall(
-        "get_peak_equity", {},
-        `python3 -c "from risk_kill_switch import get_peak_equity; import json; print(json.dumps({'peak': get_peak_equity()}))"`,
-        { timeout: 5000 }
-      );
-      // 2026-10-27 (audit D3): the daemon answers a bare float, the
-      // subprocess {peak}; reading only .peak fell back to equity whenever the
-      // daemon was up, so drawdown read ~0%. Unknown peak -> peak_known false.
-      const knownPeak = peakCall.success ? peakEquityFromRpc(peakCall.result) : null;
-      const peak = knownPeak ?? equity;
-      const dd = peak > 0 ? ((equity - peak) / peak) : 0;
-      res.json({
-        equity,
-        peak,
-        peak_known: knownPeak !== null,
-        drawdown_pct: Math.round(dd * 10000) / 100,  // in basis points, 2 decimals
-        kill_threshold_pct: -20,
-        status: dd <= -0.20 ? "KILLED" :
-                dd <= -0.15 ? "CRITICAL" :
-                dd <= -0.10 ? "WARNING" :
-                dd <= -0.05 ? "NOTICE" : "OK",
-      });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message?.slice(0, 200) });
-    }
-  });
-
+  // (2026-11-25, owner: "if the old monitoring routes dont work get rid of them") /api/monitoring/overview,
+  // /tier-pnl and /drawdown are REMOVED. No page read them, and what they reported was wrong or unreadable: the
+  // overview's losing streak and day loss came from two files nothing writes (always 0), tier-pnl added per-trade
+  // percentages whatever each trade's size, drawdown measured from one peak with -20 written in. The page reads the
+  // real figures through /api/bot/safety-limits, /api/bot/status, /api/ml/status and the sleeve ledger.
   // Cache inventory — for operational visibility
   app.get("/api/monitoring/caches", requireOwner, async (_req, res) => {
     try {

@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 276 | 5 | 5 | 27 | 14 |
+| HTTP routes | 276 | 5 | 5 | 27 | 11 |
 | Diagnostic probes (token-gated) | 38 | 15 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -66,15 +66,12 @@ layers are not listed one by one here.
 | strategy | `strategies/squeeze.py` | `strategies/squeeze.py` | as above: results show under its sleeve, not by strategy name |
 | strategy | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | `scale-in by thirds, cash reserve, capital rotation (position_mgmt.py)` | visible as decisions in the journal; no state view (how much reserve, what is queued) |
 
-## Legacy: removal candidates, not UI gaps (14)
+## Legacy: removal candidates, not UI gaps (11)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
 | route | `POST /api/auth/reset-request` | `server/auth.ts` | Legacy stub that tells callers to use /api/auth/reset (which the login page uses). Removal candidate; auth.ts is a FROZEN PATH, so the human removes it. |
 | route | `GET /api/bot/history` | `server/bot.ts` | The last 50 closed orders from the broker. Superseded 2026-11-20 by /api/bot/order-history (every status, the price ladder's steps), which the Orders panel reads, and by /api/bot/lots for closed trades. Nothing reads this one. Removal candidate. |
-| route | `GET /api/monitoring/overview` | `server/bot.ts` | Pre-refocus monitoring summary (daemon, kill switch, drawdown, model). Checked against the AI Engine page 2026-11-20: its kill-switch block (the daemon's risk_status, get_kill_switch_status) takes the losing streak and the day's loss from two files nothing writes, so both always read 0; the page reads the real figures through /api/bot/safety-limits, the model through /api/ml/status and the drawdown through /api/bot/status. Nothing to surface. Removal is its own PR (drawdownGuard.test.ts pins its text). |
-| route | `GET /api/monitoring/tier-pnl` | `server/bot.ts` | P&L by strategy bucket from the trade-feedback file. It adds per-trade percentages whatever the size of each trade, so the total cannot be read as money. The page shows P&L per sleeve in dollars from the broker's own fills (the sleeve ledger, the expectancy table). Nothing to surface. |
-| route | `GET /api/monitoring/drawdown` | `server/bot.ts` | Drawdown from the engine's shared peak, with -20 written into the route. /api/bot/safety-limits (2026-11-20) measures each drawdown guard from its own peak against its own limit, on the page. Nothing to surface. Removal is its own PR (peakEquityRpc.test.ts pins its text). |
 | route | `POST /api/bot/backtest` | `server/bot.ts` | runs the backtest CLI from the server; no page calls it. Removal candidate (STALENESS AUDIT). |
 | route | `GET /api/bot/ml-status` | `server/bot.ts` | duplicate of /api/ml/status, which the page reads. Removal candidate. |
 | route | `GET /api/bot/system-status` | `server/routes.ts` | pre-refocus status route; the page reads /api/bot/status. Removal candidate. |
