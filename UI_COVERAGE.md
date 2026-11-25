@@ -18,7 +18,7 @@ page requests it, not that the page shows every field.
 
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
-| HTTP routes | 276 | 5 | 5 | 27 | 11 |
+| HTTP routes | 280 | 5 | 1 | 27 | 11 |
 | Diagnostic probes (token-gated) | 38 | 15 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
@@ -26,15 +26,11 @@ Map layers: 258 in `datacore/layers.json` (255 live). The /data layers panel, th
 the layer cards are drawn from that file, so a layer in the registry is on the map by construction;
 layers are not listed one by one here.
 
-## Missing: user-relevant, no UI yet (6)
+## Missing: user-relevant, no UI yet (2)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
 | route | `GET /api/bot/stream` | `server/bot.ts` | Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh. |
-| route | `POST /api/bot/circuit-breaker/reset` | `server/bot.ts` | Owner action: clear a tripped circuit breaker. The AI Engine page shows the kill state but offers no reset. Placement: beside the kill-state banner, owner only, with a confirm step. A risk control: needs the human's go-ahead before it is exposed. |
-| route | `POST /api/bot/trade` | `server/bot.ts` | Owner manual order. No UI. The execution-layer spec routes every order through one path; expose only after that decision (owner). |
-| route | `POST /api/bot/close` | `server/bot.ts` | Owner manual close of a position. No UI. Placement: a 'Close' action on a Book row, owner only, with a confirm step. Same owner decision as the row above. |
-| route | `POST /api/bot/run-now` | `server/bot.ts` | Owner action: run a scan now. Placement: a button beside 'last scan' on the AI Engine page, owner only. |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
 
 ## Partial (24)
@@ -126,7 +122,7 @@ layers are not listed one by one here.
 | probe | `price_panel` | price panel build |
 | probe | `loop_profile` | on-demand CPU profile of the server's event loop (a session's diagnostic; it starts a run, so it is not a page read) |
 
-## Surfaced (320)
+## Surfaced (324)
 
 | Kind | Item | Backend location | How |
 |---|---|---|---|
@@ -175,11 +171,15 @@ layers are not listed one by one here.
 | route | `POST /api/bot/start` | `server/bot.ts` | a page calls it |
 | route | `POST /api/bot/stop` | `server/bot.ts` | a page calls it |
 | route | `POST /api/bot/kill` | `server/bot.ts` | a page calls it |
+| route | `POST /api/bot/circuit-breaker/reset` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/audit` | `server/bot.ts` | a page calls it |
+| route | `POST /api/bot/trade` | `server/bot.ts` | a page calls it |
+| route | `POST /api/bot/close` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/bars/:ticker` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/market-status` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/last-scan` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/calendar` | `server/bot.ts` | a page calls it |
+| route | `POST /api/bot/run-now` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/diagnostics` | `server/bot.ts` | a page calls it |
 | route | `GET /api/bot/insight` | `server/bot.ts` | a page calls it |
 | route | `GET /api/data/fires/completeness` | `server/firesCompleteness.ts` | a page calls it |
