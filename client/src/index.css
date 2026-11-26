@@ -5943,3 +5943,26 @@ section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--exit { color: var(--t
   .vt-dl-r .f { grid-column: 1; grid-row: 2; text-align: left; white-space: normal; } .vt-dl-r .o { grid-column: 2 / -1; grid-row: 2; }
   .vt-dl-r:not(.vt-dl-h) .f, .vt-dl-r:not(.vt-dl-h) .o { font-size: 10.5px; }
 }
+
+/* ── PHONE TEXT FLOOR (2026-11-26; owner: "optimize the mobile site on the
+   sizing of the page"). DESIGN.md's legend rule sets 11 px as the smallest
+   legible label at 390 px; these classes drew 9.5 to 10.9 px there. Measured
+   on production, iPhone 14 profile, all 66 public pages: they are every named
+   class under 11 px (Signals source lines and badges, Earnings item tags,
+   Filings role and issuer lines, tile sub-lines and chart notes, stream chips,
+   the developers page's method and badge chips, Analyze's sentiment badges,
+   and the map's status bar on 52 pages). Phone width only: desktop and tablet
+   sizes are unchanged. It sits after each class's own rule so it wins at the
+   same specificity; phoneTextFloor.test.ts fails if a later rule undoes it. ── */
+@media (max-width: 640px) {
+  .vt-ladder-row-src, .vt-ladder-badge, .vt-ladder-cat-chip,
+  .vt-earnings-itemtag,
+  .vt-filings-issuername, .vt-filings-role,
+  .vt-gridstress-tile-sub, .vt-hist-note,
+  .vt-shortvol-trendnote, .vt-shortvol-statlabel,
+  .vt-streams-chip, .vt-quality-tile-pct,
+  .vt-sigprod-chip, .vt-sigprod-label,
+  .vt-dev-method, .vt-dev-badge,
+  .sentiment-badge,
+  .vt-map-statusbar { font-size: 11px; }
+}
