@@ -10,8 +10,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   dtccTrsPanelCmd, dtccTrsPanelFlag, dtccTrsPanelRoot, dtccTrsPanelLastRun, dtccTrsPanelNight,
-  decideDtccTrsPanel, parseDtccTrsPanelSummary, runDtccTrsPanel, describeEventsCheck,
-  DTCC_TRS_PANEL_JOB, DTCC_TRS_PANEL_TIMEOUT_MS, DTCC_TRS_PANEL_BUDGET_S, DTCC_TRS_PANEL_TICK_MS,
+  decideDtccTrsPanel, parseDtccTrsPanelSummary, runDtccTrsPanel, describeEventsCheck, describeFigi, dtccTrsPanelStatus,
+  DTCC_TRS_PANEL_TOTAL_S, DTCC_TRS_PANEL_JOB, DTCC_TRS_PANEL_TIMEOUT_MS, DTCC_TRS_PANEL_BUDGET_S, DTCC_TRS_PANEL_TICK_MS,
   DTCC_TRS_PANEL_MIN_FREE_BYTES, DTCC_TRS_PANEL_WINDOW_START_MIN, DTCC_TRS_PANEL_WINDOW_END_MIN,
 } from "./dtccTrsPanel";
 import { WALKFORWARD_ENV_CAPS, type WalkforwardExec } from "./walkforward";
@@ -36,6 +36,12 @@ const base = { enabled: true, last: null as { finishedAt: string | null; backlog
 const CATCH_UP = "{\"schema\": \"dtcc_trs_panel_job/1\", \"code_version\": \"unknown\", \"wanted\": 732, \"read\": 3, \"unavailable_new\": 0, \"not_published\": 0, \"errors\": 0, \"pending\": 729, \"backlog\": 725, \"stopped\": \"day limit\", \"days_ok\": 3, \"first_day\": \"2024-11-24\", \"last_day\": \"2024-11-26\", \"days_unavailable\": 0, \"stat_unreadable\": 0, \"oldest_unavailable\": null, \"newest_unavailable\": null, \"events\": null, \"status\": \"ok\", \"bytes\": 89384, \"finished_at\": \"2026-11-26T00:21:06+00:00\", \"elapsed_s\": 28.4, \"peak_rss_mb\": 31.6}";
 const WHOLE = "{\"schema\": \"dtcc_trs_panel_job/1\", \"code_version\": \"unknown\", \"wanted\": 732, \"read\": 1, \"unavailable_new\": 0, \"not_published\": 0, \"errors\": 0, \"pending\": 0, \"backlog\": 0, \"stopped\": null, \"days_ok\": 732, \"first_day\": \"2024-11-24\", \"last_day\": \"2026-11-25\", \"days_unavailable\": 0, \"stat_unreadable\": 0, \"oldest_unavailable\": null, \"newest_unavailable\": null, \"events\": {\"events\": 27915, \"first_testable\": \"2025-02-25\", \"last_testable\": \"2026-11-25\", \"registered\": {\"through\": \"2026-11-24\", \"registered\": 27869, \"here\": 27869, \"match\": true, \"months_differing\": []}}, \"status\": \"ok\", \"bytes\": 130818629, \"finished_at\": \"2026-11-26T00:54:25+00:00\", \"elapsed_s\": 53.0, \"peak_rss_mb\": 229.2}";
 
+// WHOLE with the security-type step's block (cusip_figi.py, 2026-11-26): a
+// catch-up run that got 3,000 answers and left 9,210 CUSIPs for the next.
+const FIGI = { status: "ok", wanted: 15210, held: 6000, owed: 9210, malformed: 0, asked: 3000, found: 2890, not_found: 110, job_errors: 0, requests: 300, failed_requests: 0, stopped: "time budget", keyed: false, elapsed_s: 781.2, event_cusips: 4544, event_cusips_held: 4544, classes_event_cusips: { common: 3000, ETP: 900, ADR: 300, unresolved: 344 }, classes_all: { common: 3600, ETP: 1500, unresolved: 900 } };
+const withFigi = (figi: Record<string, unknown>, extra: Record<string, unknown> = {}) => JSON.stringify({ ...JSON.parse(WHOLE), figi, ...extra });
+const WHOLE_TYPES = withFigi(FIGI);
+
 test("registry: a daily job due when the window opens, its grace running to midnight; its budget fits a tick and the registry's run limit", () => {
   const job = JOB_REGISTRY.find((j) => j.id === DTCC_TRS_PANEL_JOB);
   assert.ok(job && job.kind === "daily" && job.source === "server/dtccTrsPanel.ts");
@@ -57,7 +63,7 @@ test("registry: a daily job due when the window opens, its grace running to midn
 
 test("the command names a root-level file and passes the budget; a hostile version string is not passed through", () => {
   const cmd = dtccTrsPanelCmd("1.0.1560");
-  assert.equal(cmd, "python3 dtcc_trs_panel_job.py --run --nice 19 --max-rss-mb 700 --budget-s 600 --code-version 1.0.1560");
+  assert.equal(cmd, "python3 dtcc_trs_panel_job.py --run --nice 19 --max-rss-mb 700 --budget-s 600 --total-s 840 --code-version 1.0.1560");
   assert.ok(fs.existsSync(path.join(here, "..", "dtcc_trs_panel_job.py")));
   assert.ok(fs.existsSync(path.join(here, "..", "dtcc_trs_panel.py")));
   assert.ok(dtccTrsPanelCmd("1; rm -rf /").endsWith("--code-version unknown"));
@@ -139,7 +145,9 @@ test("last_run.json: the three fields the scheduler reads; absent or broken read
   try {
     assert.equal(dtccTrsPanelLastRun(dir), null);
     fs.writeFileSync(path.join(dir, "last_run.json"), WHOLE);
-    assert.deepEqual(dtccTrsPanelLastRun(dir), { finishedAt: JSON.parse(WHOLE).finished_at, backlog: 0, read: JSON.parse(WHOLE).read });
+    assert.deepEqual(dtccTrsPanelLastRun(dir), { finishedAt: JSON.parse(WHOLE).finished_at, backlog: 0, read: JSON.parse(WHOLE).read, figiOwed: null, figiAsked: null });
+    fs.writeFileSync(path.join(dir, "last_run.json"), WHOLE_TYPES);
+    assert.deepEqual(dtccTrsPanelLastRun(dir), { finishedAt: JSON.parse(WHOLE).finished_at, backlog: 0, read: JSON.parse(WHOLE).read, figiOwed: 9210, figiAsked: 3000 });
     fs.writeFileSync(path.join(dir, "last_run.json"), "[1,2]");
     assert.equal(dtccTrsPanelLastRun(dir), null);
   } finally {
@@ -193,4 +201,66 @@ test("run: the long-job lane's caps and budget; exit 1 with a summary is that su
   assert.deepEqual(await runDtccTrsPanel({}, killed), { status: "error", detail: "exceeded the 19-minute budget — process group killed (days already written are kept)" });
   const crashed: WalkforwardExec = async () => { throw Object.assign(new Error("boom"), { code: 2, stderr: "python3: can't open file" }); };
   assert.equal((await runDtccTrsPanel({}, crashed)).detail, "code=2 signal=none: python3: can't open file");
+});
+
+test("security types: the step's seconds fit inside the kill; the catch-up lane runs while CUSIPs are owed and answers are coming", () => {
+  assert.ok(DTCC_TRS_PANEL_BUDGET_S < DTCC_TRS_PANEL_TOTAL_S);
+  // the request in hand (30 s) and one rate-limit wait (60 s) after the total is spent still end before the kill
+  assert.ok(DTCC_TRS_PANEL_TOTAL_S * 1000 + 90_000 < DTCC_TRS_PANEL_TIMEOUT_MS);
+  const ranTonight = { finishedAt: "2026-11-28T01:14:00+00:00", backlog: 0, read: 1 };   // Friday 20:14 ET
+  // types owed and the last run got answers: another run on the next tick, the same night
+  assert.deepEqual(decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, figiOwed: 9210, figiAsked: 3000 }, lastNightlyAttemptNight: FRI_NIGHT }),
+    { action: "run", mode: "catch-up", night: FRI_NIGHT, reason: "9210 CUSIPs not yet asked" });
+  // owed but the last run got no answer (OpenFIGI down, or only CUSIPs it cannot answer): once a night
+  assert.deepEqual(decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, figiOwed: 9210, figiAsked: 0 }, lastNightlyAttemptNight: FRI_NIGHT }),
+    { action: "idle", reason: "already attempted tonight" });
+  // nothing owed: the nightly lane, as before
+  assert.equal(decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, figiOwed: 0, figiAsked: 12 } }).action, "idle");
+  // vendor days owed are named first
+  assert.match((decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, backlog: 5, read: 2, figiOwed: 9, figiAsked: 9 } }) as { reason: string }).reason, /^5 vendor days owed$/);
+  // outside the window nothing runs, whatever is owed
+  assert.equal(decideDtccTrsPanel(FRI_1100, { ...base, last: { ...ranTonight, figiOwed: 9210, figiAsked: 3000 } }).action, "idle");
+});
+
+test("security types: the job row says how many CUSIPs are held, and a step that got no answer comes first and reads error", () => {
+  const w = parseDtccTrsPanelSummary(WHOLE_TYPES);
+  assert.equal(w.status, "ok");
+  assert.match(w.detail, /registered list reproduced \(27869 to 2026-11-24\); types 6000\/15210 \(53s, peak /);
+  assert.ok(`catch-up: ${w.detail}`.length <= MAX_DETAIL_CHARS, `${w.detail.length} chars`);
+  assert.equal(describeFigi({}), "");
+  // a run before this step existed, or one whose step did not run, says nothing about types
+  assert.ok(!parseDtccTrsPanelSummary(WHOLE).detail.includes("types"));
+  assert.ok(!parseDtccTrsPanelSummary(withFigi(null as unknown as Record<string, unknown>)).detail.includes("types"));
+  const refused = parseDtccTrsPanelSummary(withFigi({ status: "error", wanted: 15210, held: 0, owed: 15210, asked: 0, stopped: "3 requests in a row got no usable answer", last_error: "HTTP 403: forbidden" }, { status: "error" }));
+  assert.equal(refused.status, "error");
+  assert.match(refused.detail, /^types not read \(HTTP 403: forbidden\); read 1; holds 732 days/);
+  assert.match(refused.detail, /; types 0\/15210/);
+});
+
+test("diag probe dtcc_trs_panel: the last run and the kept event check, counts only; registered in the probe list and the diag switch", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-trs-panel-status-"));
+  try {
+    const empty = dtccTrsPanelStatus({}, dir);
+    assert.equal(empty.probe, "dtcc_trs_panel");
+    assert.equal(empty.last_run, null);
+    assert.equal(empty.events_check, null);
+    assert.deepEqual(empty.flag, { value: null, on: true });
+    fs.mkdirSync(path.join(dir, "panel"));
+    fs.writeFileSync(path.join(dir, "last_run.json"), WHOLE_TYPES);
+    fs.writeFileSync(path.join(dir, "panel", "events_check.json"), JSON.stringify(JSON.parse(WHOLE).events));
+    const st = dtccTrsPanelStatus({ VOLTRADE_DTCC_TRS_PANEL: "0" }, dir) as { last_run: { figi: typeof FIGI }; events_check: { registered: { match: boolean } }; flag: { on: boolean }; tradable_class: string };
+    assert.equal(st.flag.on, false);
+    assert.deepEqual(st.last_run.figi.classes_event_cusips, FIGI.classes_event_cusips);
+    assert.equal(st.events_check.registered.match, true);
+    assert.match(st.tradable_class, /Common Stock, ADR or REIT/);
+    // nothing in the status names a security: no 9-character CUSIP anywhere
+    assert.ok(!/"[0-9A-Z]{8}[0-9]"/.test(JSON.stringify(st)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const { DIAG_PROBES } = await import("./diag");
+  assert.ok((DIAG_PROBES as readonly string[]).includes("dtcc_trs_panel"));
+  const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
+  const i = bot.indexOf('case "dtcc_trs_panel": {');
+  assert.ok(i > 0 && bot.slice(i, i + 500).includes("sanitizeDiag(dtccTrsPanelStatus())"));
 });

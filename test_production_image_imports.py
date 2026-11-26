@@ -360,7 +360,8 @@ def test_dtcc_trs_panel_job_command_runs_in_the_production_image_layout(tmp_path
     m = re.search(r"return `(python3 [^`]+)`;", src)
     assert m, "dtccTrsPanelCmd's command template not found"
     cmd = (m.group(1).replace("${DTCC_TRS_PANEL_MAX_RSS_MB}", "700")
-           .replace("${DTCC_TRS_PANEL_BUDGET_S}", "600").replace("${v}", "0.0.0-test"))
+           .replace("${DTCC_TRS_PANEL_BUDGET_S}", "600")
+           .replace("${DTCC_TRS_PANEL_TOTAL_S}", "840").replace("${v}", "0.0.0-test"))
     assert "${" not in cmd, cmd
     assert cmd.split()[1] in _server_python_commands(), "the command scan must see this job's file"
     layout, data = tmp_path / "app", tmp_path / "data"
@@ -376,6 +377,9 @@ def test_dtcc_trs_panel_job_command_runs_in_the_production_image_layout(tmp_path
     assert summary.get("status") == "ok" and summary.get("stopped") == "day limit", summary
     assert summary.get("read") == 0 and summary.get("days_ok") == 0 and summary.get("backlog", 0) > 0, summary
     assert os.path.isfile(data / "dtcc_trs_panel" / "last_run.json")
-    prog = "import dtcc_trs_panel as p\nassert len(p.nyse_closures()) > 20\nprint('ok')"
+    # days are owed, so the security-type step (cusip_figi.py, 2026-11-26) asked nothing
+    assert summary.get("figi") is None, summary
+    prog = ("import dtcc_trs_panel as p\nimport cusip_figi as c\nassert len(p.nyse_closures()) > 20\n"
+            "assert c.tradable_class(None) == (None, 'not asked')\nprint('ok')")
     r = subprocess.run([sys.executable, "-c", prog], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
     assert r.stdout.strip() == "ok", r.stderr[-2000:]

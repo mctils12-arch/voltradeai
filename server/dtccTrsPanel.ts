@@ -14,6 +14,15 @@
  * here is read by a trading path, and nothing here is served: the panel is
  * the input of a test that is not built yet.
  *
+ * SECURITY TYPES (open_questions.md (as2) step 1, 2026-11-26). Once the event
+ * list exists, the same run asks OpenFIGI what each panel CUSIP is
+ * (cusip_figi.py: common stock, fund, preferred, ...), which item 3 of the
+ * registered filter needs, with the seconds the day reads left of
+ * DTCC_TRS_PANEL_TOTAL_S: 10 CUSIPs a request, 25 requests a minute, each
+ * answer kept under <root>/figi/. While CUSIPs are owed and the last run got
+ * answers, the catch-up lane keeps running. The `dtcc_trs_panel` diag probe
+ * (dtccTrsPanelStatus) returns the last run's counts.
+ *
  * WHEN. Only between 20:00 and 04:00 ET, every day: the hours in which
  * the Tier-2 scan does not run (its window is 04:00-20:00 ET), so the job
  * never shares a core with a scan that is near its own time limit (KNOWN
@@ -41,6 +50,10 @@ export const DTCC_TRS_PANEL_SUBDIR = "dtcc_trs_panel";
 export const DTCC_TRS_PANEL_TICK_MS = 20 * 60_000;
 /** One run reads for this long, then finishes the day in hand. */
 export const DTCC_TRS_PANEL_BUDGET_S = 600;
+/** The whole run: day reads, the event pass, then the security-type step
+ *  with what is left. Five minutes under the kill below, for the request in
+ *  hand and one rate-limit wait. */
+export const DTCC_TRS_PANEL_TOTAL_S = 840;
 /** Budget + the slowest single day (a 155 MB file on a slow link) + the
  *  compaction and event pass (measured in the PR that added this file). */
 export const DTCC_TRS_PANEL_TIMEOUT_MS = 19 * 60_000;
@@ -64,7 +77,7 @@ export function dtccTrsPanelRoot(env: Record<string, string | undefined> = proce
 
 export function dtccTrsPanelCmd(codeVersion: string = pkgVersion): string {
   const v = /^[0-9A-Za-z.+-]{1,40}$/.test(codeVersion) ? codeVersion : "unknown";
-  return `python3 dtcc_trs_panel_job.py --run --nice 19 --max-rss-mb ${DTCC_TRS_PANEL_MAX_RSS_MB} --budget-s ${DTCC_TRS_PANEL_BUDGET_S} --code-version ${v}`;
+  return `python3 dtcc_trs_panel_job.py --run --nice 19 --max-rss-mb ${DTCC_TRS_PANEL_MAX_RSS_MB} --budget-s ${DTCC_TRS_PANEL_BUDGET_S} --total-s ${DTCC_TRS_PANEL_TOTAL_S} --code-version ${v}`;
 }
 
 /** The night a moment belongs to: the ISO instant of its 20:00 ET start, or
@@ -77,7 +90,11 @@ export function dtccTrsPanelNight(nowMs: number): string | null {
 }
 
 /** What the scheduler needs of the Python's last_run.json. */
-export interface DtccTrsPanelLastRun { finishedAt: string | null; backlog: number | null; read: number | null }
+export interface DtccTrsPanelLastRun {
+  finishedAt: string | null; backlog: number | null; read: number | null;
+  /** The security-type step: CUSIPs not yet asked, and answers the last run got. */
+  figiOwed?: number | null; figiAsked?: number | null;
+}
 
 export type DtccTrsPanelDecision =
   | { action: "idle"; reason: string }
@@ -96,10 +113,14 @@ export function decideDtccTrsPanel(nowMs: number, s: {
   const low = s.freeBytes !== null && s.freeBytes < DTCC_TRS_PANEL_MIN_FREE_BYTES
     ? `only ${Math.floor(s.freeBytes / 1e6)} MB free on the volume (< ${DTCC_TRS_PANEL_MIN_FREE_BYTES / 1e6} MB)` : null;
   const last = s.last;
-  // No run yet, or the last one left old days owed and was still reading them.
-  const catchUp = !last || !last.finishedAt || ((last.backlog ?? 0) > 0 && (last.read ?? 0) > 0);
+  // No run yet, or the last one left old days owed and was still reading
+  // them, or left CUSIPs unasked and was still getting answers.
+  const daysOwed = !!last && (last.backlog ?? 0) > 0 && (last.read ?? 0) > 0;
+  const typesOwed = !!last && (last.figiOwed ?? 0) > 0 && (last.figiAsked ?? 0) > 0;
+  const catchUp = !last || !last.finishedAt || daysOwed || typesOwed;
   if (catchUp && !low && s.catchUpFailedNight !== night) {
-    return { action: "run", mode: "catch-up", night, reason: last?.finishedAt ? `${last.backlog} vendor days owed` : "no run yet" };
+    const why = !last?.finishedAt ? "no run yet" : daysOwed ? `${last.backlog} vendor days owed` : `${last.figiOwed} CUSIPs not yet asked`;
+    return { action: "run", mode: "catch-up", night, reason: why };
   }
   if (s.lastNightlyAttemptNight === night) return { action: "idle", reason: "already attempted tonight" };
   const finished = last?.finishedAt ? Date.parse(last.finishedAt) : NaN;
@@ -123,7 +144,15 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object"
 
 export function dtccTrsPanelLastRun(root: string): DtccTrsPanelLastRun | null {
   const j = readJson(path.join(root, "last_run.json"));
-  return j ? { finishedAt: str(j.finished_at), backlog: num(j.backlog), read: num(j.read) } : null;
+  if (!j) return null;
+  const figi = obj(j.figi);
+  return { finishedAt: str(j.finished_at), backlog: num(j.backlog), read: num(j.read), figiOwed: num(figi.owed), figiAsked: num(figi.asked) };
+}
+
+/** The security-type step, for the job row: "; types <held>/<wanted>". */
+export function describeFigi(figi: Record<string, unknown>): string {
+  if (num(figi.wanted) === null || num(figi.held) === null) return "";
+  return `; types ${num(figi.held)}/${num(figi.wanted)}`;
 }
 
 /** The event list against the registered one, for the job row. */
@@ -150,6 +179,8 @@ export function parseDtccTrsPanelSummary(stdout: string): RunOutcome {
   const bad: string[] = [];
   if (num(j.errors)) bad.push(`${num(j.errors)} day(s) unread (${(str(j.last_error) ?? "no reason").slice(0, 70)})`);
   if (str(j.events_error)) bad.push(`event list not written: ${str(j.events_error)!.slice(0, 70)}`);
+  const figi = obj(j.figi);
+  if (str(figi.status) === "error") bad.push(`types not read (${(str(figi.last_error) ?? str(figi.stopped) ?? "no reason").slice(0, 60)})`);
   const head = bad.length ? `${bad.join("; ")}; ` : "";
   const unavailable = num(j.days_unavailable) ? `, ${num(j.days_unavailable)} refused by the vendor (oldest ${str(j.oldest_unavailable)})` : "";
   const owed = num(j.backlog) ? `, ${num(j.backlog)} owed` : "";
@@ -157,7 +188,7 @@ export function parseDtccTrsPanelSummary(stdout: string): RunOutcome {
   return {
     status: st,
     detail: `${head}read ${num(j.read) ?? 0}; holds ${num(j.days_ok)} days ${str(j.first_day) ?? "?"} to ${str(j.last_day) ?? "?"}${owed}${unavailable}`
-      + `${describeEventsCheck(obj(j.events))} (${String(j.elapsed_s)}s, peak ${String(j.peak_rss_mb)} MB${mb})`,
+      + `${describeEventsCheck(obj(j.events))}${describeFigi(figi)} (${String(j.elapsed_s)}s, peak ${String(j.peak_rss_mb)} MB${mb})`,
   };
 }
 
@@ -178,6 +209,25 @@ export async function runDtccTrsPanel(env: NodeJS.ProcessEnv, exec: WalkforwardE
     const tail = String(err.stderr || err.message || "").trim().slice(-160);
     return { status: "error", detail: `code=${String(err.code ?? "?")} signal=${String(err.signal ?? "none")}: ${tail}` };
   }
+}
+
+/** Read-only status for the "dtcc_trs_panel" diag probe: the last run's
+ *  summary (day counts, the event list against the registered one, the
+ *  security-type step's counts by class) and the kept event check. Counts,
+ *  dates and OpenFIGI type names only: no CUSIP, ticker, price or return; no
+ *  network; no Python. */
+export function dtccTrsPanelStatus(env: Record<string, string | undefined> = process.env, root = dtccTrsPanelRoot(env)): Record<string, unknown> {
+  return {
+    probe: "dtcc_trs_panel",
+    job: DTCC_TRS_PANEL_JOB,
+    flag: { value: env.VOLTRADE_DTCC_TRS_PANEL ?? null, on: dtccTrsPanelFlag(env) },
+    schedule: `20:00-04:00 ET; one run a night, catch-up runs every ${DTCC_TRS_PANEL_TICK_MS / 60_000} min while vendor days or CUSIPs are owed; ${DTCC_TRS_PANEL_TOTAL_S}s a run, ${DTCC_TRS_PANEL_MAX_RSS_MB} MB`,
+    claim: "none: the event half of a pre-registered test (research/open_questions.md 2026-11-25) and the security type of each underlier. No price is read and no return computed; the test is not run here.",
+    tradable_class: "kept: market sector Equity and security type exactly Common Stock, ADR or REIT (cusip_figi.py, 2026-11-26, before any price was read). A US listing today is not required: a name bought or renamed since the event would be dropped by it. Types are today's, not the event day's.",
+    code_version: pkgVersion,
+    last_run: readJson(path.join(root, "last_run.json")),
+    events_check: readJson(path.join(root, "panel", "events_check.json")),
+  };
 }
 
 let booted = false;
