@@ -456,6 +456,14 @@ export const DIAG_PROBES = [
   // names only: no CUSIP, ticker, price or return; no network; no Python; no
   // query parameters.
   "dtcc_trs_panel",
+  // ADDED 2026-11-26 ([PIPELINE], open_questions.md (av2)): what the day
+  // files of the three archives KNOWN BROKEN #62 exposed hold
+  // (server/archiveDayCounts.ts archiveDayCounts) — rows, distinct keys, null
+  // values and groups per day, the days that carry an overwrite's signature,
+  // and the compressor's merge counters since boot. Counts, days and public
+  // group codes (balancing authority, ticker) only: no value; read-only; no
+  // network; no Python. ?stream, ?day, ?to, ?days (at most 60), ?scan=all.
+  "archive_day_counts",
   // ADDED 2026-11-21 ([PIPELINE]): read-only status of the nightly SEC XBRL
   // fundamentals read (server/xbrlFrames.ts xbrlFramesStatus) — the day
   // markers, the last night's per-frame counts and error text, free space.

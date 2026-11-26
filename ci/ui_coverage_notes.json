@@ -419,6 +419,10 @@
    "partial",
    "13F page: since 2026-11-21 the page asks by filed day and each day's line states it against EDGAR's index (complete / partial / sample, through /api/data/filings13f/history). Not on a page: the nightly pass's own last run and how far back the archive is complete. Placement: one line under the 13F page header."
   ],
+  "archive_day_counts": [
+   "partial",
+   "A session's count of what the day files of three archives hold (hourly grid generation, hourly grid demand, Wikipedia page views): rows, groups and null values per day, and the compressed days that carry the signature of the overwrite fault repaired on 2026-11-26. Not on a page: it is the instrument that names the days to read again from the source, and its first reading has not been taken. Placement once it has: one line per archive on Pipeline health saying how many days were found incomplete and how many have been read again."
+  ],
   "dtcc_trs_panel": [
    "partial",
    "The nightly job is on Pipeline health with every other scheduled job (its row says how many vendor days and how many security types it holds), and Signal strength shows the DTCC equity-swap root's ladder position. Not on a page: the counts by security type, the event list against the registered one, and (since 2026-11-26) how many events a dated CUSIP-to-ticker record read from the SEC fails-to-deliver files covers; the job's row says how many of those SEC files it holds. They are the inputs of a pre-registered gate-2 test that has not run, so they wait for ladder gate 2. Placement after the test's first verdict: an evidence section of the DTCC swaps page."
