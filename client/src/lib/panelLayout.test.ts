@@ -144,3 +144,18 @@ test("nestedScrollConsumes: overlay scrolls only while it can — map gets the w
   assert.equal(nestedScrollConsumes(0, 400, 900, 500), true);
   assert.equal(nestedScrollConsumes(100, 400, 900, 0), false);
 });
+
+test("legendNoteIsCut: only a note taller than its box is cut (phone legend, 2026-11-26)", async () => {
+  const { legendNoteIsCut } = await import("./panelLayout.ts");
+  // desktop: a note is never clamped, so its box is as tall as its text
+  assert.equal(legendNoteIsCut(48, 48), false);
+  // phone: two 16 px lines shown, eight lines of text
+  assert.equal(legendNoteIsCut(128, 32), true);
+  // a note of exactly two lines is not cut; nor is a one-pixel rounding difference
+  assert.equal(legendNoteIsCut(32, 32), false);
+  assert.equal(legendNoteIsCut(33, 32), false);
+  assert.equal(legendNoteIsCut(34, 32), true);
+  // a hidden legend (display:none while the layers panel is up) measures 0 x 0: not cut
+  assert.equal(legendNoteIsCut(0, 0), false);
+  assert.equal(legendNoteIsCut(Number.NaN, 32), false);
+});
