@@ -449,6 +449,13 @@ export const DIAG_PROBES = [
   // filings data only (issuer name and CUSIP as filed); no price, no return;
   // no network; no Python; no query parameters.
   "filings13f_clusters",
+  // ADDED 2026-11-26 ([PIPELINE]): read-only status of the nightly DTCC
+  // equity-swap panel job (server/dtccTrsPanel.ts dtccTrsPanelStatus) — the
+  // last run's day counts, the event list against the registered one, and
+  // the security-type step's counts by OpenFIGI type. Counts, dates and type
+  // names only: no CUSIP, ticker, price or return; no network; no Python; no
+  // query parameters.
+  "dtcc_trs_panel",
   // ADDED 2026-11-21 ([PIPELINE]): read-only status of the nightly SEC XBRL
   // fundamentals read (server/xbrlFrames.ts xbrlFramesStatus) — the day
   // markers, the last night's per-frame counts and error text, free space.

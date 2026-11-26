@@ -31,11 +31,20 @@ WHAT ONE RUN DOES
      <root>/panel and compares the events up to the registered list's last
      day with the registered list, month by month.
 
+  5. SECURITY TYPES (open_questions.md (as2) step 1, 2026-11-26). Once an
+     event list exists, asks OpenFIGI what each panel CUSIP is (cusip_figi.py:
+     common stock, fund, preferred, ...; the registered filter's item 3
+     needs it) for the CUSIPs not asked before: the event underliers first,
+     then the rest by how many panel days they have. It uses what is left of
+     the run's total time, 10 CUSIPs a request, 25 requests a minute, and
+     keeps every answer in <root>/figi/cusip_figi.jsonl. It reads no price.
+
 WHAT IT DOES NOT DO. It reads no price and computes no return; the test
 itself is not here. Nothing in the trading bot reads its output.
 
-OUTPUT: <DATA_DIR>/dtcc_trs_panel/{days/, panel/, last_run.json}. The last
-stdout line is one JSON summary for the scheduler (server/dtccTrsPanel.ts).
+OUTPUT: <DATA_DIR>/dtcc_trs_panel/{days/, panel/, figi/, last_run.json}. The
+last stdout line is one JSON summary for the scheduler
+(server/dtccTrsPanel.ts).
 """
 from __future__ import annotations
 
@@ -52,6 +61,7 @@ import tempfile
 import time
 from typing import Callable, Dict, Iterable, List, Optional
 
+import cusip_figi
 import dtcc_trs_panel as panel
 
 SCHEMA = "dtcc_trs_panel_job/1"
@@ -67,6 +77,10 @@ READABLE_DAYS = 732
 RECENT_DAYS = 4
 # Stop a run after this many days in a row that could not be read.
 MAX_CONSECUTIVE_ERRORS = 3
+# The security-type record (cusip_figi.py) lives beside the panel.
+FIGI_SUBDIR = "figi"
+# Under this many seconds left in the run, the step waits for the next run.
+FIGI_MIN_BUDGET_S = 20.0
 
 # The registered event list (datacore/dtcc_trs_panel/events.json.gz as
 # committed 2026-11-25, v1.0.1554), as a digest: per month, the number of
@@ -184,10 +198,70 @@ def dir_bytes(root: str) -> int:
     return total
 
 
+def figi_wanted(root: str) -> Dict[str, object]:
+    """The CUSIPs to ask about, in order: the event underliers (by their
+    first event), then every other panel CUSIP by its number of panel rows,
+    most first. Kept in <root>/figi/wanted.json and rebuilt only when the
+    event list's file changes (a pass over the panel is about 2.5 million
+    rows)."""
+    panel_dir = os.path.join(root, "panel")
+    events_path = os.path.join(panel_dir, panel.EVENTS_FILE)
+    st = os.stat(events_path)
+    key = f"{st.st_size}:{int(st.st_mtime)}"
+    path = os.path.join(root, FIGI_SUBDIR, "wanted.json")
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                doc = json.load(f)
+            if doc.get("key") == key and isinstance(doc.get("cusips"), list):
+                return doc
+        except (OSError, ValueError) as e:
+            print(f"[dtcc_trs_panel_job] {path} unreadable, rebuilt: {e}", file=sys.stderr)
+    order: List[str] = []
+    seen = set()
+    for e in sorted(panel.read_events(panel_dir)["events"], key=lambda x: (str(x["date"]), str(x["cusip"]))):
+        c = str(e["cusip"])
+        if c not in seen:
+            seen.add(c)
+            order.append(c)
+    n_event = len(order)
+    rows: Dict[str, int] = {}
+    for r in panel.read_panel(panel_dir):
+        c = str(r["cusip"])
+        if c not in seen:
+            rows[c] = rows.get(c, 0) + 1
+    order.extend(sorted(rows, key=lambda c: (-rows[c], c)))
+    doc = {"key": key, "event_cusips": n_event, "cusips": order}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    _write_json(path, doc)
+    return doc
+
+
+def figi_step(root: str, budget_s: float,
+              resolve: Callable[..., Dict[str, object]] = cusip_figi.resolve) -> Dict[str, object]:
+    """Ask for the panel CUSIPs not asked before, within `budget_s`; then
+    count the classes of what is held. Never raises."""
+    try:
+        doc = figi_wanted(root)
+        cusips = [str(c) for c in doc["cusips"]]
+        n_event = int(doc["event_cusips"])
+        cache_path = os.path.join(root, FIGI_SUBDIR, cusip_figi.CACHE_FILE)
+        out = resolve(cusips, cache_path, budget_s=budget_s, api_key=os.environ.get("OPENFIGI_API_KEY") or None)
+        cache = cusip_figi.read_cache(cache_path)
+        out["event_cusips"] = n_event
+        out["event_cusips_held"] = sum(1 for c in cusips[:n_event] if c in cache)
+        out["classes_event_cusips"] = cusip_figi.class_counts(cache, [c for c in cusips[:n_event] if c in cache])
+        out["classes_all"] = cusip_figi.class_counts(cache, [c for c in cusips if c in cache])
+        return out
+    except Exception as e:  # noqa: BLE001 — the panel is kept; the run reads "error" with the reason
+        return {"status": "error", "last_error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
 def run(root: str, today: Optional[dt.date] = None, budget_s: float = 600.0, max_days: int = 400,
         max_rss_mb: float = 600.0, code_version: str = "unknown", tmp_dir: Optional[str] = None,
         build: Callable[..., Dict[str, object]] = panel.build_day,
-        clock: Callable[[], float] = time.time) -> Dict[str, object]:
+        clock: Callable[[], float] = time.time, total_s: float = 0.0,
+        figi: Callable[[str, float], Dict[str, object]] = figi_step) -> Dict[str, object]:
     t0 = clock()
     today = today or dt.datetime.now(dt.timezone.utc).date()
     days_dir = os.path.join(root, "days")
@@ -277,7 +351,15 @@ def run(root: str, today: Optional[dt.date] = None, budget_s: float = 600.0, max
             out["events_error"] = f"events_check.json unreadable: {str(e)[:120]}"
     out["events"] = events_summary
 
-    out["status"] = "error" if (errors or out.get("events_error")) else "ok"
+    # Security types, with what is left of the run's total time (0 = off).
+    figi_left = total_s - (clock() - t0)
+    if total_s > 0 and figi_left >= FIGI_MIN_BUDGET_S and os.path.exists(events_path):
+        out["figi"] = figi(root, figi_left)
+    else:
+        out["figi"] = None
+
+    figi_failed = bool(out["figi"]) and out["figi"].get("status") == "error"
+    out["status"] = "error" if (errors or out.get("events_error") or figi_failed) else "ok"
     out["bytes"] = dir_bytes(root)
     out["finished_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     out["elapsed_s"] = round(clock() - t0, 1)
@@ -300,6 +382,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--max-rss-mb", type=float, default=600.0)
     ap.add_argument("--budget-s", type=float, default=600.0)
     ap.add_argument("--max-days", type=int, default=400)
+    ap.add_argument("--total-s", type=float, default=0.0,
+                    help="the whole run's seconds; what the day reads leave goes to the security-type step (0: no such step)")
     ap.add_argument("--code-version", default="unknown")
     ap.add_argument("--out-root", default=None)
     a = ap.parse_args(argv)
@@ -311,7 +395,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     data_dir = os.environ.get("DATA_DIR") or ("/data/voltrade" if os.path.exists("/data") else "/tmp")
     root = a.out_root or os.path.join(data_dir, OUT_SUBDIR)
     try:
-        out = run(root, budget_s=a.budget_s, max_days=a.max_days, max_rss_mb=a.max_rss_mb, code_version=a.code_version)
+        out = run(root, budget_s=a.budget_s, max_days=a.max_days, max_rss_mb=a.max_rss_mb, code_version=a.code_version,
+                  total_s=a.total_s)
     except Exception as e:  # noqa: BLE001 — one JSON line for the scheduler; day files already written are kept
         out = {"status": "error", "reason": f"{type(e).__name__}: {str(e)[:200]}"}
     print(json.dumps(out))

@@ -76,6 +76,7 @@ import { PEAK_CATCHUP_DELAY_MS, PEAK_CATCHUP_MAX_ATTEMPTS, PEAK_CATCHUP_RETRY_MS
 import { lazyPricesStatus } from "./lazyPrices";
 import { earningsQoqStatus } from "./earningsQoq";
 import { filings13fClustersStatus } from "./filings13fClusters";
+import { dtccTrsPanelStatus } from "./dtccTrsPanel";
 import { githubGate2Status } from "./githubGate2";
 import { form4CompletenessStatus } from "./edgarForm4Completeness";
 import { filings13fCompletenessStatus } from "./edgar13fCompleteness";
@@ -5193,6 +5194,12 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // new-position cluster detector (server/filings13fClusters.ts) — a
           // count of as-filed records; no price, no return.
           return res.json(sanitizeDiag(filings13fClustersStatus()));
+        }
+        case "dtcc_trs_panel": {
+          // ADDED 2026-11-26 ([PIPELINE]): read-only status of the nightly DTCC
+          // equity-swap panel job (server/dtccTrsPanel.ts) — counts, dates and
+          // security-type names; no CUSIP, no price, no return.
+          return res.json(sanitizeDiag(dtccTrsPanelStatus()));
         }
         case "github_gate2": {
           // ADDED 2026-11-12 ([PIPELINE]): read-only status of the weekly

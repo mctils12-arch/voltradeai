@@ -214,3 +214,100 @@ def test_build_day_holds_the_zip_where_it_is_told(tmp_path, monkeypatch):
     line = panel.build_day("2024-11-20", str(work), str(tmp))
     assert line["status"] == "unavailable" and seen["dir"] == str(tmp)
     assert os.listdir(tmp) == []                        # the zip is removed whatever the answer
+
+
+# --- the security-type step (open_questions.md (as2) step 1, 2026-11-26) ---
+
+def _whole_panel(tmp_path, cusips_by_day):
+    """A two-year panel with every day held; `cusips_by_day` adds rows."""
+    def build(day_iso, work, tmp_dir=None):
+        per = {"037833100": dict(dict.fromkeys(COUNTERS, 0), newt_n=1,
+                                 newt_usd=5_000_000 if day_iso == "2026-06-09" else 1000)}
+        for c in cusips_by_day.get(day_iso, cusips_by_day.get("*", ())):
+            per[c] = dict(dict.fromkeys(COUNTERS, 0), modi_n=1)
+        days = os.path.join(work, "days")
+        panel.write_day(os.path.join(days, day_iso + ".csv"), dt.date.fromisoformat(day_iso), per)
+        line = {"date": day_iso, "status": "ok", "underliers": len(per), "rows": len(per), "us_rows": len(per)}
+        with open(os.path.join(days, day_iso + ".json"), "w") as f:
+            json.dump(line, f)
+        return line
+    return run(tmp_path, build=build)
+
+
+def test_the_cusips_to_ask_are_the_event_underliers_first_then_the_rest_by_panel_days(tmp_path):
+    _whole_panel(tmp_path, {"*": ("78462F103",), "2026-06-01": ("78462F103", "000000AA1"),
+                            "2026-06-02": ("78462F103", "000000AA1", "000000BB2")})
+    root = str(tmp_path / "root")
+    doc = job.figi_wanted(root)
+    # the one event underlier, then 732 days, 2 days, 1 day
+    assert doc["event_cusips"] == 1
+    assert doc["cusips"] == ["037833100", "78462F103", "000000AA1", "000000BB2"]
+    # kept: a second call does not read the panel again
+    real = panel.read_panel
+    try:
+        panel.read_panel = lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("panel read twice"))
+        assert job.figi_wanted(root) == doc
+    finally:
+        panel.read_panel = real
+
+
+def test_the_type_step_gets_what_the_day_reads_left_and_only_once_an_event_list_exists(tmp_path):
+    seen = []
+
+    def figi(root, budget_s):
+        seen.append(round(budget_s))
+        return {"status": "ok", "wanted": 2, "held": 2, "owed": 0, "asked": 2}
+    # days still owed: no event list, so nothing is asked
+    out = run(tmp_path, max_days=3, total_s=840.0, figi=figi)
+    assert seen == [] and out["figi"] is None and out["backlog"] > 0
+    # total_s 0 (the default) is the step switched off
+    out = run(tmp_path, figi=figi)
+    assert seen == [] and out["figi"] is None and out["events"]["events"] == 0
+    # whole panel: the step runs with the run's remaining seconds
+    t = {"now": 1000.0}
+
+    def clock():
+        t["now"] += 50.0
+        return t["now"]
+    out = run(tmp_path, total_s=840.0, figi=figi, clock=clock)
+    assert len(seen) == 1 and 0 < seen[0] < 840 and out["figi"]["held"] == 2 and out["status"] == "ok"
+    with open(tmp_path / "root" / "last_run.json") as f:
+        assert json.load(f)["figi"]["asked"] == 2
+    # too little time left: it waits for the next run
+    out = run(tmp_path, total_s=60.0, figi=figi, clock=clock)
+    assert len(seen) == 1 and out["figi"] is None
+
+
+def test_a_type_step_that_got_no_answer_makes_the_run_read_error_and_keeps_the_panel(tmp_path):
+    _whole_panel(tmp_path, {})
+    root = str(tmp_path / "root")
+
+    def refused(cusips, cache_path, budget_s, api_key=None):
+        return {"status": "error", "wanted": len(cusips), "held": 0, "owed": len(cusips), "asked": 0,
+                "last_error": "HTTP 403: forbidden"}
+    step = job.figi_step(root, 100.0, resolve=refused)
+    assert step["status"] == "error" and step["event_cusips"] == 1 and step["event_cusips_held"] == 0
+    out = run(tmp_path, total_s=840.0, figi=lambda r, b: step)
+    assert out["status"] == "error" and out["events"]["events"] == 1 and out["days_ok"] == 732
+    # an exception inside the step is a reason on the row, never a lost run
+    boom = job.figi_step(root, 100.0, resolve=lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    assert boom == {"status": "error", "last_error": "OSError: disk full"}
+
+
+def test_the_type_step_counts_classes_of_what_it_holds(tmp_path):
+    import cusip_figi
+    _whole_panel(tmp_path, {"*": ("78462F103",)})
+    root = str(tmp_path / "root")
+
+    def resolve(cusips, cache_path, budget_s, api_key=None):
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w") as f:
+            f.write(json.dumps({"cusip": "037833100", "found": True, "us": True, "market_sector": "Equity",
+                                "security_type": "Common Stock"}) + "\n")
+            f.write(json.dumps({"cusip": "78462F103", "found": True, "us": True, "market_sector": "Equity",
+                                "security_type": "ETP"}) + "\n")
+        return {"status": "ok", "wanted": 2, "held": 2, "owed": 0, "asked": 2}
+    step = job.figi_step(root, 100.0, resolve=resolve)
+    assert step["classes_event_cusips"] == {"common": 1} and step["classes_all"] == {"ETP": 1, "common": 1}
+    assert step["event_cusips"] == 1 and step["event_cusips_held"] == 1
+    assert os.path.basename(os.path.dirname(os.path.join(root, job.FIGI_SUBDIR, cusip_figi.CACHE_FILE))) == "figi"
