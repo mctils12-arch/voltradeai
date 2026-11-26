@@ -31,6 +31,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 
 export interface TrialState {
@@ -300,8 +301,7 @@ export function gzipOldTrialDays(baseDir?: string, nowMs?: number): number {
       if (!/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)) continue;
       if (now - Date.parse(f.slice(0, 10)) < 2 * DAY) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
+      gzipDayFile(fp);
       n++;
     }
   } catch (e) {

@@ -45,6 +45,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 
 const STATE = "TX";
@@ -321,8 +322,7 @@ export function gzipSealedQuarters(nowMs: number, baseDir?: string): number {
       if (!m) continue;
       if (!quarterSealed(Number(m[2]), Number(m[3]), nowMs, baseDir)) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
+      gzipDayFile(fp);
       n++;
     }
   } catch {}

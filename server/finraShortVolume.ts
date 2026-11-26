@@ -65,6 +65,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import { trackSet } from "./heapDiag";
 
@@ -304,8 +305,7 @@ export async function refreshOrfShortVol(fetchImpl: FetchFn = fetch as any, nowM
         try {
           const fp = path.join(otcDir(baseDir), `${iso}.jsonl`);
           if (fs.existsSync(fp)) {
-            fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-            fs.unlinkSync(fp);
+            gzipDayFile(fp);
           }
         } catch {}
       }
@@ -339,8 +339,7 @@ function gzTargets(dir: string, now: number): string[] {
 }
 
 function gzOne(fp: string): void {
-  fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-  fs.unlinkSync(fp);
+  gzipDayFile(fp);
 }
 
 export function gzipOldShortVolDays(baseDir?: string, nowMs?: number): number {
@@ -596,8 +595,7 @@ export async function refreshShortVol(fetchImpl: FetchFn = fetch as any, nowMs?:
         try {
           const fp = path.join(svDir(baseDir), `${iso}.jsonl`);
           if (fs.existsSync(fp)) {
-            fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-            fs.unlinkSync(fp);
+            gzipDayFile(fp);
           }
         } catch {}
       }

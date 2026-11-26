@@ -40,6 +40,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import { resolveCacheItems } from "./cacheBackfill";
 import { notePollOk, notePollFailed, notePollDocuments, pollDocuments, pollUnreadError, describeStageError, type EdgarPollDocuments } from "./edgarPollHealth";
@@ -426,8 +427,7 @@ export function gzipOldEarnings8kDays(baseDir?: string, nowMs?: number): number 
       const day = f.slice(0, 10);
       if (now - Date.parse(day) < 2 * 86400_000) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
+      gzipDayFile(fp);
       n++;
     }
   } catch {}

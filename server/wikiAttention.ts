@@ -32,6 +32,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import wikiArticles from "../datacore/wiki_articles.json";
 import { trackSet } from "./heapDiag";
@@ -205,8 +206,7 @@ export function gzipOldAttentionDays(baseDir?: string, nowMs?: number): number {
       // views for a day can be revised shortly after publish — gz at 4d
       if (now - Date.parse(f.slice(0, 10)) < 4 * 86400_000) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
+      gzipDayFile(fp);
       n++;
     }
   } catch {}

@@ -40,6 +40,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import { trackSet } from "./heapDiag";
 
@@ -305,8 +306,7 @@ export function gzipPastYearFiles(baseDir?: string, nowMs?: number): number {
       const m = f.match(/^(\d{4})\.jsonl$/);
       if (!m || m[1] === currentYear) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
+      gzipDayFile(fp);
       n++;
     }
   } catch {}

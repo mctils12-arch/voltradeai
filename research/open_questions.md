@@ -8425,6 +8425,30 @@
     deployed, do NOT add a third way to read a filing: read `first_error`
     and the listing by hand first (RECURRENCE ESCALATES).
 
+62. **[FOUND 2026-11-26 16:10Z, voltrade-daily-midday scheduled routine, by the session health
+    check's Polled archives line and then by a test. FIXED the same session,
+    v1.0.1563. NOT YET CLOSED: read on production per (av1).]**
+    A LATE ROW FOR A DAY THAT WAS ALREADY COMPRESSED REPLACED EVERY ROW THE
+    ARCHIVE HELD FOR THAT DAY. A RECURRENCE: the same fault was fixed for
+    the aircraft hour files on 2026-11-16 (datacoreArchive.ts) and five
+    modules carried their own merge; forty other call sites still wrote
+    `gzipSync(readFileSync(fp))` straight onto `fp.gz`.
+    EXPOSED (read module by module, HEAD): gridgeneration and griddemand
+    (day file named for the OBSERVED hour, compressed at 3 days, EIA
+    publishes a respondent's hours late), wikiattention (page-view date,
+    compressed at 4 days, each fetch covers 8 days). The other 35 are not
+    exposed today (file named for the fetch day, or written once behind a
+    seen set that reads .gz, or the old file is replaced on purpose).
+    EVIDENCE: reproduced in server/gzipDayFile.test.ts on the unrepaired
+    code: twelve rows of three respondents on a compressed day, four late
+    rows of a fourth, and the day file held four rows. Production damage
+    is NOT measured: no session route reads a day file's rows ((av2)).
+    FIX: server/gzipDayFile.ts, one function, merges into an existing .gz
+    (existing lines first), writes through a temp file, and leaves both
+    files when a merge is unsafe. All forty sites call it.
+    RATCHET: server/gzipDayFile.test.ts (8 tests); the last one fails the
+    build if the raw line is written in any server module again.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -25405,3 +25429,16 @@ WHAT THIS CHANGES: nothing is confirmed about the simulator (two trades, one fal
 - (au5) THE EVENT RULE SELECTS TOWARD LIVE, LISTED NAMES. Unknown to OpenFIGI: 34% of all 14,218 panel CUSIPs against 9% of event underliers; no US listing today among the kept types: 19.5% against 7.2%. Not a defect. It means a result on events is a result on the liquid part of the file, and the same-day comparison set (registration item 4) must be drawn after the same type filter or it compares listed names with dead lines. The registration already says the comparison names pass the same filter; this is the count that shows why it matters. No build.
 - (at2): BUILT (this entry); judged by (au1). (as2) step 2, the runner: next, after (au1), with (au2) as its join rule.
 - STILL OPEN FROM BEFORE, unchanged: (at3), (at4), (at5); (as3)-(as5); (aq2), (aq3), (aq4); (ar1)-(ar3); (ap1), (ap3), (ap2)(b), (an4), (an5), (ao2), (ao5), (al2), (al4), (am2), (am3), (af3), (ah1) out-of-sample half, (ah2), (ah3), (ag2), (ag3), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (ac1)-(ac4), (aa5).
+
+## 2026-11-26 (16:10Z; Thursday, Thanksgiving, market closed) — compressing an archive day file no longer replaces the compressed file already there (KNOWN BROKEN #62, v1.0.1563); EIA's hourly grid data stalled; what is left open
+- [FOUND AND FIXED] KNOWN BROKEN #62 above. experiments.md, same date.
+- [MEASURED BY HAND, 16:11Z to 16:45Z] The health check's ALARM (gridgeneration, newest file 26.8 h old) is EIA's, not the poller's. api.eia.gov's newest hours equalled production's (PJM generation 2026-11-25T04, ERCO 2026-11-24T05); the poller's last good poll was 15:41Z. The 960-row request took 20.7 s and 20.9 s (the poller's timeout is 30 s); requests with a `start` filter answered 504 after 60 s; one cached 3-row answer was two days older than the 960-row one. Newest demand hours on production: US48 11-25T12, NW 11-24T12 (52 h behind).
+- (av1) CHECK AFTER DEPLOY, PRIORS WRITTEN BEFORE THE MERGE. (i) the deploy gate passes and server_version reads 1.0.1563: 97%. (ii) no "[archive] ... left beside its existing .gz" line and no new process fault in the first day: 90%. (iii) EIA resumes before Monday 2026-11-30 00:00Z: 80%. (iv) when it does, at least one respondent's first new hours fall on a day already compressed (ERCO generation's next hour is 11-24T06, and 11-24 is compressed at 11-27T00Z): 70%. NOT READABLE TODAY: whether the merge then happened, because `gzipDayFileStats()` is served by no route; see (av2).
+- (av2) NO SESSION CAN READ A DAY FILE'S ROW COUNTS, so past damage from #62 is unmeasured and the repair cannot be judged on production. TESTABLE FORM: a diag probe that returns, for a stream and a day, rows per respondent per hour (counts only) and the merge counters. With it: count, for each compressed gridgeneration and griddemand day, the respondents holding fewer than 24 hours. PRIOR, written now: 65% that at least one compressed day of gridgeneration holds a respondent set smaller than the day before it and the day after it (the signature of an overwrite). EIA's API serves history back to 2019, so every such day can be read again; gridGeneration.ts has no backfill and would need one bounded to the damaged days.
+- (av3) THE EIA POLLERS READ ONE PAGE AND STOP. gridgeneration reads the newest 960 rows per respondent (60 hours for US48's 16 fuel types, 120 for PJM's 8); griddemand reads 96 rows (48 hours). If EIA is silent for longer than a page and then publishes the missing hours at once, the hours beyond the page are never requested. NW demand was 52 hours behind today, past its page. BUILT THIS SESSION AND NOT SHIPPED (it must not ship before #62's repair is deployed, because reading further back writes into compressed days): each poll reads on, one page at a time with `offset`, until a page's oldest hour is wholly in the archive; a read-back that fails archives nothing for that respondent, so the next poll still sees the hole; ten extra pages at most; the route serves what the last poll did. 12 tests. It is the next PR.
+- (av4) A NULL VALUE IS ARCHIVED AND THEN BLOCKS THE REAL ONE. Both EIA pollers key a row by respondent, hour and series; a row whose value is null passes the quality gate, is written, and its key is then seen, so the number EIA publishes later for the same hour is dropped. NOT MEASURED: whether EIA sends null-valued rows at all (needs (av2)'s probe: count rows with mwh null). TESTABLE FORM: if any exist, a null row must not mark its key seen.
+- (av5) THE HEALTH CHECK CANNOT TELL A SILENT SOURCE FROM A DEAD POLLER. Polled archives raised ALARM today on a stream whose poller was healthy and whose source had published nothing. (av3)'s route field (`poll.newest_period`, `poll.first_failed`) gives the check what it needs: ALARM when the poll fails, WARN naming the source when the poll succeeds and the source's newest hour is old. Its own PR (the loop's measurement of itself, [RULE-REVIEW]).
+- (av6) wikiattention IS EXPOSED TO #62 BY A SECOND ROUTE: adding a ticker to its article list makes the first fetch write 8 days of that ticker into days already compressed. Repaired by the same helper; listed so the reason is on file.
+- (av7) THREE WRITERS THAT REPLACE A DAY'S ROLLUP WERE NOT CHANGED: datacoreArchive.ts's `<kind>_tracks/<day>.jsonl.gz` is rebuilt from whatever raw hour files are present. If the hot tier has evicted some of that day's hours first, the rebuild holds fewer. NOT CONFIRMED that partial eviction can happen. xbrlFrames.ts's streamed compressor renames over an existing .gz and is safe only while a day is written once. Both to be read before they are believed.
+- (av8) THE STARVATION COUNT READS NONE OF THE LAST FOUR ENTRIES. scripts/research_state_check.py reads a line that begins `STARVED: yes` or `STARVED: no`; the four entries of 2026-11-25 and 11-26 before this one end `SESSION: STARVED (queued: ...)`, which it reads as no flag, and a missing flag breaks the streak. The check printed "0 consecutive STARVED" over sessions that each logged STARVED. Found when this session's entry pushed the last readable flag out of a test's five-entry window. This entry uses the read form. TESTABLE FORM: the parser accepts both spellings, or the check WARNs when the newest full entry carries neither; its own PR (the loop's measurement of itself).
+- STILL OPEN FROM BEFORE, unchanged: (au1)-(au5); (at3), (at4), (at5); (as2) step 2; (as3)-(as5); (aq2), (aq3), (aq4); (ar1)-(ar3); (ap1), (ap3), (ap2)(b), (an4), (an5), (ao2), (ao5), (al2), (al4), (am2), (am3), (af3), (ah1) out-of-sample half, (ah2), (ah3), (ag2), (ag3), (x2), (w2) not before 2026-11-29, (x3), (x6), (y4), (ac1)-(ac4), (aa5).
