@@ -318,3 +318,10 @@ export function panelDragProps(
     },
   };
 }
+
+/** A legend note is "cut" when its text is taller than the box the stylesheet
+ *  gives it (phones clamp notes to two lines). One pixel of slack: sub-pixel
+ *  line heights round differently for scrollHeight and clientHeight. Pure. */
+export function legendNoteIsCut(scrollHeight: number, clientHeight: number): boolean {
+  return Number.isFinite(scrollHeight) && Number.isFinite(clientHeight) && clientHeight > 0 && scrollHeight > clientHeight + 1;
+}

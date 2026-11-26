@@ -2431,8 +2431,48 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 .vt-legend-float-bar:active { cursor: grabbing; }
 .vt-legend-float .vt-legend { margin-top: 0; border-top: 0; min-height: 0; display: flex; flex-direction: column; }
 .vt-legend-float .vt-legend-body { overflow-y: auto; min-height: 0; }
+/* PHONE LEGEND (2026-11-26; owner: "optimize the mobile site on the sizing of
+   the page ... the data map page with how you have the legend"). Measured on
+   production at 390x664 before this: the open legend was 228x252 px, lay over
+   the rail's last button, showed 192 of 1,008 px of its own content (notes at
+   9.5 px, items wrapping ragged in 200 px), and sat on top of the layers
+   panel's rows. Now, at phone width:
+   - closed it is a 44 px pill (the grip is hidden: panelLayout turns dragging
+     off under 768 px, so it was dead height);
+   - open it is a card BETWEEN the two button columns (rail at 12-56 px from
+     the left, layers button and compass at 12-56 px from the right), up to
+     60% of the map's height, so it covers neither;
+   - items line up in two columns (an item wider than half takes its own row);
+   - notes are 11 px, cut at two lines, and a cut note opens on tap
+     (LegendPanel marks the notes that are actually cut);
+   - the airline filter is one sideways-scrolling row with 32 px chips;
+   - with the layers panel up, the legend steps aside. */
 @media (max-width: 640px) {
-  .vt-legend-float { left: 10px; bottom: 56px; width: 228px; max-height: 38vh; }
+  .vt-legend-float { left: 10px; bottom: 56px; width: auto; max-width: calc(100% - 20px); max-height: none; }
+  .vt-legend-float-bar { display: none; }
+  .vt-legend-float .vt-legend-head { width: auto; padding: 4px 16px 4px 12px; }
+  .vt-legend-float:has(.vt-legend-body) { left: 64px; right: 64px; max-width: none; max-height: 60%; }
+  .vt-legend-float:has(.vt-legend-body) .vt-legend-head { width: 100%; flex: none; }
+  .vt-legend-float .vt-legend-body { padding: 0 12px 10px; overscroll-behavior: contain; }
+  .vt-legend-float .vt-legend-sec-head { font-size: 11px; }
+  .vt-legend-float .vt-legend-items { gap: 7px 10px; }
+  .vt-legend-float .vt-legend-item,
+  .vt-legend-float .vt-legend-chip { min-width: calc(50% - 5px); line-height: 1.35; }
+  .vt-legend-float .vt-legend-note {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+    width: 100%; font-size: 11px; line-height: 1.45;
+  }
+  .vt-legend-float .vt-legend-note.vt-note-long { cursor: pointer; }
+  .vt-legend-float .vt-legend-note.vt-note-long::before { content: "\25B8\00A0"; color: var(--accent, #4d9fff); }
+  .vt-legend-float .vt-legend-note.vt-note-open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+  .vt-legend-float .vt-legend-note.vt-note-open::before { content: "\25BE\00A0"; }
+  .vt-legend-float .vt-legend-airlines { flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 2px; scrollbar-width: none; }
+  .vt-legend-float .vt-legend-airlines::-webkit-scrollbar { display: none; }
+  .vt-legend-float .vt-satfinder-chip { min-height: 32px; padding: 5px 12px; font-size: 11.5px; flex: none; white-space: nowrap; }
+  /* the site-wide phone rule sets fields to 16 px (iPhone Safari zooms the page on a smaller one): the
+     proportional face fits more of the placeholder in the card at that size */
+  .vt-legend-float .vt-filter-input { min-height: 40px; font-family: var(--font-body); }
+  .vt-map-page[data-vt-panel-open="true"] .vt-legend-float { display: none; }
 }
 
 .vt-legend {
@@ -2548,13 +2588,15 @@ a, button, [role="button"], input { transition: all 150ms ease; }
 
 /* O6-3 satellite find & group (lives in the legend's Orbital section) */
 .vt-satfinder { display: flex; flex-direction: column; gap: 5px; margin: 2px 0 6px; }
-.vt-satfinder-input {
+.vt-satfinder-input, .vt-filter-input {
   width: 100%; padding: 5px 8px; font-size: 11px;
   background: var(--surface-2, rgba(255,255,255,0.05));
   border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
   border-radius: 7px; color: var(--text-primary); outline: none;
 }
-.vt-satfinder-input:focus { border-color: var(--accent, #4d9fff); }
+.vt-satfinder-input:focus, .vt-filter-input:focus { border-color: var(--accent, #4d9fff); }
+.vt-filter-input { min-height: 30px; font-family: var(--font-mono); text-overflow: ellipsis; }
+.vt-filter-input::placeholder { color: var(--text-tertiary); }
 .vt-satfinder-hits { display: flex; flex-direction: column; gap: 2px; max-height: 150px; overflow-y: auto; }
 .vt-satfinder-hit {
   text-align: left; padding: 4px 8px; font-size: 11px; border-radius: 6px;

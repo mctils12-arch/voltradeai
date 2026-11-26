@@ -7036,6 +7036,9 @@ async function main() {
         // directions, computed from the LIVE style + source features — not
         // from the legend's own code.
         try {
+          // DRIVER, 2026-11-26 (no assertion changed): at phone width the legend now steps aside while the
+          // layers panel is up, so the panel is closed BEFORE the legend is opened (it was closed right after).
+          if (vp.w <= 640) { await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]').catch(() => {}); await page.waitForTimeout(250); }
           await page.click('.vt-legend-head[aria-expanded="false"]', { timeout: 800 }).catch(() => {});
           await page.waitForTimeout(200);
           const parity = await page.evaluate(() => {
@@ -7081,6 +7084,86 @@ async function main() {
           await page.screenshot({ path: path.join(OUT, `${name}-legend-${vp.w}.png`) });
         } catch (e) {
           checks.failures.push("legend-parity: driver error — " + (e?.message || e));
+        }
+        // ── PHONE LEGEND ([PRODUCT] 2026-11-26; owner: "optimize the mobile site on the sizing of the page ...
+        // the data map page with how you have the legend"). Measured on production at 390 px before the fix: the
+        // open legend lay over the rail's last button, showed 192 of 1,008 px of its content, drew notes at
+        // 9.5 px and its search field as a white box, and sat on top of the layers panel's rows.
+        if (vp.w <= 640) {
+          const fail = (m) => checks.failures.push("phone legend: " + m);
+          try {
+            const read = () => page.evaluate(() => {
+              const f = document.querySelector("[data-vt-legend-float]");
+              if (!f || getComputedStyle(f).display === "none") return null;
+              const r = f.getBoundingClientRect(); const body = f.querySelector(".vt-legend-body");
+              const host = document.querySelector(".vt-map-page").getBoundingClientRect();
+              const over = [];
+              for (const sel of [".vt-map-fs-btn", ".vt-map-globe-btn", ".vt-map-analyst-btn", ".vt-map-timescrub-btn", ".vt-rail-menu", ".vt-nav-fab", ".vt-map-fab", ".vt-map-statusbar"]) {
+                for (const e of document.querySelectorAll(sel)) { const q = e.getBoundingClientRect(); if (q.width > 0 && q.height > 0 && !(q.right <= r.left || q.left >= r.right || q.bottom <= r.top || q.top >= r.bottom)) over.push(sel); }
+              }
+              let minFont = 99, smallText = "";
+              if (body) { const tw = document.createTreeWalker(body, NodeFilter.SHOW_TEXT); for (let n = tw.nextNode(); n; n = tw.nextNode()) { const t = n.nodeValue.trim(); if (t.length < 2) continue; const fs = parseFloat(getComputedStyle(n.parentElement).fontSize); if (fs < minFont) { minFont = fs; smallText = t.slice(0, 40); } } }
+              const notes = body ? [...body.querySelectorAll(".vt-legend-note")].map((n) => ({ len: (n.textContent || "").length, long: n.classList.contains("vt-note-long"), h: Math.round(n.getBoundingClientRect().height) })) : [];
+              const field = body?.querySelector("input.vt-filter-input"); const fcs = field ? getComputedStyle(field) : null;
+              const air = body?.querySelector(".vt-legend-airlines");
+              return { w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), hostW: Math.round(host.width), hostH: Math.round(host.height), over,
+                open: !!body, sideways: body ? body.scrollWidth - body.clientWidth : 0, minFont, smallText, notes,
+                grip: (() => { const g = f.querySelector(".vt-legend-float-bar"); return g ? getComputedStyle(g).display : "none"; })(),
+                field: fcs ? { bg: fcs.backgroundColor, font: parseFloat(fcs.fontSize), h: Math.round(field.getBoundingClientRect().height) } : null,
+                airH: air ? Math.round(air.getBoundingClientRect().height) : null, chipH: air?.querySelector("button") ? Math.round(air.querySelector("button").getBoundingClientRect().height) : null };
+            });
+            let lg = await read();
+            if (!lg || !lg.open) fail("the legend is not open after the parity step");
+            else {
+              if (lg.over.length) fail(`the open legend covers ${[...new Set(lg.over)].join(", ")}`);
+              if (lg.h > lg.hostH * 0.62) fail(`the open legend is ${lg.h}px tall, over 62% of the ${lg.hostH}px map`);
+              if (lg.left < 0 || lg.right > lg.hostW) fail(`the open legend leaves the map (${lg.left}..${lg.right} of ${lg.hostW})`);
+              if (lg.sideways > 1) fail(`the legend's content overflows sideways by ${lg.sideways}px`);
+              if (lg.minFont < 11) fail(`legend text at ${lg.minFont}px ("${lg.smallText}"); the phone floor is 11px`);
+              if (lg.grip !== "none") fail("the drag grip shows at phone width, where dragging is off");
+              const longNote = lg.notes.find((n) => n.len > 200);
+              const openInfo = `open ${lg.w}x${lg.h} of a ${lg.hostW}x${lg.hostH} map; ${lg.notes.length} notes, ${lg.notes.filter((n) => n.long).length} cut`;
+              if (longNote && !longNote.long) fail(`a ${longNote.len}-character note is not cut to two lines (${longNote.h}px tall)`);
+              if (longNote && longNote.h > 40) fail(`a cut note is ${longNote.h}px tall (two 16px lines expected)`);
+              if (lg.field) {
+                if (/^rgb\(255, 255, 255\)$/.test(lg.field.bg)) fail("the Find plane field is the browser's white box");
+                if (lg.field.font < 16) fail(`the Find plane field is ${lg.field.font}px: iPhone Safari zooms the page on focus under 16px`);
+              }
+              if (lg.chipH != null && lg.chipH < 32) fail(`an airline chip is ${lg.chipH}px tall (32px tap floor)`);
+              if (lg.airH != null && lg.airH > 44) fail(`the airline filter wraps to ${lg.airH}px instead of one sideways-scrolling row`);
+              // a cut note opens on tap and closes on the next
+              if (longNote) {
+                const note = page.locator("[data-vt-legend-float] .vt-legend-note.vt-note-long").first();
+                await note.scrollIntoViewIfNeeded(); const h0 = (await note.boundingBox())?.height ?? 0;
+                await note.click(); await page.waitForTimeout(120); const h1 = (await note.boundingBox())?.height ?? 0;
+                if (!(h1 > h0 + 10)) fail(`tapping a cut note did not open it (${Math.round(h0)}px -> ${Math.round(h1)}px)`);
+                await page.screenshot({ path: path.join(OUT, `${name}-legend-phone-note-${vp.w}.png`) });
+                await note.click(); await page.waitForTimeout(120); const h2 = (await note.boundingBox())?.height ?? 0;
+                if (Math.abs(h2 - h0) > 1) fail(`a second tap did not close the note (${Math.round(h2)}px, was ${Math.round(h0)}px)`);
+                await page.evaluate(() => { const b = document.querySelector("[data-vt-legend-float] .vt-legend-body"); if (b) b.scrollTop = 0; });
+              }
+              await page.screenshot({ path: path.join(OUT, `${name}-legend-phone-open-${vp.w}.png`) });
+              // with the layers panel up, the legend steps aside; it returns when the panel closes
+              await page.click('[aria-label="Open layers panel"]', { timeout: 1500 }); await page.waitForTimeout(300);
+              if (await read()) fail("the legend still shows on top of the open layers panel");
+              await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]', { timeout: 1500 }); await page.waitForTimeout(300);
+              if (!(await read())) fail("the legend did not return when the layers panel closed");
+              // closed: a pill, not a slab
+              await page.click('[data-vt-legend-float] .vt-legend-head[aria-expanded="true"]', { timeout: 1500 }); await page.waitForTimeout(200);
+              lg = await read();
+              if (!lg) fail("the closed legend is not on the map");
+              else {
+                if (lg.h > 48 || lg.h < 44) fail(`the closed legend is ${lg.h}px tall (a 44px pill expected)`);
+                if (lg.w > 160) fail(`the closed legend is ${lg.w}px wide (was a 228px slab; a pill expected)`);
+                if (lg.over.length) fail(`the closed legend covers ${[...new Set(lg.over)].join(", ")}`);
+              }
+              await page.screenshot({ path: path.join(OUT, `${name}-legend-phone-closed-${vp.w}.png`) });
+              await page.click('[data-vt-legend-float] .vt-legend-head[aria-expanded="false"]', { timeout: 1500 }); await page.waitForTimeout(200);
+              checks.info.phoneLegend = `${openInfo}; closed ${lg ? `${lg.w}x${lg.h}` : "missing"}`;
+            }
+          } catch (e) {
+            fail("driver error — " + String(e?.message || e).replace(/\s+/g, " ").slice(0, 300));
+          }
         }
         // restore collapsed-by-default state for the phone screenshot honesty
         if (vp.touch) await page.click('.vt-layer-panel [aria-label="Collapse layers panel"]').catch(() => {});

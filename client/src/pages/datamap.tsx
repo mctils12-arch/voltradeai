@@ -290,7 +290,7 @@ import { gibsTileUrl, gibsDefaultDate, gibsStepDate, gibsIsLatestAvailable, gibs
 import { attachLayerInteractions } from "@/lib/mapInteractions";
 import { formatPortDetail } from "@/lib/portDetail";
 import { fmtKm, fmtMetersSmall, fmtMetersPerSec, fmtKmh, fmtCelsius, fmtMeters, getUnits, setUnits, subscribeUnits, splitUnit } from "@/lib/units";
-import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, nestedScrollConsumes, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
+import { applyPanelPos, applyPanelScale, clampScale, clearPanelPos, getPanelPrefs, legendNoteIsCut, nestedScrollConsumes, panelDragProps, savePanelPrefs, stepPanelScale } from "@/lib/panelLayout";
 import { installDrapeOrderGuard } from "@/lib/drapeOrder";
 import {
   AERO_LAYER_ID, AERO_NOT_FOR_NAV, AERO_OPACITY_MIN, AERO_SOURCE_ID, AERO_UNDER_LAYER_ID, AERO_UNDER_SOURCE_ID, aeroBadge, aeroPaint,
@@ -1650,6 +1650,23 @@ const LegendPanel = memo(function LegendPanel({
     const t = window.setInterval(refresh, TRACKED_SIGNAL_REFRESH_MS / 4);
     return () => { window.clearInterval(t); ac.abort(); };
   }, [airOn, legendOpen, hasWatch, wlTick]);
+  // PHONE (2026-11-26): the stylesheet cuts a legend note at two lines under
+  // 640 px. Mark the notes that are actually cut (only those show the expand
+  // cue and open on tap); at desktop widths nothing is cut and nothing is
+  // marked. Runs after each legend render, which is where notes come and go.
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    for (const n of Array.from(body.querySelectorAll<HTMLElement>(".vt-legend-note"))) {
+      if (n.classList.contains("vt-note-open")) continue;
+      n.classList.toggle("vt-note-long", legendNoteIsCut(n.scrollHeight, n.clientHeight));
+    }
+  });
+  const onNoteTap = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const n = (e.target as Element | null)?.closest?.(".vt-legend-note.vt-note-long");
+    if (n) n.classList.toggle("vt-note-open");
+  }, []);
   return (
     <div className="vt-legend" data-vt-legend>
       <button className="vt-legend-head" aria-expanded={legendOpen}
@@ -1658,7 +1675,7 @@ const LegendPanel = memo(function LegendPanel({
         <span>Legend</span>
       </button>
       {legendOpen && (
-        <div className="vt-legend-body">
+        <div className="vt-legend-body" ref={bodyRef} onClick={onNoteTap}>
           {aeroLegendTitle && (
             <div className="vt-legend-sec">
               <div className="vt-legend-sec-head">Base chart</div>
@@ -1696,7 +1713,7 @@ const LegendPanel = memo(function LegendPanel({
                     <span className="vt-legend-note">zoom in (z8+): planes become 3D silhouettes at their real altitude, with a drop-line to the ground — shape = broadcast aircraft class (light / airliner / heavy / fast / rotor), color = altitude band; tilt the map to see them fly above the terrain. Click a plane: its archived track draws in 3D — an altitude line and translucent curtain colored teal→blue→violet across that flight's own recorded altitude range, plus a ground trace draped on the terrain; the bottom ALTITUDE/TIME panel replays the same track (gaps where altitude wasn't broadcast)</span>
                     {/* O6-4: operator filter — broadcast callsign prefixes (ICAO
                         telephony codes), one airline's sky at a time */}
-                    <div className="vt-satfinder-groups" style={{ width: "100%", marginTop: 4 }}>
+                    <div className="vt-satfinder-groups vt-legend-airlines" style={{ width: "100%", marginTop: 4 }}>
                       {AIRLINE_PRESETS.map((p) => (
                         <button key={p.key}
                                 className={`vt-satfinder-chip${airFilter === p.prefix ? " vt-satfinder-chip-on" : ""}`}
