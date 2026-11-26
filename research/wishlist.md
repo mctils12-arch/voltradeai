@@ -5043,3 +5043,10 @@ PROPOSED FIX (the human's call: the mechanism is a frozen path), before / after:
 - AFTER, option B (no frozen edit): in bot_engine, pass a day P&L of 0 to the kill switch outside regular hours. It stops the seeding, but it also blinds the limit to an after-hours loss, and it needs one more measurement first (when the broker rolls `last_equity`). Weaker; listed for completeness.
 RECOMMENDATION: option A. Say "do option A for the daily loss day" and a session ships it after a close, with the replay test and the rollback (one line).
 ALSO FOR THE HUMAN, same family, not proposed: the limit counts the whole account, base holding included (open_questions.md 2026-11-20 safety limits, k4).
+
+## 2026-11-25 — HUMAN DECISIONS RECORDED (asked 11-20 and 11-25, answered 11-25)
+
+- PAID OPTION QUOTES: NO ("i dont want to pay for options quotes"). Do not re-propose an OPRA or vendor quote subscription; a free real-time source would be a new entry with its own build-first analysis. What it costs us is stated where it bites: every option price on the site is the broker's indicative quote (the Book says so), and the execution layer stops at its Phase 2 gate (research/execution_layer_program.md RESUME STATE).
+- OWNER BUTTONS ON THE AI ENGINE PAGE: YES ("i like the onwer buttons"): run a scan now, reset the circuit breaker, close a position, place a manual order.
+- THE THREE LEGACY MONITORING ROUTES: REMOVE ("if the old monitoring routes dont work get rid of them"), with the tests that pinned them.
+- STILL WITH THE HUMAN after that conversation: the kill-switch option for the new base holding (recommended: option 2, the kill measured from a peak reset on the day the base changes); the daily loss day (recommended: option A, this file 2026-11-20); execution-layer decisions 1 to 4; the routine fixes; ADSBLOL_API_KEY (the human was filling in the free key request form on 11-25); the two missing chart-bake settings (R2_ACCOUNT_ID, R2_TILES_BUCKET, in the cloud environment the bake routine runs in, not Railway).

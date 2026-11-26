@@ -20,6 +20,25 @@ verbatim, unedited. Everything above PART 1 is session-maintained.
 
 ## RESUME STATE (session-maintained; newest first)
 
+2026-11-25 (foreground session, the human's answers of that day)
+- OPTION QUOTES: the human will NOT pay for an options quote feed ("i dont
+  want to pay for options quotes"). The account stays on Alpaca's
+  indicative feed. Consequence under this charter's own fail-closed rule
+  ("missing, stale or indicative-only data means skip"): Phase 0 (logging)
+  and Phase 1 (shadow, sends nothing) can run; Phase 2 onward cannot price
+  an option leg and stops at its gate until this is revisited or a free
+  real-time source is found (BUILD-FIRST: none identified).
+- OWNER BUTTONS: approved ("i like the onwer buttons"). They use the
+  EXISTING routes and order path (this charter's Phase 4 rule is not yet in
+  force); when the layer reaches Phase 4 the manual order form must route
+  through it like every other order.
+- STILL OPEN, asked again that day: decision 1 (the ci.yml edit), 2 (own
+  service vs daemon), 3 (paper vs live), 4 (model input). The human asked
+  what Phase 0 is and was told; no go-ahead yet. Phase 0: NOT STARTED.
+- Routine fixes: the human asked "if the routines are out dated then
+  what"; the proposal (pause product-pm, edge-late, daily-midday; add the
+  attach-the-repo step to the older prompts) was restated and awaits a yes.
+
 2026-11-19 (install session)
 - Section 14 report delivered to the human: six routine runs failed with
   `USAGE_LIMIT_REACHED` (edge-late 11-18; product-am, preopen-health,
