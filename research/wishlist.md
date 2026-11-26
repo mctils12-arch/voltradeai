@@ -1,5 +1,11 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ 2026-11-26 — the deploy-window gate holds PRs on market holidays; a session merged one by hand today (frozen workflow; your call; NOT A SPEND REQUEST)
+
+WHAT: your DEPLOY WINDOW rule says no PR ships during NYSE regular hours "on trading days". The gate that enforces it (scripts/automerge.sh, run by a frozen workflow) reads the clock and the weekday only, and that is written into it on purpose: its header says "Holidays and half days count as full market days, which is harmless: the merge waits for 16:00". On Thanksgiving it deferred PR #1925, a green archive repair opened at 12:03 ET, "to after the 4pm ET close".
+WHAT A SESSION DID, ONCE: merged #1925 by hand at 18:15Z (13:15 ET). Reasons, in experiments.md 2026-11-26: the market was closed all day, so the rule did not apply and nothing was trading; and the after-close sweep has run 4 to 7 hours late every time (the 11-18 entry below), which was after the midnight-UTC step the repair had to be live before. So a session went against a hold the script makes on purpose, on its own reading that "harmless" was not true this once. Its own PR of the same afternoon (a read-only probe, nothing lost by waiting) was left to the gate.
+YOUR CALL: (a) say "gate: holidays open" and a session makes automerge.sh read the closure list in market_calendar.py (the script is not frozen; the workflow file is not touched), with a test; or (b) say "gate: hold on holidays" and sessions leave held PRs alone on holidays from then on. Until you say, the gate's hold stands on holidays; a hand merge needs a stated loss from waiting, as today's had, and is logged here.
+
 ## ⚠ 2026-11-24 — full scans are timing out again after Monday's fix; the cause is measured and a structural fix is queued (NOTHING NEEDED unless you want it done differently; NOT A SPEND REQUEST)
 
 WHAT: on Tuesday afternoon 3 full scans hit the daemon's 300-second limit and returned nothing (18:12Z, 19:16Z, 20:14Z), out of 21 scans in the busy hours. Monday's fix (#1896, a 240-second deadline on the options stage) held for what it covered: no scan died inside the options stage. All three died just after it, in the tier engine.

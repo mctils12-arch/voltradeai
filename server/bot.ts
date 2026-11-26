@@ -77,6 +77,7 @@ import { lazyPricesStatus } from "./lazyPrices";
 import { earningsQoqStatus } from "./earningsQoq";
 import { filings13fClustersStatus } from "./filings13fClusters";
 import { dtccTrsPanelStatus } from "./dtccTrsPanel";
+import { archiveDayCounts } from "./archiveDayCounts";
 import { githubGate2Status } from "./githubGate2";
 import { form4CompletenessStatus } from "./edgarForm4Completeness";
 import { filings13fCompletenessStatus } from "./edgar13fCompleteness";
@@ -5200,6 +5201,13 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // equity-swap panel job (server/dtccTrsPanel.ts) — counts, dates and
           // security-type names; no CUSIP, no price, no return.
           return res.json(sanitizeDiag(dtccTrsPanelStatus()));
+        }
+        case "archive_day_counts": {
+          // ADDED 2026-11-26 ([PIPELINE], (av2)): what the day files of the
+          // archives KNOWN BROKEN #62 exposed hold (server/archiveDayCounts.ts)
+          // — counts, days and public group codes; read-only, one file at a time.
+          const q = req.query as Record<string, unknown>;
+          return res.json(sanitizeDiag(await archiveDayCounts({ stream: q.stream, day: q.day, to: q.to, days: q.days, scan: q.scan })));
         }
         case "github_gate2": {
           // ADDED 2026-11-12 ([PIPELINE]): read-only status of the weekly
