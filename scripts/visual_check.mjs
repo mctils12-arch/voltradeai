@@ -4412,7 +4412,10 @@ async function main() {
           cause: e.querySelector(".vt-job-cause")?.textContent || "",
           meta: e.querySelector(".vt-job-meta")?.textContent || "",
           cut: (() => { const c = e.querySelector(".vt-streams-chip"); return !c || c.scrollWidth > c.clientWidth + 1 || c.getBoundingClientRect().right > e.getBoundingClientRect().right + 1; })(),
+          font: (() => { const c = e.querySelector(".vt-streams-chip"); return c ? parseFloat(getComputedStyle(c).fontSize) : 0; })(),
         })));
+        // PHONE TEXT FLOOR (2026-11-26): at phone width a state chip is 11 px or more (it was 10.5)
+        if (vp.w <= 640 && rows.some((r) => r.font < 11)) fail(`a state chip is ${Math.min(...rows.map((r) => r.font))}px at ${vp.w}px wide (the phone floor is 11px)`);
         if (rows.length !== 7) fail(`${rows.length} rows, expected 7`);
         else {
           const chips = rows.map((r) => r.chip).join(" | ");
