@@ -109,15 +109,16 @@ test("urls: the ordinary request is unchanged; a later page adds only its offset
 
 /** Every archived row, plain and gzipped day files alike (the pollers gzip a
  *  day file once it is three days old). */
-const archivedRows = (dir: string): any[] => fs.readdirSync(dir)
+interface ArchivedRow { respondent: string; period: string; type?: string; fueltype?: string }
+const archivedRows = (dir: string): ArchivedRow[] => fs.readdirSync(dir)
   .filter((f) => /\.jsonl(\.gz)?$/.test(f))
   .flatMap((f) => {
     const buf = fs.readFileSync(path.join(dir, f));
     return (f.endsWith(".gz") ? zlib.gunzipSync(buf) : buf).toString("utf8").split("\n").filter(Boolean);
   })
-  .map((l) => JSON.parse(l));
+  .map((l) => JSON.parse(l) as ArchivedRow);
 const archivedHours = (dir: string, respondent: string) =>
-  new Set(archivedRows(dir).filter((o) => o.respondent === respondent).map((o) => o.period as string));
+  new Set(archivedRows(dir).filter((o) => o.respondent === respondent).map((o) => o.period));
 const param = (url: string, name: string) => new URL(url).searchParams.get(name);
 
 /** Fake EIA: every respondent has hours 0..published-1; `rowsFor` gives the
@@ -277,4 +278,46 @@ test("demand: an hour whose forecast is archived but whose demand is not does no
   let missing = 0;
   for (let h = 100; h < 200; h++) if (!demandHours.has(hour(h))) missing++;
   assert.equal(missing, 0, "every demand hour published during the stall is archived");
+});
+
+test("generation: when EIA publishes between two pages of a read-back the pages overlap, and each row is still written once", async () => {
+  _resetGridGenerationForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eia930-genmove-"));
+  const dir = path.join(base, "gridgeneration");
+  const state = { published: 100 };
+  const eia = fakeEia(state, genRows);
+  // two more hours appear after each respondent's first page of a read-back:
+  // every later offset now points 32 rows newer than it did
+  const moving = async (url: string) => {
+    const res = await eia.impl(url);
+    if (state.published >= 220 && Number(param(url, "offset") || 0) === 0) state.published += 2;
+    return res;
+  };
+  const env: NodeJS.ProcessEnv = { EIA_API_KEY: "k" };
+  await refreshGeneration(moving, env, Date.now(), base, 0);
+  state.published = 220;
+  await refreshGeneration(moving, env, Date.now(), base, 0);
+  const rows = archivedRows(dir);
+  assert.equal(new Set(rows.map((o) => `${o.respondent}|${o.period}|${o.fueltype}`)).size, rows.length, "no row is written twice");
+  const got = archivedHours(dir, "US48");
+  for (let h = 40; h < 220; h++) assert.ok(got.has(hour(h)), `US48 hour ${h} is archived`);
+});
+
+test("demand: a row the quality gate refuses at the edge of the page is not a missing hour, so the poll stays one request", async () => {
+  _resetGridDemandForTests();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "eia930-demq-"));
+  const dir = path.join(base, "griddemand");
+  const state = { published: 100 };
+  // the oldest hour of the page (hour 52) carries a negative demand, which the gate refuses on every poll
+  const eia = fakeEia(state, (resp, period) => [
+    { period, respondent: resp, type: "D", value: period === hour(100 - DEMAND_HOURS) ? "-5" : "100" },
+    { period, respondent: resp, type: "DF", value: "101" },
+  ]);
+  const env: NodeJS.ProcessEnv = { EIA_API_KEY: "k" };
+  await refreshDemand(eia.impl, env, Date.now(), base, 0);
+  eia.calls.length = 0;
+  await refreshDemand(eia.impl, env, Date.now(), base, 0);
+  assert.equal(eia.calls.length, DEMAND_RESPONDENTS.length, "one request per respondent");
+  assert.deepEqual(latestDemandPoll()!.catch_up, []);
+  assert.ok(!archivedRows(dir).some((o) => o.period === hour(100 - DEMAND_HOURS) && o.type === "D"), "the refused row is not archived");
 });

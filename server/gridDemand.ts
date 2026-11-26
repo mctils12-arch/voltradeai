@@ -209,7 +209,16 @@ export function archiveDemand(obs: DemandObs[], baseDir?: string): number {
   const valid = obs.filter((o) => validateRecord(o as any, DEMAND_BOUNDS).length === 0);
   const quarantined = obs.length - valid.length;
   if (quarantined > 0) console.warn(`[datacore] griddemand: quarantined ${quarantined} implausible row(s) (data-quality gate)`);
-  const fresh = valid.filter((o) => !seenObs.has(obsKey(o)));
+  // A read-back hands over several pages read one after another; when EIA
+  // publishes between two of them the offsets move and the pages overlap, so
+  // a key can be here twice. It is written once.
+  const inBatch = new Set<string>();
+  const fresh = valid.filter((o) => {
+    const k = obsKey(o);
+    if (seenObs.has(k) || inBatch.has(k)) return false;
+    inBatch.add(k);
+    return true;
+  });
   if (!fresh.length) return 0;
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -380,7 +389,9 @@ export async function sweepDemand(fetchImpl: FetchFn, env: NodeJS.ProcessEnv, no
     const r = await readBackToArchive<DemandObs>({
       fetchPage: (offset) => fetchDemandPage(fetchImpl, resp, key, rt, offset),
       pageLength: PAGE_LENGTH,
-      isSeen: (o) => seenObs.has(obsKey(o)),
+      // A row the quality gate refuses is never archived, so it is not a
+      // missing hour: counting it as one would read back on every poll.
+      isSeen: (o) => seenObs.has(obsKey(o)) || validateRecord({ mwh: o.mwh }, DEMAND_BOUNDS).length > 0,
       hasHistory: respondentsArchived.has(resp),
       pause,
     });
