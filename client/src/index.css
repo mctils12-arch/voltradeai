@@ -5588,6 +5588,25 @@ section.vt-bot-panel[data-panel="book"] .vt-bot-trow .sub--exit { color: var(--t
 .vt-sc-ar .m { color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
 .vt-sc-ar[data-unread="true"] .m { color: var(--text-primary); }
 .vt-sc-src { font-size: 10.5px; line-height: 1.4; color: var(--text-tertiary); }
+/* owner actions (2026-11-25): one row per action: a heading with its state, the control, the confirm box, the answer */
+.vt-oa { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); min-width: 0; }
+.vt-oa-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 12px; }
+.vt-oa-h span { font-size: 11px; min-width: 0; overflow-wrap: anywhere; }
+.vt-oa-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.vt-oa-btn, .vt-oa-row select, .vt-oa-row input { font: inherit; font-size: 12px; min-height: 32px; padding: 5px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary); }
+.vt-oa-btn { align-self: flex-start; cursor: pointer; background: none; }
+.vt-oa-btn:hover:not(:disabled) { border-color: var(--accent); }
+.vt-oa-btn:disabled, .vt-oa-row select:disabled, .vt-oa-row input:disabled { opacity: .55; cursor: default; }
+.vt-oa-row select { flex: 1 1 180px; min-width: 0; max-width: 100%; }
+.vt-oa-form select { flex: 0 1 150px; }
+.vt-oa-form input { flex: 1 1 64px; min-width: 0; width: 64px; font-family: var(--font-mono); }
+.vt-oa-warn, .vt-oa-notes { margin: 0; padding-left: 16px; font-size: 11.5px; line-height: 1.4; }
+.vt-oa-warn { color: var(--accent-orange); } .vt-oa-notes { color: var(--text-tertiary); }
+.vt-oa-warn li, .vt-oa-notes li { overflow-wrap: anywhere; }
+.vt-oa-out { font-size: 11.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.vt-oa-note { font-size: 11px; }
+.vt-oa .vt-bot-confirm .vt-bot-t2 { overflow-wrap: anywhere; }
+.vt-bot-page[data-touch="true"] .vt-oa-btn, .vt-bot-page[data-touch="true"] .vt-oa-row select, .vt-bot-page[data-touch="true"] .vt-oa-row input { min-height: 44px; }
 /* safety limits (2026-11-20): name | bar | share used, then the reading and what the guard does, each on its own line */
 .vt-sc-lims { display: flex; flex-direction: column; }
 .vt-sc-lim { display: grid; grid-template-columns: minmax(0, 1fr) 56px max-content; align-items: center; gap: 1px 8px; padding: 4px 0; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; }

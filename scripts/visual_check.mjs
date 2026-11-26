@@ -5326,6 +5326,140 @@ async function main() {
                 } else if (lm.say !== "the safety-limits read is not on this server yet" || !lm.disabled) lmFail(`without the route the block reads "${lm.say}" (disabled ${lm.disabled})`);
               }
             }
+            // ── OWNER ACTIONS ([PRODUCT] 2026-11-25; client/src/bot/ownerActions.tsx): the four owner buttons under the
+            // Issues list, each driven as the owner would: open the confirm box, read what it says will happen, and only
+            // then confirm. The battery records every POST the page makes: NOTHING may be sent by opening the block,
+            // choosing a position, typing an order, reviewing it, or cancelling; exactly one POST per confirm, with the
+            // body the confirm box described. The latched page (kill on) must refuse a manual order BEFORE the click and
+            // disable its confirm button; the idle page places one, is refused one by the server (the answer is shown in
+            // the server's words), and blocks a sale larger than the holding and a buy over the 20% position ceiling.
+            {
+              const oaFail = (m) => checks.failures.push("owner actions: " + m);
+              const oaSel = '.vt-sc[data-sc="actions"]';
+              const posted = [];
+              const oaRoute = async (route) => {
+                const rq = route.request();
+                if (rq.method() !== "POST") return route.fallback();
+                const pth = new URL(rq.url()).pathname; let body = null; try { body = rq.postDataJSON(); } catch { body = null; }
+                const j = (status, o) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(o) });
+                if (pth === "/api/bot/run-now") { posted.push({ p: pth, body }); return j(200, { message: "Tier 2 intelligence scan starting..." }); }
+                if (pth === "/api/bot/circuit-breaker/reset") { posted.push({ p: pth, body }); return j(200, { ok: true, circuitBreakerUntil: 0, consecutiveStopLosses: 0 }); }
+                if (pth === "/api/bot/close") { posted.push({ p: pth, body }); return j(200, { ok: true }); }
+                if (pth === "/api/bot/trade") { posted.push({ p: pth, body }); return body?.ticker === "ZZZZ" ? j(400, { error: "No current price for ZZZZ, so the size check could not run. Order not sent." }) : j(200, { id: "61e69015-8549-4bfd-b9c3-01e75843f47d", status: "accepted", symbol: body?.ticker }); }
+                return route.fallback();
+              };
+              await page.route("**/api/bot/**", oaRoute);
+              const txtOf = (sel) => page.evaluate((q) => (document.querySelector(q)?.textContent || "").replace(/\s+/g, " ").trim(), sel);
+              const listOf = (sel) => page.evaluate((q) => [...document.querySelectorAll(q)].map((e) => (e.textContent || "").replace(/\s+/g, " ").trim()), sel);
+              const press = async (sel) => { const b = page.locator(sel).first(); await b.scrollIntoViewIfNeeded(); await pressQ(b); await settle(); };
+              const head = await page.evaluate((q) => {
+                const txt = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim();
+                const el = document.querySelector(q);
+                if (!el) return null;
+                return { title: txt(el.querySelector(".vt-sc-h .t")), say: txt(el.querySelector(".vt-sc-s")), inIssues: !!el.closest('section.vt-bot-panel[data-panel="issues"]'), help: !!el.querySelector("button.vt-help") };
+              }, oaSel);
+              if (!head) oaFail("the Issues panel lacks the owner-actions block");
+              else {
+                console.log(`  owner actions ${vp.w}px: "${head.say.slice(0, 100)}"`);
+                if (!head.inIssues || !head.help || head.title !== "Owner actions") oaFail(`the block's head reads "${head.title}" (in the Issues panel ${head.inIssues}, help glyph ${head.help})`);
+                if (head.say !== "Circuit breaker off · no stop-loss streak · scan now, close one of 11 positions, or place an order: each asks before it acts") oaFail(`the closed line reads "${head.say}"`);
+                await press(`${oaSel} .vt-sc-h > button:not(.vt-help)`);
+                if (posted.length) oaFail(`opening the block sent ${posted.length} request(s)`);
+                const boxText = (k) => txtOf(`${oaSel} [data-oa-confirm="${k}"] .vt-bot-t2`);
+                const outText = (k) => txtOf(`${oaSel} [data-oa-out="${k}"]`);
+                const primary = (k) => `${oaSel} [data-oa-confirm="${k}"] button[data-primary="true"]`;
+                if (name === "bot") {
+                  // SCAN NOW: the box says what a scan can do; cancel sends nothing; confirm sends one POST
+                  await press(`${oaSel} [data-oa-open="scan"]`);
+                  const scanSay = await boxText("scan");
+                  if (scanSay !== "Starts a full scan now, outside its schedule. It scores the same universe and can place orders exactly as a scheduled scan does.") oaFail(`the scan box reads "${scanSay}"`);
+                  await press(`${oaSel} [data-oa-confirm="scan"] button:not([data-primary])`);
+                  if (posted.length) oaFail("cancelling the scan box sent a request");
+                  await press(`${oaSel} [data-oa-open="scan"]`); await press(primary("scan")); await page.waitForTimeout(300);
+                  if (posted.length !== 1 || posted[0].p !== "/api/bot/run-now") oaFail(`confirming the scan sent ${JSON.stringify(posted)}`);
+                  if ((await outText("scan")) !== "Scan started. Its rows appear in the timeline as it runs.") oaFail(`the scan's answer reads "${await outText("scan")}"`);
+                  // CIRCUIT BREAKER: off with no streak = nothing to reset, and the control says so
+                  const brk = await page.evaluate((q) => { const b = document.querySelector(`${q} [data-oa-open="breaker"]`); const row = document.querySelector(`${q} [data-oa="breaker"]`); return { disabled: !!b?.disabled, text: (row?.textContent || "").replace(/\s+/g, " ").trim() }; }, oaSel);
+                  if (!brk.disabled || !/^Circuit breakeroff · no stop-loss streak/.test(brk.text) || !/Nothing to reset\./.test(brk.text)) oaFail(`with the breaker off the row reads "${brk.text}" (control disabled ${brk.disabled})`);
+                  // CLOSE: one leg of a two-leg spread, a short option: the three warnings are said before the click
+                  const sel = page.locator(`${oaSel} select[aria-label="Position to close"]`);
+                  const nOpts = await sel.locator("option").count();
+                  if (nOpts !== 12) oaFail(`the position list has ${nOpts - 1} positions (11 held)`);
+                  await sel.selectOption("META261120P00600000"); await settle();
+                  if (posted.length !== 1) oaFail("choosing a position sent a request");
+                  await press(`${oaSel} [data-oa-open="close"]`);
+                  const closeSay = await boxText("close");
+                  if (!/^Closes META 600P 20-Nov(-\d\d)? · 1 ct short · \$320: one market order for the whole position, sent now\.$/.test(closeSay)) oaFail(`the close box reads "${closeSay}"`);
+                  const warns = await listOf(`${oaSel} [data-oa-warnings] li`);
+                  const wantWarns = ["A short option: closing buys it back at the market price.", "One of 2 legs the bot manages together: closing it alone leaves the rest open.", "Option quotes here are indicative: a market order can fill far from the price shown."];
+                  if (JSON.stringify(warns) !== JSON.stringify(wantWarns)) oaFail(`the close warnings read ${JSON.stringify(warns)}`);
+                  await press(primary("close")); await page.waitForTimeout(300);
+                  if (posted.length !== 2 || posted[1].p !== "/api/bot/close" || JSON.stringify(posted[1].body) !== JSON.stringify({ ticker: "META261120P00600000" })) oaFail(`confirming the close sent ${JSON.stringify(posted.slice(1))}`);
+                  if (!/^Close order sent for META 600P 20-Nov(-\d\d)?\. The Book updates when it fills\.$/.test(await outText("close"))) oaFail(`the close's answer reads "${await outText("close")}"`);
+                  // A MANUAL ORDER WHILE THE KILL IS LATCHED: refused before the click, the confirm button cannot send
+                  await page.locator(`${oaSel} input[aria-label="Quantity"]`).fill("10");
+                  await page.locator(`${oaSel} input[aria-label="Ticker"]`).fill("qqq");
+                  await press(`${oaSel} [data-oa-open="order"]`); await page.waitForTimeout(400);
+                  const probs = await listOf(`${oaSel} [data-oa-problems] li`);
+                  if (!probs.includes("The kill switch is latched: the server refuses every manual order until it is cleared. Closing a position still works.")) oaFail(`with the kill latched the order's problems read ${JSON.stringify(probs)}`);
+                  const pb = await page.evaluate((q) => { const b = document.querySelector(q); return b ? { disabled: b.disabled, text: (b.textContent || "").trim() } : null; }, primary("order"));
+                  if (!pb || !pb.disabled || pb.text !== "cannot send") oaFail(`with the kill latched the confirm button is ${JSON.stringify(pb)}`);
+                  if (posted.some((x) => x.p === "/api/bot/trade")) oaFail("a manual order was sent while the kill is latched");
+                } else {
+                  // THE IDLE PAGE: a clean buy, read back with the fixture's own last price, then sent once
+                  const lastBar = PAGE_FIXTURES["/api/bot/bars"].bars.at(-1);
+                  const usd = (v) => "$" + Math.round(v).toLocaleString("en-US");
+                  const fillOrder = async (side, qty, ticker) => {
+                    await page.locator(`${oaSel} select[aria-label="Side"]`).selectOption(side);
+                    await page.locator(`${oaSel} input[aria-label="Quantity"]`).fill(String(qty));
+                    await page.locator(`${oaSel} input[aria-label="Ticker"]`).fill(ticker);
+                    await press(`${oaSel} [data-oa-open="order"]`);
+                    for (let i = 0; i < 30 && !(await page.locator(`${oaSel} [data-oa-confirm="order"]`).count()); i++) await page.waitForTimeout(100);
+                  };
+                  await fillOrder("buy", 2, "qqq");
+                  if (posted.length) oaFail(`reviewing an order sent ${JSON.stringify(posted)}`);
+                  const say = await boxText("order");
+                  const wantStart = `BUY 2 QQQ at market · about ${usd(2 * lastBar.close)} at the last trade ($${lastBar.close.toFixed(2)}, `;
+                  if (!say.startsWith(wantStart) || !/ ET\) · \d+\.\d% of the account$/.test(say)) oaFail(`the order box reads "${say}" (expected it to start "${wantStart}")`);
+                  const notes = await listOf(`${oaSel} [data-oa-notes] li`);
+                  if (!notes.includes("A market order fills at the next available price, which can differ from the last trade.")) oaFail(`the order's notes read ${JSON.stringify(notes)}`);
+                  await press(primary("order")); await page.waitForTimeout(300);
+                  if (posted.length !== 1 || posted[0].p !== "/api/bot/trade" || JSON.stringify(posted[0].body) !== JSON.stringify({ ticker: "QQQ", side: "buy", qty: 2, type: "market" })) oaFail(`confirming the order sent ${JSON.stringify(posted)}`);
+                  if ((await outText("order")) !== 'Order sent: the broker says "accepted" · id 61e69015. It appears under working orders until it fills.') oaFail(`the order's answer reads "${await outText("order")}"`);
+                  // a sale larger than the holding (61 QQQ held) and a buy over the 20% ceiling: said, and not sendable
+                  await fillOrder("sell", 500, "QQQ");
+                  let probs = await listOf(`${oaSel} [data-oa-problems] li`);
+                  if (JSON.stringify(probs) !== JSON.stringify(["You hold 61 QQQ: a sell cannot exceed it."])) oaFail(`selling 500 of 61 held reads ${JSON.stringify(probs)}`);
+                  await press(`${oaSel} [data-oa-confirm="order"] button:not([data-primary])`);
+                  await fillOrder("buy", 100, "QQQ");
+                  probs = await listOf(`${oaSel} [data-oa-problems] li`);
+                  if (probs.length !== 1 || !/^About \d+% of the account: the server refuses a manual buy over 20%\.$/.test(probs[0])) oaFail(`a buy of 100 QQQ reads ${JSON.stringify(probs)}`);
+                  if (!(await page.evaluate((q) => document.querySelector(q)?.disabled === true, primary("order")))) oaFail("an order with a problem has an enabled confirm button");
+                  await press(`${oaSel} [data-oa-confirm="order"] button:not([data-primary])`);
+                  if (posted.length !== 1) oaFail(`a blocked order was sent: ${JSON.stringify(posted.slice(1))}`);
+                  // the server refuses one: its own words are shown, in the warning colour
+                  await fillOrder("buy", 1, "ZZZZ");
+                  await press(primary("order")); await page.waitForTimeout(300);
+                  const refused = await page.evaluate((q) => { const e = document.querySelector(q); return e ? { t: (e.textContent || "").trim(), ok: e.getAttribute("data-ok") } : null; }, `${oaSel} [data-oa-out="order"]`);
+                  if (!refused || refused.ok !== "false" || refused.t !== "Not done. The server refused: No current price for ZZZZ, so the size check could not run. Order not sent.") oaFail(`a refused order reads ${JSON.stringify(refused)}`);
+                }
+                // layout, at every width: nothing leaves the panel or the window, controls are 44 px on touch, no bare values
+                const lay = await page.evaluate((q) => {
+                  const el = document.querySelector(q); const panel = el.closest('section.vt-bot-panel[data-panel="issues"]'); const pr = panel.getBoundingClientRect();
+                  const ctl = [...el.querySelectorAll(".vt-oa-btn, .vt-oa-row select, .vt-oa-row input, .vt-bot-confirm button")].map((c) => { const r = c.getBoundingClientRect(); return { h: Math.round(r.height), over: Math.round(r.right - window.innerWidth), out: Math.round(r.right - pr.right), w: Math.round(r.width) }; });
+                  return { ctl, text: (el.textContent || "").replace(/\s+/g, " "), pageOver: Math.max(0, document.documentElement.scrollWidth - window.innerWidth), src: (el.querySelector(".vt-sc-src")?.textContent || "").trim() };
+                }, oaSel);
+                if (lay.ctl.some((c) => c.over > 1 || c.out > 1)) oaFail(`a control leaves the ${lay.ctl.some((c) => c.over > 1) ? "window" : "panel"}: ${JSON.stringify(lay.ctl.filter((c) => c.over > 1 || c.out > 1))}`);
+                if (vp.touch && lay.ctl.some((c) => c.h < 44)) oaFail(`touch controls under 44px: ${JSON.stringify(lay.ctl.filter((c) => c.h < 44).map((c) => c.h))}`);
+                if (lay.ctl.some((c) => c.w < 40)) oaFail(`a control is narrower than 40px: ${JSON.stringify(lay.ctl.filter((c) => c.w < 40))}`);
+                if (/NaN|undefined|\bnull\b|Infinity/.test(lay.text)) oaFail("a bare NaN / undefined / null in the block");
+                if (lay.pageOver > 1) oaFail(`the page scrolls sideways by ${lay.pageOver}px with the block open`);
+                if (!/nothing is sent until its confirm button is pressed/.test(lay.src)) oaFail(`the block's source line reads "${lay.src}"`);
+                try { const el = page.locator(oaSel).first(); await el.scrollIntoViewIfNeeded(); await el.screenshot({ path: path.join(OUT, `${name}-evidence-actions-${vp.w}.png`), animations: "disabled" }); } catch { /* the assertions above are the gate */ }
+                await press(`${oaSel} .vt-sc-h > button:not(.vt-help)`);
+              }
+              await page.unroute("**/api/bot/**", oaRoute);
+            }
             // ── DAILY LINE CARD ([PRODUCT] 2026-11-06; server/dailyLine.ts via GET /api/bot/daily-line, overview.tsx
             // DailyLineBody): one row per stored line, newest first, every cell the line's own field — the account's day,
             // SPY's, the gap in points (the gap must equal account − SPY as printed), the floor, the option total with its

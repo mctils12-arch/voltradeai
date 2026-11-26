@@ -18,7 +18,7 @@ import { parseLimits, limitsSentence, usedWords } from "./limitsView";
 
 const TONE: Readonly<Record<string, string>> = { ok: "vt-bot-t2", warn: "vt-bot-o", bad: "vt-bot-r", none: "vt-bot-t3" };
 
-function Fold({ id, title, help, summary, cls, children, onOpen }: { id: string; title: string; help: GlossaryKey; summary: string; cls: string; children?: ReactNode; onOpen?: () => void }) {
+export function Fold({ id, title, help, summary, cls, children, onOpen }: { id: string; title: string; help: GlossaryKey; summary: string; cls: string; children?: ReactNode; onOpen?: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <section className="vt-sc" data-sc={id} data-open={open ? "true" : undefined}>
