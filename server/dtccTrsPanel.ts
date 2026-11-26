@@ -1,0 +1,219 @@
+/**
+ * dtccTrsPanel.ts — the job that runs dtcc_trs_panel_job.py (repo root: the
+ * production image ships root *.py and not datacore/) so the event panel of
+ * the registered DTCC equity-swap gate-2 test exists on the server, beside
+ * the price panel the test will read (research/open_questions.md (aq1),
+ * 2026-11-26; the registration is the 2026-11-25 entry "GATE 2
+ * PRE-REGISTERED").
+ *
+ * WHAT THE PYTHON DOES: reads the vendor's dated files it does not hold,
+ * oldest first (the vendor stops serving a file two years after it is
+ * written, one a day), one row per US underlier per vendor day, to
+ * <DATA_DIR>/dtcc_trs_panel/. When every day is held it writes the event
+ * list and compares it with the registered one. It reads no price. Nothing
+ * here is read by a trading path, and nothing here is served: the panel is
+ * the input of a test that is not built yet.
+ *
+ * WHEN. Only between 20:00 and 04:00 ET, every day: the hours in which
+ * the Tier-2 scan does not run (its window is 04:00-20:00 ET), so the job
+ * never shares a core with a scan that is near its own time limit (KNOWN
+ * BROKEN #60). The vendor publishes day D at about 19:16 ET on D.
+ *   - CATCH-UP: while the last run left days owed and read at least one,
+ *     every tick in the window starts another run (about 730 days at the
+ *     first deploy; 10 minutes of reading per 20-minute tick).
+ *   - NIGHTLY: otherwise one run per night. A catch-up that stopped making
+ *     progress, or ended in error, falls back to this for the rest of the
+ *     night, so a vendor outage is not asked every 20 minutes.
+ * HOW: the long-job lane's exec (detached process group, nice 19, one
+ * process, a memory budget enforced by the Python). The vendor zip (37 to
+ * 155 MB) is held in the container's temporary directory, not the volume.
+ * FLAG: VOLTRADE_DTCC_TRS_PANEL, default ON.
+ */
+import fs from "fs";
+import path from "path";
+import { beat, zonedInstant, zonedParts } from "./jobHeartbeat";
+import { execGroupKill } from "./pythonExec";
+import { WALKFORWARD_ENV_CAPS, type RunOutcome, type WalkforwardExec } from "./walkforward";
+import { version as pkgVersion } from "../package.json";
+
+export const DTCC_TRS_PANEL_JOB = "dtcc_trs_panel_daily";
+export const DTCC_TRS_PANEL_SUBDIR = "dtcc_trs_panel";
+export const DTCC_TRS_PANEL_TICK_MS = 20 * 60_000;
+/** One run reads for this long, then finishes the day in hand. */
+export const DTCC_TRS_PANEL_BUDGET_S = 600;
+/** Budget + the slowest single day (a 155 MB file on a slow link) + the
+ *  compaction and event pass (measured in the PR that added this file). */
+export const DTCC_TRS_PANEL_TIMEOUT_MS = 19 * 60_000;
+export const DTCC_TRS_PANEL_MAX_RSS_MB = 700;
+/** The finished panel is about 50 MB on the volume (gzipped day files plus
+ *  the compacted copy); below this free space the job writes nothing. */
+export const DTCC_TRS_PANEL_MIN_FREE_BYTES = 300_000_000;
+export const DTCC_TRS_PANEL_WINDOW_START_MIN = 20 * 60;
+export const DTCC_TRS_PANEL_WINDOW_END_MIN = 4 * 60;
+const ET = "America/New_York";
+
+export function dtccTrsPanelFlag(env: Record<string, string | undefined>): boolean {
+  const raw = env.VOLTRADE_DTCC_TRS_PANEL;
+  const v = (raw === undefined ? "1" : String(raw)).trim().toLowerCase();
+  return v === "1" || v === "true" || v === "on" || v === "yes";
+}
+
+export function dtccTrsPanelRoot(env: Record<string, string | undefined> = process.env): string {
+  return path.join(env.DATA_DIR || (fs.existsSync("/data") ? "/data/voltrade" : "/tmp"), DTCC_TRS_PANEL_SUBDIR);
+}
+
+export function dtccTrsPanelCmd(codeVersion: string = pkgVersion): string {
+  const v = /^[0-9A-Za-z.+-]{1,40}$/.test(codeVersion) ? codeVersion : "unknown";
+  return `python3 dtcc_trs_panel_job.py --run --nice 19 --max-rss-mb ${DTCC_TRS_PANEL_MAX_RSS_MB} --budget-s ${DTCC_TRS_PANEL_BUDGET_S} --code-version ${v}`;
+}
+
+/** The night a moment belongs to: the ISO instant of its 20:00 ET start, or
+ *  null outside 20:00-04:00 ET. */
+export function dtccTrsPanelNight(nowMs: number): string | null {
+  const p = zonedParts(nowMs, ET);
+  if (p.minutes >= DTCC_TRS_PANEL_WINDOW_START_MIN) return new Date(zonedInstant(p.date, DTCC_TRS_PANEL_WINDOW_START_MIN, ET)).toISOString();
+  if (p.minutes < DTCC_TRS_PANEL_WINDOW_END_MIN) return new Date(zonedInstant(p.date, DTCC_TRS_PANEL_WINDOW_START_MIN - 24 * 60, ET)).toISOString();
+  return null;
+}
+
+/** What the scheduler needs of the Python's last_run.json. */
+export interface DtccTrsPanelLastRun { finishedAt: string | null; backlog: number | null; read: number | null }
+
+export type DtccTrsPanelDecision =
+  | { action: "idle"; reason: string }
+  | { action: "skip" | "run"; reason: string; mode: "catch-up" | "nightly"; night: string };
+
+/** Pure: what this tick should do. The two `...Night` fields are this
+ *  process's memory: the night whose nightly run it already tried, and the
+ *  night on which a catch-up run ended in error. */
+export function decideDtccTrsPanel(nowMs: number, s: {
+  enabled: boolean; last: DtccTrsPanelLastRun | null; lastNightlyAttemptNight: string; freeBytes: number | null;
+  catchUpFailedNight?: string;
+}): DtccTrsPanelDecision {
+  if (!s.enabled) return { action: "idle", reason: "VOLTRADE_DTCC_TRS_PANEL off" };
+  const night = dtccTrsPanelNight(nowMs);
+  if (!night) return { action: "idle", reason: "outside 20:00-04:00 ET" };
+  const low = s.freeBytes !== null && s.freeBytes < DTCC_TRS_PANEL_MIN_FREE_BYTES
+    ? `only ${Math.floor(s.freeBytes / 1e6)} MB free on the volume (< ${DTCC_TRS_PANEL_MIN_FREE_BYTES / 1e6} MB)` : null;
+  const last = s.last;
+  // No run yet, or the last one left old days owed and was still reading them.
+  const catchUp = !last || !last.finishedAt || ((last.backlog ?? 0) > 0 && (last.read ?? 0) > 0);
+  if (catchUp && !low && s.catchUpFailedNight !== night) {
+    return { action: "run", mode: "catch-up", night, reason: last?.finishedAt ? `${last.backlog} vendor days owed` : "no run yet" };
+  }
+  if (s.lastNightlyAttemptNight === night) return { action: "idle", reason: "already attempted tonight" };
+  const finished = last?.finishedAt ? Date.parse(last.finishedAt) : NaN;
+  if (Number.isFinite(finished) && finished >= Date.parse(night)) return { action: "idle", reason: "already ran tonight (before a restart)" };
+  if (low) return { action: "skip", mode: "nightly", night, reason: low };
+  return { action: "run", mode: "nightly", night, reason: last?.finishedAt ? `last finished ${last.finishedAt}` : "no run yet" };
+}
+
+function readJson(file: string): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(fs.readFileSync(file, "utf8"));
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.error("[dtcc_trs_panel] unreadable", file, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
+export function dtccTrsPanelLastRun(root: string): DtccTrsPanelLastRun | null {
+  const j = readJson(path.join(root, "last_run.json"));
+  return j ? { finishedAt: str(j.finished_at), backlog: num(j.backlog), read: num(j.read) } : null;
+}
+
+/** The event list against the registered one, for the job row. */
+export function describeEventsCheck(events: Record<string, unknown>): string {
+  const reg = obj(events.registered);
+  if (num(events.events) === null) return "";
+  if (reg.match === true) return `; events ${num(events.events)}, registered list reproduced (${num(reg.registered)} to ${str(reg.through)})`;
+  const months = Array.isArray(reg.months_differing) ? reg.months_differing.length : 0;
+  return `; events ${num(events.events)}, REGISTERED LIST NOT REPRODUCED: ${num(reg.here)} here vs ${num(reg.registered)} to ${str(reg.through)}, ${months} month(s) differ`;
+}
+
+/** Parse the Python's one-line JSON summary (its last stdout line). The row
+ *  is cut at 200 characters, so what failed comes first. */
+export function parseDtccTrsPanelSummary(stdout: string): RunOutcome {
+  const last = stdout.trim().split("\n").pop() ?? "";
+  let j: Record<string, unknown>;
+  try { j = obj(JSON.parse(last)); } catch (e) {
+    return { status: "error", detail: `unparseable summary: ${last.slice(0, 120)} (${e instanceof Error ? e.message : String(e)})` };
+  }
+  const st = str(j.status);
+  if ((st !== "ok" && st !== "error") || num(j.days_ok) === null) {
+    return { status: "error", detail: str(j.reason) ?? `status ${String(st)}, no day counts reported` };
+  }
+  const bad: string[] = [];
+  if (num(j.errors)) bad.push(`${num(j.errors)} day(s) unread (${(str(j.last_error) ?? "no reason").slice(0, 70)})`);
+  if (str(j.events_error)) bad.push(`event list not written: ${str(j.events_error)!.slice(0, 70)}`);
+  const head = bad.length ? `${bad.join("; ")}; ` : "";
+  const unavailable = num(j.days_unavailable) ? `, ${num(j.days_unavailable)} refused by the vendor (oldest ${str(j.oldest_unavailable)})` : "";
+  const owed = num(j.backlog) ? `, ${num(j.backlog)} owed` : "";
+  const mb = num(j.bytes) !== null ? `, ${(num(j.bytes)! / 1e6).toFixed(1)} MB` : "";
+  return {
+    status: st,
+    detail: `${head}read ${num(j.read) ?? 0}; holds ${num(j.days_ok)} days ${str(j.first_day) ?? "?"} to ${str(j.last_day) ?? "?"}${owed}${unavailable}`
+      + `${describeEventsCheck(obj(j.events))} (${String(j.elapsed_s)}s, peak ${String(j.peak_rss_mb)} MB${mb})`,
+  };
+}
+
+/** Run the job once (process-group kill on timeout). Never throws. A run in
+ *  which a day could not be read exits 1 with a full summary on stdout: that
+ *  summary is the outcome. */
+export async function runDtccTrsPanel(env: NodeJS.ProcessEnv, exec: WalkforwardExec = execGroupKill): Promise<RunOutcome> {
+  try {
+    const { stdout } = await exec(dtccTrsPanelCmd(pkgVersion), {
+      timeout: DTCC_TRS_PANEL_TIMEOUT_MS, killSignal: "SIGKILL", env: { ...env, ...WALKFORWARD_ENV_CAPS }, maxBuffer: 1024 * 1024, encoding: "utf8",
+    });
+    return parseDtccTrsPanelSummary(stdout);
+  } catch (e) {
+    const err = e as { killed?: boolean; signal?: string | null; code?: unknown; stdout?: string; stderr?: string; message?: string };
+    if (err.killed) return { status: "error", detail: `exceeded the ${Math.round(DTCC_TRS_PANEL_TIMEOUT_MS / 60_000)}-minute budget — process group killed (days already written are kept)` };
+    const fromStdout = err.stdout ? parseDtccTrsPanelSummary(err.stdout) : null;
+    if (fromStdout && !fromStdout.detail.startsWith("unparseable")) return fromStdout;
+    const tail = String(err.stderr || err.message || "").trim().slice(-160);
+    return { status: "error", detail: `code=${String(err.code ?? "?")} signal=${String(err.signal ?? "none")}: ${tail}` };
+  }
+}
+
+let booted = false;
+
+/** 20-minute tick (unref'd; first tick one interval after boot). One run at a time. */
+export function bootDtccTrsPanel(env: NodeJS.ProcessEnv = process.env): void {
+  if (booted) return;
+  booted = true;
+  let running = false;
+  let lastNightlyAttemptNight = "";
+  let catchUpFailedNight = "";
+  const tick = async () => {
+    if (running) return;
+    const root = dtccTrsPanelRoot(env);
+    let free: number | null = null;
+    try { const s = fs.statfsSync(root.startsWith("/data") ? "/data" : path.dirname(root)); free = Number(s.bavail) * Number(s.bsize); } catch { free = null; }
+    const d = decideDtccTrsPanel(Date.now(), {
+      enabled: dtccTrsPanelFlag(env), last: dtccTrsPanelLastRun(root), lastNightlyAttemptNight, freeBytes: free, catchUpFailedNight,
+    });
+    if (d.action === "idle") return;
+    if (d.mode === "nightly") lastNightlyAttemptNight = d.night;
+    running = true;
+    beat("dtcc_trs_panel_daily", "start");
+    try {
+      if (d.action === "skip") {
+        beat("dtcc_trs_panel_daily", "finish", "skipped", d.reason);
+        return;
+      }
+      const out = await runDtccTrsPanel(env);
+      if (d.mode === "catch-up" && out.status === "error") catchUpFailedNight = d.night;
+      beat("dtcc_trs_panel_daily", "finish", out.status === "error" ? "error" : "ok", `${d.mode}: ${out.detail}`);
+    } catch (e) {
+      beat("dtcc_trs_panel_daily", "finish", "error", e instanceof Error ? e.message : String(e));
+    } finally {
+      running = false;
+    }
+  };
+  setInterval(() => { void tick(); }, DTCC_TRS_PANEL_TICK_MS).unref?.();
+}

@@ -409,6 +409,23 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_SNAPSHOT_REFRESH off",
   },
   {
+    // dtccTrsPanel.ts bootDtccTrsPanel: 20-min tick, acts 20:00-04:00 ET only
+    // (the hours with no Tier-2 scan). One run per night
+    // (dtcc_trs_panel_job.py: the vendor's newest dated equity-swap file folded
+    // to one row per US underlier, then the event list); while old vendor days
+    // are owed a run starts every tick in that window. "error" when a day
+    // could not be read or the event list could not be written.
+    id: "dtcc_trs_panel_daily", label: "DTCC equity-swap event panel for the registered gate-2 test (nightly from 20:00 ET; catch-up runs until 04:00 ET)",
+    source: "server/dtccTrsPanel.ts", kind: "daily", tz: "America/New_York", dueMin: 20 * 60,
+    graceMs: 4 * HOUR, maxRunMs: 25 * MIN, tradingDaysOnly: false,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_DTCC_TRS_PANEL;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_DTCC_TRS_PANEL off",
+  },
+  {
     // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,
