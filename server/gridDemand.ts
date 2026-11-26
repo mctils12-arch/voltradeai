@@ -38,6 +38,7 @@ import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import { validateRecord } from "./dataQuality";
 import { trackSet } from "./heapDiag";
+import { readBackToArchive, type CatchUpNote, type PollState, type SourcePage } from "./eia930CatchUp";
 
 // DATA QUALITY GATE (research/location_context_engine.md): hourly demand /
 // forecast MWh is physically non-negative and far below 5,000,000 MWh/h (US
@@ -57,6 +58,7 @@ export const RESPONDENTS = ["US48", "CISO", "ERCO", "MISO", "PJM", "NYIS", "ISNE
 /** Trailing window per fetch — covers lag + restarts without bulk. */
 export const HOURS_PER_FETCH = 48;
 const CALL_SPACING_MS = 300;
+const PAGE_LENGTH = HOURS_PER_FETCH * 2; // two series x the same 48h window
 
 export interface DemandObs {
   period: string;            // "YYYY-MM-DDTHH" (UTC hour as published)
@@ -94,7 +96,9 @@ export function parseDemand(json: any, rt: string): DemandObs[] {
 type FetchFn = (url: string, init?: any) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function demandUrl(respondent: string, key: string): string {
+/** `offset` (rows from the newest) is sent only for the pages read after the
+ *  first, so the ordinary poll's request is unchanged. */
+export function demandUrl(respondent: string, key: string, offset = 0): string {
   return "https://api.eia.gov/v2/electricity/rto/region-data/data/" +
     `?api_key=${encodeURIComponent(key)}` +
     "&frequency=hourly&data%5B0%5D=value" +
@@ -102,7 +106,28 @@ export function demandUrl(respondent: string, key: string): string {
     "&facets%5Btype%5D%5B%5D=D" +
     "&facets%5Btype%5D%5B%5D=DF" + // day-ahead forecast rides the same call
     "&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=desc" +
-    `&length=${HOURS_PER_FETCH * 2}`; // two series x the same 48h window
+    `&length=${PAGE_LENGTH}` + (offset > 0 ? `&offset=${offset}` : "");
+}
+
+/** One page for one respondent; null when it could not be read (logged). */
+async function fetchDemandPage(fetchImpl: FetchFn, resp: string, key: string, rt: string,
+                               offset: number): Promise<SourcePage<DemandObs> | null> {
+  try {
+    const r = await fetchImpl(demandUrl(resp, key, offset), {
+      headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+      signal: AbortSignal.timeout(30000) as any,
+    });
+    if (!r.ok) {
+      console.error(`[datacore] griddemand ${resp}${offset ? ` offset ${offset}` : ""} -> ${r.status}`);
+      return null;
+    }
+    const json = JSON.parse(await r.text());
+    const data = json?.response?.data;
+    return { rows: parseDemand(json, rt), rawCount: Array.isArray(data) ? data.length : 0 };
+  } catch (e: any) {
+    console.error(`[datacore] griddemand ${resp}${offset ? ` offset ${offset}` : ""}:`, e?.message || e);
+    return null;
+  }
 }
 
 export async function fetchDemand(fetchImpl: FetchFn = fetch as any,
@@ -113,19 +138,8 @@ export async function fetchDemand(fetchImpl: FetchFn = fetch as any,
   const rt = new Date(nowMs ?? Date.now()).toISOString().slice(0, 10);
   const out: DemandObs[] = [];
   for (const resp of RESPONDENTS) {
-    try {
-      const r = await fetchImpl(demandUrl(resp, key), {
-        headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
-        signal: AbortSignal.timeout(30000) as any,
-      });
-      if (!r.ok) {
-        console.error(`[datacore] griddemand ${resp} -> ${r.status}`);
-      } else {
-        out.push(...parseDemand(JSON.parse(await r.text()), rt));
-      }
-    } catch (e: any) {
-      console.error(`[datacore] griddemand ${resp}:`, e?.message || e);
-    }
+    const page = await fetchDemandPage(fetchImpl, resp, key, rt, 0);
+    if (page) out.push(...page.rows);
     if (spacingMs > 0) await sleep(spacingMs);
   }
   return out;
@@ -140,6 +154,10 @@ let seeded = false;
 // legacy archived lines carry no type field — they are demand rows
 // (the pre-v2 facet forced D), so they hash identically to new D rows
 const obsKey = (o: DemandObs) => `${o.respondent}|${o.period}|${o.type || "D"}`;
+/** Respondents the archive holds at least one row for (eia930CatchUp.ts: a
+ *  respondent with no history is never read back). */
+const respondentsArchived = new Set<string>();
+const markSeen = (o: DemandObs) => { seenObs.add(obsKey(o)); respondentsArchived.add(o.respondent); };
 
 function demandDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "griddemand");
@@ -174,7 +192,7 @@ function seedSeen(dir: string): void {
       } catch { continue; }
       for (const line of text.split("\n")) {
         if (!line) continue;
-        try { seenObs.add(obsKey(JSON.parse(line))); } catch {}
+        try { markSeen(JSON.parse(line)); } catch {}
       }
     }
   } catch {}
@@ -205,7 +223,7 @@ export function archiveDemand(obs: DemandObs[], baseDir?: string): number {
       fs.appendFileSync(path.join(dir, `${day}.jsonl`),
                         rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
     });
-    fresh.forEach((o) => seenObs.add(obsKey(o)));
+    fresh.forEach(markSeen);
     return fresh.length;
   } catch (e: any) {
     console.error("[datacore] griddemand archive:", e?.message || e);
@@ -242,9 +260,15 @@ export interface RespondentStat {
 
 let cache: { at: number; stats: RespondentStat[] } | null = null;
 let polling = false;
+let lastPoll: PollState | null = null;
 
 export function latestDemand() {
   return cache;
+}
+
+/** What the last poll did (served on the stream's route as `poll`). */
+export function latestDemandPoll(): PollState | null {
+  return lastPoll;
 }
 
 /** Pure aggregation, extracted so a disk-backfilled day's raw obs can be
@@ -329,9 +353,55 @@ export function readArchivedDemand(baseDir?: string, nowMs?: number, lookbackDay
  *  order to find `cache` still null. */
 export function _resetGridDemandForTests(): void {
   seenObs.clear();
+  respondentsArchived.clear();
   seeded = false;
   cache = null;
   polling = false;
+  lastPoll = null;
+}
+
+/** One poll: the newest page per respondent, and, where that page does not
+ *  reach the archive, the pages behind it (eia930CatchUp.ts). `first` is what
+ *  the cache is computed from; `archivable` is what may be written. */
+export async function sweepDemand(fetchImpl: FetchFn, env: NodeJS.ProcessEnv, nowMs?: number,
+                                  baseDir?: string, spacingMs = CALL_SPACING_MS): Promise<{
+  first: DemandObs[]; archivable: DemandObs[]; firstFailed: string[]; catchUp: CatchUpNote[];
+}> {
+  const key = env.EIA_API_KEY || "";
+  const first: DemandObs[] = [];
+  const archivable: DemandObs[] = [];
+  const firstFailed: string[] = [];
+  const catchUp: CatchUpNote[] = [];
+  if (!key) return { first, archivable, firstFailed, catchUp };
+  if (!seeded) { seedSeen(demandDir(baseDir)); seeded = true; }
+  const rt = new Date(nowMs ?? Date.now()).toISOString().slice(0, 10);
+  const pause = async () => { if (spacingMs > 0) await sleep(spacingMs); };
+  for (const resp of RESPONDENTS) {
+    const r = await readBackToArchive<DemandObs>({
+      fetchPage: (offset) => fetchDemandPage(fetchImpl, resp, key, rt, offset),
+      pageLength: PAGE_LENGTH,
+      isSeen: (o) => seenObs.has(obsKey(o)),
+      hasHistory: respondentsArchived.has(resp),
+      pause,
+    });
+    first.push(...r.first);
+    if (r.outcome === "first_failed") firstFailed.push(resp);
+    if (r.outcome === "failed") {
+      console.error(`[datacore] griddemand ${resp}: the newest page does not reach the archive and page ${r.extraPages + 2} could not be read; nothing is archived for ${resp} this poll, so the next poll reads back again`);
+    } else {
+      archivable.push(...r.first, ...r.older);
+      if (r.outcome === "capped") {
+        console.error(`[datacore] griddemand ${resp}: read back ${r.extraPages} pages to ${r.oldestRead} without reaching the archive; hours before ${r.oldestRead} are NOT in the archive`);
+      } else if (r.extraPages > 0) {
+        console.log(`[datacore] griddemand ${resp}: read back ${r.extraPages} page(s) to ${r.oldestRead} (${r.outcome})`);
+      }
+    }
+    if (r.outcome !== "none" && r.outcome !== "first_failed") {
+      catchUp.push({ respondent: resp, outcome: r.outcome, extra_pages: r.extraPages, oldest_read: r.oldestRead });
+    }
+    await pause();
+  }
+  return { first, archivable, firstFailed, catchUp };
 }
 
 export async function refreshDemand(fetchImpl: FetchFn = fetch as any,
@@ -340,9 +410,17 @@ export async function refreshDemand(fetchImpl: FetchFn = fetch as any,
                                     spacingMs = CALL_SPACING_MS): Promise<void> {
   try {
     if (!gridDemandEnabled(env)) return;
-    const obs = await fetchDemand(fetchImpl, env, nowMs, spacingMs);
+    const sweep = await sweepDemand(fetchImpl, env, nowMs, baseDir, spacingMs);
+    const obs = sweep.first;
+    const rowsArchived = archiveDemand(sweep.archivable, baseDir);
+    lastPoll = {
+      at: Date.now(),
+      newest_period: obs.reduce<string | null>((mx, o) => (mx == null || o.period > mx ? o.period : mx), null),
+      rows_archived: rowsArchived,
+      first_failed: sweep.firstFailed,
+      catch_up: sweep.catchUp,
+    };
     if (obs.length) {
-      archiveDemand(obs, baseDir);
       cache = { at: Date.now(), stats: computeDemandStats(obs) };
     } else if (!cache) {
       const archived = readArchivedDemand(baseDir, nowMs);
