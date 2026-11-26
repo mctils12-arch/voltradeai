@@ -44,6 +44,7 @@ def run(tmp_path, **kw):
     kw.setdefault("tmp_dir", str(tmp_path / "tmp"))
     kw.setdefault("build", fake_vendor())
     kw.setdefault("max_days", 10_000)
+    kw.setdefault("ftd_fetch", lambda root, budget_s: None)      # no SEC request from a test
     return job.run(str(tmp_path / "root"), **kw)
 
 
@@ -311,3 +312,92 @@ def test_the_type_step_counts_classes_of_what_it_holds(tmp_path):
     assert step["classes_event_cusips"] == {"common": 1} and step["classes_all"] == {"ETP": 1, "common": 1}
     assert step["event_cusips"] == 1 and step["event_cusips_held"] == 1
     assert os.path.basename(os.path.dirname(os.path.join(root, job.FIGI_SUBDIR, cusip_figi.CACHE_FILE))) == "figi"
+
+
+# --- the dated ticker record (open_questions.md (at2), 2026-11-26) ---
+
+def test_the_sec_files_are_read_before_the_type_step_within_their_own_cap_and_only_once_an_event_list_exists(tmp_path):
+    order = []
+
+    def fetch(root, budget_s):
+        order.append(("ftd", round(budget_s)))
+        return {"status": "ok", "wanted": 46, "held": 44, "owed": 2, "read": 44}
+
+    def figi(root, budget_s):
+        order.append(("figi", round(budget_s)))
+        return {"status": "ok", "wanted": 2, "held": 2, "owed": 0, "asked": 0}
+    cov = lambda root: {"groups": {}, "window_days": 45}  # noqa: E731
+    # days still owed: no event list, so no SEC file is asked for
+    out = run(tmp_path, max_days=3, total_s=840.0, figi=figi, ftd_fetch=fetch, ftd_coverage=cov)
+    assert order == [] and out["ftd"] is None
+    # total_s 0 (the default) is both steps switched off
+    out = run(tmp_path, figi=figi, ftd_fetch=fetch, ftd_coverage=cov)
+    assert order == [] and out["ftd"] is None
+    t = {"now": 1000.0}
+
+    def clock():
+        t["now"] += 50.0
+        return t["now"]
+    out = run(tmp_path, total_s=840.0, figi=figi, ftd_fetch=fetch, ftd_coverage=cov, clock=clock)
+    assert [o[0] for o in order] == ["ftd", "figi"]
+    assert order[0][1] == job.FTD_BUDGET_S and 0 < order[1][1] < 840        # capped; the type step has the rest
+    assert out["ftd"]["held"] == 44 and out["ftd"]["coverage"] == {"groups": {}, "window_days": 45} and out["status"] == "ok"
+    with open(tmp_path / "root" / "last_run.json") as f:
+        assert json.load(f)["ftd"]["owed"] == 2
+    # little time left: the SEC step takes what is left less the type step's minimum, or waits
+    order.clear()
+    out = run(tmp_path, total_s=200.0, figi=figi, ftd_fetch=fetch, ftd_coverage=cov, clock=clock)
+    assert order[0][0] == "ftd" and order[0][1] < job.FTD_BUDGET_S
+    order.clear()
+    out = run(tmp_path, total_s=80.0, figi=figi, ftd_fetch=fetch, ftd_coverage=cov, clock=clock)
+    assert order == [] and out["ftd"] is None
+    assert job.FTD_BUDGET_S + job.FIGI_MIN_BUDGET_S < 840 - 600                 # both fit after a full day-read budget
+
+
+def test_a_refused_sec_step_makes_the_run_read_error_keeps_the_panel_and_counts_nothing(tmp_path):
+    _whole_panel(tmp_path, {})
+    refused = lambda root, b: {"status": "error", "wanted": 46, "held": 0, "owed": 46, "read": 0,  # noqa: E731
+                               "last_error": "202501a: HTTP 403: the SEC refused the client or the rate"}
+    called = []
+    out = run(tmp_path, total_s=840.0, figi=lambda r, b: {"status": "ok"}, ftd_fetch=refused,
+              ftd_coverage=lambda r: called.append(r) or {})
+    assert out["status"] == "error" and out["events"]["events"] == 1 and out["days_ok"] == 732
+    assert called == [] and "coverage" not in out["ftd"]           # nothing held: nothing to count
+    # an exception inside either step is a reason on the row, never a lost run
+    root = str(tmp_path / "root")
+    boom = job.ftd_fetch_step(root, 100.0, build=lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    assert boom == {"status": "error", "last_error": "OSError: disk full"}
+    os.makedirs(os.path.join(root, job.FTD_SUBDIR), exist_ok=True)
+    with open(os.path.join(root, job.FTD_SUBDIR, "202606a.csv.gz"), "wb") as f:
+        f.write(b"not gzip")
+    assert job.ftd_coverage_step(root)["groups"]["kept_us"]["events"] == 0      # an unreadable file is left out, not fatal
+
+
+def test_the_real_steps_ask_for_the_events_windows_and_count_what_the_volume_holds(tmp_path):
+    import cusip_figi
+    import cusip_ftd
+    _whole_panel(tmp_path, {})                    # one event: 037833100 on 2026-06-09
+    root = str(tmp_path / "root")
+    seen = {}
+
+    def build(ftd_root, wanted, today, budget_s):
+        seen.update(root=ftd_root, wanted=list(wanted), budget=budget_s)
+        cusip_ftd.write_period(ftd_root, "202606a", {("037833100", "AAPL"): ["2026-06-01", "2026-06-12", 9]})
+        return {"status": "ok", "wanted": len(wanted), "held": 1, "owed": len(wanted) - 1, "read": 1}
+    step = job.ftd_fetch_step(root, 123.0, today=TODAY, build=build)
+    assert seen["root"] == os.path.join(root, "ftd") and seen["budget"] == 123.0
+    assert seen["wanted"] == cusip_ftd.wanted_periods(dt.date(2026, 6, 9), dt.date(2026, 6, 9), TODAY)
+    assert seen["wanted"][0] == "202604b" and seen["wanted"][-1] == "202607b" and step["read"] == 1
+    assert 0 < step["bytes"] < 200                 # the record's size on the volume is reported
+    os.makedirs(os.path.join(root, job.FIGI_SUBDIR), exist_ok=True)
+    with open(os.path.join(root, job.FIGI_SUBDIR, cusip_figi.CACHE_FILE), "w") as f:
+        f.write(json.dumps({"cusip": "037833100", "found": True, "us": True, "market_sector": "Equity",
+                            "security_type": "Common Stock", "ticker": "AAPL"}) + "\n")
+    cov = job.ftd_coverage_step(root)
+    assert cov["groups"]["kept_us"] == {"underliers": 1, "underliers_joined": 1, "underliers_joined_back": 1,
+                                        "events": 1, "events_joined": 1, "events_joined_back": 1}
+    assert cov["agreement_kept_us"]["same"] == 1 and "037833100" not in json.dumps(cov)
+    # the whole run, with the real coverage step, writes it into last_run.json
+    out = run(tmp_path, total_s=840.0, figi=lambda r, b: {"status": "ok"},
+              ftd_fetch=lambda r, b: job.ftd_fetch_step(r, b, today=TODAY, build=build))
+    assert out["ftd"]["coverage"]["groups"]["kept_us"]["events_joined"] == 1 and out["status"] == "ok"

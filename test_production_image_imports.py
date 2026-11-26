@@ -383,3 +383,9 @@ def test_dtcc_trs_panel_job_command_runs_in_the_production_image_layout(tmp_path
             "assert c.tradable_class(None) == (None, 'not asked')\nprint('ok')")
     r = subprocess.run([sys.executable, "-c", prog], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
     assert r.stdout.strip() == "ok", r.stderr[-2000:]
+    # ... and the dated-ticker step (cusip_ftd.py, 2026-11-26) read no SEC file; its module imports in the image
+    assert summary.get("ftd") is None, summary
+    prog = ("import cusip_ftd as f\nimport datetime as d\n"
+            "assert f.period_of(d.date(2025, 1, 15)) == '202501b'\nprint('ok')")
+    r = subprocess.run([sys.executable, "-c", prog], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
+    assert r.stdout.strip() == "ok", r.stderr[-2000:]

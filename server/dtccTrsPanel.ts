@@ -23,6 +23,15 @@
  * answers, the catch-up lane keeps running. The `dtcc_trs_panel` diag probe
  * (dtccTrsPanelStatus) returns the last run's counts.
  *
+ * THE DATED TICKER (open_questions.md (at2), 2026-11-26). Today's ticker
+ * cannot carry a 2025 event to its prices when the company was bought or
+ * renamed since. The same run reads the SEC fails-to-deliver half-month files
+ * it does not hold (cusip_ftd.py: the CUSIP beside the symbol as printed on
+ * each settlement day; at most 200 s a run, before the type step) and counts
+ * how many events and underliers that record covers: the join's gate 1, no
+ * price. While periods are owed and the last run read some, the catch-up
+ * lane keeps running. The counts are in the probe's `last_run.ftd`.
+ *
  * WHEN. Only between 20:00 and 04:00 ET, every day: the hours in which
  * the Tier-2 scan does not run (its window is 04:00-20:00 ET), so the job
  * never shares a core with a scan that is near its own time limit (KNOWN
@@ -94,6 +103,8 @@ export interface DtccTrsPanelLastRun {
   finishedAt: string | null; backlog: number | null; read: number | null;
   /** The security-type step: CUSIPs not yet asked, and answers the last run got. */
   figiOwed?: number | null; figiAsked?: number | null;
+  /** The dated-ticker step: SEC half-month files not yet held, and files the last run read. */
+  ftdOwed?: number | null; ftdRead?: number | null;
 }
 
 export type DtccTrsPanelDecision =
@@ -117,9 +128,11 @@ export function decideDtccTrsPanel(nowMs: number, s: {
   // them, or left CUSIPs unasked and was still getting answers.
   const daysOwed = !!last && (last.backlog ?? 0) > 0 && (last.read ?? 0) > 0;
   const typesOwed = !!last && (last.figiOwed ?? 0) > 0 && (last.figiAsked ?? 0) > 0;
-  const catchUp = !last || !last.finishedAt || daysOwed || typesOwed;
+  const periodsOwed = !!last && (last.ftdOwed ?? 0) > 0 && (last.ftdRead ?? 0) > 0;
+  const catchUp = !last || !last.finishedAt || daysOwed || typesOwed || periodsOwed;
   if (catchUp && !low && s.catchUpFailedNight !== night) {
-    const why = !last?.finishedAt ? "no run yet" : daysOwed ? `${last.backlog} vendor days owed` : `${last.figiOwed} CUSIPs not yet asked`;
+    const why = !last?.finishedAt ? "no run yet" : daysOwed ? `${last.backlog} vendor days owed`
+      : typesOwed ? `${last.figiOwed} CUSIPs not yet asked` : `${last.ftdOwed} SEC half-month files not yet read`;
     return { action: "run", mode: "catch-up", night, reason: why };
   }
   if (s.lastNightlyAttemptNight === night) return { action: "idle", reason: "already attempted tonight" };
@@ -146,13 +159,23 @@ export function dtccTrsPanelLastRun(root: string): DtccTrsPanelLastRun | null {
   const j = readJson(path.join(root, "last_run.json"));
   if (!j) return null;
   const figi = obj(j.figi);
-  return { finishedAt: str(j.finished_at), backlog: num(j.backlog), read: num(j.read), figiOwed: num(figi.owed), figiAsked: num(figi.asked) };
+  const ftd = obj(j.ftd);
+  return {
+    finishedAt: str(j.finished_at), backlog: num(j.backlog), read: num(j.read), figiOwed: num(figi.owed), figiAsked: num(figi.asked),
+    ftdOwed: num(ftd.owed), ftdRead: num(ftd.read),
+  };
 }
 
 /** The security-type step, for the job row: "; types <held>/<wanted>". */
 export function describeFigi(figi: Record<string, unknown>): string {
   if (num(figi.wanted) === null || num(figi.held) === null) return "";
   return `; types ${num(figi.held)}/${num(figi.wanted)}`;
+}
+
+/** The dated-ticker step, for the job row: "; ftd <held>/<wanted>" (SEC half-month files). */
+export function describeFtd(ftd: Record<string, unknown>): string {
+  if (num(ftd.wanted) === null || num(ftd.held) === null) return "";
+  return `; ftd ${num(ftd.held)}/${num(ftd.wanted)}`;
 }
 
 /** The event list against the registered one, for the job row. */
@@ -181,6 +204,8 @@ export function parseDtccTrsPanelSummary(stdout: string): RunOutcome {
   if (str(j.events_error)) bad.push(`event list not written: ${str(j.events_error)!.slice(0, 70)}`);
   const figi = obj(j.figi);
   if (str(figi.status) === "error") bad.push(`types not read (${(str(figi.last_error) ?? str(figi.stopped) ?? "no reason").slice(0, 60)})`);
+  const ftd = obj(j.ftd);
+  if (str(ftd.status) === "error") bad.push(`SEC files not read (${(str(ftd.last_error) ?? str(ftd.stopped) ?? "no reason").slice(0, 60)})`);
   const head = bad.length ? `${bad.join("; ")}; ` : "";
   const unavailable = num(j.days_unavailable) ? `, ${num(j.days_unavailable)} refused by the vendor (oldest ${str(j.oldest_unavailable)})` : "";
   const owed = num(j.backlog) ? `, ${num(j.backlog)} owed` : "";
@@ -188,7 +213,7 @@ export function parseDtccTrsPanelSummary(stdout: string): RunOutcome {
   return {
     status: st,
     detail: `${head}read ${num(j.read) ?? 0}; holds ${num(j.days_ok)} days ${str(j.first_day) ?? "?"} to ${str(j.last_day) ?? "?"}${owed}${unavailable}`
-      + `${describeEventsCheck(obj(j.events))}${describeFigi(figi)} (${String(j.elapsed_s)}s, peak ${String(j.peak_rss_mb)} MB${mb})`,
+      + `${describeEventsCheck(obj(j.events))}${describeFigi(figi)}${describeFtd(ftd)} (${String(j.elapsed_s)}s, peak ${String(j.peak_rss_mb)} MB${mb})`,
   };
 }
 
@@ -221,8 +246,9 @@ export function dtccTrsPanelStatus(env: Record<string, string | undefined> = pro
     probe: "dtcc_trs_panel",
     job: DTCC_TRS_PANEL_JOB,
     flag: { value: env.VOLTRADE_DTCC_TRS_PANEL ?? null, on: dtccTrsPanelFlag(env) },
-    schedule: `20:00-04:00 ET; one run a night, catch-up runs every ${DTCC_TRS_PANEL_TICK_MS / 60_000} min while vendor days or CUSIPs are owed; ${DTCC_TRS_PANEL_TOTAL_S}s a run, ${DTCC_TRS_PANEL_MAX_RSS_MB} MB`,
-    claim: "none: the event half of a pre-registered test (research/open_questions.md 2026-11-25) and the security type of each underlier. No price is read and no return computed; the test is not run here.",
+    schedule: `20:00-04:00 ET; one run a night, catch-up runs every ${DTCC_TRS_PANEL_TICK_MS / 60_000} min while vendor days, CUSIPs or SEC files are owed; ${DTCC_TRS_PANEL_TOTAL_S}s a run, ${DTCC_TRS_PANEL_MAX_RSS_MB} MB`,
+    claim: "none: the event half of a pre-registered test (research/open_questions.md 2026-11-25), the security type of each underlier, and how many events a dated CUSIP-to-ticker record covers. No price is read and no return computed; the test is not run here.",
+    dated_join: "last_run.ftd: SEC fails-to-deliver half-month files held, and `coverage`, the share of events and underliers whose CUSIP the SEC printed beside a symbol within 45 days of the event (cusip_ftd.py, defined 2026-11-26 before any file was read). `joined_back` is a pair known on the event day. An underlier is counted at its first event. Counts only.",
     tradable_class: "kept: market sector Equity and security type exactly Common Stock, ADR or REIT (cusip_figi.py, 2026-11-26, before any price was read). A US listing today is not required: a name bought or renamed since the event would be dropped by it. Types are today's, not the event day's.",
     code_version: pkgVersion,
     last_run: readJson(path.join(root, "last_run.json")),
