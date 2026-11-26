@@ -349,3 +349,33 @@ def test_snapshot_refresh_job_and_its_four_refreshers_import_in_the_production_i
             "print(len(mods))")
     r = subprocess.run([sys.executable, "-c", prog], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and r.stdout.strip() == "4", r.stderr[-2000:]
+
+
+def test_dtcc_trs_panel_job_command_runs_in_the_production_image_layout(tmp_path):
+    """The DTCC equity-swap panel job (server/dtccTrsPanel.ts, 2026-11-26): its
+    command names a root file and the module it imports (dtcc_trs_panel, which
+    reads market_calendar.py beside it) is in the image. No network:
+    --max-days 0 stops before the first vendor read."""
+    src = open(os.path.join(REPO, "server", "dtccTrsPanel.ts"), encoding="utf-8").read()
+    m = re.search(r"return `(python3 [^`]+)`;", src)
+    assert m, "dtccTrsPanelCmd's command template not found"
+    cmd = (m.group(1).replace("${DTCC_TRS_PANEL_MAX_RSS_MB}", "700")
+           .replace("${DTCC_TRS_PANEL_BUDGET_S}", "600").replace("${v}", "0.0.0-test"))
+    assert "${" not in cmd, cmd
+    assert cmd.split()[1] in _server_python_commands(), "the command scan must see this job's file"
+    layout, data = tmp_path / "app", tmp_path / "data"
+    layout.mkdir(); data.mkdir()
+    _image_layout(str(layout))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["DATA_DIR"] = str(data)
+    env["TMPDIR"] = str(tmp_path)
+    r = subprocess.run([sys.executable] + cmd.split()[1:] + ["--max-days", "0"], cwd=str(layout), env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert "can't open file" not in r.stderr and "ModuleNotFoundError" not in r.stderr, r.stderr[-2000:]
+    summary = json.loads((r.stdout.strip().split("\n") or [""])[-1])
+    assert summary.get("status") == "ok" and summary.get("stopped") == "day limit", summary
+    assert summary.get("read") == 0 and summary.get("days_ok") == 0 and summary.get("backlog", 0) > 0, summary
+    assert os.path.isfile(data / "dtcc_trs_panel" / "last_run.json")
+    prog = "import dtcc_trs_panel as p\nassert len(p.nyse_closures()) > 20\nprint('ok')"
+    r = subprocess.run([sys.executable, "-c", prog], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
+    assert r.stdout.strip() == "ok", r.stderr[-2000:]

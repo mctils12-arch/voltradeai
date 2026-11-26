@@ -153,6 +153,7 @@ import { bootLazyPricesBackfill } from "./lazyPricesBackfill";
 import { bootEarningsQoq } from "./earningsQoq";
 import { bootFilings13fClusters } from "./filings13fClusters";
 import { bootSnapshotRefresh } from "./snapshotRefresh";
+import { bootDtccTrsPanel } from "./dtccTrsPanel";
 import { bootGithubGate2 } from "./githubGate2";
 import { bootForm4Completeness } from "./edgarForm4Completeness";
 import { registerFiresCompletenessRoutes } from "./firesCompleteness";
@@ -1828,6 +1829,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // serve the newer of that copy and the bundled one. VOLTRADE_SNAPSHOT_REFRESH=0
   // stops the job and the readers' use of the volume copies.
   bootSnapshotRefresh();
+  // The event panel of the registered DTCC equity-swap gate-2 test, built on
+  // the volume from the vendor's dated files (server/dtccTrsPanel.ts): oldest
+  // days first until it is whole, then one run a night; only 20:00-04:00 ET,
+  // when no Tier-2 scan runs; reads no price. VOLTRADE_DTCC_TRS_PANEL=0 disables.
+  bootDtccTrsPanel();
   // Weekly re-run of the PRE-REGISTERED event-reaction study on the same panel,
   // delisted names included (server/eventStudy.ts; research/event_reaction_study.md):
   // Saturday 07:00-15:00 ET, waits while another panel reader runs, once per ISO

@@ -379,8 +379,11 @@ def write_day(path: str, day: dt.date, per_cusip: Dict[str, Dict[str, int]]) -> 
     os.replace(tmp, path)
 
 
-def build_day(day_iso: str, work: str) -> Dict[str, object]:
-    """Fetch, fold and write one vendor day. Returns its manifest line."""
+def build_day(day_iso: str, work: str, tmp_dir: Optional[str] = None) -> Dict[str, object]:
+    """Fetch, fold and write one vendor day. Returns its manifest line.
+    `tmp_dir` is where the vendor zip is held while it is read (default: the
+    work directory). The server's job passes the container's temporary
+    directory so a 150 MB download never lands on the data volume."""
     day = dt.date.fromisoformat(day_iso)
     days_dir = os.path.join(work, "days")
     stat_path = os.path.join(days_dir, day_iso + ".json")
@@ -388,7 +391,7 @@ def build_day(day_iso: str, work: str) -> Dict[str, object]:
         with open(stat_path) as f:
             return json.load(f)
     line: Dict[str, object] = {"date": day_iso}
-    fd, zpath = tempfile.mkstemp(suffix=".zip", dir=work)
+    fd, zpath = tempfile.mkstemp(suffix=".zip", dir=tmp_dir or work)
     os.close(fd)
     try:
         try:
@@ -417,6 +420,18 @@ def build_day(day_iso: str, work: str) -> Dict[str, object]:
     finally:
         if os.path.exists(zpath):
             os.unlink(zpath)
+
+
+def read_day_bytes(days_dir: str, day_iso: str) -> bytes:
+    """One day file's CSV bytes. The server's job keeps a day file gzipped
+    (<day>.csv.gz) to spare its volume; the bytes inside are the same, so the
+    compacted panel is byte-identical either way."""
+    plain = os.path.join(days_dir, day_iso + ".csv")
+    if os.path.exists(plain):
+        with open(plain, "rb") as f:
+            return f.read()
+    with gzip.open(plain + ".gz", "rb") as f:
+        return f.read()
 
 
 def _write_json(path: str, obj: object) -> None:
@@ -456,8 +471,7 @@ def compact(work: str, out: str) -> Dict[str, object]:
             with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9) as gz:
                 gz.write((",".join(PANEL_FIELDS) + "\n").encode())
                 for d in sorted(dates):
-                    with open(os.path.join(days_dir, d + ".csv"), "rb") as f:
-                        data = f.read()
+                    data = read_day_bytes(days_dir, d)
                     n += data.count(b"\n")
                     gz.write(data)
         files[name] = {"days": len(dates), "rows": n}
