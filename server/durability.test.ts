@@ -21,6 +21,13 @@ const TMP_BY_DESIGN: Record<string, string> = {
   "aeroCharts.ts": "FAA chart tile read-through cache: byte-capped LRU under os.tmpdir(), wiped at boot and refilled from the FAA service on demand (regenerable); deliberately NOT the nearly-full /data volume — the durable tier is R2 when configured",
 };
 
+// Modules that choose NO path of their own: they write only beside a file
+// the caller names, so where the bytes land is the caller's classification.
+// A module listed here may not name a directory (checked below).
+const PATH_FROM_CALLER: Record<string, string> = {
+  "gzipDayFile.ts": "compresses the day file it is handed to `<that file>.gz` (via `<that file>.gz.tmp`); every caller is an archive module classified above",
+};
+
 // Known stray, wishlisted for the human (frozen file — see wishlist billing
 // amendment): billing SQLite at process.cwd(). MUST shrink, never grow.
 const WISHLISTED_STRAYS = new Set(["billing.ts"]);
@@ -42,6 +49,11 @@ test("every fs-writing server module is classified durable, tmp-by-design, or wi
     if (!WRITE_RE.test(src)) continue;
     if (TMP_BY_DESIGN[f]) continue;
     if (WISHLISTED_STRAYS.has(f)) continue;
+    if (PATH_FROM_CALLER[f]) {
+      assert.ok(!/tmpdir\(|process\.cwd\(|["'`]\/(tmp|data|app|var)\b/.test(src),
+        `${f} is classified as writing only where its caller says, but names a directory itself`);
+      continue;
+    }
     const durable = DURABLE_MARKERS.some((m) => src.includes(m));
     if (!durable) unclassified.push(f);
   }

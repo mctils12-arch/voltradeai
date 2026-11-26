@@ -34,6 +34,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import { assessStaleness, noaaUtcMs } from "./spaceweatherNormalizer";
 import { trackSet } from "./heapDiag";
@@ -665,8 +666,7 @@ export function gzipOldSpaceWeatherDays(baseDir?: string, nowMs?: number): numbe
       if (!m) continue;
       if (now - Date.parse(m[1]) < 2 * 86400_000) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
+      gzipDayFile(fp);
       n++;
     }
   } catch {}

@@ -25,6 +25,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
+import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import { trackSet } from "./heapDiag";
 
@@ -222,8 +223,7 @@ export function gzipOldFdaDays(baseDir?: string, nowMs?: number): number {
       if (!f.endsWith(".jsonl")) continue;
       if (now - Date.parse(f.slice(0, 10)) < 2 * 86400_000) continue;
       const fp = path.join(dir, f);
-      fs.writeFileSync(`${fp}.gz`, zlib.gzipSync(fs.readFileSync(fp)));
-      fs.unlinkSync(fp);
+      gzipDayFile(fp);
       n++;
     }
   } catch {}
