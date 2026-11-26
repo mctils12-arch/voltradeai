@@ -110,8 +110,8 @@ import { bootTffPoll, latestTff } from "./cftcTff";
 import { bootDtsPoll, latestDts } from "./treasuryDts";
 import { bootFailuresPoll, latestFailures } from "./fdicBanks";
 import { bootComplaintsPoll, latestComplaintStats } from "./nhtsaComplaints";
-import { bootGridDemandPoll, latestDemand, gridDemandEnabled } from "./gridDemand";
-import { bootGridGenerationPoll, latestGeneration, gridGenerationEnabled } from "./gridGeneration";
+import { bootGridDemandPoll, latestDemand, latestDemandPoll, gridDemandEnabled } from "./gridDemand";
+import { bootGridGenerationPoll, latestGeneration, latestGenerationPoll, gridGenerationEnabled } from "./gridGeneration";
 import { bootEpaCamdPoll, latestEpaCamd, aggregateByFacility, epaCamdUsingDemoKey } from "./epaCamd";
 import { bootGridStressPoll, latestGridStress, gridStressEnabled, REGION_LABEL } from "./gridStress";
 import { bootSuperfundPoll, latestSuperfund } from "./superfund";
@@ -2849,6 +2849,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.stats.length,
       note: "hourly demand (MWh) for US48 + major balancing authorities, ~1-2h publication lag; latest_forecast_mwh is EIA's day-ahead forecast FOR THE SAME HOUR as latest_mwh (null when not yet published); the US48 forecast aggregate back-fills progressively as BAs report, so it can understate near the leading edge; industrial-activity nowcast signals stay gate-locked until ladder validation",
       respondents: hit.stats,
+      poll: latestDemandPoll(), // the last poll: newest hour, rows archived, any read-back (eia930CatchUp.ts)
     });
   });
 
@@ -2878,6 +2879,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       count: hit.stats.length,
       note: "hourly net generation (MWh) by fuel type for US48 + major balancing authorities, ~1-2h publication lag; storage fuel types (BAT/OES/PS/UES) legitimately read negative during charging; no predictive claim — the operator-concentration fusion hypothesis this feeds stays ladder-locked until its own gate 1 (research/open_questions.md, CLAUDE.md FUSION HYPOTHESES (b))",
       respondents: hit.stats,
+      poll: latestGenerationPoll(), // the last poll: newest hour, rows archived, any read-back (eia930CatchUp.ts)
     });
   });
 

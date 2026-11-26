@@ -45,6 +45,7 @@ import { gzipDayFile } from "./gzipDayFile";
 import { archiveBaseDir } from "./datacoreArchive";
 import { validateRecord } from "./dataQuality";
 import { trackSet } from "./heapDiag";
+import { readBackToArchive, type CatchUpNote, type PollState, type SourcePage } from "./eia930CatchUp";
 
 // DATA QUALITY GATE (research/location_context_engine.md): a single
 // respondent x fuel-type hourly reading is physically bounded well under
@@ -68,6 +69,7 @@ export const HOURS_PER_FETCH = 48;
  *  a respondent reporting more codes than this in one fetch is unlikely
  *  but the length param just caps rows returned, never errors. */
 const FUEL_TYPES_PER_HOUR_MAX = 20;
+const PAGE_LENGTH = HOURS_PER_FETCH * FUEL_TYPES_PER_HOUR_MAX;
 const CALL_SPACING_MS = 300;
 
 export interface GenerationObs {
@@ -106,13 +108,36 @@ export function parseGeneration(json: unknown, rt: string): GenerationObs[] {
 type FetchFn = (url: string, init?: RequestInit) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function generationUrl(respondent: string, key: string): string {
+/** `offset` (rows from the newest) is sent only for the pages read after the
+ *  first, so the ordinary poll's request is unchanged. */
+export function generationUrl(respondent: string, key: string, offset = 0): string {
   return "https://api.eia.gov/v2/electricity/rto/fuel-type-data/data/" +
     `?api_key=${encodeURIComponent(key)}` +
     "&frequency=hourly&data%5B0%5D=value" +
     `&facets%5Brespondent%5D%5B%5D=${encodeURIComponent(respondent)}` +
     "&sort%5B0%5D%5Bcolumn%5D=period&sort%5B0%5D%5Bdirection%5D=desc" +
-    `&length=${HOURS_PER_FETCH * FUEL_TYPES_PER_HOUR_MAX}`;
+    `&length=${PAGE_LENGTH}` + (offset > 0 ? `&offset=${offset}` : "");
+}
+
+/** One page for one respondent; null when it could not be read (logged). */
+async function fetchGenerationPage(fetchImpl: FetchFn, resp: string, key: string, rt: string,
+                                   offset: number): Promise<SourcePage<GenerationObs> | null> {
+  try {
+    const r = await fetchImpl(generationUrl(resp, key, offset), {
+      headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) {
+      console.error(`[datacore] gridgeneration ${resp}${offset ? ` offset ${offset}` : ""} -> ${r.status}`);
+      return null;
+    }
+    const json = JSON.parse(await r.text());
+    const data = (json as { response?: { data?: unknown[] } } | null)?.response?.data;
+    return { rows: parseGeneration(json, rt), rawCount: Array.isArray(data) ? data.length : 0 };
+  } catch (e: unknown) {
+    console.error(`[datacore] gridgeneration ${resp}${offset ? ` offset ${offset}` : ""}:`, e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 export async function fetchGeneration(fetchImpl: FetchFn = fetch as any,
@@ -123,19 +148,8 @@ export async function fetchGeneration(fetchImpl: FetchFn = fetch as any,
   const rt = new Date(nowMs ?? Date.now()).toISOString().slice(0, 10);
   const out: GenerationObs[] = [];
   for (const resp of RESPONDENTS) {
-    try {
-      const r = await fetchImpl(generationUrl(resp, key), {
-        headers: { "User-Agent": "voltradeai-datacore/1.0 (+https://voltradeai.com)" },
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!r.ok) {
-        console.error(`[datacore] gridgeneration ${resp} -> ${r.status}`);
-      } else {
-        out.push(...parseGeneration(JSON.parse(await r.text()), rt));
-      }
-    } catch (e: unknown) {
-      console.error(`[datacore] gridgeneration ${resp}:`, e instanceof Error ? e.message : e);
-    }
+    const page = await fetchGenerationPage(fetchImpl, resp, key, rt, 0);
+    if (page) out.push(...page.rows);
     if (spacingMs > 0) await sleep(spacingMs);
   }
   return out;
@@ -146,8 +160,12 @@ export async function fetchGeneration(fetchImpl: FetchFn = fetch as any,
 const seenObs = new Set<string>();
 trackSet("gridGeneration.seenObs", seenObs); // memory audit 2026-11-03 A0
 let seeded = false;
+/** Respondents the archive holds at least one row for (eia930CatchUp.ts: a
+ *  respondent with no history is never read back). */
+const respondentsArchived = new Set<string>();
 
 const obsKey = (o: GenerationObs) => `${o.respondent}|${o.period}|${o.fueltype}`;
+const markSeen = (o: GenerationObs) => { seenObs.add(obsKey(o)); respondentsArchived.add(o.respondent); };
 
 function generationDir(baseDir?: string): string {
   return path.join(baseDir || archiveBaseDir(), "gridgeneration");
@@ -190,7 +208,7 @@ function seedSeen(dir: string): void {
       for (const line of text.split("\n")) {
         if (!line) continue;
         try {
-          seenObs.add(obsKey(JSON.parse(line) as GenerationObs));
+          markSeen(JSON.parse(line) as GenerationObs);
         } catch (e: unknown) {
           console.warn(`[datacore] gridgeneration seed: corrupt archive line in ${f} skipped: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -212,7 +230,16 @@ export function archiveGeneration(obs: GenerationObs[], baseDir?: string): numbe
   const valid = obs.filter((o) => validateRecord(o as any, GENERATION_BOUNDS).length === 0);
   const quarantined = obs.length - valid.length;
   if (quarantined > 0) console.warn(`[datacore] gridgeneration: quarantined ${quarantined} implausible row(s) (data-quality gate)`);
-  const fresh = valid.filter((o) => !seenObs.has(obsKey(o)));
+  // A read-back hands over several pages read one after another; when EIA
+  // publishes between two of them the offsets move and the pages overlap, so
+  // a key can be here twice. It is written once.
+  const inBatch = new Set<string>();
+  const fresh = valid.filter((o) => {
+    const k = obsKey(o);
+    if (seenObs.has(k) || inBatch.has(k)) return false;
+    inBatch.add(k);
+    return true;
+  });
   if (!fresh.length) return 0;
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -226,7 +253,7 @@ export function archiveGeneration(obs: GenerationObs[], baseDir?: string): numbe
       fs.appendFileSync(path.join(dir, `${day}.jsonl`),
                         rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
     });
-    fresh.forEach((o) => seenObs.add(obsKey(o)));
+    fresh.forEach(markSeen);
     return fresh.length;
   } catch (e: unknown) {
     console.error("[datacore] gridgeneration archive:", e instanceof Error ? e.message : e);
@@ -266,9 +293,15 @@ export interface RespondentGenerationStat {
 
 let cache: { at: number; stats: RespondentGenerationStat[] } | null = null;
 let polling = false;
+let lastPoll: PollState | null = null;
 
 export function latestGeneration() {
   return cache;
+}
+
+/** What the last poll did (served on the stream's route as `poll`). */
+export function latestGenerationPoll(): PollState | null {
+  return lastPoll;
 }
 
 /** Pure aggregation, extracted so a disk-backfilled day's raw obs can be
@@ -343,9 +376,57 @@ export function readArchivedGeneration(baseDir?: string, nowMs?: number, lookbac
  *  order to find `cache` still null. */
 export function _resetGridGenerationForTests(): void {
   seenObs.clear();
+  respondentsArchived.clear();
   seeded = false;
   cache = null;
   polling = false;
+  lastPoll = null;
+}
+
+/** One poll: the newest page per respondent, and, where that page does not
+ *  reach the archive, the pages behind it (eia930CatchUp.ts). `first` is what
+ *  the cache is computed from; `archivable` is what may be written. */
+export async function sweepGeneration(fetchImpl: FetchFn, env: NodeJS.ProcessEnv, nowMs?: number,
+                                      baseDir?: string, spacingMs = CALL_SPACING_MS): Promise<{
+  first: GenerationObs[]; archivable: GenerationObs[]; firstFailed: string[]; catchUp: CatchUpNote[];
+}> {
+  const key = env.EIA_API_KEY || "";
+  const first: GenerationObs[] = [];
+  const archivable: GenerationObs[] = [];
+  const firstFailed: string[] = [];
+  const catchUp: CatchUpNote[] = [];
+  if (!key) return { first, archivable, firstFailed, catchUp };
+  if (!seeded) { seedSeen(generationDir(baseDir)); seeded = true; }
+  const rt = new Date(nowMs ?? Date.now()).toISOString().slice(0, 10);
+  const pause = async () => { if (spacingMs > 0) await sleep(spacingMs); };
+  for (const resp of RESPONDENTS) {
+    const r = await readBackToArchive<GenerationObs>({
+      fetchPage: (offset) => fetchGenerationPage(fetchImpl, resp, key, rt, offset),
+      pageLength: PAGE_LENGTH,
+      // A row the quality gate refuses is never archived, so it is not a
+      // missing hour: counting it as one would read back on every poll.
+      isSeen: (o) => seenObs.has(obsKey(o)) || validateRecord({ mwh: o.mwh }, GENERATION_BOUNDS).length > 0,
+      hasHistory: respondentsArchived.has(resp),
+      pause,
+    });
+    first.push(...r.first);
+    if (r.outcome === "first_failed") firstFailed.push(resp);
+    if (r.outcome === "failed") {
+      console.error(`[datacore] gridgeneration ${resp}: the newest page does not reach the archive and page ${r.extraPages + 2} could not be read; nothing is archived for ${resp} this poll, so the next poll reads back again`);
+    } else {
+      archivable.push(...r.first, ...r.older);
+      if (r.outcome === "capped") {
+        console.error(`[datacore] gridgeneration ${resp}: read back ${r.extraPages} pages to ${r.oldestRead} without reaching the archive; hours before ${r.oldestRead} are NOT in the archive`);
+      } else if (r.extraPages > 0) {
+        console.log(`[datacore] gridgeneration ${resp}: read back ${r.extraPages} page(s) to ${r.oldestRead} (${r.outcome})`);
+      }
+    }
+    if (r.outcome !== "none" && r.outcome !== "first_failed") {
+      catchUp.push({ respondent: resp, outcome: r.outcome, extra_pages: r.extraPages, oldest_read: r.oldestRead });
+    }
+    await pause();
+  }
+  return { first, archivable, firstFailed, catchUp };
 }
 
 export async function refreshGeneration(fetchImpl: FetchFn = fetch as any,
@@ -354,9 +435,17 @@ export async function refreshGeneration(fetchImpl: FetchFn = fetch as any,
                                         spacingMs = CALL_SPACING_MS): Promise<void> {
   try {
     if (!gridGenerationEnabled(env)) return;
-    const obs = await fetchGeneration(fetchImpl, env, nowMs, spacingMs);
+    const sweep = await sweepGeneration(fetchImpl, env, nowMs, baseDir, spacingMs);
+    const obs = sweep.first;
+    const rowsArchived = archiveGeneration(sweep.archivable, baseDir);
+    lastPoll = {
+      at: Date.now(),
+      newest_period: obs.reduce<string | null>((mx, o) => (mx == null || o.period > mx ? o.period : mx), null),
+      rows_archived: rowsArchived,
+      first_failed: sweep.firstFailed,
+      catch_up: sweep.catchUp,
+    };
     if (obs.length) {
-      archiveGeneration(obs, baseDir);
       cache = { at: Date.now(), stats: computeGenerationStats(obs) };
     } else if (!cache) {
       const archived = readArchivedGeneration(baseDir, nowMs);
