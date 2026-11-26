@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   dtccTrsPanelCmd, dtccTrsPanelFlag, dtccTrsPanelRoot, dtccTrsPanelLastRun, dtccTrsPanelNight,
-  decideDtccTrsPanel, parseDtccTrsPanelSummary, runDtccTrsPanel, describeEventsCheck, describeFigi, dtccTrsPanelStatus,
+  decideDtccTrsPanel, parseDtccTrsPanelSummary, runDtccTrsPanel, describeEventsCheck, describeFigi, describeFtd, dtccTrsPanelStatus,
   DTCC_TRS_PANEL_TOTAL_S, DTCC_TRS_PANEL_JOB, DTCC_TRS_PANEL_TIMEOUT_MS, DTCC_TRS_PANEL_BUDGET_S, DTCC_TRS_PANEL_TICK_MS,
   DTCC_TRS_PANEL_MIN_FREE_BYTES, DTCC_TRS_PANEL_WINDOW_START_MIN, DTCC_TRS_PANEL_WINDOW_END_MIN,
 } from "./dtccTrsPanel";
@@ -145,9 +145,9 @@ test("last_run.json: the three fields the scheduler reads; absent or broken read
   try {
     assert.equal(dtccTrsPanelLastRun(dir), null);
     fs.writeFileSync(path.join(dir, "last_run.json"), WHOLE);
-    assert.deepEqual(dtccTrsPanelLastRun(dir), { finishedAt: JSON.parse(WHOLE).finished_at, backlog: 0, read: JSON.parse(WHOLE).read, figiOwed: null, figiAsked: null });
+    assert.deepEqual(dtccTrsPanelLastRun(dir), { finishedAt: JSON.parse(WHOLE).finished_at, backlog: 0, read: JSON.parse(WHOLE).read, figiOwed: null, figiAsked: null , ftdOwed: null, ftdRead: null });
     fs.writeFileSync(path.join(dir, "last_run.json"), WHOLE_TYPES);
-    assert.deepEqual(dtccTrsPanelLastRun(dir), { finishedAt: JSON.parse(WHOLE).finished_at, backlog: 0, read: JSON.parse(WHOLE).read, figiOwed: 9210, figiAsked: 3000 });
+    assert.deepEqual(dtccTrsPanelLastRun(dir), { finishedAt: JSON.parse(WHOLE).finished_at, backlog: 0, read: JSON.parse(WHOLE).read, figiOwed: 9210, figiAsked: 3000 , ftdOwed: null, ftdRead: null });
     fs.writeFileSync(path.join(dir, "last_run.json"), "[1,2]");
     assert.equal(dtccTrsPanelLastRun(dir), null);
   } finally {
@@ -263,4 +263,70 @@ test("diag probe dtcc_trs_panel: the last run and the kept event check, counts o
   const bot = fs.readFileSync(path.join(here, "bot.ts"), "utf8");
   const i = bot.indexOf('case "dtcc_trs_panel": {');
   assert.ok(i > 0 && bot.slice(i, i + 500).includes("sanitizeDiag(dtccTrsPanelStatus())"));
+});
+
+// WHOLE_TYPES with the dated-ticker step's block (cusip_ftd.py, 2026-11-26): a
+// first run that read 40 of 46 SEC half-month files and left 4 for the next.
+const COVERAGE = { window_days: 45, groups: { kept_us: { underliers: 2791, underliers_joined: 2600, underliers_joined_back: 2500, events: 22208, events_joined: 21000, events_joined_back: 20500 }, kept_no_us: { underliers: 216, underliers_joined: 150, underliers_joined_back: 140, events: 932, events_joined: 700, events_joined_back: 650 }, unresolved_share_like: { underliers: 247, underliers_joined: 120, underliers_joined_back: 110, events: 548, events_joined: 300, events_joined_back: 280 } }, agreement_kept_us: { events: 21000, same: 20400, different: 600, underliers: 2600, underliers_same: 2540 }, by_half_year: { "2025H1": { events: 5000, no_join: 500, no_join_pct: 10 }, "2026H2": { events: 6000, no_join: 300, no_join_pct: 5 } }, no_join_first_minus_last_points: 5, events_of_other_types: 4181 };
+const FTD = { schema: "cusip_ftd/1", status: "ok", wanted: 46, held: 40, owed: 4, read: 40, requests: 44, errors: 0, not_published: 2, unavailable: 0, oldest_unavailable: null, first_period: "202501a", last_period: "202609b", stopped: "time budget", elapsed_s: 200.4, coverage: COVERAGE };
+const withFtd = (ftd: Record<string, unknown> | null, extra: Record<string, unknown> = {}) => JSON.stringify({ ...JSON.parse(WHOLE_TYPES), figi: { ...FIGI, held: 14218, wanted: 14218, owed: 0, asked: 0 }, ftd, ...extra });
+
+test("dated ticker: the catch-up lane runs while SEC files are owed and the last run read some; the scheduler reads the two fields", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-trs-panel-ftd-"));
+  try {
+    fs.writeFileSync(path.join(dir, "last_run.json"), withFtd(FTD));
+    const last = dtccTrsPanelLastRun(dir)!;
+    assert.equal(last.ftdOwed, 4);
+    assert.equal(last.ftdRead, 40);
+    assert.equal(last.figiOwed, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const ranTonight = { finishedAt: "2026-11-28T01:14:00+00:00", backlog: 0, read: 1, figiOwed: 0, figiAsked: 0 };
+  assert.deepEqual(decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, ftdOwed: 4, ftdRead: 40 }, lastNightlyAttemptNight: FRI_NIGHT }),
+    { action: "run", mode: "catch-up", night: FRI_NIGHT, reason: "4 SEC half-month files not yet read" });
+  // owed but the last run read none (the SEC refused, or an old period it does not serve): once a night
+  assert.deepEqual(decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, ftdOwed: 4, ftdRead: 0 }, lastNightlyAttemptNight: FRI_NIGHT }),
+    { action: "idle", reason: "already attempted tonight" });
+  // CUSIPs owed are named before SEC files, vendor days before both
+  assert.match((decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, figiOwed: 7, figiAsked: 7, ftdOwed: 4, ftdRead: 40 } }) as { reason: string }).reason, /^7 CUSIPs not yet asked$/);
+  // a catch-up that ended in error tonight is not started again tonight
+  assert.equal(decideDtccTrsPanel(SAT_0100, { ...base, last: { ...ranTonight, ftdOwed: 4, ftdRead: 40 }, lastNightlyAttemptNight: FRI_NIGHT, catchUpFailedNight: FRI_NIGHT }).action, "idle");
+  assert.equal(decideDtccTrsPanel(FRI_1100, { ...base, last: { ...ranTonight, ftdOwed: 4, ftdRead: 40 } }).action, "idle");
+});
+
+test("dated ticker: the job row says how many SEC files are held and still fits; a refused step comes first and reads error", () => {
+  const w = parseDtccTrsPanelSummary(withFtd(FTD));
+  assert.equal(w.status, "ok");
+  assert.match(w.detail, /; types 14218\/14218; ftd 40\/46 \(53s, peak /);
+  assert.ok(`catch-up: ${w.detail}`.length <= MAX_DETAIL_CHARS, `${w.detail.length} chars: ${w.detail}`);
+  assert.equal(describeFtd({}), "");
+  assert.equal(describeFtd({ wanted: 46, held: 46 }), "; ftd 46/46");
+  // a run before this step existed, or one whose step did not run, says nothing about it
+  assert.ok(!parseDtccTrsPanelSummary(WHOLE_TYPES).detail.includes("ftd"));
+  assert.ok(!parseDtccTrsPanelSummary(withFtd(null)).detail.includes("ftd"));
+  const refused = parseDtccTrsPanelSummary(withFtd({ status: "error", wanted: 46, held: 0, owed: 44, read: 0, stopped: "refused by the SEC", last_error: "202501a: HTTP 403: the SEC refused the client or the rate" }, { status: "error" }));
+  assert.equal(refused.status, "error");
+  assert.match(refused.detail, /^SEC files not read \(202501a: HTTP 403: the SEC refused the client or the rate\); read 1; holds 732 days/);
+});
+
+test("dated ticker: the probe returns the coverage counts and says how to read them; it names no security", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-trs-panel-ftd-status-"));
+  try {
+    fs.writeFileSync(path.join(dir, "last_run.json"), withFtd(FTD));
+    const st = dtccTrsPanelStatus({}, dir) as { last_run: { ftd: typeof FTD }; dated_join: string; claim: string; schedule: string };
+    assert.deepEqual(st.last_run.ftd.coverage, COVERAGE);
+    assert.match(st.dated_join, /within 45 days of the event/);
+    assert.match(st.dated_join, /known on the event day/);
+    assert.match(st.claim, /No price is read and no return computed/);
+    assert.match(st.schedule, /while vendor days, CUSIPs or SEC files are owed/);
+    assert.ok(!/"[0-9A-Z]{8}[0-9]"/.test(JSON.stringify(st)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  // the Python's cap for the SEC step and the type step's minimum both fit after a full day-read budget
+  const py = fs.readFileSync(path.join(here, "..", "dtcc_trs_panel_job.py"), "utf8");
+  const cap = Number(/^FTD_BUDGET_S = ([0-9.]+)$/m.exec(py)![1]);
+  const min = Number(/^FIGI_MIN_BUDGET_S = ([0-9.]+)$/m.exec(py)![1]);
+  assert.ok(cap + min < DTCC_TRS_PANEL_TOTAL_S - DTCC_TRS_PANEL_BUDGET_S, `${cap} + ${min}`);
 });

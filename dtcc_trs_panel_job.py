@@ -39,10 +39,19 @@ WHAT ONE RUN DOES
      the run's total time, 10 CUSIPs a request, 25 requests a minute, and
      keeps every answer in <root>/figi/cusip_figi.jsonl. It reads no price.
 
+  6. THE DATED TICKER (open_questions.md (at2), 2026-11-26). Today's ticker
+     cannot carry a 2025 event to its prices when the company was bought or
+     renamed since. Before the type step, the run reads the SEC
+     fails-to-deliver half-month files it does not hold (cusip_ftd.py: the
+     CUSIP beside the symbol as printed on each settlement day), for the
+     periods a 45-day window around the events can touch, for at most
+     FTD_BUDGET_S seconds. After the type step it counts how many events
+     and underliers that record covers (the join's gate 1; no price).
+
 WHAT IT DOES NOT DO. It reads no price and computes no return; the test
 itself is not here. Nothing in the trading bot reads its output.
 
-OUTPUT: <DATA_DIR>/dtcc_trs_panel/{days/, panel/, figi/, last_run.json}. The
+OUTPUT: <DATA_DIR>/dtcc_trs_panel/{days/, panel/, figi/, ftd/, last_run.json}. The
 last stdout line is one JSON summary for the scheduler
 (server/dtccTrsPanel.ts).
 """
@@ -62,6 +71,7 @@ import time
 from typing import Callable, Dict, Iterable, List, Optional
 
 import cusip_figi
+import cusip_ftd
 import dtcc_trs_panel as panel
 
 SCHEMA = "dtcc_trs_panel_job/1"
@@ -81,6 +91,12 @@ MAX_CONSECUTIVE_ERRORS = 3
 FIGI_SUBDIR = "figi"
 # Under this many seconds left in the run, the step waits for the next run.
 FIGI_MIN_BUDGET_S = 20.0
+# The dated CUSIP-to-ticker record (cusip_ftd.py) lives beside the panel.
+FTD_SUBDIR = "ftd"
+# The most one run spends reading SEC files: about 50 half-month files at the
+# first run (one request a second), two a month after that. The type step
+# gets the rest of the run.
+FTD_BUDGET_S = 200.0
 
 # The registered event list (datacore/dtcc_trs_panel/events.json.gz as
 # committed 2026-11-25, v1.0.1554), as a digest: per month, the number of
@@ -257,11 +273,42 @@ def figi_step(root: str, budget_s: float,
         return {"status": "error", "last_error": f"{type(e).__name__}: {str(e)[:160]}"}
 
 
+def ftd_fetch_step(root: str, budget_s: float, today: Optional[dt.date] = None,
+                   build: Callable[..., Dict[str, object]] = cusip_ftd.build) -> Dict[str, object]:
+    """Read the SEC half-month files the events' 45-day windows can touch
+    and that are not held yet, within `budget_s`. Never raises."""
+    try:
+        today = today or dt.datetime.now(dt.timezone.utc).date()
+        days = [str(e["date"]) for e in panel.read_events(os.path.join(root, "panel"))["events"]]
+        if not days:
+            return {"status": "ok", "wanted": 0, "held": 0, "owed": 0, "read": 0, "requests": 0}
+        wanted = cusip_ftd.wanted_periods(dt.date.fromisoformat(min(days)), dt.date.fromisoformat(max(days)), today)
+        out = build(os.path.join(root, FTD_SUBDIR), wanted, today, budget_s=budget_s)
+        out["bytes"] = dir_bytes(os.path.join(root, FTD_SUBDIR))
+        return out
+    except Exception as e:  # noqa: BLE001 — the panel is kept; the run reads "error" with the reason
+        return {"status": "error", "last_error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
+def ftd_coverage_step(root: str) -> Dict[str, object]:
+    """How much of the event list the dated record covers (cusip_ftd.coverage:
+    counts only, no price), from what is on the volume now. Never raises."""
+    try:
+        events = panel.read_events(os.path.join(root, "panel"))["events"]
+        cache = cusip_figi.read_cache(os.path.join(root, FIGI_SUBDIR, cusip_figi.CACHE_FILE))
+        spans = cusip_ftd.read_spans(os.path.join(root, FTD_SUBDIR), {str(e["cusip"]) for e in events})
+        return cusip_ftd.coverage(events, cache, spans)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
 def run(root: str, today: Optional[dt.date] = None, budget_s: float = 600.0, max_days: int = 400,
         max_rss_mb: float = 600.0, code_version: str = "unknown", tmp_dir: Optional[str] = None,
         build: Callable[..., Dict[str, object]] = panel.build_day,
         clock: Callable[[], float] = time.time, total_s: float = 0.0,
-        figi: Callable[[str, float], Dict[str, object]] = figi_step) -> Dict[str, object]:
+        figi: Callable[[str, float], Dict[str, object]] = figi_step,
+        ftd_fetch: Callable[[str, float], Dict[str, object]] = ftd_fetch_step,
+        ftd_coverage: Callable[[str], Dict[str, object]] = ftd_coverage_step) -> Dict[str, object]:
     t0 = clock()
     today = today or dt.datetime.now(dt.timezone.utc).date()
     days_dir = os.path.join(root, "days")
@@ -351,6 +398,14 @@ def run(root: str, today: Optional[dt.date] = None, budget_s: float = 600.0, max
             out["events_error"] = f"events_check.json unreadable: {str(e)[:120]}"
     out["events"] = events_summary
 
+    # The dated ticker record first, for a bounded part of what is left of the
+    # run's total time (0 = off); the type step keeps at least its minimum.
+    ftd_left = min(FTD_BUDGET_S, total_s - (clock() - t0) - FIGI_MIN_BUDGET_S)
+    if total_s > 0 and ftd_left >= FIGI_MIN_BUDGET_S and os.path.exists(events_path):
+        out["ftd"] = ftd_fetch(root, ftd_left)
+    else:
+        out["ftd"] = None
+
     # Security types, with what is left of the run's total time (0 = off).
     figi_left = total_s - (clock() - t0)
     if total_s > 0 and figi_left >= FIGI_MIN_BUDGET_S and os.path.exists(events_path):
@@ -358,8 +413,13 @@ def run(root: str, today: Optional[dt.date] = None, budget_s: float = 600.0, max
     else:
         out["figi"] = None
 
+    # The join's gate-1 count, from what the two steps above left on the volume.
+    if out["ftd"] is not None and out["ftd"].get("held"):
+        out["ftd"]["coverage"] = ftd_coverage(root)
+
     figi_failed = bool(out["figi"]) and out["figi"].get("status") == "error"
-    out["status"] = "error" if (errors or out.get("events_error") or figi_failed) else "ok"
+    ftd_failed = bool(out["ftd"]) and out["ftd"].get("status") == "error"
+    out["status"] = "error" if (errors or out.get("events_error") or figi_failed or ftd_failed) else "ok"
     out["bytes"] = dir_bytes(root)
     out["finished_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     out["elapsed_s"] = round(clock() - t0, 1)

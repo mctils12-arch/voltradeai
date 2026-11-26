@@ -421,7 +421,7 @@
   ],
   "dtcc_trs_panel": [
    "partial",
-   "The nightly job is on Pipeline health with every other scheduled job (its row says how many vendor days and how many security types it holds), and Signal strength shows the DTCC equity-swap root's ladder position. Not on a page: the counts by security type and the event list against the registered one. They are the inputs of a pre-registered gate-2 test that has not run, so they wait for ladder gate 2. Placement after the test's first verdict: an evidence section of the DTCC swaps page."
+   "The nightly job is on Pipeline health with every other scheduled job (its row says how many vendor days and how many security types it holds), and Signal strength shows the DTCC equity-swap root's ladder position. Not on a page: the counts by security type, the event list against the registered one, and (since 2026-11-26) how many events a dated CUSIP-to-ticker record read from the SEC fails-to-deliver files covers; the job's row says how many of those SEC files it holds. They are the inputs of a pre-registered gate-2 test that has not run, so they wait for ladder gate 2. Placement after the test's first verdict: an evidence section of the DTCC swaps page."
   ],
   "filings13f_clusters": [
    "partial",
