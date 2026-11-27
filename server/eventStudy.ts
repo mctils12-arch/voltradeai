@@ -188,9 +188,10 @@ export function inEventStudyWindow(nowMs: number): boolean {
 }
 
 /** Pure: the first panel reader with an open heartbeat run younger than its
- *  registered maxRunMs (an older open run is a stuck beat, not a reader), or null. */
-export function busyPanelReader(snapshot: HeartbeatFile, nowMs: number): string | null {
-  for (const id of PANEL_READER_JOBS) {
+ *  registered maxRunMs (an older open run is a stuck beat, not a reader), or null.
+ *  `ids` lets another job wait on its own list (server/dtccTrsGate2.ts). */
+export function busyPanelReader(snapshot: HeartbeatFile, nowMs: number, ids: readonly string[] = PANEL_READER_JOBS): string | null {
+  for (const id of ids) {
     const runs = snapshot.jobs[id];
     const last = Array.isArray(runs) && runs.length ? runs[runs.length - 1] : undefined;
     const maxRunMs = JOB_REGISTRY.find((j) => j.id === id)?.maxRunMs ?? 4 * 60 * 60_000;

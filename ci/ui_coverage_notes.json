@@ -423,6 +423,10 @@
    "partial",
    "A session's count of what the day files of three archives hold (hourly grid generation, hourly grid demand, Wikipedia page views): rows, groups and null values per day, and the compressed days that carry the signature of the overwrite fault repaired on 2026-11-26. Not on a page: it is the instrument that names the days to read again from the source, and its first reading has not been taken. Placement once it has: one line per archive on Pipeline health saying how many days were found incomplete and how many have been read again."
   ],
+  "dtcc_trs_gate2": [
+   "partial",
+   "The weekly job is on Pipeline health with every other scheduled job (its row says whether a look was taken and what it read), and Signal strength shows the DTCC equity-swap root's ladder position. Not on a page: the registered test's counts (how many events found a dated symbol and a price series, how many passed the filter) and, once a look is taken, its statistic and verdict. Until a session has read the look and recorded it on the ladder, the reading is unvalidated and stays behind the token (ladder gate 2). Placement after the first look is recorded: the evidence section of the DTCC swaps page, with the verdict, the tested count and what the test could not see."
+  ],
   "dtcc_trs_panel": [
    "partial",
    "The nightly job is on Pipeline health with every other scheduled job (its row says how many vendor days and how many security types it holds), and Signal strength shows the DTCC equity-swap root's ladder position. Not on a page: the counts by security type, the event list against the registered one, and (since 2026-11-26) how many events a dated CUSIP-to-ticker record read from the SEC fails-to-deliver files covers; the job's row says how many of those SEC files it holds. They are the inputs of a pre-registered gate-2 test that has not run, so they wait for ladder gate 2. Placement after the test's first verdict: an evidence section of the DTCC swaps page."

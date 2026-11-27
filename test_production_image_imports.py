@@ -389,3 +389,29 @@ def test_dtcc_trs_panel_job_command_runs_in_the_production_image_layout(tmp_path
             "assert f.period_of(d.date(2025, 1, 15)) == '202501b'\nprint('ok')")
     r = subprocess.run([sys.executable, "-c", prog], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
     assert r.stdout.strip() == "ok", r.stderr[-2000:]
+
+
+def test_dtcc_trs_gate2_command_runs_in_the_production_image_layout(tmp_path):
+    """The registered DTCC equity-swap gate-2 test (server/dtccTrsGate2.ts,
+    2026-11-27): its command names a root file, and every module it imports
+    (dtcc_trs_panel, cusip_figi, cusip_ftd, price_panel, storage_config) is
+    in the image. With no event list on the volume the run ends
+    "insufficient" before it opens a price file: no network, no look."""
+    src = open(os.path.join(REPO, "server", "dtccTrsGate2.ts"), encoding="utf-8").read()
+    m = re.search(r"return `(python3 [^`]+)`;", src)
+    assert m, "dtccTrsGate2Cmd's command template not found"
+    cmd = m.group(1).replace("${DTCC_TRS_GATE2_MAX_RSS_MB}", "900").replace("${v}", "0.0.0-test")
+    assert "${" not in cmd, cmd
+    assert cmd.split()[1] in _server_python_commands(), "the command scan must see this job's file"
+    layout, data = tmp_path / "app", tmp_path / "data"
+    layout.mkdir(); data.mkdir()
+    _image_layout(str(layout))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["DATA_DIR"] = str(data)
+    env["TMPDIR"] = str(tmp_path)
+    r = subprocess.run([sys.executable] + cmd.split()[1:], cwd=str(layout), env=env, capture_output=True, text=True, timeout=120)
+    assert "can't open file" not in r.stderr and "ModuleNotFoundError" not in r.stderr, r.stderr[-2000:]
+    summary = json.loads((r.stdout.strip().split("\n") or [""])[-1])
+    assert r.returncode == 0 and summary.get("status") == "insufficient", (summary, r.stderr[-800:])
+    assert "event list" in summary.get("reason", ""), summary
+    assert not os.path.exists(data / "dtcc_trs_gate2" / "registered.json")
