@@ -136,6 +136,45 @@ def _hermetic_broker_clock():
     broker_clock.reset_cache()
 
 
+# The ordinary trading day every test sees as "today" through market_calendar
+# (a Wednesday in a five-session week: no holiday, no half day, no long weekend
+# after it). test_market_calendar_hermetic.py asserts each of those.
+MARKET_CALENDAR_TEST_TODAY = (2026, 10, 14)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_market_calendar():
+    """MARKET CALENDAR "TODAY" 2026-11-27: every market_calendar function
+    defaults its day to date.today(), and options_scanner.get_options_trades()
+    returns [] on a half day or before a long weekend. A test that calls it
+    without naming the day therefore failed on those days and passed on every
+    other: test_options_v134_fixes.py was patched for it test by test, and on
+    2026-11-27 (the half day after Thanksgiving, by the CI runner's UTC date)
+    test_mleg_resting_visible.py, written 2026-11-06, turned every PR's
+    required suite red. By default the module's `date.today()` is now one fixed
+    ordinary trading day. Only the default moves: a day passed in is used as
+    given, the holiday tables are untouched, and market_calendar.py (a frozen
+    file) is not edited. A test that needs another "today" patches
+    market_calendar.date or should_skip_new_options itself, which shadows this.
+    Changes reachability, not behavior."""
+    import market_calendar
+
+    real_date = market_calendar.date
+    if getattr(real_date, "_pinned_for_tests", False):  # nested use: already pinned
+        yield
+        return
+
+    class _PinnedDate(real_date):
+        _pinned_for_tests = True
+
+        @classmethod
+        def today(cls):
+            return real_date(*MARKET_CALENDAR_TEST_TODAY)
+
+    with patch.object(market_calendar, "date", _PinnedDate):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_kill_latch(tmp_path_factory):
     """KILL LATCH 2026-11-12 (kill_latch.py, KNOWN BROKEN #51): every opening

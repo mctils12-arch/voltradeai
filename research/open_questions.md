@@ -8449,6 +8449,26 @@
     RATCHET: server/gzipDayFile.test.ts (8 tests); the last one fails the
     build if the raw line is written in any server module again.
 
+63. **[FOUND 2026-11-27 00:26Z, scheduled PRODUCT routine, by the CI `test` job of a
+    research-only pull request (#1932). FOUND + FIXED the same session, v1.0.1569.
+    CLOSED when the repair's own CI run passed on the half day itself.]**
+    EVERY PULL REQUEST'S REQUIRED SUITE WAS RED ON A HALF DAY. A RECURRENCE of a
+    fault repaired test by test in test_options_v134_fixes.py:
+    options_scanner.get_options_trades() opens nothing on a half day or before a
+    long weekend, and reads the day from market_calendar's date.today().
+    test_mleg_resting_visible.py::test_get_options_trades_skips_a_listed_underlying
+    (written 2026-11-06) did not name the day. The CI runner's date is UTC, so
+    from 2026-11-27 00:00Z (Thursday 19:00 ET) the day was the half day after
+    Thanksgiving and the test failed on unchanged main; it would have failed for
+    24 hours, through Friday's session and that evening's deploy window, and
+    again on 2026-12-24 and before each long weekend. No PR could merge.
+    ROOT CAUSE, not the one test: nothing made the suite's calendar day fixed.
+    REPAIR: conftest.py `_hermetic_market_calendar` (autouse) pins the default
+    day market_calendar sees to one ordinary trading day (2026-10-14); a day
+    passed in is used as given; market_calendar.py is not edited. RATCHET:
+    test_market_calendar_hermetic.py (8 tests), which also runs the scanner on a
+    named half day and a named pre-long-weekend day and requires no trade.
+
 ## PRODUCT queue (2026-09-30): expand SFDPS `nasRouteText` airways into placed route fixes
 ~52% of live SFDPS plans (noExpanded 141,933 vs 129,965 expandedNoPoints, 2026-09-30 sample) carry only route text like `KBOS..HTO.J150.OOD..KATL`. #1213-successor (v1.0.1007) places named fixes from NASR FIX/NAV; airways (J/V/Q/T ids) need NASR AWY_SEG (free, same CSV bundle) to expand between entry/exit fixes. Ladder: gate 1 = expanded polyline vs ADS-B cross-track median (target few nm) on N>=200 flights, split by airline/airway type; gate 2 not applicable (no predictive claim). Standalone-product potential: a queryable "filed route + deviation" API over our own archive.
 
@@ -25478,3 +25498,8 @@ WHAT THIS CHANGES: nothing is confirmed about the simulator (two trades, one fal
 - (ph7) EARNINGS PAGE shows "DEERE &amp; CO": an entity escaped twice, seen on production 2026-11-26 at phone width (first card of /data/earnings). Either the archive stores EDGAR's already-escaped company name and the page prints it as text, or a writer escapes it again. Test: no card title on the page contains "&amp;" or "&#"; fix where the name is read, not in the page, so the API and CSV carry the plain name too. T-DATACORE.
 - (ph8) HARNESS, A FULL RUN FAILS ON ITS OWN CLOCK: `node scripts/visual_check.mjs` with no --page took 50 minutes on 2026-11-26 and failed 9 batteries (streams, pipelinehealth, plantsunderalerts at all three widths) only on relative-age text: "read 14 min ago", "last message 33 min ago", "ends in 1 h 16 min" where the assertions expect the age at harness start. Each of those pages passes when run alone. So "npm run visual" as PROMOTION RULE 6 names it cannot pass in one run today; sessions run pages one at a time, which hides it. Fix on the harness side: stamp those fixtures when their page starts, not when the harness starts. Measurement code: own PR, [RULE-REVIEW], no assertion loosened.
 - (ph9) OPS: a cloud session's scratch directory does not survive a container reset (2026-11-26, about 14:15 ET: worktrees, ship scripts and an unpushed change gone; the repository checkout came back fresh). Rule this session now follows: push a work branch as soon as its first commit exists; keep nothing only in scratch that a later step needs. The ship scripts should live in the repository (scripts/ship/), tested, so a session does not rebuild them from memory: own PR.
+
+## 2026-11-27 (00:55Z; Thursday 19:55 ET, Thanksgiving, market closed) — the suite's calendar day is fixed (KNOWN BROKEN #63, v1.0.1569); what is left open
+- [FOUND AND FIXED] KNOWN BROKEN #63 above. experiments.md, same date.
+- (az1) THE SAME CLASS, OTHER CLOCKS: the suite still reads the real clock wherever a module calls `datetime.now()` or `time.time()` for a market-hours or session decision (bot_engine's time-of-day gates, the 09:45 to 15:54 ET floor window, calendar_effects.py). NOT MEASURED which tests depend on it. TESTABLE FORM: run the Python suite under a faked clock at four instants (a Saturday, 03:00 ET on a weekday, a holiday, the last trading day of a year) and list the tests whose result changes; each is a test that will fail on some real day. The Node suite the same way with `Date.now`. PRIOR: 60% that at least one more Python test changes result at one of the four instants; 35% for Node. The loop's own measurement: its own PR.
+- (az2) A RED MAIN-BY-THE-CLOCK IS NOT SEEN UNTIL A PR MEETS IT: nothing runs the required suite on main on a schedule, so a test that fails only on certain days is found by whichever session opens a PR that day (tonight: a research-only PR). The workflow files are frozen; a scheduled run of scripts/gated_tests.sh is a wishlist.md question for the human if (az1) finds more.
