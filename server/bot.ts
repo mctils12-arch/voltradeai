@@ -48,8 +48,11 @@ import { engineKillSnapshot, engineKillHealth, shouldAuditEngineKill, engineKill
 import { KILL_ON_AUDIT, KILL_ON_NOTIFY, KILL_ON_EMAIL, DRAWDOWN_KILL_SUFFIX, DRAWDOWN_KILL_EMAIL_SUBJECT, KILL_PRETRADE_REASON } from "../shared/haltWords";
 import { manualOrderValue, stockPriceFromLatestTrade, optionPriceFromQuote, isManualEntry, sizeCheckBlocker } from "./manualOrderCheck";
 import { diagEnabled, checkDiagToken, positionsSummary, sanitizeDiag, orderRow, positionRow, accountRow, DIAG_PROBES, lotRow, optionBarsQuery, optionBarsUrl, OPTION_BARS_MAX_PAGES, daemonCensusArgs } from "./diag";
-import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAudit, regimeBudgetAudit } from "./regimeReport";
+import { regimeEngineEnabled, regimeFlags, regimeDataDir, readRegimeState, readRegimeHistory, readRegimeSizing, regimeReportBody, regimeHealth, regimeTransitionAuditOnce, regimeTransitionKeyOfLine, regimeBudgetAudit } from "./regimeReport";
 import { regimeCounterfactualBody } from "./regimeCounterfactual";
+// REGIME-TRANSITION once per transition (KNOWN BROKEN #64): null = the audit log has not
+// been read yet in this container; "" = read, no transition line on record.
+let lastRegimeTransitionKey: string | null = null;
 let lastRegimeStaleFallbacks = 0;   // REGIME ENGINE step 6: audit once per NEW stale-state sizing fallback
 // ENGINE KILL VISIBILITY (2026-11-10, KNOWN BROKEN #49, server/engineKill.ts): the
 // Python engine's kill latch as the LAST Tier-2 scan reported it. /api/health
@@ -7737,8 +7740,25 @@ else:
       // carries the engine's state when VOLTRADE_REGIME_ENGINE is on. One
       // audit line per composite transition and one when an update failed
       // (a stale state must be loud, never silent). Shadow — nothing acts.
-      const regimeAuditLine = regimeTransitionAudit(result.regime);
-      if (regimeAuditLine) audit("REGIME-TRANSITION", regimeAuditLine);
+      // REPAIR 2026-11-27 (KNOWN BROKEN #64): the engine persists `transition`
+      // with its state and returns that state on every scan until the bar date
+      // advances, so auditing whenever the field was set wrote one transition
+      // once a scan (177 rows in 44 h for CALM_BULL -> CRISIS of 2026-11-25).
+      // The last transition audited is read back from the audit log once per
+      // container, so a restart does not write it again either.
+      if (result.regime?.transition?.to) {
+        if (lastRegimeTransitionKey === null) {
+          try {
+            lastRegimeTransitionKey = regimeTransitionKeyOfLine(
+              queryAuditLog(db, { limit: 1, type: "REGIME-TRANSITION" })[0]?.message) ?? "";
+          } catch { lastRegimeTransitionKey = ""; }
+        }
+        const regimeTransition = regimeTransitionAuditOnce(result.regime, lastRegimeTransitionKey);
+        if (regimeTransition) {
+          audit("REGIME-TRANSITION", regimeTransition.line);
+          lastRegimeTransitionKey = regimeTransition.key;
+        }
+      }
       if (result.regime?.error) audit("REGIME-STALE", `regime engine update failed: ${String(result.regime.error).slice(0, 160)}`);
       // step 6: a sizer that fell back to 1.0 on a stale state (counted by regime_engine,
       // reset daily) is audited once per new occurrence — never silently.

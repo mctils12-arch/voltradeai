@@ -372,3 +372,37 @@ export function regimeTransitionAudit(regime: RegimeStateFile | null | undefined
   if (!t || !t.to) return null;
   return `${t.from ?? "?"} -> ${t.to} (as_of ${t.to_as_of ?? regime?.as_of ?? "?"}; exposure ${regime?.exposure_multiplier ?? "?"}, core ${regime?.core_multiplier ?? "?"}, confidence ${regime?.confidence ?? "?"})`;
 }
+
+/**
+ * The identity of a composite transition: the regime left, the regime entered and the bar
+ * date it happened on. regime_engine.py PERSISTS `transition` with the state and returns the
+ * persisted state on every scan until the bar date advances, so the field says "the latest
+ * state was reached by a transition", not "a transition happened in this scan".
+ */
+export function regimeTransitionKey(regime: RegimeStateFile | null | undefined): string | null {
+  const t = regime?.transition;
+  if (!t || !t.to) return null;
+  return `${t.from ?? "?"}|${t.to}|${t.to_as_of ?? regime?.as_of ?? "?"}`;
+}
+
+/** The same identity read back from a REGIME-TRANSITION audit message (null when the text is not one). */
+export function regimeTransitionKeyOfLine(message: unknown): string | null {
+  if (typeof message !== "string") return null;
+  const m = /^(\S+) -> (\S+) \(as_of ([^;)\s]+)/.exec(message);
+  return m ? `${m[1]}|${m[2]}|${m[3]}` : null;
+}
+
+/**
+ * REPAIR 2026-11-27 (KNOWN BROKEN #64): one audit line per transition, not one per scan.
+ * `lastKey` is the identity of the last transition audited (the caller seeds it from the
+ * persisted audit log once per container, so a restart does not write the line again).
+ * Returns null when there is no transition or it is the one already audited.
+ */
+export function regimeTransitionAuditOnce(
+  regime: RegimeStateFile | null | undefined, lastKey: string | null,
+): { key: string; line: string } | null {
+  const key = regimeTransitionKey(regime);
+  const line = regimeTransitionAudit(regime);
+  if (!key || !line || key === lastKey) return null;
+  return { key, line };
+}
