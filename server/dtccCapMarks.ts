@@ -85,12 +85,12 @@ export function foldDtccCapMarks(text: string): { days: DtccCapMarks; malformed:
   let malformed = 0;
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
-    let o: any;
+    let o: { day?: unknown; at?: unknown; via?: DtccCapMarkVia; usRows?: unknown; ids?: unknown; lost?: unknown; unread?: unknown } | null;
     try { o = JSON.parse(line); } catch { malformed++; continue; }
     if (!o || typeof o.day !== "string" || !YMD_RE.test(o.day) || typeof o.at !== "string") { malformed++; continue; }
     const prev = days[o.day];
     if (Array.isArray(o.ids) && o.ids.every((x: unknown) => typeof x === "string")) {
-      days[o.day] = { at: o.at, via: o.via, usRows: typeof o.usRows === "number" ? o.usRows : undefined, ids: o.ids };
+      days[o.day] = { at: o.at, via: o.via, usRows: typeof o.usRows === "number" ? o.usRows : undefined, ids: o.ids as string[] };
     } else if (typeof o.lost === "number") {
       if (!prev?.ids) days[o.day] = { at: o.at, lost: o.lost };
     } else if (typeof o.unread === "number") {
