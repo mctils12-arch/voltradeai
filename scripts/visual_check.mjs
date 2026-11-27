@@ -3420,6 +3420,7 @@ const FIXTURES = {
     note: "Fixture: US-underlier scope only; basket-swap rows excluded from this view (see server/dtccSwaps.ts).",
     notional_cap_usd: 250000000,
     notional_mix: { usd: 96100, usd_capped: 17, other_currency: 22300, over_cap_unmarked: 1, blank: 2 },
+    cap_marks: { enabled: true, days_read: 17, recorded: 4, owed: 11, lost: 2, lost_days: ["2024-09-06", "2024-09-07"], capped_events: 465 },
     top_rows: [
       {
         dissemination_id: "FX00000000", action_type: "NEWT", event_timestamp: "2026-09-09T15:01:00Z", effective_date: "2026-09-10",
