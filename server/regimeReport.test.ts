@@ -5,9 +5,11 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import {
   REGIME_STATE_FILE, REGIME_HISTORY_FILE, regimeEngineEnabled, readRegimeState, readRegimeHistory,
-  marketDaysBetween, regimeHealth, regimeReportBody, regimeTransitionAudit, readRegimeSizing, REGIME_SIZING_FILE,
+  marketDaysBetween, regimeHealth, regimeReportBody, regimeTransitionAudit, regimeTransitionAuditOnce, regimeTransitionKey,
+  regimeTransitionKeyOfLine, readRegimeSizing, REGIME_SIZING_FILE,
   REGIME_FLAG_DEFAULTS, regimeFlags, regimeFlagRaw, regimeConsumersOn,
 } from "./regimeReport";
 import { SERVING_CHECKS } from "./healthGate";
@@ -120,6 +122,63 @@ test("transition audit text: null without a transition, one line with it", () =>
   assert.equal(regimeTransitionAudit(null), null);
   const line = regimeTransitionAudit(state({ transition: { from: "CALM_BULL", to: "BEAR", to_as_of: "2026-10-26" }, exposure_multiplier: 0.25 }));
   assert.match(line ?? "", /^CALM_BULL -> BEAR \(as_of 2026-10-26; exposure 0.25/);
+});
+
+// KNOWN BROKEN #64 (2026-11-27). regime_engine.py persists `transition` with the state and
+// returns the persisted state on every scan until the bar date advances. Production wrote
+// "CALM_BULL -> CRISIS (as_of 2026-11-25; exposure 0, core 0.5, confidence 0.667)" 177 times
+// between 2026-11-26T00:03Z and 2026-11-27T20:17Z: 8% of the audit log's rows in that span.
+const crisis = () => state({
+  as_of: "2026-11-25", composite_regime: "CRISIS", exposure_multiplier: 0, core_multiplier: 0.5, confidence: 0.667,
+  transition: { from: "CALM_BULL", to: "CRISIS", from_as_of: "2026-11-24", to_as_of: "2026-11-25" },
+});
+
+test("#64: the same persisted transition on every scan is audited once, not once a scan", () => {
+  let lastKey: string | null = "";            // the audit log was read and held no transition line
+  const lines: string[] = [];
+  for (let scan = 0; scan < 177; scan++) {
+    const once = regimeTransitionAuditOnce(crisis(), lastKey);
+    if (once) { lines.push(once.line); lastKey = once.key; }
+  }
+  assert.deepEqual(lines, ["CALM_BULL -> CRISIS (as_of 2026-11-25; exposure 0, core 0.5, confidence 0.667)"]);
+});
+
+test("#64: a restart reads the last audited transition back from its own audit line and stays silent", () => {
+  const written = regimeTransitionAudit(crisis());
+  const seeded = regimeTransitionKeyOfLine(written);
+  assert.equal(seeded, "CALM_BULL|CRISIS|2026-11-25");
+  assert.equal(seeded, regimeTransitionKey(crisis()), "the key read from the line is the key of the state that wrote it");
+  assert.equal(regimeTransitionAuditOnce(crisis(), seeded), null);
+});
+
+test("#64: the next transition is still audited, and so is a first one on an empty or unreadable log", () => {
+  const back = state({ as_of: "2026-11-30", transition: { from: "CRISIS", to: "CALM_BULL", to_as_of: "2026-11-30" } });
+  assert.match(regimeTransitionAuditOnce(back, "CALM_BULL|CRISIS|2026-11-25")?.line ?? "", /^CRISIS -> CALM_BULL \(as_of 2026-11-30;/);
+  // the same pair of regimes on a later bar date is a new transition
+  const again = state({ as_of: "2026-12-09", composite_regime: "CRISIS", transition: { from: "CALM_BULL", to: "CRISIS", to_as_of: "2026-12-09" } });
+  assert.ok(regimeTransitionAuditOnce(again, "CALM_BULL|CRISIS|2026-11-25"));
+  assert.ok(regimeTransitionAuditOnce(crisis(), ""));
+  assert.ok(regimeTransitionAuditOnce(crisis(), null));
+  // no transition: nothing, whatever was audited before
+  assert.equal(regimeTransitionAuditOnce(state(), ""), null);
+  assert.equal(regimeTransitionAuditOnce(null, ""), null);
+  assert.equal(regimeTransitionKey(state({ transition: null })), null);
+  // a transition with no to_as_of is keyed by the state's own bar date, as the line prints it
+  const bare = state({ as_of: "2026-12-01", transition: { from: "CALM_BULL", to: "BEAR" } });
+  assert.equal(regimeTransitionKey(bare), regimeTransitionKeyOfLine(regimeTransitionAudit(bare)));
+});
+
+test("#64: text that is not a transition line gives no key", () => {
+  for (const m of [undefined, null, 7, "", "regime engine update failed: x", "CALM_BULL to CRISIS"]) {
+    assert.equal(regimeTransitionKeyOfLine(m), null);
+  }
+});
+
+test("#64: bot.ts writes REGIME-TRANSITION only through the once-per-transition path, seeded from the audit log", () => {
+  const bot = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "bot.ts"), "utf8");
+  assert.equal(bot.split('audit("REGIME-TRANSITION"').length - 1, 1, "one write site");
+  assert.match(bot, /regimeTransitionAuditOnce\(result\.regime, lastRegimeTransitionKey\);\s+if \(regimeTransition\) \{\s+audit\("REGIME-TRANSITION", regimeTransition\.line\);\s+lastRegimeTransitionKey = regimeTransition\.key;/);
+  assert.match(bot, /regimeTransitionKeyOfLine\(\s*queryAuditLog\(db, \{ limit: 1, type: "REGIME-TRANSITION" \}\)\[0\]\?\.message\)/);
 });
 
 test("sizing counters (step 6): missing file is null; today's stale fallbacks warn in health and ride the report", () => {
