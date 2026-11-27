@@ -48,6 +48,7 @@ import { fetchEdgarFeed } from "./edgarFeedFetch";
 import { trackSet } from "./heapDiag";
 import { edgarCurrentFeedUrl } from "./edgarForm4";
 import { createFilingSeen } from "./filingSeen";
+import { unescapeXmlText } from "./xmlText";
 
 // ── Minimal dependency-free Atom-feed tag extraction (mirrors edgarForm4.ts's
 // approach: SEC's feed schema is flat and predictable, a full XML parser is
@@ -103,7 +104,8 @@ export function parse8KFeed(atomXml: string): Filing8KEntry[] {
     out.push({
       accession: accMatch[1],
       cik: nameMatch[2],
-      companyName: nameMatch[1],
+      // the Atom title is XML: "DEERE &amp; CO" is the text "DEERE & CO" (xmlText.ts)
+      companyName: unescapeXmlText(nameMatch[1]),
       filedAt: filedMatch ? filedMatch[1] : null,
       acceptanceDatetime: tagContent(entryBlock, "updated"),
       itemCodes,
@@ -437,6 +439,25 @@ export function gzipOldEarnings8kDays(baseDir?: string, nowMs?: number): number 
 /** Reads archived earnings-language filings for the last N days (newest
  *  first), transparently handling gzipped days — mirrors
  *  edgarForm4.ts's readFilingHistory. */
+/** The registrant names of one archived row, unescaped (xmlText.ts). Rows
+ *  archived before v1.0.1570 hold the Atom title as written ("DEERE &amp;
+ *  CO"); the archive is append-only and is not rewritten, so every reader of
+ *  it returns rows through this. The exhibit text is not touched. A row with
+ *  nothing to unescape is returned as the same object. */
+export function cleanEarnings8K<T extends Earnings8K>(f: T): T {
+  const companyName = typeof f.companyName === "string" ? unescapeXmlText(f.companyName) : f.companyName;
+  let changed = companyName !== f.companyName;
+  let coRegistrants = f.coRegistrants;
+  if (Array.isArray(coRegistrants)) {
+    const next = coRegistrants.map((r) => {
+      const name = typeof r?.companyName === "string" ? unescapeXmlText(r.companyName) : r?.companyName;
+      return name !== r?.companyName ? { ...r, companyName: name } : r;
+    });
+    if (next.some((r, i) => r !== (coRegistrants as Earnings8KRegistrant[])[i])) { coRegistrants = next; changed = true; }
+  }
+  return changed ? { ...f, companyName, coRegistrants } : f;
+}
+
 export function readEarnings8kHistory(days = 30, baseDir?: string, nowMs?: number, maxFilings = 500): Earnings8K[] {
   const dir = earnings8kDir(baseDir);
   const now = nowMs ?? Date.now();
@@ -455,7 +476,7 @@ export function readEarnings8kHistory(days = 30, baseDir?: string, nowMs?: numbe
         if (!line) continue;
         try {
           const f = JSON.parse(line);
-          if (f.accession) dayRows.push(f);
+          if (f.accession) dayRows.push(cleanEarnings8K(f));
         } catch {}
       }
     }
@@ -589,7 +610,7 @@ function readArchiveDay(dir: string, day: string): { rows: Earnings8K[]; malform
       if (!line) continue;
       try {
         const f = JSON.parse(line);
-        if (f && f.accession) rows.push(f); else malformed++;
+        if (f && f.accession) rows.push(cleanEarnings8K(f)); else malformed++;
       } catch { malformed++; } // a torn line (kill mid-append) is counted, never silently dropped
     }
   }
