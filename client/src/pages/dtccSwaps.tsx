@@ -10,10 +10,13 @@
 // top_rows is explicitly the largest-notional events from the source
 // file's most recently published day, not a running archive-wide
 // ranking (see server/dtccSwaps.ts's topNotionalRows doc comment) — the
-// UI says so rather than reading like a full-archive browser.
+// UI says so rather than reading like a full-archive browser. The list
+// ranks dollars only (2026-11-27): lib/dtccNotional.ts prints a capped
+// value as the source wrote it and says what the list leaves out.
 import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Repeat } from "lucide-react";
 import { dtccSourceDaysLine, dtccEdgeLine, type DtccSourceDaysSummary } from "@/lib/dtccSourceDays";
+import { dtccNotionalText, dtccRankingLine, type DtccNotionalMix } from "@/lib/dtccNotional";
 
 interface DtccRow {
   dissemination_id: string;
@@ -21,6 +24,7 @@ interface DtccRow {
   event_timestamp: string;
   effective_date: string;
   notional_amount: number | null;
+  notional_capped?: boolean;
   notional_currency: string;
   underlier_id: string;
   underlier_id_source: string;
@@ -38,12 +42,11 @@ interface DtccPayload {
   new_rows_archived?: number;
   total_archived?: number;
   source_days?: DtccSourceDaysSummary;
+  notional_cap_usd?: number;
+  notional_mix?: DtccNotionalMix;
   top_rows: DtccRow[];
   note?: string;
 }
-
-const notional = (n: number | null, ccy: string) =>
-  n == null ? "— (masked)" : `${ccy} ${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
   const [data, setData] = useState<DtccPayload | null>(null);
@@ -66,6 +69,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
   const rows = data?.top_rows ?? [];
   const sourceDays = dtccSourceDaysLine(data?.source_days);
   const edgeDays = dtccEdgeLine(data?.source_days);
+  const ranking = dtccRankingLine(data?.notional_mix, data?.notional_cap_usd);
 
   return (
     <div className="vt-filings-page" role="region" aria-label="DTCC SBSDR equity swap dissemination">
@@ -75,7 +79,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
         <div>
           <div className="vt-filings-title">Equity swap dissemination — DTCC SBSDR</div>
           <div className="vt-filings-sub">
-            US-underlier total-return-swap events, largest notional first · RAW ·{" "}
+            US-underlier total-return-swap events, largest US-dollar notional first · RAW ·{" "}
             <a href="https://pddata.dtcc.com/gtr/sbsdr" target="_blank" rel="noreferrer">DTCC SBSDR <ExternalLink size={11} /></a>
           </div>
         </div>
@@ -97,6 +101,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
           </div>
           {sourceDays && <div className="vt-filings-sub" data-testid="dtcc-source-days">{sourceDays}</div>}
           {edgeDays && <div className="vt-filings-sub" data-testid="dtcc-edge-days">{edgeDays}</div>}
+          {ranking && <div className="vt-filings-sub" data-testid="dtcc-ranking">{ranking}</div>}
 
           <div className="vt-filings-tablewrap">
             <table className="vt-filings-table">
@@ -116,7 +121,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
                     <td data-l="ID">{row.underlier_id} <span className="vt-filings-sub">({row.underlier_id_source})</span></td>
                     <td data-l="Action">{row.action_type}</td>
                     <td data-l="Event time">{row.event_timestamp}</td>
-                    <td data-l="Notional" className="num">{notional(row.notional_amount, row.notional_currency)}</td>
+                    <td data-l="Notional" className="num">{dtccNotionalText(row.notional_amount, row.notional_currency, row.notional_capped)}</td>
                   </tr>
                 ))}
               </tbody>

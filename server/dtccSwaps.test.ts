@@ -17,6 +17,7 @@ import {
   tryParseLocalHeader, streamDtccZip, dtccUrl,
   archiveNewRows, _resetDtccForTests, loadSeenIds,
   refreshDtccSwaps, latestDtcc, topNotionalRows, readArchivedDtccRows,
+  parseNotionalField, dtccNotionalClass, dtccNotionalMix, DTCC_NOTIONAL_CAP_USD,
 } from "./dtccSwaps";
 
 const HEADER_COLS = [...REQUIRED_COLUMNS, "Some Future Column"];
@@ -124,6 +125,75 @@ test("topNotionalRows: sorts descending by notional, masked (null) rows sort las
   const sorted = topNotionalRows([small, masked, large, mid]);
   assert.deepEqual(sorted.map((r) => r.disseminationId), ["2", "4", "1", "3"],
     "largest first; the Dodd-Frank-masked (null) row sorts after every rated row");
+});
+
+// ── the notional as the source writes it, and a ranking in dollars only ──
+// (open_questions.md (aq2), 2026-11-27. Measured on the vendor file dated
+// 2026-11-26: 13,376 US-underlier rows, 17 written "250,000,000+", 3 blank,
+// 2,423 not in USD. The page's first row was 700,000,000 MXN and none of the
+// 17 capped rows was on it: the "+" had been read as a malformed number.)
+
+test("parseNotionalField: a number, a blank, and the source's capped form (its floor, marked)", () => {
+  assert.deepEqual(parseNotionalField("28,000,000"), { amount: 28_000_000, capped: false });
+  assert.deepEqual(parseNotionalField(""), { amount: null, capped: false });
+  assert.deepEqual(parseNotionalField("   "), { amount: null, capped: false });
+  assert.deepEqual(parseNotionalField("250,000,000+"), { amount: 250_000_000, capped: true });
+  assert.deepEqual(parseNotionalField(" 250,000,000+ "), { amount: 250_000_000, capped: true });
+  assert.deepEqual(parseNotionalField("n/a"), { amount: null, capped: false }, "not a number: null, never a guess");
+  assert.deepEqual(parseNotionalField("abc+"), { amount: null, capped: false }, "a mark on a non-number is not a capped value");
+  assert.deepEqual(parseNotionalField("+"), { amount: null, capped: false }, "a bare mark is not a zero");
+  assert.equal(DTCC_NOTIONAL_CAP_USD, 250_000_000);
+});
+
+test("parseDtccLine: a capped notional is archived as its floor WITH the flag; an ordinary row carries no flag field", () => {
+  const idx = parseHeader(HEADER_LINE);
+  const n = HEADER_COLS.length;
+  const capped = parseDtccLine(row("c1", "US0378331005", "ISIN", "APPLE INC", "250,000,000+"), idx, n)!;
+  assert.equal(capped.notionalAmountLeg1, 250_000_000);
+  assert.equal(capped.notionalCappedLeg1, true);
+  const plain = parseDtccLine(row("p1", "US0378331005", "ISIN", "APPLE INC", "250,000,000"), idx, n)!;
+  assert.equal(plain.notionalAmountLeg1, 250_000_000);
+  assert.equal("notionalCappedLeg1" in plain, false, "the archived row's shape is unchanged for every uncapped row");
+  assert.equal(JSON.parse(JSON.stringify(capped)).notionalCappedLeg1, true, "the flag survives the day file's JSON line");
+});
+
+test("dtccNotionalClass + dtccNotionalMix: every row falls in exactly one class", () => {
+  const idx = parseHeader(HEADER_LINE);
+  const n = HEADER_COLS.length;
+  const mk = (id: string, notional: string, ccy = "USD") => parseDtccLine(row(id, "US0378331005", "ISIN", "APPLE INC", notional, ccy), idx, n)!;
+  const rows = [
+    mk("usd", "220,000,000"), mk("atcap", "250,000,000"), mk("capped", "250,000,000+"),
+    mk("mxn", "700,000,000", "MXN"), mk("eur", "1,000", "EUR"),
+    mk("placeholder", "100,000,000,000,000,000,000"), mk("blank", ""), mk("blankeur", "", "EUR"),
+  ];
+  assert.deepEqual(rows.map(dtccNotionalClass),
+    ["usd", "usd", "usd_capped", "other_currency", "other_currency", "over_cap_unmarked", "blank", "blank"]);
+  const mix = dtccNotionalMix(rows);
+  assert.deepEqual(mix, { usd: 2, usd_capped: 1, other_currency: 2, over_cap_unmarked: 1, blank: 2 });
+  assert.equal(Object.values(mix).reduce((a, b) => a + b, 0), rows.length, "the counts add up to the file");
+  // a row archived before 2026-11-27 holds null for a capped value: it reads blank, not a number
+  assert.equal(dtccNotionalClass({ ...rows[2], notionalAmountLeg1: null, notionalCappedLeg1: undefined }), "blank");
+});
+
+test("topNotionalRows: ranks dollars only: capped rows first in file order, then USD by amount; other currencies and placeholders are not in the list", () => {
+  const idx = parseHeader(HEADER_LINE);
+  const n = HEADER_COLS.length;
+  const mk = (id: string, notional: string, ccy = "USD") => parseDtccLine(row(id, "US0378331005", "ISIN", "APPLE INC", notional, ccy), idx, n)!;
+  const rows = [
+    mk("mxn", "700,000,000", "MXN"),          // about 35 million USD: was the page's first row
+    mk("usd220", "220,000,000"),
+    mk("placeholder", "100,000,000,000,000,000,000"),
+    mk("capA", "250,000,000+"),
+    mk("blank", ""),
+    mk("usd5", "5,000,000"),
+    mk("capB", "250,000,000+"),
+    mk("eur", "999,000,000", "EUR"),
+  ];
+  assert.deepEqual(topNotionalRows(rows).map((r) => r.disseminationId), ["capA", "capB", "usd220", "usd5", "blank"]);
+  assert.deepEqual(topNotionalRows(rows, 3).map((r) => r.disseminationId), ["capA", "capB", "usd220"],
+    "the capped rows are inside the cap of the list, not cut off behind it");
+  assert.equal(rows.length, 8, "the input is not reordered or shortened");
+  assert.equal(rows[0].disseminationId, "mxn");
 });
 
 test("topNotionalRows: caps at the given size instead of returning every row", () => {
@@ -328,6 +398,32 @@ test("readArchivedDtccRows: returns the newest archived day within the window, s
 test("readArchivedDtccRows: no archived day anywhere in the window returns null, not an empty-but-truthy result", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-backfill-empty-"));
   assert.equal(readArchivedDtccRows(dir, Date.parse("2026-08-11T12:00:00Z")), null);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("refreshDtccSwaps: a file with a capped row, a peso row and a blank: the poll serves the capped row first, counts the rest, and the day file keeps the flag", async () => {
+  _resetDtccForTests();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dtcc-refresh-mix-"));
+  const csv = [
+    HEADER_LINE,
+    row("601", "US64110L1061", "ISIN", "NETFLIX INC", "700,000,000", "MXN"),
+    row("602", "US5949181045", "ISIN", "MICROSOFT CORP", "220,000,000"),
+    row("603", "US0378331005", "ISIN", "APPLE INC", "250,000,000+"),
+    row("604", "US0378331005", "ISIN", "APPLE INC", ""),
+  ].join("\n") + "\n";
+  const nowMs = Date.parse("2026-08-21T18:00:00Z");
+  await refreshDtccSwaps(dateBlockedFetch([], buildZip(csv)), nowMs, dir);
+  const hit = latestDtcc()!;
+  assert.equal(hit.usRows, 4);
+  assert.deepEqual(hit.topRows.map((r) => r.disseminationId), ["603", "602", "604"]);
+  assert.deepEqual(hit.notionalMix, { usd: 1, usd_capped: 1, other_currency: 1, over_cap_unmarked: 0, blank: 1 });
+  // the archive holds all four, the peso row included (the ranking leaves it out; the record does not)
+  const back = readArchivedDtccRows(dir, nowMs)!;
+  assert.equal(back.rows.length, 4);
+  const capped = back.rows.find((r) => r.disseminationId === "603")!;
+  assert.equal(capped.notionalAmountLeg1, 250_000_000);
+  assert.equal(capped.notionalCappedLeg1, true);
+  assert.equal(back.rows.find((r) => r.disseminationId === "601")!.notionalCurrencyLeg1, "MXN");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

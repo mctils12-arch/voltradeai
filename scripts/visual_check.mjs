@@ -3418,15 +3418,22 @@ const FIXTURES = {
       edge: { enabled: true, days: 3, rows: 129500, oldest: "2024-09-08", newest: "2024-09-10" },
     },
     note: "Fixture: US-underlier scope only; basket-swap rows excluded from this view (see server/dtccSwaps.ts).",
+    notional_cap_usd: 250000000,
+    notional_mix: { usd: 96100, usd_capped: 17, other_currency: 22300, over_cap_unmarked: 1, blank: 2 },
     top_rows: [
       {
+        dissemination_id: "FX00000000", action_type: "NEWT", event_timestamp: "2026-09-09T15:01:00Z", effective_date: "2026-09-10",
+        notional_amount: 250000000, notional_capped: true, notional_currency: "USD", underlier_id: "US0000001FX", underlier_id_source: "ISIN",
+        underlier_name: "Fixture Large-Cap Inc",
+      },
+      {
         dissemination_id: "FX00000001", action_type: "NEWT", event_timestamp: "2026-09-09T14:22:00Z", effective_date: "2026-09-10",
-        notional_amount: 48200000, notional_currency: "USD", underlier_id: "US0000000FX", underlier_id_source: "ISIN",
+        notional_amount: 48200000, notional_capped: false, notional_currency: "USD", underlier_id: "US0000000FX", underlier_id_source: "ISIN",
         underlier_name: "Fixture Small-Cap Corp",
       },
       {
         dissemination_id: "FX00000002", action_type: "MODI", event_timestamp: "2026-09-09T12:05:00Z", effective_date: "2026-09-10",
-        notional_amount: null, notional_currency: "USD", underlier_id: "037833100", underlier_id_source: "CUSIP",
+        notional_amount: null, notional_capped: false, notional_currency: "USD", underlier_id: "037833100", underlier_id_source: "CUSIP",
         underlier_name: "Fixture Mid-Cap Holdings",
       },
     ],

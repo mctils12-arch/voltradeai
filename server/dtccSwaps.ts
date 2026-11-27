@@ -196,17 +196,34 @@ export interface DtccSwapRow {
   actionType: string;
   eventTimestamp: string;
   effectiveDate: string;
-  notionalAmountLeg1: number | null; // null = blank/masked (Dodd-Frank real-time caps mask large notionals — an honest null, never a fabricated 0)
+  notionalAmountLeg1: number | null; // null = the source left the field blank (never a fabricated 0). A capped value is its floor, with notionalCappedLeg1 set.
   notionalCurrencyLeg1: string;
+  /** Present (true) only when the source wrote the value with a trailing "+",
+   *  its mark for "at or above this figure" ("250,000,000+"). Rows archived
+   *  before 2026-11-27 hold null for such a value and no flag: the reader of
+   *  that time took the "+" for a malformed number. */
+  notionalCappedLeg1?: true;
   underlierId: string;
   underlierIdSource: string;
   underlierName: string;
 }
 
-function parseNotional(raw: string): number | null {
-  if (!raw) return null;
-  const n = Number(raw.replace(/,/g, ""));
-  return Number.isFinite(n) ? n : null;
+/** The source's dissemination cap for an equity swap's notional. A value at
+ *  or above it is written "250,000,000+". Measured on the file dated
+ *  2026-11-26: 17 of 13,376 US-underlier rows, all USD (dtcc_trs_panel.py
+ *  measured the same form over all 731 dated files on 2026-11-25). */
+export const DTCC_NOTIONAL_CAP_USD = 250_000_000;
+
+/** One notional field as the source wrote it: a number, a blank, or a capped
+ *  value marked with a trailing "+" (read as its floor, capped: true). */
+export function parseNotionalField(raw: string): { amount: number | null; capped: boolean } {
+  const text = (raw ?? "").trim();
+  if (!text) return { amount: null, capped: false };
+  const capped = text.endsWith("+");
+  const digits = (capped ? text.slice(0, -1) : text).replace(/,/g, "").trim();
+  const n = digits ? Number(digits) : NaN;
+  if (!Number.isFinite(n)) return { amount: null, capped: false };
+  return { amount: n, capped };
 }
 
 /** Parses one data line into a row, or null if malformed (column-count
@@ -217,18 +234,21 @@ export function parseDtccLine(line: string, idx: Record<string, number>, expecte
   const source = c[idx["Underlier ID source-Leg 1"]];
   const id = c[idx["Underlier ID-Leg 1"]];
   if (!isUsUnderlier(id, source)) return null;
-  return {
+  const notional = parseNotionalField(c[idx["Notional amount-Leg 1"]]);
+  const parsed: DtccSwapRow = {
     disseminationId: c[idx["Dissemination Identifier"]],
     originalDisseminationId: c[idx["Original Dissemination Identifier"]],
     actionType: c[idx["Action type"]],
     eventTimestamp: c[idx["Event timestamp"]],
     effectiveDate: c[idx["Effective Date"]],
-    notionalAmountLeg1: parseNotional(c[idx["Notional amount-Leg 1"]]),
+    notionalAmountLeg1: notional.amount,
     notionalCurrencyLeg1: c[idx["Notional currency-Leg 1"]],
     underlierId: id,
     underlierIdSource: source,
     underlierName: c[idx["UPI Underlier Name"]],
   };
+  if (notional.capped) parsed.notionalCappedLeg1 = true;
+  return parsed;
 }
 
 // ── Dependency-free streaming single-member ZIP reader ──────────────────────
@@ -1844,23 +1864,68 @@ export function readArchivedDtccRows(baseDir?: string, nowMs?: number, lookbackD
 // (each row is a handful of short strings/numbers).
 const TOP_ROWS_CAP = 100;
 
-/** Largest-notional US-underlier rows from THIS poll cycle only, sorted
- *  descending. Notional-masked rows (Dodd-Frank caps -> null, never a
- *  fabricated 0) sort after every rated row rather than dropping out or
- *  sorting as if notional were zero. This is a snapshot of one cycle's
+/** How one row's notional can be read. Only "usd" and "usd_capped" are
+ *  dollar amounts that can be ranked against each other:
+ *  - "usd": a USD number at or under the cap.
+ *  - "usd_capped": USD, written with the source's "+" mark (at least the cap).
+ *  - "other_currency": a number in another currency. No exchange rate is
+ *    applied anywhere in this module, so it is not ranked against dollars
+ *    (2026-11-26: 2,423 of 13,376 rows; the page's first row was 700,000,000
+ *    MXN, about 35 million USD, above every USD row).
+ *  - "over_cap_unmarked": a USD number above the cap with no "+": a
+ *    reporter's placeholder (100,000,000,000,000,000,000 and the like, on 62
+ *    of 731 dated files), never a trade size.
+ *  - "blank": the source left the field empty (or, on a row archived before
+ *    2026-11-27, a capped value read as null). */
+export type DtccNotionalClass = "usd" | "usd_capped" | "other_currency" | "over_cap_unmarked" | "blank";
+export function dtccNotionalClass(r: DtccSwapRow): DtccNotionalClass {
+  if (r.notionalAmountLeg1 == null) return "blank";
+  if (r.notionalCurrencyLeg1 !== "USD") return "other_currency";
+  if (r.notionalCappedLeg1 === true) return "usd_capped";
+  if (r.notionalAmountLeg1 > DTCC_NOTIONAL_CAP_USD) return "over_cap_unmarked";
+  return "usd";
+}
+
+/** Counts of one file's US-underlier rows by how the notional can be read:
+ *  what the ranked list holds and what it leaves out, served beside it. */
+export interface DtccNotionalMix {
+  usd: number;
+  usd_capped: number;
+  other_currency: number;
+  over_cap_unmarked: number;
+  blank: number;
+}
+export function dtccNotionalMix(rows: DtccSwapRow[]): DtccNotionalMix {
+  const mix: DtccNotionalMix = { usd: 0, usd_capped: 0, other_currency: 0, over_cap_unmarked: 0, blank: 0 };
+  for (const r of rows) mix[dtccNotionalClass(r)]++;
+  return mix;
+}
+
+const RANK_ORDER: Partial<Record<DtccNotionalClass, number>> = { usd_capped: 0, usd: 1, blank: 2 };
+/** Largest-notional US-underlier rows from THIS poll cycle only, in DOLLARS:
+ *  the rows at the source's cap first ("250,000,000+", in file order: the
+ *  source gives no size above the cap to order them by), then USD rows by
+ *  amount descending, then blank rows (never ranked as zero). Rows in another
+ *  currency and unmarked values above the cap are left out and counted by
+ *  dtccNotionalMix (see DtccNotionalClass). This is a snapshot of one cycle's
  *  observed file, not a running archive-wide ranking — archiveNewRows
  *  already holds the durable history; scanning it for a global top-N would
  *  mean decompressing every prior day's file on every request, which the
  *  MEMORY LAW's "no unbounded selects" forbids for an interactive route. */
 export function topNotionalRows(rows: DtccSwapRow[], cap = TOP_ROWS_CAP): DtccSwapRow[] {
-  return [...rows]
+  const ranked: Array<{ row: DtccSwapRow; group: number }> = [];
+  for (const row of rows) {
+    const group = RANK_ORDER[dtccNotionalClass(row)];
+    if (group !== undefined) ranked.push({ row, group });
+  }
+  return ranked
     .sort((a, b) => {
-      if (a.notionalAmountLeg1 == null && b.notionalAmountLeg1 == null) return 0;
-      if (a.notionalAmountLeg1 == null) return 1;
-      if (b.notionalAmountLeg1 == null) return -1;
-      return b.notionalAmountLeg1 - a.notionalAmountLeg1;
+      if (a.group !== b.group) return a.group - b.group;
+      if (a.group !== 1) return 0;
+      return (b.row.notionalAmountLeg1 as number) - (a.row.notionalAmountLeg1 as number);
     })
-    .slice(0, cap);
+    .slice(0, cap)
+    .map((x) => x.row);
 }
 
 export interface DtccPollResult {
@@ -1871,6 +1936,8 @@ export interface DtccPollResult {
   newRows: number;
   totalArchived: number;
   topRows: DtccSwapRow[];
+  /** every US-underlier row of the file the list was drawn from, by class */
+  notionalMix: DtccNotionalMix;
 }
 
 let cache: DtccPollResult | null = null;
@@ -1953,7 +2020,7 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
             cache = {
               at: Date.now(), fileDate: backfill.fileDate, sourceDate: "",
               usRows: backfill.rows.length, newRows: 0, totalArchived: await seenIdsTotalAsync(dtccDir(baseDir)),
-              topRows: topNotionalRows(backfill.rows),
+              topRows: topNotionalRows(backfill.rows), notionalMix: dtccNotionalMix(backfill.rows),
             };
             console.log(`[datacore] dtccswaps: live walk found nothing — backfilled from archived ${backfill.fileDate} (${backfill.rows.length} rows)`);
           }
@@ -1968,7 +2035,7 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
       if (archiveWriteFailures === failuresBefore) recordSourceDayRead(dtccDir(baseDir), sourceDate, "poll", foundRows.length, newRows, now.getTime());
       cache = {
         at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows,
-        totalArchived: seenTotal, topRows: topNotionalRows(foundRows),
+        totalArchived: seenTotal, topRows: topNotionalRows(foundRows), notionalMix: dtccNotionalMix(foundRows),
       };
       console.log(`[datacore] dtccswaps ${observedDate} (source dated ${sourceDate}): ${foundLines} total lines, ${foundRows.length} US-underlier, ${newRows} new, ${seenTotal} archived total`);
       // the vendor days no poll read while they were the newest (see SOURCE-DAY
