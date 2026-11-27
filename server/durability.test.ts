@@ -26,6 +26,7 @@ const TMP_BY_DESIGN: Record<string, string> = {
 // A module listed here may not name a directory (checked below).
 const PATH_FROM_CALLER: Record<string, string> = {
   "gzipDayFile.ts": "compresses the day file it is handed to `<that file>.gz` (via `<that file>.gz.tmp`); every caller is an archive module classified above",
+  "dtccCapMarks.ts": "appends `_cap_marks.jsonl` in the stream directory it is handed; its one caller is dtccSwaps.ts, which passes its own archiveBaseDir()-rooted directory (durable)",
 };
 
 // Known stray, wishlisted for the human (frozen file — see wishlist billing

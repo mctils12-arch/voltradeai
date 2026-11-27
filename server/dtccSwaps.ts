@@ -74,6 +74,13 @@ import { guardedRefresh } from "./crashSafeRefresh";
 import { DtccIdsStore, dtccIdsMode, DTCC_IDS_DB_FILE, countBufferLines, countNonEmptyLines, type DtccIdsBackfill, type DtccIdsMode } from "./dtccIdsStore";
 import { CompactIdSet } from "./dtccIdSet";
 import { MIN_FREE_BYTES as ARCHIVE_GUARD_FREE_BYTES, readFreeBytes } from "./globalScopes";
+import {
+  readDtccCapMarks, recordDtccCapMarks, recordDtccCapMarksUnread, dtccCapMarkCandidates, dtccDayPastVendorWindow,
+  dtccCapMarksEnabled, summarizeDtccCapMarks, applyDtccCapMarksSeed,
+  DTCC_CAP_MARKS_PER_POLL, DTCC_CAP_MARKS_ATTEMPTS_PER_POLL,
+  type DtccCapMarkVia, type DtccCapMarksSummary, type DtccCapMarksSeed,
+} from "./dtccCapMarks";
+import capMarksSeedJson from "../datacore/dtcc_cap_marks_seed.json";
 
 const BASE_URL = "https://kgc0418-tdw-data-0.s3.amazonaws.com/sec/eod";
 
@@ -1738,6 +1745,7 @@ async function catchUpSourceDays(newest: string, observedDate: string, fetchImpl
         break;
       }
       recordSourceDayRead(dir, day, via, rows.length, newRows, nowMs);
+      recordCapMarksOfRead(dir, day, via, rows, nowMs);
       last = { seenTotal };
       if (via === "edge") {
         console.log(`[datacore] dtccswaps edge ${day}: ${rows.length} US-underlier row(s), ${newRows} new, read before the vendor's two-year limit (${seenTotal} archived total)`);
@@ -1751,6 +1759,88 @@ async function catchUpSourceDays(newest: string, observedDate: string, fetchImpl
     console.error(`[datacore] dtccswaps catch-up stopped for this poll: ${(e as Error)?.message || e}`);
   }
   return last;
+}
+
+// ── CAP MARKS (2026-11-27, open_questions.md (bc1); record and rules in
+// dtccCapMarks.ts) ───────────────────────────────────────────────────────────
+// Rows archived before v1.0.1572 hold null where the source wrote
+// "250,000,000+". Every vendor file read from now on records which of its
+// US-underlier rows carried the mark; the files read before are read again,
+// oldest first, at the catch-up's pace. A re-read keeps IDs only: nothing is
+// archived by it and no day file is rewritten.
+
+const cappedIdsOf = (rows: DtccSwapRow[]): string[] => rows.filter((r) => r.notionalCappedLeg1 === true).map((r) => r.disseminationId);
+
+/** The marks of a vendor file some other read just parsed. Never throws. */
+function recordCapMarksOfRead(dir: string, day: string, via: DtccCapMarkVia, rows: DtccSwapRow[], nowMs: number): void {
+  try {
+    recordDtccCapMarks(dir, day, via, rows.length, cappedIdsOf(rows), nowMs);
+  } catch (e) {
+    console.error(`[datacore] dtccswaps cap marks of ${day} not recorded: ${(e as Error)?.message || e}`);
+  }
+}
+
+/** One vendor file read for its marks alone: the US-underlier row count and
+ *  the marked IDs; no row is kept. */
+async function readVendorCapMarks(ymdUnderscored: string, fetchImpl: FetchFn): Promise<{ ok: boolean; status: number; usRows: number; ids: string[] }> {
+  let idx: Record<string, number> | null = null;
+  let expectedCols = 0;
+  let usRows = 0;
+  const ids: string[] = [];
+  const { ok, status } = await streamDtccZip(dtccUrl(ymdUnderscored), (line, isHeader) => {
+    if (isHeader) {
+      idx = parseHeader(line);
+      expectedCols = parseCsvLine(line).length;
+      return;
+    }
+    if (!idx) return;
+    const row = parseDtccLine(line, idx, expectedCols);
+    if (!row) return;
+    usRows++;
+    if (row.notionalCappedLeg1 === true) ids.push(row.disseminationId);
+  }, fetchImpl);
+  return { ok, status, usRows, ids };
+}
+
+let capMarksSeed: DtccCapMarksSeed | null = capMarksSeedJson as DtccCapMarksSeed;
+/** Tests replace or remove the bundled seed. */
+export function _setDtccCapMarksSeedForTests(seed: DtccCapMarksSeed | null): void { capMarksSeed = seed; }
+
+/** Folds the seed in, then re-reads the vendor days whose marks are owed
+ *  (dtccCapMarkCandidates: oldest first). A day the vendor refuses is `lost`
+ *  when it is past the two-year window (audited once, never asked again) and
+ *  `unread` otherwise. Never throws: the poll's own result stands. */
+async function rereadCapMarks(fetchImpl: FetchFn, nowMs: number, baseDir?: string): Promise<void> {
+  if (!dtccCapMarksEnabled()) return;
+  const dir = dtccDir(baseDir);
+  try {
+    const seeded = applyDtccCapMarksSeed(dir, capMarksSeed, nowMs);
+    if (seeded.length) console.log(`[datacore] dtccswaps cap marks: ${seeded.length} vendor day(s) taken from the session-read seed (${seeded[0]} to ${seeded[seeded.length - 1]})`);
+    const todo = dtccCapMarkCandidates(readDtccSourceDays(baseDir), readDtccCapMarks(dir), nowMs, DTCC_CATCHUP_FLOOR);
+    let reads = 0, attempts = 0;
+    for (const day of todo) {
+      if (reads >= DTCC_CAP_MARKS_PER_POLL || attempts >= DTCC_CAP_MARKS_ATTEMPTS_PER_POLL) break;
+      attempts++;
+      const { ok, status, usRows, ids } = await readVendorCapMarks(day.replace(/-/g, "_"), fetchImpl);
+      if (!ok) {
+        const lost = dtccDayPastVendorWindow(day, nowMs, DTCC_EDGE_OLDEST_DAYS);
+        recordDtccCapMarksUnread(dir, day, status, lost, nowMs);
+        if (lost) idsEmit("DTCC-CAP-MARK-LOST", `vendor file dated ${day} is past the vendor's two-year window (HTTP ${status}) and its cap marks were never read: a null notional on that day's rows is a blank or a capped value, and the archive cannot say which`);
+        else console.error(`[datacore] dtccswaps cap marks ${day}: HTTP ${status} / no body — asked again`);
+        continue;
+      }
+      reads++;
+      recordDtccCapMarks(dir, day, "reread", usRows, ids, nowMs);
+      console.log(`[datacore] dtccswaps cap marks ${day}: ${ids.length} of ${usRows} US-underlier row(s) carry the source's cap mark (re-read; ${todo.length - attempts} day(s) still owed)`);
+    }
+  } catch (e) {
+    console.error(`[datacore] dtccswaps cap-mark re-read stopped for this poll: ${(e as Error)?.message || e}`);
+  }
+}
+
+/** The cap-mark record against the source-day ledger, for the routes. Reads two small files. */
+export function dtccCapMarksSummary(baseDir?: string): DtccCapMarksSummary {
+  return summarizeDtccCapMarks(readDtccSourceDays(baseDir), readDtccCapMarks(dtccDir(baseDir)), dtccCapMarksEnabled());
 }
 
 export interface DtccSourceDaysSummary {
@@ -2033,6 +2123,8 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
       const failuresBefore = archiveWriteFailures;
       const { newRows, seenTotal } = await archiveNewRowsAsync(foundRows, observedDate, baseDir);
       if (archiveWriteFailures === failuresBefore) recordSourceDayRead(dtccDir(baseDir), sourceDate, "poll", foundRows.length, newRows, now.getTime());
+      // the file's marks are a fact about the vendor file, whatever the archive write did
+      recordCapMarksOfRead(dtccDir(baseDir), sourceDate, "poll", foundRows, now.getTime());
       cache = {
         at: Date.now(), fileDate: observedDate, sourceDate, usRows: foundRows.length, newRows,
         totalArchived: seenTotal, topRows: topNotionalRows(foundRows), notionalMix: dtccNotionalMix(foundRows),
@@ -2044,6 +2136,8 @@ export async function refreshDtccSwaps(fetchImpl: FetchFn = fetch as any, nowMs?
       foundRows = [];
       const caught = await catchUpSourceDays(sourceDate, observedDate, fetchImpl, now.getTime(), baseDir);
       if (caught && cache) cache = { ...cache, totalArchived: caught.seenTotal };
+      // last: the marks of the days read before the parser knew the "+" (bc1)
+      await rereadCapMarks(fetchImpl, now.getTime(), baseDir);
     }, baseDir, nowMs);
     if (!result.ran) {
       console.error(`[datacore] dtccswaps: skipped this cycle (${result.reason}) — ${result.detail}`);

@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Repeat } from "lucide-react";
 import { dtccSourceDaysLine, dtccEdgeLine, type DtccSourceDaysSummary } from "@/lib/dtccSourceDays";
-import { dtccNotionalText, dtccRankingLine, type DtccNotionalMix } from "@/lib/dtccNotional";
+import { dtccNotionalText, dtccRankingLine, dtccCapMarksLine, type DtccNotionalMix, type DtccCapMarksSummary } from "@/lib/dtccNotional";
 
 interface DtccRow {
   dissemination_id: string;
@@ -42,6 +42,7 @@ interface DtccPayload {
   new_rows_archived?: number;
   total_archived?: number;
   source_days?: DtccSourceDaysSummary;
+  cap_marks?: DtccCapMarksSummary;
   notional_cap_usd?: number;
   notional_mix?: DtccNotionalMix;
   top_rows: DtccRow[];
@@ -70,6 +71,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
   const sourceDays = dtccSourceDaysLine(data?.source_days);
   const edgeDays = dtccEdgeLine(data?.source_days);
   const ranking = dtccRankingLine(data?.notional_mix, data?.notional_cap_usd);
+  const capMarks = dtccCapMarksLine(data?.cap_marks);
 
   return (
     <div className="vt-filings-page" role="region" aria-label="DTCC SBSDR equity swap dissemination">
@@ -102,6 +104,7 @@ export default function DtccSwapsView({ onBack }: { onBack: () => void }) {
           {sourceDays && <div className="vt-filings-sub" data-testid="dtcc-source-days">{sourceDays}</div>}
           {edgeDays && <div className="vt-filings-sub" data-testid="dtcc-edge-days">{edgeDays}</div>}
           {ranking && <div className="vt-filings-sub" data-testid="dtcc-ranking">{ranking}</div>}
+          {capMarks && <div className="vt-filings-sub" data-testid="dtcc-cap-marks">{capMarks}</div>}
 
           <div className="vt-filings-tablewrap">
             <table className="vt-filings-table">
