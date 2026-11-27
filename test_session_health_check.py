@@ -1286,6 +1286,139 @@ def test_quiet_archives_unreadable_inventory_is_a_warning_not_ok():
     assert hc.check_quiet_archives({"warming_up": True})["severity"] == hc.WARN
 
 
+# ── a silent source is not a dead poller (2026-11-27, open_questions.md (av5)) ──
+_NOW_MS = 1795796400000  # 2026-11-27T16:20:00Z
+
+
+def _gen_stale():
+    return _stream("gridgeneration", "stale", "2026-11-25.jsonl", 51.0,
+                   "newest file 51.0h old — exceeds cadence-derived threshold ~26h")
+
+
+def _poll_route(**over):
+    """The route as production served it on 2026-11-27 16:11Z, 47 minutes after its poll."""
+    poll = {"at": _NOW_MS - 47 * 60_000, "newest_period": "2026-11-25T07", "rows_archived": 0,
+            "first_failed": [], "catch_up": []}
+    poll.update(over)
+    return {"kind": "raw", "count": 12, "poll": poll}
+
+
+def _quiet(route, stream=None):
+    s = stream or _gen_stale()
+    inv = {"streams": [_stream("aircraft", "live", "2026-11-27-16.jsonl", 0), s]}
+    return hc.check_quiet_archives(inv, {s["stream"]: route}, now_ms=_NOW_MS)
+
+
+def test_silent_source_with_a_healthy_poller_is_a_warning_that_names_the_source():
+    """The measured case: EIA published nothing for 57 hours; the poller read 12 of 12 every two hours."""
+    f = _quiet(_poll_route())
+    assert f["severity"] == hc.WARN
+    assert "gridgeneration: the source is silent, not the poller" in f["detail"]
+    assert "EIA's newest hour is 2026-11-25T07 UTC, 57 h behind" in f["detail"]
+    assert "last poll 47 min ago read every respondent" in f["detail"]
+    assert "newest file 2026-11-25.jsonl, 2.1 d old" in f["detail"]
+    assert "nothing to repair on our side" in f["fix"]
+
+
+def test_same_stale_file_without_the_route_is_the_alarm_it_was():
+    inv = {"streams": [_gen_stale()]}
+    for routes in (None, {}):
+        f = hc.check_quiet_archives(inv, routes, now_ms=_NOW_MS)
+        assert f["severity"] == hc.ALARM
+        assert "gridgeneration: newest file 2026-11-25.jsonl, 2.1 d old" in f["detail"]
+
+
+def test_each_line_that_fails_keeps_the_alarm_and_says_why():
+    cases = [
+        (None, "served no poll state"),
+        ({"warming_up": True, "count": 0}, "served no poll state"),
+        ({"poll": None}, "served no poll state"),
+        (_poll_route(at=None), "has no time"),
+        (_poll_route(at=_NOW_MS - 6 * 3_600_000), "the poller last ran 6.0 h ago"),
+        (_poll_route(first_failed=["PJM", "ERCO"]), "could not read 2 respondent(s): PJM, ERCO"),
+        (_poll_route(first_failed=None), "does not say which respondents were read"),
+        (_poll_route(catch_up=[{"respondent": "NW", "outcome": "capped", "extra_pages": 10, "oldest_read": "2026-11-01T00"}]),
+         "did not reach the archive for NW (capped)"),
+        (_poll_route(catch_up=[{"respondent": "NW", "outcome": "failed", "extra_pages": 1, "oldest_read": None}]),
+         "did not reach the archive for NW (failed)"),
+        (_poll_route(newest_period=None), "EIA returned no hour at all"),
+        # the source is publishing and the archive is a day behind it: the fires break's shape
+        (_poll_route(newest_period="2026-11-27T15"), "published hours are not being archived"),
+    ]
+    for route, why in cases:
+        f = _quiet(route)
+        assert f["severity"] == hc.ALARM, why
+        assert why in f["detail"], f["detail"]
+        assert "never refills" in f["fix"]
+
+
+def test_a_read_back_that_joined_the_archive_is_not_a_hole():
+    f = _quiet(_poll_route(catch_up=[{"respondent": "NW", "outcome": "joined", "extra_pages": 1, "oldest_read": "2026-11-22T00"}]))
+    assert f["severity"] == hc.WARN
+
+
+def test_poll_age_boundary_and_a_silence_near_the_read_backs_reach():
+    assert _quiet(_poll_route(at=_NOW_MS - int(4.9 * 3_600_000)))["severity"] == hc.WARN
+    assert _quiet(_poll_route(at=_NOW_MS - int(5.1 * 3_600_000)))["severity"] == hc.ALARM
+    old = _stream("gridgeneration", "stale", "2026-11-06.jsonl.gz", 500.0)
+    f = _quiet(_poll_route(newest_period="2026-11-06T23"), old)        # 497 h: past 480 h
+    assert f["severity"] == hc.ALARM and "nearing the reach" in f["detail"]
+    ok = _stream("gridgeneration", "stale", "2026-11-08.jsonl.gz", 450.0)
+    assert _quiet(_poll_route(newest_period="2026-11-08T23"), ok)["severity"] == hc.WARN   # 449 h
+
+
+def test_a_dead_poller_beside_a_silent_source_is_an_alarm_that_says_both():
+    inv = {"streams": [
+        _gen_stale(),
+        _stream("fires", "stale", "2026-11-02.jsonl.gz", 402.0),
+        _stream("griddemand", "stale", "2026-11-25.jsonl", 60.0),
+    ]}
+    routes = {"gridgeneration": _poll_route(), "griddemand": _poll_route(first_failed=["US48"])}
+    f = hc.check_quiet_archives(inv, routes, now_ms=_NOW_MS)
+    assert f["severity"] == hc.ALARM
+    assert "fires: newest file 2026-11-02.jsonl.gz" in f["detail"]
+    assert "griddemand: newest file 2026-11-25.jsonl" in f["detail"] and "US48" in f["detail"]
+    assert "gridgeneration: the source is silent, not the poller" in f["detail"]
+
+
+def test_a_stream_with_no_poll_route_is_never_excused_by_one():
+    """Only the streams whose route serves the poll state can read as a silent source."""
+    fires = _stream("fires", "stale", "2026-11-02.jsonl.gz", 402.0)
+    f = hc.check_quiet_archives({"streams": [fires]}, {"fires": _poll_route()}, now_ms=_NOW_MS)
+    assert f["severity"] == hc.ALARM
+    assert set(hc.SOURCE_POLL_ROUTES) == {"gridgeneration", "griddemand"}
+
+
+def test_poll_routes_are_requested_only_for_their_stale_streams():
+    asked = []
+
+    def fetch(url):
+        asked.append(url)
+        return _poll_route()
+
+    inv = {"streams": [_gen_stale(), _stream("griddemand", "live", "2026-11-26.jsonl", 19.7),
+                       _stream("fires", "stale", "2026-11-02.jsonl.gz", 402.0)]}
+    got = hc.gather_poll_routes("https://x", inv, fetch=fetch)
+    assert asked == ["https://x/api/data/grid-generation"] and list(got) == ["gridgeneration"]
+    assert hc.gather_poll_routes("https://x", None, fetch=fetch) == {}
+    assert hc.gather_poll_routes("https://x", {"streams": [_stream("fires", "live", "a.jsonl", 0)]}, fetch=fetch) == {}
+    assert len(asked) == 1
+
+
+def test_the_two_poll_routes_exist_and_serve_the_poll_state():
+    """The check reads a field of two routes; a rename on the server would turn the WARN back
+    into an ALARM silently, so the names are pinned to the code that serves them."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    routes = open(os.path.join(here, "server", "routes.ts"), encoding="utf-8").read()
+    for path, _who in hc.SOURCE_POLL_ROUTES.values():
+        at = routes.index(f'app.get("{path}"')
+        assert "poll: latest" in routes[at:at + 2500], path
+    state = open(os.path.join(here, "server", "eia930CatchUp.ts"), encoding="utf-8").read()
+    block = state[state.index("export interface PollState"):]
+    for field in ("at: number", "newest_period:", "first_failed:", "catch_up:"):
+        assert field in block[:block.index("}")], field
+
+
 def test_edgar_latest_poll_unread_documents_are_said_and_an_older_server_reads_as_before():
     # [PIPELINE 2026-11-24, open_questions.md (ai3)] the probe's `documents`
     # block: a poll that read part of its page is an ok poll, and the part it
