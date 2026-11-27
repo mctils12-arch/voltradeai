@@ -19,7 +19,7 @@ page requests it, not that the page shows every field.
 | | surfaced | partial | missing | plumbing | legacy |
 |---|---|---|---|---|---|
 | HTTP routes | 280 | 5 | 1 | 27 | 11 |
-| Diagnostic probes (token-gated) | 38 | 17 | 1 | 12 | 0 |
+| Diagnostic probes (token-gated) | 38 | 18 | 1 | 12 | 0 |
 | Strategies and decision stages | 6 | 4 | 0 | 0 | 0 |
 
 Map layers: 258 in `datacore/layers.json` (255 live). The /data layers panel, the legend and
@@ -33,7 +33,7 @@ layers are not listed one by one here.
 | route | `GET /api/bot/stream` | `server/bot.ts` | Live event stream (SSE) of the bot's actions. No page listens to it: the AI Engine page polls. Placement: feed the existing activity log on the AI Engine page from the stream so it updates without a refresh. |
 | probe | `shadow` | `server/bot.ts /api/diag/shadow` | Would-be entries from the 2026-10-28..11-04 shadow period and how they did. No UI. Placement: a closed section on the Overview once labelled; low priority. |
 
-## Partial (26)
+## Partial (27)
 
 | Kind | Item | Backend location | What it is, and where it belongs in the existing UI |
 |---|---|---|---|
@@ -53,6 +53,7 @@ layers are not listed one by one here.
 | probe | `earnings_qoq` | `server/bot.ts /api/diag/earnings_qoq` | as above |
 | probe | `filings13f_clusters` | `server/bot.ts /api/diag/filings13f_clusters` | The nightly job is on Pipeline health with every other scheduled job, and Signal strength shows the 13F root's ladder position. Not on a page: the cluster list itself (securities several focused managers newly reported in a quarter). It is an interpreted reading whose gate-2 test is pre-registered and not yet run, so it waits for ladder gate 2. Placement after gate 2: a section of the 13F page. |
 | probe | `dtcc_trs_panel` | `server/bot.ts /api/diag/dtcc_trs_panel` | The nightly job is on Pipeline health with every other scheduled job (its row says how many vendor days and how many security types it holds), and Signal strength shows the DTCC equity-swap root's ladder position. Not on a page: the counts by security type, the event list against the registered one, and (since 2026-11-26) how many events a dated CUSIP-to-ticker record read from the SEC fails-to-deliver files covers; the job's row says how many of those SEC files it holds. They are the inputs of a pre-registered gate-2 test that has not run, so they wait for ladder gate 2. Placement after the test's first verdict: an evidence section of the DTCC swaps page. |
+| probe | `dtcc_trs_gate2` | `server/bot.ts /api/diag/dtcc_trs_gate2` | The weekly job is on Pipeline health with every other scheduled job (its row says whether a look was taken and what it read), and Signal strength shows the DTCC equity-swap root's ladder position. Not on a page: the registered test's counts (how many events found a dated symbol and a price series, how many passed the filter) and, once a look is taken, its statistic and verdict. Until a session has read the look and recorded it on the ladder, the reading is unvalidated and stays behind the token (ladder gate 2). Placement after the first look is recorded: the evidence section of the DTCC swaps page, with the verdict, the tested count and what the test could not see. |
 | probe | `archive_day_counts` | `server/bot.ts /api/diag/archive_day_counts` | A session's count of what the day files of three archives hold (hourly grid generation, hourly grid demand, Wikipedia page views): rows, groups and null values per day, and the compressed days that carry the signature of the overwrite fault repaired on 2026-11-26. Not on a page: it is the instrument that names the days to read again from the source, and its first reading has not been taken. Placement once it has: one line per archive on Pipeline health saying how many days were found incomplete and how many have been read again. |
 | probe | `github_gate2` | `server/bot.ts /api/diag/github_gate2` | as above |
 | probe | `form4_completeness` | `server/bot.ts /api/diag/form4_completeness` | Per-day completeness of the Form 4 archive. CORRECTED 2026-11-21: the Form 4 page has shown each filed day against EDGAR's index since 2026-11-18 (complete / partial / sample, through /api/data/insider/history). Not on a page: the nightly pass's own last run and the refill's progress. 2026-11-24: `poll` gained `via_submission` and `first_error` (counts and a file-and-status wording, no filing named); probe only. Placement: one line under the Form 4 page header. |

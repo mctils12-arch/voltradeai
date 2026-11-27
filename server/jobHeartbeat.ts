@@ -426,6 +426,23 @@ export const JOB_REGISTRY: readonly JobSpec[] = [
     disabledReason: "VOLTRADE_DTCC_TRS_PANEL off",
   },
   {
+    // dtccTrsGate2.ts bootDtccTrsGate2: 10-min tick, acts Sunday 18:00-19:15 ET
+    // once per ISO week — a run (dtcc_trs_gate2.py, 40-min budget: the
+    // pre-registered gate-2 test of the DTCC equity-swap root over the event
+    // panel and the price panel) or one "skipped" beat (a verdict of record,
+    // no price panel, low disk). A run that ends before a statistic beats
+    // "skipped" with the reason and spends no look.
+    id: "dtcc_trs_gate2_weekly", label: "DTCC equity-swap gate-2 test, pre-registered 2026-11-25 (weekly, Sun 18:00-19:15 ET, until its verdict)",
+    source: "server/dtccTrsGate2.ts", kind: "interval", window: { kind: "always" },
+    cadenceMs: 7 * 24 * HOUR, graceMs: 2 * 24 * HOUR, maxRunMs: 1 * HOUR,
+    enabledWhen: (env) => {
+      const raw = env.VOLTRADE_DTCC_TRS_GATE2;
+      const v = (raw === undefined ? "1" : raw).trim().toLowerCase();
+      return v === "1" || v === "true" || v === "on" || v === "yes";
+    },
+    disabledReason: "VOLTRADE_DTCC_TRS_GATE2 off",
+  },
+  {
     // githubGate2.ts bootGithubGate2: 30-min tick, acts Sunday 19:00-20:00 ET
     // once per ISO week — an in-process run (the pre-registered gate-2 test of
     // github_org_engineering_momentum: archive weeks + Alpaca daily bars,

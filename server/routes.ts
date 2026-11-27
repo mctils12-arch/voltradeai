@@ -154,6 +154,7 @@ import { bootEarningsQoq } from "./earningsQoq";
 import { bootFilings13fClusters } from "./filings13fClusters";
 import { bootSnapshotRefresh } from "./snapshotRefresh";
 import { bootDtccTrsPanel } from "./dtccTrsPanel";
+import { bootDtccTrsGate2 } from "./dtccTrsGate2";
 import { bootGithubGate2 } from "./githubGate2";
 import { bootForm4Completeness } from "./edgarForm4Completeness";
 import { registerFiresCompletenessRoutes } from "./firesCompleteness";
@@ -1834,6 +1835,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // days first until it is whole, then one run a night; only 20:00-04:00 ET,
   // when no Tier-2 scan runs; reads no price. VOLTRADE_DTCC_TRS_PANEL=0 disables.
   bootDtccTrsPanel();
+  // The registered gate-2 test of that root (server/dtccTrsGate2.ts): Sunday
+  // 18:00-19:15 ET, once per ISO week until its verdict of record, waits while
+  // a panel reader or the price build runs; reads the two panels, no network.
+  // VOLTRADE_DTCC_TRS_GATE2=0 disables.
+  bootDtccTrsGate2();
   // Weekly re-run of the PRE-REGISTERED event-reaction study on the same panel,
   // delisted names included (server/eventStudy.ts; research/event_reaction_study.md):
   // Saturday 07:00-15:00 ET, waits while another panel reader runs, once per ISO

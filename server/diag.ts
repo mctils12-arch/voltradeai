@@ -456,6 +456,13 @@ export const DIAG_PROBES = [
   // names only: no CUSIP, ticker, price or return; no network; no Python; no
   // query parameters.
   "dtcc_trs_panel",
+  // ADDED 2026-11-27 ([PIPELINE], open_questions.md (as2) step 2): read-only
+  // status of the weekly registered gate-2 test of the DTCC equity-swap root
+  // (server/dtccTrsGate2.ts dtccTrsGate2Status) — the looks of record, the
+  // last run's counts (join, filter, arming) and, once a look is taken, the
+  // registered statistic. Derived numbers only: no CUSIP, ticker, price or
+  // per-event row; no network; no Python; no query parameters.
+  "dtcc_trs_gate2",
   // ADDED 2026-11-26 ([PIPELINE], open_questions.md (av2)): what the day
   // files of the three archives KNOWN BROKEN #62 exposed hold
   // (server/archiveDayCounts.ts archiveDayCounts) — rows, distinct keys, null

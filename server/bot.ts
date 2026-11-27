@@ -77,6 +77,7 @@ import { lazyPricesStatus } from "./lazyPrices";
 import { earningsQoqStatus } from "./earningsQoq";
 import { filings13fClustersStatus } from "./filings13fClusters";
 import { dtccTrsPanelStatus } from "./dtccTrsPanel";
+import { dtccTrsGate2Status } from "./dtccTrsGate2";
 import { archiveDayCounts } from "./archiveDayCounts";
 import { githubGate2Status } from "./githubGate2";
 import { form4CompletenessStatus } from "./edgarForm4Completeness";
@@ -5201,6 +5202,13 @@ print(json.dumps(insider_cusum_probe.run_probe()))
           // equity-swap panel job (server/dtccTrsPanel.ts) — counts, dates and
           // security-type names; no CUSIP, no price, no return.
           return res.json(sanitizeDiag(dtccTrsPanelStatus()));
+        }
+        case "dtcc_trs_gate2": {
+          // ADDED 2026-11-27 ([PIPELINE], (as2) step 2): read-only status of the
+          // weekly registered gate-2 test of the DTCC equity-swap root
+          // (server/dtccTrsGate2.ts) — looks of record and derived counts and
+          // statistics; no CUSIP, no ticker, no price.
+          return res.json(sanitizeDiag(dtccTrsGate2Status()));
         }
         case "archive_day_counts": {
           // ADDED 2026-11-26 ([PIPELINE], (av2)): what the day files of the
