@@ -103,6 +103,12 @@ function nestedValue(block: string, tag: string): string | null {
   return v ?? (inner.trim() || null);
 }
 
+/** An element's TEXT: tagContent() unescaped (xmlText.ts). For the fields a
+ *  person reads (names, titles); codes, dates and numbers hold no entities. */
+function tagText(block: string, tag: string): string | null {
+  return unescapeXmlTextOrNull(tagContent(block, tag));
+}
+
 function toNum(s: string | null): number | null {
   if (s == null) return null;
   const n = parseFloat(s);
@@ -130,11 +136,11 @@ function parseOwner(block: string): Form4Owner {
   const relBlock = tagContent(block, "reportingOwnerRelationship") || "";
   return {
     cik: (tagContent(idBlock, "rptOwnerCik") || "").trim(),
-    name: (tagContent(idBlock, "rptOwnerName") || "").trim(),
+    name: (tagText(idBlock, "rptOwnerName") || "").trim(),
     isDirector: toBool01(tagContent(relBlock, "isDirector")),
     isOfficer: toBool01(tagContent(relBlock, "isOfficer")),
     isTenPercentOwner: toBool01(tagContent(relBlock, "isTenPercentOwner")),
-    officerTitle: tagContent(relBlock, "officerTitle"),
+    officerTitle: tagText(relBlock, "officerTitle"),
   };
 }
 
@@ -146,7 +152,7 @@ function parseTransaction(block: string, table: "derivative" | "nonDerivative"):
   const acq = nestedValue(amountsBlock, "transactionAcquiredDisposedCode");
   return {
     table,
-    securityTitle: nestedValue(block, "securityTitle"),
+    securityTitle: unescapeXmlTextOrNull(nestedValue(block, "securityTitle")),
     transactionDate: nestedValue(block, "transactionDate"),
     transactionCode: code,
     kind: classifyTransactionCode(code),
@@ -169,8 +175,8 @@ export function parseForm4Xml(xml: string): ParsedForm4 {
   ];
   return {
     issuerCik: tagContent(issuerBlock, "issuerCik"),
-    issuerName: tagContent(issuerBlock, "issuerName"),
-    issuerTradingSymbol: tagContent(issuerBlock, "issuerTradingSymbol"),
+    issuerName: tagText(issuerBlock, "issuerName"),
+    issuerTradingSymbol: tagText(issuerBlock, "issuerTradingSymbol"),
     periodOfReport: tagContent(xml, "periodOfReport"),
     owners,
     transactions,
@@ -214,7 +220,7 @@ export function parseFilingFeed(atomXml: string): FilingIndexEntry[] {
   const seen = new Set<string>();
   const out: FilingIndexEntry[] = [];
   for (const entryBlock of allBlocks(atomXml, "entry")) {
-    const title = (tagContent(entryBlock, "title") || "").trim();
+    const title = (tagText(entryBlock, "title") || "").trim();
     const linkMatch = entryBlock.match(/<link[^>]*href="([^"]+)"/i);
     const indexUrl = linkMatch ? linkMatch[1] : null;
     const summary = tagContent(entryBlock, "summary") || "";
@@ -456,6 +462,7 @@ import { trackSet } from "./heapDiag";
 import { createFilingSeen } from "./filingSeen";
 import { notePollOk, notePollFailed, notePollDocuments } from "./edgarPollHealth";
 import { fetchEdgarFeed } from "./edgarFeedFetch";
+import { unescapeXmlText, unescapeXmlTextOrNull } from "./xmlText";
 
 // [REPAIR 2026-11-16] "already archived?" is answered from the day files
 // themselves (filingSeen.ts), from the filing's own filed date forward —
@@ -503,6 +510,35 @@ export function gzipOldFilingDays(baseDir?: string, nowMs?: number): number {
   return n;
 }
 
+/** The name fields of one archived filing, unescaped (xmlText.ts). Rows
+ *  archived before v1.0.1570 hold EDGAR's XML as written ("President &amp;
+ *  CEO"); the archive is append-only and is not rewritten, so every reader of
+ *  it returns rows through this. A row with nothing to unescape is returned
+ *  as the same object. */
+export function cleanForm4Filing<T extends Form4Filing>(f: T): T {
+  const issuerName = unescapeXmlTextOrNull(f.issuerName);
+  const issuerTradingSymbol = unescapeXmlTextOrNull(f.issuerTradingSymbol);
+  let changed = issuerName !== f.issuerName || issuerTradingSymbol !== f.issuerTradingSymbol;
+  let owners = f.owners;
+  if (Array.isArray(owners)) {
+    const next = owners.map((o) => {
+      const name = typeof o?.name === "string" ? unescapeXmlText(o.name) : o?.name;
+      const officerTitle = unescapeXmlTextOrNull(o?.officerTitle);
+      return name !== o?.name || officerTitle !== o?.officerTitle ? { ...o, name, officerTitle } : o;
+    });
+    if (next.some((o, i) => o !== owners[i])) { owners = next; changed = true; }
+  }
+  let transactions = f.transactions;
+  if (Array.isArray(transactions)) {
+    const next = transactions.map((t) => {
+      const securityTitle = unescapeXmlTextOrNull(t?.securityTitle);
+      return securityTitle !== t?.securityTitle ? { ...t, securityTitle } : t;
+    });
+    if (next.some((t, i) => t !== transactions[i])) { transactions = next; changed = true; }
+  }
+  return changed ? { ...f, issuerName, issuerTradingSymbol, owners, transactions } : f;
+}
+
 /** Reads archived filings for the last N days (newest first), transparently
  *  handling gzipped days. Powers the /data/filings history view. */
 export function readFilingHistory(days = 30, baseDir?: string, nowMs?: number, maxFilings = 2000): Form4Filing[] {
@@ -523,7 +559,7 @@ export function readFilingHistory(days = 30, baseDir?: string, nowMs?: number, m
         if (!line) continue;
         try {
           const f = JSON.parse(line);
-          if (f.accession && !seen.has(f.accession)) { seen.add(f.accession); out.push(f); }
+          if (f.accession && !seen.has(f.accession)) { seen.add(f.accession); out.push(cleanForm4Filing(f)); }
         } catch {}
       }
     }
@@ -559,6 +595,7 @@ export function form4HistoryArchive(baseDir?: string): FilingHistoryArchive<Form
     maxDays: FORM4_HISTORY_MAX_DAYS,
     defaultDays: 30,
     maxSpanDays: FORM4_HISTORY_MAX_SPAN_DAYS,
+    project: cleanForm4Filing,
   };
 }
 
