@@ -1,7 +1,7 @@
 // Run: npx tsx --test client/src/lib/dtccNotional.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dtccNotionalText, dtccRankingLine } from "./dtccNotional";
+import { dtccNotionalText, dtccRankingLine, dtccCapMarksLine, type DtccCapMarksSummary } from "./dtccNotional";
 
 test("a cell: a number with its currency, a capped value with the source's +, a blank that is not a zero", () => {
   assert.equal(dtccNotionalText(220_000_000, "USD"), "USD 220,000,000");
@@ -35,4 +35,40 @@ test("a placeholder day: the unmarked value above the cap is named and counted",
 test("nothing left out: the line says only what was ranked", () => {
   assert.equal(dtccRankingLine({ usd: 1, usd_capped: 0, other_currency: 0, over_cap_unmarked: 0, blank: 0 }),
     "Ranked in US dollars: 1 USD event in this file");
+});
+
+// ── the cap-mark record (open_questions.md (bc1), 2026-11-27) ───────────────
+const marks: DtccCapMarksSummary = { enabled: true, days_read: 61, recorded: 61, owed: 0, lost: 0, lost_days: [], capped_events: 1_480 };
+
+test("cap marks: no counts, or no file read: no line", () => {
+  assert.equal(dtccCapMarksLine(undefined), null);
+  assert.equal(dtccCapMarksLine(null), null);
+  assert.equal(dtccCapMarksLine({ ...marks, days_read: 0, recorded: 0 }), null);
+});
+
+test("cap marks: 'all' is said only when nothing is owed and nothing was lost", () => {
+  assert.equal(dtccCapMarksLine(marks),
+    "Events archived before 2026-11-27 hold a blank where the source wrote its cap mark: the mark is on record for all 61 files read (1,480 capped events)");
+  assert.doesNotMatch(dtccCapMarksLine({ ...marks, recorded: 60, owed: 1 })!, /for all/);
+  assert.doesNotMatch(dtccCapMarksLine({ ...marks, recorded: 60, lost: 1, lost_days: ["2024-11-25"] })!, /for all/);
+});
+
+test("cap marks: the state on the day this shipped: files owed, two lost and named", () => {
+  const line = dtccCapMarksLine({ enabled: true, days_read: 62, recorded: 5, owed: 55, lost: 2, lost_days: ["2024-11-24", "2024-11-25"], capped_events: 482 })!;
+  assert.equal(line,
+    "Events archived before 2026-11-27 hold a blank where the source wrote its cap mark: the mark is on record for 5 of 62 files read (482 capped events)"
+    + " · 55 files still to read again (two after each poll, oldest first)"
+    + " · 2 files left the vendor before the mark was read (2024-11-24, 2024-11-25): on those days a blank is either no notional or a capped one");
+});
+
+test("cap marks: one lost file, one capped event, the re-read switched off", () => {
+  const line = dtccCapMarksLine({ enabled: false, days_read: 3, recorded: 1, owed: 1, lost: 1, lost_days: ["2024-11-25"], capped_events: 1 })!;
+  assert.match(line, /1 of 3 files read \(1 capped event\)/);
+  assert.match(line, /1 file not read again \(the re-read is switched off\)/);
+  assert.match(line, /1 file left the vendor before the mark was read \(2024-11-25\): on that day a blank/);
+});
+
+test("cap marks: a long list of lost days is counted, not printed", () => {
+  const lost_days = ["2024-11-20", "2024-11-21", "2024-11-22", "2024-11-23", "2024-11-24"];
+  assert.match(dtccCapMarksLine({ ...marks, recorded: 56, lost: 5, lost_days })!, /5 files left the vendor before the mark was read: on those days/);
 });

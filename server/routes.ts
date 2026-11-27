@@ -190,7 +190,7 @@ import {
 import { loadSignalLadder } from "./signalLadder";
 import { bootFinraQueryPoll, latestFinraSi, latestFinraAts } from "./finraQuery";
 import { bootFtdPoll, latestFtd } from "./secFtd";
-import { bootDtccSwapsPoll, latestDtcc, setDtccIdsAuditSink, dtccSourceDaysSummary, DTCC_NOTIONAL_CAP_USD } from "./dtccSwaps";
+import { bootDtccSwapsPoll, latestDtcc, setDtccIdsAuditSink, dtccSourceDaysSummary, dtccCapMarksSummary, DTCC_NOTIONAL_CAP_USD } from "./dtccSwaps";
 import { bootSettlementStressPoll } from "./settlementStress";
 import { bootEuMacroPoll, latestEuMacro } from "./euMacro";
 import { bootQuakesPoll, latestQuakes } from "./usgsQuakes";
@@ -3590,6 +3590,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       new_rows_archived: hit.newRows,
       total_archived: hit.totalArchived,
       source_days: dtccSourceDaysSummary(),
+      cap_marks: dtccCapMarksSummary(),
       notional_cap_usd: DTCC_NOTIONAL_CAP_USD,
       notional_mix: hit.notionalMix,
       top_rows: hit.topRows.map((r) => ({
@@ -3604,7 +3605,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         underlier_id_source: r.underlierIdSource,
         underlier_name: r.underlierName,
       })),
-      note: "equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22); a notional at or above the source's dissemination cap is written by the source as 250,000,000+ (notional_capped true, notional_amount its floor); a field the source left blank is null, never a fabricated 0; top_rows ranks DOLLARS only: capped USD rows first, then USD rows by amount; rows in another currency are not ranked (no exchange rate is applied) and unmarked USD values above the cap are reporters' placeholders, both left out and counted in notional_mix; top_rows is drawn from the SOURCE file's most recent published day, not a running archive-wide ranking; positioning-clustering signal stays gate-2-locked: its test is pre-registered (2026-11-25, over the two years of dated files the source still serves) and has not been run",
+      note: "equity total-return-swap dissemination events on US-CUSIP/ISIN underliers only (volume-budget scope decision, 2026-08-22); a notional at or above the source's dissemination cap is written by the source as 250,000,000+ (notional_capped true, notional_amount its floor); events archived before 2026-11-27 hold null for such a value: cap_marks counts the vendor days whose marked events have been read again and recorded by Dissemination Identifier, the days still owed, and the days that left the vendor's two-year window before the mark was read (on those a null is a blank or a capped value and the archive cannot say which); a field the source left blank is null, never a fabricated 0; top_rows ranks DOLLARS only: capped USD rows first, then USD rows by amount; rows in another currency are not ranked (no exchange rate is applied) and unmarked USD values above the cap are reporters' placeholders, both left out and counted in notional_mix; top_rows is drawn from the SOURCE file's most recent published day, not a running archive-wide ranking; positioning-clustering signal stays gate-2-locked: its test is pre-registered (2026-11-25, over the two years of dated files the source still serves) and has not been run",
     });
   });
 
@@ -5469,6 +5470,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         new_rows_archived: hit.newRows,
         total_archived: hit.totalArchived,
         source_days: dtccSourceDaysSummary(),
+        cap_marks: dtccCapMarksSummary(),
         notional_cap_usd: DTCC_NOTIONAL_CAP_USD,
         notional_mix: hit.notionalMix,
         top_rows: hit.topRows.map((r) => ({
