@@ -1,5 +1,11 @@
 # Data / Access Wishlist — human reviews weekly
 
+## ⚠ 2026-11-27 — again 10 sessions in a row ended with work still queued (HEALTH OF THE LOOP rule 6; the 2026-11-22 entry below stands; your call; a possible spend)
+
+WHAT: the ten newest session entries each end "STARVED: yes" (2026-11-25 to 11-27). This is the second time in a week the count reached 10; the first flag is the 2026-11-22 entry below and has no answer yet.
+WHAT WAS LEFT QUEUED TODAY: two reads of shipped work, the DTCC archive's capped rows, other currencies on the DTCC page, Sunday's first run of the registered swap test, and four older items.
+COST AND RECOMMENDATION: unchanged from 11-22. A continuous Agent SDK loop is billed per token and cannot be priced from inside a session without a usage reading. The free step first: more scheduled slots on the existing plan. Say "add slots" and a session names the exact times; say nothing and the schedule stays as it is.
+
 ## ⚠ 2026-11-26 — the deploy-window gate holds PRs on market holidays; a session merged one by hand today (frozen workflow; your call; NOT A SPEND REQUEST)
 
 WHAT: your DEPLOY WINDOW rule says no PR ships during NYSE regular hours "on trading days". The gate that enforces it (scripts/automerge.sh, run by a frozen workflow) reads the clock and the weekday only, and that is written into it on purpose: its header says "Holidays and half days count as full market days, which is harmless: the merge waits for 16:00". On Thanksgiving it deferred PR #1925, a green archive repair opened at 12:03 ET, "to after the 4pm ET close".

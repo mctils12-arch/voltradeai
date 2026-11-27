@@ -1059,7 +1059,78 @@ def check_ladder_verdicts(results):
     return finding(OK, label, line)
 
 
-def check_quiet_archives(inventory):
+# [RULE-REVIEW 2026-11-27, open_questions.md (av5)] From 2026-11-26 16:10Z this
+# check raised ALARM at every session start on gridgeneration while EIA's
+# hourly grid API published nothing new (and answered 504 to a hand request):
+# the poller ran every two hours, read every respondent and archived all there
+# was. A stale file cannot tell a silent source from a dead poller; the
+# stream's own route can (`poll`, eia930CatchUp.ts PollState). For the streams
+# below, a stale file is a WARN that names the source when EVERY line of
+# source_silence() holds, and the ALARM it was otherwise, with the line that
+# failed. A stream belongs here only if its route serves that `poll` object.
+SOURCE_POLL_ROUTES = {
+    "gridgeneration": ("/api/data/grid-generation", "EIA"),
+    "griddemand": ("/api/data/grid-demand", "EIA"),
+}
+# The pollers run every 2 h and one poll with a full read-back is about 67
+# minutes at worst (eia930CatchUp.ts), so a healthy poller's last poll is
+# under 3.2 h old; 5 h is one missed poll with margin.
+SOURCE_POLL_FRESH_H = 5.0
+# The read-back reaches 11 pages per respondent: 528 h of demand, 660 h or more
+# of generation. A silence nearing that reach is an ALARM again, while a
+# session can still do something about the hours beyond it.
+SOURCE_SILENCE_MAX_H = 480.0
+_PERIOD_HOUR = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2})$")
+_DAY_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$")
+
+
+def source_silence(stream, route, now_ms=None):
+    """(silent, text) for one stale stream of SOURCE_POLL_ROUTES. `silent` is
+    True only when the route's last poll proves the poller healthy and the
+    archive level with the source; `text` says what was read either way."""
+    now_ms = now_ms if now_ms is not None else time.time() * 1000
+    who = SOURCE_POLL_ROUTES[stream.get("stream")][1]
+    poll = route.get("poll") if isinstance(route, dict) else None
+    if not isinstance(poll, dict):
+        return False, "the route served no poll state (unreachable, warming up after a boot, or the key is unset)"
+    at = poll.get("at")
+    if not isinstance(at, (int, float)) or isinstance(at, bool):
+        return False, "the route's poll state has no time"
+    poll_age_h = (now_ms - at) / 3_600_000
+    if poll_age_h > SOURCE_POLL_FRESH_H:
+        return False, f"the poller last ran {poll_age_h:.1f} h ago (it runs every 2 h): a dead poller, not a silent source"
+    failed = poll.get("first_failed")
+    if not isinstance(failed, list):
+        return False, "the route's poll state does not say which respondents were read"
+    if failed:
+        return False, f"the last poll could not read {len(failed)} respondent(s): {', '.join(str(x) for x in failed)}"
+    holes = [c for c in (poll.get("catch_up") or [])
+             if isinstance(c, dict) and c.get("outcome") in ("failed", "capped")]
+    if holes:
+        return False, ("the last poll's read-back did not reach the archive for "
+                       + ", ".join(f"{c.get('respondent')} ({c.get('outcome')})" for c in holes))
+    m = _PERIOD_HOUR.match(str(poll.get("newest_period") or ""))
+    if not m:
+        return False, f"the last poll read every respondent and {who} returned no hour at all"
+    f = _DAY_FILE.match(str(stream.get("newest_file") or ""))
+    if not f:
+        return False, f"the newest file {stream.get('newest_file')} is not a day file"
+    if f.group(1) < m.group(1):
+        return False, (f"{who} has published {poll.get('newest_period')} and the archive's newest day file is "
+                       f"{f.group(1)}: published hours are not being archived")
+    newest = datetime.strptime(m.group(1) + m.group(2), "%Y-%m-%d%H").replace(tzinfo=timezone.utc)
+    behind_h = (now_ms / 1000 - newest.timestamp()) / 3600
+    if behind_h > SOURCE_SILENCE_MAX_H:
+        return False, (f"{who} has been silent {behind_h / 24:.1f} d (newest hour {poll.get('newest_period')}), "
+                       "nearing the reach of the pollers' read-back (22 d of demand)")
+    return True, (f"{who}'s newest hour is {poll.get('newest_period')} UTC, {behind_h:.0f} h behind; the poller is "
+                  f"healthy (last poll {poll_age_h * 60:.0f} min ago read every respondent) and the archive holds that day")
+
+
+def check_quiet_archives(inventory, poll_routes=None, now_ms=None):
+    """`poll_routes`: {stream: its route's JSON} for the stale streams of
+    SOURCE_POLL_ROUTES (gather_poll_routes); without it every stale stream
+    outside the known list is an ALARM, as before 2026-11-27."""
     label = "Polled archives"
     streams = inventory.get("streams") if isinstance(inventory, dict) else None
     if not isinstance(streams, list) or not streams:
@@ -1068,23 +1139,54 @@ def check_quiet_archives(inventory):
     polled = [s for s in streams if isinstance(s, dict)
               and not str(s.get("newest_file") or "").startswith("datacore/")]
     stale = [s for s in polled if s.get("health") == "stale"]
-    unknown = [s for s in stale if s.get("stream") not in QUIET_ARCHIVES_KNOWN]
     known = [s for s in stale if s.get("stream") in QUIET_ARCHIVES_KNOWN]
+    unknown, silent = [], []
+    for s in stale:
+        name = s.get("stream")
+        if name in QUIET_ARCHIVES_KNOWN:
+            continue
+        if name in SOURCE_POLL_ROUTES and isinstance(poll_routes, dict) and name in poll_routes:
+            is_silent, text = source_silence(s, poll_routes[name], now_ms)
+            (silent if is_silent else unknown).append((s, text))
+        else:
+            unknown.append((s, None))
 
     def age(s):
         h = s.get("age_hours")
         return f"{h / 24:.1f} d" if isinstance(h, (int, float)) and h >= 48 else f"{h} h"
 
+    def line(s, text):
+        return (f"{s.get('stream')}: newest file {s.get('newest_file')}, {age(s)} old "
+                f"({s.get('health_note') or 'past its cadence'})" + (f"; {text}" if text else ""))
+
     tail = (f"; quiet for a recorded reason: "
             + ", ".join(f"{s.get('stream')} ({QUIET_ARCHIVES_KNOWN[s.get('stream')]})" for s in known)) if known else ""
+    silent_text = "; ".join(f"{s.get('stream')}: the source is silent, not the poller: {text} "
+                            f"(newest file {s.get('newest_file')}, {age(s)} old)" for s, text in silent)
     if unknown:
         return finding(
             ALARM, label,
-            "; ".join(f"{s.get('stream')}: newest file {s.get('newest_file')}, {age(s)} old "
-                      f"({s.get('health_note') or 'past its cadence'})" for s in unknown) + tail,
+            "; ".join(line(s, text) for s, text in unknown) + (f"; {silent_text}" if silent else "") + tail,
             "an archive gap never refills: read the stream's route for its poll state, request the upstream by hand, "
             "and fix the poller this session; add a stream to QUIET_ARCHIVES_KNOWN only with the reason it is quiet")
+    if silent:
+        return finding(
+            WARN, label, silent_text + tail,
+            "nothing to repair on our side while this reads WARN: when the source publishes again the poller reads "
+            "back to the archive (eia930CatchUp.ts); after it does, read the route's poll.catch_up once")
     return finding(OK, label, f"{len(polled) - len(stale)} of {len(polled)} polled streams inside their cadence" + tail)
+
+
+def gather_poll_routes(base_url, inventory, fetch=None):
+    """The route of each STALE stream of SOURCE_POLL_ROUTES (no request at all
+    while they are inside their cadence); None where the route did not answer."""
+    fetch = fetch or _fetch_json
+    streams = inventory.get("streams") if isinstance(inventory, dict) else None
+    out = {}
+    for s in streams if isinstance(streams, list) else []:
+        if isinstance(s, dict) and s.get("health") == "stale" and s.get("stream") in SOURCE_POLL_ROUTES:
+            out[s["stream"]] = fetch(f"{base_url}{SOURCE_POLL_ROUTES[s['stream']][0]}")
+    return out
 
 
 def p95(samples):
@@ -1308,7 +1410,8 @@ def main():
     if diag_token:
         findings.append(check_edgar_archives(gather_edgar(args.base_url, diag_token)))
         findings.append(check_ladder_verdicts(gather_ladder_verdicts(args.base_url, diag_token)))
-    findings.append(check_quiet_archives(_fetch_json(f"{args.base_url}/api/data/streams")))
+    inventory = _fetch_json(f"{args.base_url}/api/data/streams")
+    findings.append(check_quiet_archives(inventory, gather_poll_routes(args.base_url, inventory)))
 
     if not args.no_ops:
         plan_status, intent_cov, offload, governor, latency, uptime_s = gather_ops(args.base_url, health)
